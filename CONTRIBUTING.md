@@ -42,7 +42,9 @@ async def set_temperature(self, entity_id, temperature):
 
 ## Translations
 
-[INLANG Editor](https://inlang.com/editor/github.com/KartoffelToby/better_thermostat)
+See the [translation contributor guide](custom_components/better_thermostat/translations/README.md) for the catalog format, placeholder rules, and validation command.
+
+Translations can also be edited with the [INLANG Editor](https://inlang.com/editor/github.com/KartoffelToby/better_thermostat).
 
 ### Reporting Bugs
 
