@@ -395,11 +395,8 @@ blueprint:
       description: >
         A person.*, device_tracker.*, or binary_sensor.* entity representing
         occupancy. Only evaluated when presence mode is enabled above.
-        For multi-person households use a group or a template binary sensor
-        that is 'on' when at least one person is home.
-        Shown as a list selector — select at most one entity, or leave empty
-        to disable — because Home Assistant cannot reliably fall back to a
-        blueprint default for a *cleared* single-entity selector.
+        Select one or more entities, or leave empty to disable. The house
+        counts as occupied while at least one of them is home.
       default: []
       selector:
         entity:
@@ -448,9 +445,8 @@ blueprint:
       description: >
         An input_boolean helper. Create one under Settings → Helpers → Toggle,
         then select it here. Only used when the pause switch feature is enabled.
-        Shown as a list selector — select at most one entity, or leave empty
-        to disable — because Home Assistant cannot reliably fall back to a
-        blueprint default for a *cleared* single-entity selector.
+        Select one or more helpers, or leave empty to disable. The schedule is
+        paused while at least one of them is on.
       default: []
       selector:
         entity:
@@ -507,21 +503,26 @@ variables:
   slot4_preset_saturday: !input slot4_preset_saturday
   slot4_preset_sunday: !input slot4_preset_sunday
   enable_presence_mode: !input enable_presence_mode
-  # presence_entity/pause_switch are list selectors (see the `input:` section
-  # for why); reduce to the single entity_id the rest of this blueprint
-  # expects, or '' when nothing was selected. Automations saved before these
-  # inputs became lists still hold a plain entity_id string, so keep those
-  # working instead of indexing into the string.
+  # The selection is a list, or a bare entity_id from older configs.
+  # Normalise both to a list so every entity is evaluated, not just the first.
   presence_entity_selection: !input presence_entity
-  presence_entity: >
-    {{ presence_entity_selection if presence_entity_selection is string
-       else (presence_entity_selection[0] if presence_entity_selection else '') }}
+  presence_entities: >
+    {%- set sel = presence_entity_selection -%}
+    {%- if sel is string -%}
+    {{ [sel] if sel else [] }}
+    {%- else -%}
+    {{ sel | default([], true) | select('string') | reject('eq', '') | list }}
+    {%- endif -%}
   vacation_preset: !input vacation_preset
   enable_pause_switch: !input enable_pause_switch
   pause_switch_selection: !input pause_switch
-  pause_switch: >
-    {{ pause_switch_selection if pause_switch_selection is string
-       else (pause_switch_selection[0] if pause_switch_selection else '') }}
+  pause_switch_entities: >
+    {%- set sel = pause_switch_selection -%}
+    {%- if sel is string -%}
+    {{ [sel] if sel else [] }}
+    {%- else -%}
+    {{ sel | default([], true) | select('string') | reject('eq', '') | list }}
+    {%- endif -%}
   notify_target: !input notify_target
   enable_notify: !input enable_notify
 
@@ -604,18 +605,33 @@ variables:
     {% endif %}
 
   # ── Anyone home? (only evaluated when presence mode is on) ────────────────
+  # NOTE: the branches render `{{ true }}` / `{{ false }}` rather than bare
+  # `true` / `false`. Home Assistant parses a rendered variable with
+  # `literal_eval`, which rejects the lowercase words and hands back the
+  # *string* -- and a non-empty string is truthy, so `not schedule_paused`
+  # came out False and gated every slot away.
   anyone_home: >
-    {% if not enable_presence_mode or presence_entity == '' %}true
-    {% else %}
-      {% set s = states(presence_entity) %}
-      {{ s in ['home', 'on'] }}
-    {% endif %}
+    {%- if not enable_presence_mode or presence_entities | count == 0 -%}
+    {{ true }}
+    {%- else -%}
+    {%- set ns = namespace(home=false) -%}
+    {%- for entity in presence_entities -%}
+    {%- if states(entity) in ['home', 'on'] -%}{%- set ns.home = true -%}{%- endif -%}
+    {%- endfor -%}
+    {{ ns.home }}
+    {%- endif -%}
 
   # ── Is schedule currently paused? ─────────────────────────────────────────
   schedule_paused: >
-    {% if not enable_pause_switch or pause_switch == '' %}false
-    {% else %}{{ is_state(pause_switch, 'on') }}
-    {% endif %}
+    {%- if not enable_pause_switch or pause_switch_entities | count == 0 -%}
+    {{ false }}
+    {%- else -%}
+    {%- set ns = namespace(paused=false) -%}
+    {%- for entity in pause_switch_entities -%}
+    {%- if is_state(entity, 'on') -%}{%- set ns.paused = true -%}{%- endif -%}
+    {%- endfor -%}
+    {{ ns.paused }}
+    {%- endif -%}
 
 
 # ── Triggers ─────────────────────────────────────────────────────────────────
@@ -1029,11 +1045,11 @@ action:
           id: left_home
         - condition: template
           value_template: "{{ enable_presence_mode and not schedule_paused }}"
-        # Double-check presence is truly away (re-evaluated after the 2-min delay)
+        # Double-check presence is truly away (re-evaluated after the 2-min delay).
+        # `anyone_home` reads every selected entity, so one person still home
+        # keeps the vacation preset from being applied.
         - condition: template
-          value_template: >
-            {% set s = states(presence_entity) %}
-            {{ s not in ['home', 'on'] }}
+          value_template: "{{ not anyone_home }}"
       sequence:
         - service: climate.set_preset_mode
           data:
