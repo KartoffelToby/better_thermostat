@@ -9,8 +9,6 @@ import json
 import numpy as np
 import pytest
 
-pytest.importorskip("daqp")
-
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     PLANT_PRESETS,
     SNAPSHOT_VERSION,
@@ -263,19 +261,19 @@ def test_outdoor_fallback_logs_once(caplog) -> None:
     assert len(fallback_warnings) == 1
 
 
-def test_daqp_guard_raises_when_unavailable(monkeypatch) -> None:
-    """Patching DAQP_AVAILABLE to False must surface at controller init."""
+def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
+    """Patching DAQP unavailable must still construct a usable controller."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
-    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
-    try:
-        with pytest.raises(ImportError, match="daqp"):
-            MpcV2Controller(MpcV2Params())
-    finally:
-        monkeypatch.undo()
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    controller = MpcV2Controller(MpcV2Params())
+    u, _diag = controller.step(
+        t_s=1000.0, T_room_C=19.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+    assert 0.0 <= u <= 1.0
 
 
 def test_snapshot_carries_version_tag() -> None:

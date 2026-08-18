@@ -765,20 +765,6 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             v2_params,
             state=mpc_v2_state,
         )
-    except ImportError as err:
-        # Controller construction raises when the daqp wheel is missing.
-        # daqp is not a hard manifest requirement (it has no aarch64 wheel for
-        # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per entity instance instead of spamming every cycle. The
-        # latch lives on the entity so a reconfigure (new instance) warns
-        # again and same-named entities do not suppress each other.
-        if not getattr(self, "_mpc_v2_import_warned", False):
-            self._mpc_v2_import_warned = True
-            _LOGGER.warning(
-                "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
-            )
-        trv_state.calibration_balance = None
-        return None, False
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",

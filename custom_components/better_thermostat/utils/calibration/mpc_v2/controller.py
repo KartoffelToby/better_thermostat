@@ -15,7 +15,7 @@ from ..mpc_v2_internals.dob import DisturbanceObserver
 from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
-from ..mpc_v2_internals.qp_optimiser import QpOptimiser, require_daqp
+from ..mpc_v2_internals.qp_optimiser import QpOptimiser
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -127,9 +127,6 @@ class MpcV2Controller:
             sub-params are copied because ``step_s`` is rewritten below, so the
             caller's object is never mutated.
         """
-        # Fail fast when the daqp wheel is missing so the HA log carries
-        # a clear message instead of crashing on the first QP solve.
-        require_daqp()
         # Copy the one sub-param this controller mutates in place — ``qp``
         # (``step_s`` rewritten below) — so the caller's object is never
         # aliased. It is a flat dataclass, so a shallow ``replace`` fully

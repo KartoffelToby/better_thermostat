@@ -1,17 +1,14 @@
-"""Unit tests for the DAQP-backed QP optimiser."""
+"""Unit tests for the MPC v2 QP optimiser and portable fallback."""
 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-daqp = pytest.importorskip("daqp")
-
-from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (  # noqa: E402
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
 )
-from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (  # noqa: E402
+from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (
     QpOptimiser,
     QpParams,
 )
@@ -83,3 +80,17 @@ def test_integral_clipping() -> None:
     for _ in range(100):
         opt.update_integral(T_room=30.0, T_sp=20.0, u_applied=0.5, dt_s=300.0)
     assert abs(opt.e_integral_K_min) <= 5.0 + 1e-6
+
+
+def test_numpy_fallback_obeys_constraints(monkeypatch) -> None:
+    """The NumPy fallback remains usable and rate-limited without DAQP."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    opt = _make_optimiser(delta_u_max=0.05)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.0)
+    assert 0.0 <= u <= 0.05 + 1e-6
+    assert u > 0.0

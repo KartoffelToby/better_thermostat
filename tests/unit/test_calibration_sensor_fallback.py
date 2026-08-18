@@ -10,8 +10,6 @@ available at all.
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from custom_components.better_thermostat.calibration import (
     _compute_mpc_balance,
     _compute_mpc_v2_balance,
@@ -205,7 +203,6 @@ def test_pid_balance_skips_when_no_temperature_is_available() -> None:
 
 def test_mpc_v2_balance_uses_trv_temperature_when_room_sensor_is_dead() -> None:
     """MPC v2 keeps computing on the TRV-internal temperature under SENSOR_FALLBACK."""
-    pytest.importorskip("daqp")
     state_mgr = _StateStub()
     bt = _make_bt(state_mgr, trv_temp=21.0)
 

@@ -10,10 +10,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
-pytest.importorskip("daqp")
-
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
@@ -247,60 +243,21 @@ def test_missing_cur_temp_returns_none() -> None:
     assert supports is False
 
 
-def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
-    """A failing daqp import degrades to (None, False) with a single warning."""
+def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
+    """MPC v2 keeps dispatching through the portable solver without DAQP."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
-    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
 
     real_trvs = {
         "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
     }
     bt = _make_bt(real_trvs=real_trvs)
 
-    with caplog.at_level("WARNING"):
-        out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-        out2, supports2 = _compute_mpc_v2_balance(bt, "climate.x")
+    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
 
-    assert out is None and supports is False
-    assert out2 is None and supports2 is False
-    assert real_trvs["climate.x"].calibration_balance is None
-    warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
-    assert len(warnings) == 1
-
-
-def test_daqp_import_warning_is_latched_per_entity_instance(
-    monkeypatch, caplog
-) -> None:
-    """A fresh entity instance (e.g. after a reconfigure) warns again.
-
-    The latch lives on the BT object, not in module state — a reloaded
-    entry gets a new instance and therefore a new warning, and two
-    same-named entities each report their own condition.
-    """
-    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
-        qp_optimiser,
-    )
-
-    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
-    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
-
-    def _fresh_bt():
-        real_trvs = {
-            "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
-        }
-        return _make_bt(real_trvs=real_trvs)
-
-    first = _fresh_bt()
-    second = _fresh_bt()  # same device_name, different instance
-
-    with caplog.at_level("WARNING"):
-        _compute_mpc_v2_balance(first, "climate.x")
-        _compute_mpc_v2_balance(first, "climate.x")
-        _compute_mpc_v2_balance(second, "climate.x")
-
-    warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
-    assert len(warnings) == 2
+    assert out is not None and supports is True
+    assert real_trvs["climate.x"].calibration_balance is not None
