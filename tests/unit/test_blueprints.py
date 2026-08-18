@@ -412,3 +412,60 @@ def test_disabled_branches_render_real_booleans(
 
     assert isinstance(result, bool), f"{name} rendered {result!r}, not a bool"
     assert result is expected
+
+
+def _branch_for_trigger(node, trigger_id):
+    """Find the `choose` branch guarded by a given trigger id, at any depth."""
+    if isinstance(node, dict):
+        conditions = node.get("conditions")
+        if isinstance(conditions, list) and any(
+            isinstance(c, dict)
+            and c.get("condition") == "trigger"
+            and trigger_id
+            in ([c.get("id")] if isinstance(c.get("id"), str) else (c.get("id") or []))
+            for c in conditions
+        ):
+            return node
+        for value in node.values():
+            if (found := _branch_for_trigger(value, trigger_id)) is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            if (found := _branch_for_trigger(item, trigger_id)) is not None:
+                return found
+    return None
+
+
+def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
+    schedule_variables,
+):
+    """The trigger fires when *any* selected switch goes off.
+
+    With more than one pause switch, turning one off must not resume the
+    schedule while another is still on. The branch therefore has to re-check
+    `schedule_paused`, which reads the whole selection.
+    """
+    blueprint = _load(WEEKLY_SCHEDULE)
+    branch = _branch_for_trigger(blueprint["action"], "pause_off")
+    assert branch is not None, "no branch is guarded by the pause_off trigger"
+
+    guards = [
+        c.get("value_template")
+        for c in branch["conditions"]
+        if isinstance(c, dict) and c.get("condition") == "template"
+    ]
+    assert any(g and "not schedule_paused" in g for g in guards), (
+        f"pause_off branch does not re-check schedule_paused: {guards}"
+    )
+
+    # And the guard has to actually block: one switch off, the other still on.
+    still_paused = _render(
+        schedule_variables["schedule_paused"],
+        {
+            "enable_pause_switch": True,
+            "pause_switch_entities": ["input_boolean.p", "input_boolean.q"],
+        },
+        {"input_boolean.p": "off", "input_boolean.q": "on"},
+    )
+
+    assert still_paused is True

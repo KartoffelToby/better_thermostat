@@ -987,6 +987,11 @@ action:
           id: pause_off
         - condition: template
           value_template: "{{ enable_pause_switch }}"
+        # The trigger fires when *any* selected switch goes off. Without this,
+        # turning one off would resume the schedule while another still holds
+        # the pause. `schedule_paused` reads every selected entity.
+        - condition: template
+          value_template: "{{ not schedule_paused }}"
       sequence:
         - choose:
             - conditions:
