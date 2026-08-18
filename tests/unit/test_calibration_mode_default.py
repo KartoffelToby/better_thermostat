@@ -10,6 +10,8 @@ offered as the default.
 from __future__ import annotations
 
 import inspect
+import json
+import pathlib
 from unittest.mock import MagicMock
 
 import pytest
@@ -153,15 +155,20 @@ def test_config_flow_uses_the_shared_default():
 
 def test_only_the_real_default_is_labelled_default():
     """Exactly one dropdown entry carries the (Default) marker, and it is the default."""
-    options = config_flow_module.CALIBRATION_MODE_SELECTOR.config["options"]
-    marked = [opt for opt in options if "(Default)" in opt["label"]]
-    assert len(marked) == 1
-    assert marked[0]["value"] == DEFAULT_CALIBRATION_MODE
+    catalog = json.loads(
+        (
+            pathlib.Path(config_flow_module.__file__).parent
+            / "translations"
+            / "en.json"
+        ).read_text(encoding="utf-8")
+    )
+    labels = catalog["selector"]["calibration_mode"]["options"]
+    marked = [mode for mode, label in labels.items() if "(Default)" in label]
+    assert marked == [DEFAULT_CALIBRATION_MODE]
 
 
 def test_every_mode_is_offered_exactly_once():
     """The selector stays a faithful listing of the enum."""
-    options = config_flow_module.CALIBRATION_MODE_SELECTOR.config["options"]
-    values = [opt["value"] for opt in options]
+    values = list(config_flow_module.CALIBRATION_MODE_SELECTOR.config["options"])
     assert len(values) == len(set(values))
     assert set(values) == set(CalibrationMode)
