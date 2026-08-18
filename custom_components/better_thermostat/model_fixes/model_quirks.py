@@ -15,6 +15,20 @@ from homeassistant.helpers.importlib import async_import_module
 _LOGGER = logging.getLogger(__name__)
 
 
+def get_model_quirks_name(model):
+    """Return the model quirks name for a given TRV model."""
+    if model is not None:
+        model_str = str(model)
+        match model_str:
+            case "Spirit":
+                model_quirks_name = "ZWA021"
+            case _:
+                model_quirks_name = model_str
+    else:
+        model_quirks_name = ""
+    return model_quirks_name
+
+
 async def load_model_quirks(self, model, entity_id) -> ModuleType:
     """Load model quirks module for a given TRV model, falling back to default.
 
@@ -22,7 +36,7 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
     """
 
     # Normalize model to a safe module suffix
-    model_str = str(model) if model is not None else ""
+    model_str = get_model_quirks_name(model)
     # Replace path separators and any non-alphanumeric/underscore with underscore
     model_sanitized = (
         re.sub(r"[^A-Za-z0-9_-]+", "_", model_str.replace("/", "_")).strip("_")
@@ -66,6 +80,22 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
             raise
 
     return self.model_quirks
+
+
+def trv_state_unknown_as_available(self, entity_id):
+    """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
+
+    Call the configured model quirks implementation to determine it.
+    Some TRVs have a Climate Entity specific Manufacturer Mode for direct valve control
+    that leads to having TRV Climate entity STATE_UNKNOWN even when the device is actually
+    available and controllable.
+    """
+    _trv = self.real_trvs.get(entity_id)
+    if _trv is not None and hasattr(_trv, "model_quirks"):
+        quirks = _trv.model_quirks
+        if hasattr(quirks, "trv_state_unknown_as_available"):
+            return quirks.trv_state_unknown_as_available(self, entity_id)
+    return False
 
 
 def fix_local_calibration(self, entity_id, offset):
