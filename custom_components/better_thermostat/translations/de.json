@@ -20,6 +20,8 @@
           "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
+          "target_temp_min": "Sollminimumtemperatur",
+          "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
+          "target_temp_min": "Sollminimumtemperatur",
+          "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",

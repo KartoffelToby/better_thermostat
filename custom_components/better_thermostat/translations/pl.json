@@ -20,6 +20,8 @@
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "target_temp_min": "Minimalna temperatura docelowa",
+          "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
+          "target_temp_min": "Minimalna temperatura docelowa",
+          "target_temp_max": "Maksymalna temperatura docelowa",
           "target_temp_step": "Krok temperatury docelowej",
           "presets": "Włączone ustawienia predefiniowane",
           "valve_maintenance": "Jeżeli Twój termostat nie ma własnego trybu konserwacji, możesz użyć tej opcji.",

@@ -20,6 +20,8 @@
           "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
+          "target_temp_min": "Minimum hedef sıcaklık",
+          "target_temp_max": "Maksimum hedef sıcaklık",
           "target_temp_step": "Hedef sıcaklık adımı",
           "presets": "Etkin ön ayarlar"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
+          "target_temp_min": "Minimum hedef sıcaklık",
+          "target_temp_max": "Maksimum hedef sıcaklık",
           "target_temp_step": "Hedef sıcaklık adımı",
           "presets": "Etkin ön ayarlar",
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",

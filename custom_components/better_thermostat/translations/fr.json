@@ -20,6 +20,8 @@
           "door_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la porte est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
           "weather": "Votre entité météo pour obtenir la température extérieure",
+          "target_temp_min": "Température cible minimale",
+          "target_temp_max": "Température cible maximale",
           "target_temp_step": "Pas de la température cible",
           "presets": "Préréglages activés"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Délai avant que le thermostat ne s'allume lorsque la porte est fermée",
           "outdoor_sensor": "Si vous avez un capteur extérieur, vous pouvez l'utiliser pour obtenir la température extérieure",
           "weather": "Votre entité météo pour obtenir la température extérieure",
+          "target_temp_min": "Température cible minimale",
+          "target_temp_max": "Température cible maximale",
           "target_temp_step": "Pas de la température cible",
           "presets": "Préréglages activés",
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",

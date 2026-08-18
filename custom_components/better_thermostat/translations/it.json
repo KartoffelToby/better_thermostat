@@ -20,6 +20,8 @@
           "door_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la porta viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "target_temp_min": "Temperatura target minima",
+          "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
           "presets": "Preset abilitati"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Ritardo prima che il termostato si riaccenda quando la porta viene chiusa",
           "outdoor_sensor": "Se hai un sensore esterno, puoi usarlo per ottenere la temperatura esterna",
           "weather": "La tua entità meteo per ottenere la temperatura esterna",
+          "target_temp_min": "Temperatura target minima",
+          "target_temp_max": "Temperatura target massima",
           "target_temp_step": "Passo della temperatura target",
           "presets": "Preset abilitati",
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
