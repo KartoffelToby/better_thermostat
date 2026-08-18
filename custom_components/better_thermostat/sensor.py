@@ -141,6 +141,33 @@ async def _setup_algorithm_sensors(
             entry_id,
         )
 
+    # Keep the MPC v1 diagnostic surface available for the dashboard, but map
+    # it to the corresponding MPC v2 controller diagnostics.  These are only
+    # observations; they never feed back into the controller.
+    if CalibrationMode.MPC_V2_CALIBRATION in current_algorithms:
+        mpc_v2_sensors = [
+            BetterThermostatMpcV2VirtualTempSensor(bt_climate),
+            BetterThermostatMpcV2CouplingSensor(bt_climate),
+            BetterThermostatMpcV2DisturbanceSensor(bt_climate),
+            BetterThermostatMpcV2RoomTimeConstantSensor(bt_climate),
+        ]
+        algorithm_sensors.extend(mpc_v2_sensors)
+
+        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
+            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
+        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_V2_CALIBRATION] = [
+            f"{bt_climate.unique_id}_virtual_temp",
+            f"{bt_climate.unique_id}_mpc_gain",
+            f"{bt_climate.unique_id}_mpc_loss",
+            f"{bt_climate.unique_id}_mpc_ka",
+        ]
+
+        _LOGGER.debug(
+            "Better Thermostat %s: Created MPC v2 diagnostic sensors for entry %s",
+            bt_climate.device_name,
+            entry_id,
+        )
+
     # Setup PID sensors
     if CalibrationMode.PID_CALIBRATION in current_algorithms:
         pid_sensors = [
@@ -850,6 +877,80 @@ class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     _attr_icon = "mdi:home-thermometer-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_ka"
+    _unique_id_suffix = "mpc_ka"
+
+
+class _BtMpcV2SensorBase(_BtMpcSensorBase):
+    """Base class for MPC v2 diagnostic sensors.
+
+    MPC v2 publishes a typed diagnostic payload instead of the MPC v1 keys.
+    Reusing the established entity suffixes keeps existing debug dashboards
+    working while exposing the closest v2 quantities with correct labels.
+    """
+
+    _v2_debug_key: str
+
+    def _update_state(self) -> None:
+        """Update state from the MPC v2 debug payload."""
+        val = None
+        if self._bt_climate.real_trvs:
+            for trv_data in self._bt_climate.real_trvs.values():
+                cal_bal = trv_data.calibration_balance
+                debug = cal_bal.get("debug") if cal_bal else None
+                if (
+                    isinstance(debug, dict)
+                    and str(debug.get("controller_version")).lower() == "v2"
+                    and self._v2_debug_key in debug
+                ):
+                    val = debug[self._v2_debug_key]
+                    break
+
+        try:
+            self._attr_native_value = float(val) if val is not None else None
+        except ValueError, TypeError:
+            self._attr_native_value = None
+
+
+class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 estimated room temperature."""
+
+    _attr_name = "MPC v2 Virtual Temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_icon = "mdi:thermometer-auto"
+    _v2_debug_key = "T_room_hat"
+    _unique_id_suffix = "virtual_temp"
+
+
+class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 radiator-to-room coupling."""
+
+    _attr_name = "MPC v2 Coupling"
+    _attr_icon = "mdi:heat-wave"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _v2_debug_key = "coupling_rad_room"
+    _unique_id_suffix = "mpc_gain"
+
+
+class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 estimated unmodelled heat disturbance."""
+
+    _attr_name = "MPC v2 Disturbance"
+    _attr_native_unit_of_measurement = "K/min"
+    _attr_icon = "mdi:thermometer-minus"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _v2_debug_key = "D_hat_K_per_min"
+    _unique_id_suffix = "mpc_loss"
+
+
+class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 room time constant."""
+
+    _attr_name = "MPC v2 Room Time Constant"
+    _attr_native_unit_of_measurement = "min"
+    _attr_icon = "mdi:home-clock-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _v2_debug_key = "tau_room_min"
     _unique_id_suffix = "mpc_ka"
 
 
