@@ -20,6 +20,8 @@
           "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "target_temp_min": "Minimálna cieľová teplota",
+          "target_temp_max": "Maximálna cieľová teplota",
           "target_temp_step": "Krok cieľovej teploty",
           "presets": "Povolené predvoľby"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Oneskorenie pred zapnutím termostatu pri zatvorených dverách",
           "outdoor_sensor": "Ak máte vonkajší snímač, môžete pomocou neho zistiť vonkajšiu teplotu",
           "weather": "Váš meteorologický subjekt na zistenie vonkajšej teploty",
+          "target_temp_min": "Minimálna cieľová teplota",
+          "target_temp_max": "Maximálna cieľová teplota",
           "target_temp_step": "Krok cieľovej teploty",
           "presets": "Enabled Predvoľby",
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",

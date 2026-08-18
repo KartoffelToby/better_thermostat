@@ -20,6 +20,8 @@
           "door_off_delay_after": "Forsinkelse, før termostaten tænder, når døren er lukket",
           "outdoor_sensor": "Hvis du har en udeføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "target_temp_min": "Mål minimum temperatur",
+          "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
           "presets": "Aktiverede forudindstillinger"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Forsinkelse, før termostaten tænder, når døren er lukket",
           "outdoor_sensor": "Har du en udendørsføler, kan du bruge den til at få udetemperaturen",
           "weather": "Din vejrentitet for at få udendørstemperaturen",
+          "target_temp_min": "Mål minimum temperatur",
+          "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
           "presets": "Aktiverede forudindstillinger",
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",

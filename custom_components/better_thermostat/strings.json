@@ -20,6 +20,8 @@
           "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
+          "target_temp_min": "Target minimum temperature",
+          "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
           "presets": "Enabled Presets"
         },
@@ -81,6 +83,8 @@
           "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
+          "target_temp_min": "Target minimum temperature",
+          "target_temp_max": "Target maximum temperature",
           "target_temp_step": "Target temperature step",
           "presets": "Enabled Presets",
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",

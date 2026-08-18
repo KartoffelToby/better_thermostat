@@ -48,6 +48,8 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_VALVE_MAINTENANCE,
@@ -65,6 +67,57 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_WALKTHROUGH_URL = (
     "https://better-thermostat.org/setup/configuration-walkthrough/"
+)
+
+
+TEMP_MIN_MAX_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            selector.SelectOptionDict(value="-1.0", label="Auto"),
+            selector.SelectOptionDict(value="0.0", label="0.0 °C"),
+            selector.SelectOptionDict(value="1.0", label="1.0 °C"),
+            selector.SelectOptionDict(value="2.0", label="2.0 °C"),
+            selector.SelectOptionDict(value="3.0", label="3.0 °C"),
+            selector.SelectOptionDict(value="4.0", label="4.0 °C"),
+            selector.SelectOptionDict(value="5.0", label="5.0 °C"),
+            selector.SelectOptionDict(value="6.0", label="6.0 °C"),
+            selector.SelectOptionDict(value="7.0", label="7.0 °C"),
+            selector.SelectOptionDict(value="8.0", label="8.0 °C"),
+            selector.SelectOptionDict(value="9.0", label="9.0 °C"),
+            selector.SelectOptionDict(value="10.0", label="10.0 °C"),
+            selector.SelectOptionDict(value="11.0", label="11.0 °C"),
+            selector.SelectOptionDict(value="12.0", label="12.0 °C"),
+            selector.SelectOptionDict(value="13.0", label="13.0 °C"),
+            selector.SelectOptionDict(value="14.0", label="14.0 °C"),
+            selector.SelectOptionDict(value="15.0", label="15.0 °C"),
+            selector.SelectOptionDict(value="16.0", label="16.0 °C"),
+            selector.SelectOptionDict(value="17.0", label="17.0 °C"),
+            selector.SelectOptionDict(value="18.0", label="18.0 °C"),
+            selector.SelectOptionDict(value="19.0", label="19.0 °C"),
+            selector.SelectOptionDict(value="20.0", label="20.0 °C"),
+            selector.SelectOptionDict(value="21.0", label="21.0 °C"),
+            selector.SelectOptionDict(value="22.0", label="22.0 °C"),
+            selector.SelectOptionDict(value="23.0", label="23.0 °C"),
+            selector.SelectOptionDict(value="24.0", label="24.0 °C"),
+            selector.SelectOptionDict(value="25.0", label="25.0 °C"),
+            selector.SelectOptionDict(value="26.0", label="26.0 °C"),
+            selector.SelectOptionDict(value="27.0", label="27.0 °C"),
+            selector.SelectOptionDict(value="28.0", label="28.0 °C"),
+            selector.SelectOptionDict(value="29.0", label="29.0 °C"),
+            selector.SelectOptionDict(value="30.0", label="30.0 °C"),
+            selector.SelectOptionDict(value="31.0", label="31.0 °C"),
+            selector.SelectOptionDict(value="32.0", label="32.0 °C"),
+            selector.SelectOptionDict(value="33.0", label="33.0 °C"),
+            selector.SelectOptionDict(value="34.0", label="34.0 °C"),
+            selector.SelectOptionDict(value="35.0", label="35.0 °C"),
+            selector.SelectOptionDict(value="36.0", label="36.0 °C"),
+            selector.SelectOptionDict(value="37.0", label="37.0 °C"),
+            selector.SelectOptionDict(value="38.0", label="38.0 °C"),
+            selector.SelectOptionDict(value="39.0", label="39.0 °C"),
+            selector.SelectOptionDict(value="40.0", label="40.0 °C"),
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+    )
 )
 
 
@@ -166,6 +219,8 @@ PRESET_SELECTOR = selector.SelectSelector(
 _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
+    CONF_TARGET_TEMP_MIN: "-1.0",
+    CONF_TARGET_TEMP_MAX: "-1.0",
     CONF_TARGET_TEMP_STEP: "0.0",
 }
 
@@ -558,6 +613,20 @@ def _build_user_fields(
         default=tolerance_default,
     )
 
+    target_min_default = resolve(
+        CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+    )
+    if target_min_default is not None:
+        target_min_default = str(target_min_default)
+    add_field(CONF_TARGET_TEMP_MIN, TEMP_MIN_MAX_SELECTOR, default=target_min_default)
+
+    target_max_default = resolve(
+        CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+    )
+    if target_max_default is not None:
+        target_max_default = str(target_max_default)
+    add_field(CONF_TARGET_TEMP_MAX, TEMP_MIN_MAX_SELECTOR, default=target_max_default)
+
     target_step_default = resolve(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
@@ -660,6 +729,26 @@ def _normalize_user_submission(
             normalized[CONF_TOLERANCE] = float(tolerance)
         except TypeError, ValueError:
             normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+
+    target_min = user_input.get(
+        CONF_TARGET_TEMP_MIN,
+        normalized.get(
+            CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+        ),
+    )
+    if target_min in (None, ""):
+        target_min = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+    normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
+
+    target_max = user_input.get(
+        CONF_TARGET_TEMP_MAX,
+        normalized.get(
+            CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+        ),
+    )
+    if target_max in (None, ""):
+        target_max = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+    normalized[CONF_TARGET_TEMP_MAX] = str(target_max)
 
     target_step = user_input.get(
         CONF_TARGET_TEMP_STEP,
