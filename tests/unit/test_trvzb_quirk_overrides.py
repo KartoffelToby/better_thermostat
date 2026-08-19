@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
+
 quirk = importlib.import_module("custom_components.better_thermostat.model_fixes.TRVZB")
 
 
@@ -53,9 +55,8 @@ def _make_valve_self(last_pct=40, *, in_maintenance=False):
     """Create a mock BetterThermostat whose TRV records a commanded valve percent."""
     mock_self = _make_self()
     mock_self.in_maintenance = in_maintenance
-    trv_state = Mock()
+    trv_state = Trv(entity_id=ENTITY)
     trv_state.last_valve_percent = last_pct
-    trv_state.extra = {}
     mock_self.real_trvs = {ENTITY: trv_state}
     mock_self.hass.async_create_background_task = lambda coro, name=None: (
         asyncio.ensure_future(coro)
