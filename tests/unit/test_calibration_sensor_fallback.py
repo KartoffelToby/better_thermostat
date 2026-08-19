@@ -266,7 +266,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     _record_mpc_v2_reid_sample(
         bt,
         "key",
-        mpc_v2_state=MpcV2State(last_percent=40.0),
+        applied_valve_pct=40.0,
         trv_temp=21.0,
         outdoor_temp=5.0,
     )

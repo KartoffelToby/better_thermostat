@@ -67,7 +67,11 @@ def compute_mpc_v2(
     # through Kalman/QP and poisons the cached state — a single bad reading
     # would require restarting the integration to recover.
     if not _all_finite(
-        inp.current_temp_C, inp.target_temp_C, inp.outdoor_temp_C, inp.trv_temp_C
+        inp.current_temp_C,
+        inp.target_temp_C,
+        inp.outdoor_temp_C,
+        inp.trv_temp_C,
+        inp.applied_valve_pct,
     ):
         _LOGGER.warning(
             "better_thermostat %s: MPC v2 (%s) non-finite input "
@@ -99,6 +103,12 @@ def compute_mpc_v2(
         state.controller = MpcV2Controller(params)
         state.plant_signature = new_signature
 
+    # A successful adapter write (or a device position echo) is the source of
+    # truth for the preceding plant input.  In particular, do not assume that
+    # the recommendation from the last call made it through a write budget.
+    if inp.applied_valve_pct is not None:
+        state.controller.set_applied_u(inp.applied_valve_pct / 100.0)
+
     if inp.outdoor_temp_C is None:
         T_outdoor = OUTDOOR_TEMP_FALLBACK_C
         if not state.outdoor_fallback_logged:
@@ -128,10 +138,10 @@ def compute_mpc_v2(
         # out-of-range value from a caller cannot widen or invert the limit.
         percent_int = min(percent_int, int(max(0.0, min(100.0, inp.max_opening_pct))))
 
-    # Feed the actually-applied (possibly capped) fraction back so the observer
-    # and rate limiter track the real valve input, not the uncapped request.
+    # This is the bounded command requested this cycle.  It is replaced by the
+    # confirmed input above on the next cycle once the adapter has succeeded.
     if state.controller is not None:
-        state.controller.set_applied_u(percent_int / 100.0)
+        state.controller.set_command_u(percent_int / 100.0)
 
     state.last_percent = float(percent_int)
     state.last_compute_ts = now

@@ -529,7 +529,7 @@ def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str):
 
 
 def _record_mpc_v2_reid_sample(
-    self, reid_key: str, *, mpc_v2_state, trv_temp, outdoor_temp
+    self, reid_key: str, *, applied_valve_pct, trv_temp, outdoor_temp
 ) -> None:
     """Append one observation to the re-identification buffer for a key.
 
@@ -554,7 +554,15 @@ def _record_mpc_v2_reid_sample(
         t_room = float(self.cur_temp)
     except TypeError, ValueError:
         return
-    u_frac = float(mpc_v2_state.last_percent or 0.0) / 100.0
+    try:
+        u_frac = float(applied_valve_pct) / 100.0
+    except (TypeError, ValueError):
+        # A current MPC proposal is not evidence of a physical valve input:
+        # the write can still be deferred, clamped, or fail.
+        return
+    if not math.isfinite(u_frac):
+        return
+    u_frac = max(0.0, min(1.0, u_frac))
     runtime = self.state_mgr.get_mpc_v2_reid_runtime(reid_key)
     runtime.buffer.append(
         ReidSample(
@@ -566,6 +574,26 @@ def _record_mpc_v2_reid_sample(
             window_open=bool(self.contact_open),
         )
     )
+
+
+def _confirmed_valve_pct(trv_state) -> float | None:
+    """Return the best known prior valve input for model feedback.
+
+    A device-reported position wins when available.  Otherwise the adapter's
+    ``last_valve_percent`` is suitable: it is updated only after its write
+    routine returned success.  No value means "unknown", not "closed".
+    """
+    for value in (
+        getattr(trv_state, "valve_position", None),
+        getattr(trv_state, "last_valve_percent", None),
+    ):
+        try:
+            pct = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(pct) and 0.0 <= pct <= 100.0:
+            return pct
+    return None
 
 
 def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) -> None:
@@ -746,6 +774,11 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     v2_params = MpcV2Params(plant=plant_prior)
 
     outdoor_temp = _get_current_outdoor_temp(self)
+    # The single-TRV path has one physical input.  A group controller's
+    # distributed outputs are intentionally not collapsed into a fictional
+    # single valve fraction; it keeps its optimistic command until group
+    # actuator aggregation has an explicit plant contract.
+    confirmed_valve_pct = None if is_multi_trv else _confirmed_valve_pct(trv_state)
 
     try:
         mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
@@ -761,6 +794,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
                 entity_id=entity_id,
                 outdoor_temp_C=outdoor_temp,
                 max_opening_pct=max_opening_pct,
+                applied_valve_pct=confirmed_valve_pct,
             ),
             v2_params,
             state=mpc_v2_state,
@@ -777,11 +811,11 @@ def _compute_mpc_v2_balance(self, entity_id: str):
 
     self.state_mgr.set_mpc_v2_live(mpc_key, mpc_v2_state)
 
-    if preset == MpcV2PlantPreset.AUTO:
+    if preset == MpcV2PlantPreset.AUTO and not is_multi_trv:
         _record_mpc_v2_reid_sample(
             self,
             reid_key,
-            mpc_v2_state=mpc_v2_state,
+            applied_valve_pct=confirmed_valve_pct,
             trv_temp=trv_state.current_temperature,
             outdoor_temp=outdoor_temp,
         )

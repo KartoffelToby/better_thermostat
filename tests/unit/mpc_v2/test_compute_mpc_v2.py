@@ -91,6 +91,39 @@ def test_diagnostics_exposed() -> None:
     assert diag.T_rad_hat == diag.T_rad_hat
 
 
+def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
+    """The next cycle models the adapter-confirmed input, not its proposal."""
+    state = MpcV2State()
+    _out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), state, now=100.0)
+    assert state.controller is not None
+    state.controller.set_command_u(0.9)
+
+    seen_previous_input: list[float] = []
+    original_step = state.controller.step
+
+    def _capture_step(*args, **kwargs):
+        seen_previous_input.append(state.controller._last_u)
+        return original_step(*args, **kwargs)
+
+    state.controller.step = _capture_step  # type: ignore[method-assign]
+    out, state = compute_mpc_v2(
+        _baseline_input(applied_valve_pct=20.0), MpcV2Params(), state, now=400.0
+    )
+    assert out is not None
+    assert seen_previous_input == [0.2]
+
+
+def test_integral_uses_elapsed_control_interval() -> None:
+    """A delayed replan integrates over its real prior valve interval."""
+    params = MpcV2Params()
+    params.governor.enabled = False
+    controller = MpcV2Controller(params)
+    controller.step(100.0, 20.0, 22.0, 5.0)
+    controller.set_applied_u(0.5)
+    controller.step(1000.0, 20.0, 22.0, 5.0)
+    assert controller.optimiser.e_integral_K_min == pytest.approx(-30.0)
+
+
 def test_snapshot_round_trip_preserves_last_u() -> None:
     """export_snapshot → restore_snapshot reproduces the controller's last command."""
     state = None

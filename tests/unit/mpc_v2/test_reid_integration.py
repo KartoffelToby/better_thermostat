@@ -233,8 +233,9 @@ def test_explicit_preset_beats_reid_result() -> None:
 
 
 def test_dispatch_records_reid_samples_under_auto() -> None:
-    """Each AUTO-mode compute feeds the re-identification buffer."""
+    """AUTO re-ID records the previously confirmed valve input."""
     bt = _make_bt()
+    bt.real_trvs["climate.x"].last_valve_percent = 37
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is not None
     key = next(iter(bt.state_mgr._mpc_v2_reid_live))
@@ -242,7 +243,16 @@ def test_dispatch_records_reid_samples_under_auto() -> None:
     assert len(runtime.buffer.samples) == 1
     sample = runtime.buffer.samples[0]
     assert sample.T_room_C == 19.5
+    assert sample.u_frac == 0.37
     assert sample.window_open is False
+
+
+def test_dispatch_does_not_identify_from_an_unconfirmed_recommendation() -> None:
+    """The first command cannot enter re-ID before a write is confirmed."""
+    bt = _make_bt()
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is not None
+    assert bt.state_mgr._mpc_v2_reid_live == {}
 
 
 def test_dispatch_skips_sampling_when_control_mode_degraded() -> None:
@@ -254,6 +264,7 @@ def test_dispatch_skips_sampling_when_control_mode_degraded() -> None:
     at all. Both rungs must leave the buffer untouched.
     """
     bt = _make_bt()
+    bt.real_trvs["climate.x"].last_valve_percent = 37
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is not None
     key = next(iter(bt.state_mgr._mpc_v2_reid_live))
@@ -366,6 +377,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
 
     bt = _make_bt()
     bt.hass = _FakeHass()
+    bt.real_trvs["climate.x"].last_valve_percent = 50
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is not None
     key = next(iter(bt.state_mgr._mpc_v2_reid_live))
@@ -411,6 +423,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
 def test_reid_buffer_is_shared_across_target_buckets() -> None:
     """A setpoint move past a bucket boundary keeps feeding one buffer."""
     bt = _make_bt()
+    bt.real_trvs["climate.x"].last_valve_percent = 37
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is not None
 

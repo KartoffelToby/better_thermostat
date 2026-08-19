@@ -25,7 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 # Snapshot format version. Bump when adding/renaming persisted fields so
 # restore_snapshot can refuse payloads from a future Better Thermostat
 # release. Pre-versioning snapshots are treated as version 0.
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 2
 
 # Steps arriving closer together than this carry no new information: in a
 # multi-TRV group every TRV dispatch steps the same shared controller within
@@ -54,6 +54,7 @@ class ControllerSnapshot:
     rg_v_C: float | None
     last_t_s: float
     next_mpc_t_s: float
+    last_mpc_t_s: float = -1.0
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -88,6 +89,7 @@ class ControllerSnapshot:
                 rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
+                last_mpc_t_s=float(raw.get("last_mpc_t_s", -1.0)),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -101,6 +103,7 @@ class ControllerSnapshot:
             snapshot.e_integral_K_min,
             snapshot.last_t_s,
             snapshot.next_mpc_t_s,
+            snapshot.last_mpc_t_s,
             *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
         ]
         if not all(math.isfinite(x) for x in numbers):
@@ -158,6 +161,7 @@ class MpcV2Controller:
         self._last_u: float = 0.0
         self._last_t_s: float = 0.0
         self._next_mpc_t_s: float = -1.0
+        self._last_mpc_t_s: float = -1.0
         self._initialised: bool = False
 
     def step(
@@ -222,6 +226,16 @@ class MpcV2Controller:
             x_hat, list(self._u_history), T_outdoor_C, plant_delay_s
         )
 
+        # Account for the time the previous valve input was actually in
+        # effect.  The first plan has no preceding control interval.
+        if self._last_mpc_t_s >= 0.0:
+            self.optimiser.update_integral(
+                T_room=T_room_C,
+                T_sp=sp_for_opt,
+                u_applied=self._last_u,
+                dt_s=max(0.0, t_s - self._last_mpc_t_s),
+            )
+
         u = self.optimiser.solve(
             x_pred=x_pred,
             T_sp=sp_for_opt,
@@ -229,11 +243,9 @@ class MpcV2Controller:
             u_last=self._last_u,
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
         )
-        self.optimiser.update_integral(
-            T_room=T_room_C, T_sp=sp_for_opt, u_applied=u, dt_s=self.params.qp.step_s
-        )
         self._last_u = u
         self._u_history.append(u)
+        self._last_mpc_t_s = t_s
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
@@ -251,6 +263,7 @@ class MpcV2Controller:
             rg_v_C=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
+            last_mpc_t_s=self._last_mpc_t_s,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -279,6 +292,7 @@ class MpcV2Controller:
         self.governor.restore(snap.rg_v_C)
         self._last_t_s = snap.last_t_s
         self._next_mpc_t_s = snap.next_mpc_t_s
+        self._last_mpc_t_s = snap.last_mpc_t_s
         # The controller counts as initialised only when the snapshot carried a
         # usable estimate. Without one the Kalman filter still holds its
         # construction default, so the first :meth:`step` has to seed it from
@@ -302,6 +316,12 @@ class MpcV2Controller:
         self._last_u = u
         if self._u_history:
             self._u_history[-1] = u
+
+    def set_command_u(self, u: float) -> None:
+        """Record this cycle's bounded command pending device confirmation."""
+        self._last_u = max(0.0, min(1.0, u))
+        if self._u_history:
+            self._u_history[-1] = self._last_u
 
     def _diagnostics(self) -> MpcV2Diagnostics:
         return MpcV2Diagnostics(
