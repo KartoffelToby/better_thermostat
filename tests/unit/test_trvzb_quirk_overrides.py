@@ -1,6 +1,7 @@
 """Tests for the TRVZB setpoint, HVAC mode and valve override quirks."""
 
 import asyncio
+import contextlib
 import importlib
 from unittest.mock import AsyncMock, Mock
 
@@ -64,6 +65,17 @@ def _make_valve_self(last_pct=40, *, in_maintenance=False):
     return mock_self, trv_state
 
 
+async def _settle(task):
+    """Cancel a scheduled valve write and wait for it to finish.
+
+    ``Task.cancel()`` only requests cancellation, so a test that ends on it
+    leaves the write pending into teardown.
+    """
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
 @pytest.fixture
 def writes(monkeypatch):
     """Record every valve percentage the quirk puts on the wire."""
@@ -93,7 +105,7 @@ class TestOverrideSetValve:
             assert writes == [50]
             assert task is not None and not task.done()
         finally:
-            task.cancel()
+            await _settle(task)
 
     @pytest.mark.asyncio
     async def test_a_close_superseding_a_due_bump_writes_the_target(self, writes):
@@ -128,7 +140,7 @@ class TestOverrideSetValve:
 
         pending = trv_state.extra.get("_trvzb_valve_bump_task")
         if pending is not None:
-            pending.cancel()
+            await _settle(pending)
 
         assert writes[-1] == 32, (
             "the newest requested position never reached the device"
@@ -150,7 +162,7 @@ class TestOverrideSetValve:
         await quirk.override_set_valve(mock_self, ENTITY, 20)
         pending = trv_state.extra.get("_trvzb_valve_bump_task")
         if pending is not None:
-            pending.cancel()
+            await _settle(pending)
 
         assert writes == [50, 30, 40]
 
