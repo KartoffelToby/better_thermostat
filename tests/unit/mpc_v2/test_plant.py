@@ -82,6 +82,16 @@ def test_linearisation_matches_discrete_step_for_small_dt() -> None:
     np.testing.assert_allclose(x_next_lin, x_next_nonlin, atol=1e-10)
 
 
+def test_long_linearised_interval_is_composed_from_stable_substeps() -> None:
+    """A sparse observer update stays finite even across a one-hour gap."""
+    plant = PlantModelRC2(PlantParams(tau_rad_min=15.0), dt_s=30.0)
+    A, B, d = plant.linearised_AB(T_outdoor_C=5.0, T_rad_op_C=30.0, dt_s=3600.0)
+
+    assert np.all(np.isfinite(A))
+    assert np.all(np.isfinite(B))
+    assert np.all(np.isfinite(d))
+
+
 def test_linearisation_stable_eigenvalues() -> None:
     """The linearised plant has all eigenvalues inside the unit circle."""
     plant = PlantModelRC2(PlantParams(), dt_s=30.0)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.kalman import (
     KalmanObserver,
@@ -60,3 +61,19 @@ def test_innovation_matches_measurement_minus_predicted_y() -> None:
     x_pred = A @ obs.x_hat + B.flatten() * 0.3 + d
     expected = y_meas - float(x_pred[0])
     assert abs(obs.innovation(y_meas, u=0.3, T_outdoor_C=5.0) - expected) < 1e-12
+
+
+def test_observer_uses_actual_elapsed_time() -> None:
+    """A sparse HA event advances the model by its full interval, not 30 s."""
+    plant = PlantModelRC2(
+        PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0
+    )
+    obs = _make_observer(plant)
+    obs.initialise(np.array([20.0, 35.0]))
+    y_meas = 20.2
+    A, B, d = plant.linearised_AB(5.0, 35.0, dt_s=300.0)
+    expected = y_meas - float((A @ obs.x_hat + B.flatten() * 0.2 + d)[0])
+
+    assert obs.innovation(y_meas, u=0.2, T_outdoor_C=5.0, dt_s=300.0) == pytest.approx(
+        expected
+    )

@@ -17,6 +17,10 @@ class DobParams:
     """Tunables for the disturbance observer (EMA time constant)."""
 
     tau_s: float = 600.0
+    # A single quantised room-sensor jump must not become an arbitrarily large
+    # permanent heat source/sink in the steady-state feed-forward term.  0.05
+    # K/min is already 3 K/hour, well beyond a normal unmodelled room load.
+    max_abs_K_per_min: float = 0.05
 
 
 class DisturbanceObserver:
@@ -50,6 +54,9 @@ class DisturbanceObserver:
         if dt_s <= 0.0:
             return self.D_hat_K_per_min
         innov_rate = innovation_K / (dt_s / 60.0)
+        max_abs = max(0.0, self.params.max_abs_K_per_min)
+        innov_rate = max(-max_abs, min(max_abs, innov_rate))
         a = min(1.0, dt_s / max(self.params.tau_s, dt_s))
         self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * innov_rate
+        self.D_hat_K_per_min = max(-max_abs, min(max_abs, self.D_hat_K_per_min))
         return self.D_hat_K_per_min

@@ -204,8 +204,14 @@ class MpcV2Controller:
             T_sp=T_target_C, T_outdoor_C=T_outdoor_C, T_room_now=T_room_C
         )
 
-        innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
-        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
+        # The observer follows real elapsed time.  The QP below intentionally
+        # remains on its fixed coarse planning grid; mixing those two time
+        # bases was the source of large artificial DOB excursions on sparse
+        # (typically five-minute) Home Assistant updates.
+        innovation = self.kalman.innovation(
+            T_room_C, self._last_u, T_outdoor_C, dt_s=dt_s
+        )
+        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C, dt_s=dt_s)
         self.dob.update(innovation, dt_s)
 
         if t_s < self._next_mpc_t_s:

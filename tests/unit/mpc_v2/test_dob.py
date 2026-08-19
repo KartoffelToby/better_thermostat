@@ -68,3 +68,9 @@ def test_regular_dt_converges_towards_innovation_rate() -> None:
         dob.update(innovation_K, dt_s=dt_s)
 
     assert dob.D_hat_K_per_min == pytest.approx(innov_rate, rel=1e-6)
+
+
+def test_large_sensor_jump_is_bounded_before_feed_forward() -> None:
+    """Quantised sensor jumps cannot create an implausible steady-state load."""
+    dob = DisturbanceObserver(DobParams(tau_s=1.0, max_abs_K_per_min=0.05))
+    assert dob.update(5.0, dt_s=60.0) == pytest.approx(0.05)
