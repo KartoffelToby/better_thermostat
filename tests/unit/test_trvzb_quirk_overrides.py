@@ -3,7 +3,7 @@
 import asyncio
 import contextlib
 import importlib
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,9 +14,9 @@ quirk = importlib.import_module("custom_components.better_thermostat.model_fixes
 
 def _make_self():
     """Create a mock BetterThermostat with a spied service-call layer."""
-    mock_self = Mock()
+    mock_self = MagicMock()
     mock_self.device_name = "test_thermostat"
-    mock_self.context = Mock()
+    mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()
     return mock_self
 
