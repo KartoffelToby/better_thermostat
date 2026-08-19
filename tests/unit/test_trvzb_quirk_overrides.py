@@ -66,11 +66,14 @@ def _make_valve_self(last_pct=40, *, in_maintenance=False):
 
 
 async def _settle(task):
-    """Cancel a scheduled valve write and wait for it to finish.
+    """Cancel a scheduled valve write, if there is one, and wait for it.
 
     ``Task.cancel()`` only requests cancellation, so a test that ends on it
-    leaves the write pending into teardown.
+    leaves the write pending into teardown. ``None`` stands for a call that
+    scheduled nothing, which is a state several of these tests assert on.
     """
+    if task is None:
+        return
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
@@ -138,9 +141,7 @@ class TestOverrideSetValve:
             trv_state.last_valve_percent = target
         await asyncio.sleep(0)
 
-        pending = trv_state.extra.get("_trvzb_valve_bump_task")
-        if pending is not None:
-            await _settle(pending)
+        await _settle(trv_state.extra.get("_trvzb_valve_bump_task"))
 
         assert writes[-1] == 32, (
             "the newest requested position never reached the device"
@@ -160,9 +161,7 @@ class TestOverrideSetValve:
         trv_state.last_valve_percent = 30
 
         await quirk.override_set_valve(mock_self, ENTITY, 20)
-        pending = trv_state.extra.get("_trvzb_valve_bump_task")
-        if pending is not None:
-            await _settle(pending)
+        await _settle(trv_state.extra.get("_trvzb_valve_bump_task"))
 
         assert writes == [50, 30, 40]
 
