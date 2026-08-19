@@ -19,18 +19,41 @@ VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 # fail to fully close the valve when commanded to very small openings.
 #
 # Workaround: when requesting a further close (target_pct < last_pct), briefly
-# command the valve to open a bit more and then to the requested target.
+# command the valve to open a bit more and then to the requested target. A
+# close that arrives while that delayed write is still due is written straight
+# away instead of bumping again, so the requested position always reaches the
+# device.
 _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT = 10
 _TRVZB_CLOSE_BUMP_DELAY_S = 5.0
 
 
-def _cancel_pending_valve_bump(trv_state) -> None:
+def _cancel_pending_valve_bump(trv_state) -> bool:
+    """Cancel a scheduled valve write and report whether one was still due.
+
+    A task that has already run is not a pending write; it is only the
+    reference the last completed bump left behind.
+
+    Parameters
+    ----------
+    trv_state :
+        Domain object of the TRV whose pending write is to be dropped.
+
+    Returns
+    -------
+    bool
+        True when a write was still due and has been cancelled, False when
+        there was none or it had already run.
+    """
     task = trv_state.extra.pop("_trvzb_valve_bump_task", None)
-    if task is not None:
-        try:
-            task.cancel()
-        except asyncio.CancelledError, RuntimeError:
-            pass
+    if task is None:
+        return False
+    try:
+        if task.done():
+            return False
+        task.cancel()
+    except asyncio.CancelledError, RuntimeError:
+        return False
+    return True
 
 
 def fix_local_calibration(self, entity_id, offset):
@@ -289,7 +312,7 @@ async def override_set_valve(self, entity_id, percent: int):
             return bool(ok)
 
         # Cancel any previous pending delayed "bump then set".
-        _cancel_pending_valve_bump(trv_state)
+        bump_pending = _cancel_pending_valve_bump(trv_state)
 
         last_pct_raw = trv_state.last_valve_percent
         try:
@@ -302,8 +325,9 @@ async def override_set_valve(self, entity_id, percent: int):
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
             return bool(ok)
 
-        # Only apply workaround when closing further.
-        if target_pct < last_pct:
+        # Only apply workaround when closing further, and only when the motor
+        # was not already driven open by a bump whose write is still due.
+        if target_pct < last_pct and not bump_pending:
             bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
 
             # If we can't "bump open", fall back to direct set.
@@ -340,7 +364,10 @@ async def override_set_valve(self, entity_id, percent: int):
             )
             return True
 
-        # Opening (or same) => set directly.
+        # Opening, unchanged, or a close following a bump that has not run yet:
+        # write the requested position. Bumping again would drive the valve
+        # further open on every closing step while the target the cancelled
+        # write was carrying never reaches the device.
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
         return bool(ok)
     except TypeError, ValueError, KeyError, AttributeError:
