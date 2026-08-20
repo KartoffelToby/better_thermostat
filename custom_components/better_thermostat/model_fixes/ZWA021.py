@@ -49,7 +49,22 @@ def _is_direct_valve(self, entity_id):
 # This flag allows the Better Thermostat to treat STATE_UNKNOWN as available for this model.
 # This is a model-specific quirk, so it is set here in the model quirks
 def trv_state_unknown_as_available(self, entity_id):
-    """Return True when this TRV is configured for direct valve control."""
+    """Return whether this TRV uses direct valve control.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity identifier of the TRV to check.
+
+    Returns
+    -------
+    bool
+        ``True`` when this TRV uses direct valve-based calibration and should
+        be treated as available while its Climate entity state is unknown;
+        otherwise, ``False``.
+    """
     return _is_direct_valve(self, entity_id)
 
 
