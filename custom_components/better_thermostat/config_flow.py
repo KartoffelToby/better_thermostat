@@ -757,6 +757,7 @@ def _normalize_user_submission(
         target_min = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_min_key]
     if target_min is None or (target_min == "" and not target_min_from_selector):
         target_min = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+
     target_max = user_input.get(
         CONF_TARGET_TEMP_MAX,
         normalized.get(
@@ -781,10 +782,9 @@ def _normalize_user_submission(
         except TypeError, ValueError:
             pass
         else:
-            if target_min_value >= target_max_value:
+            if target_min_value != -1.0 and target_min_value >= target_max_value:
                 if errors is not None:
                     errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
-                return normalized
 
     normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
     normalized[CONF_TARGET_TEMP_MAX] = str(target_max)
