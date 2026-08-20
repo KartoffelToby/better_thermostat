@@ -117,6 +117,14 @@
           "calibration": "Ako sa má kalibrácia použiť na TRV (cieľová teplota alebo ofset)\n***Na základe cieľovej teploty***: Použite kalibráciu na cieľovú teplotu.\n***Na základe ofsetu***: Použite kalibráciu na offset."
         }
       }
+    },
+    "error": {
+      "failed": "niečo sa pokazilo.",
+      "no_name": "Zadajte meno.",
+      "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
+      "target_temp_min_above_max": "Minimálna cieľová teplota musí byť nižšia ako maximálna cieľová teplota.",
+      "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie.",
+      "no_data": "Neprijali sa žiadne údaje. Skúste to znova."
     }
   },
   "issues": {
