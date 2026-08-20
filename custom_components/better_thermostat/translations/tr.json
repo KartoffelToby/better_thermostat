@@ -117,6 +117,14 @@
           "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
         }
       }
+    },
+    "error": {
+      "failed": "Bir şeyler yanlış gitti.",
+      "no_name": "Lütfen bir ad girin.",
+      "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
+      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklıktan düşük olmalıdır.",
+      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
     }
   },
   "issues": {

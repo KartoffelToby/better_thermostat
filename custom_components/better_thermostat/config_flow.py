@@ -747,10 +747,6 @@ def _normalize_user_submission(
             CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
         ),
     )
-    target_min_configured = (
-        CONF_TARGET_TEMP_MIN in user_input
-        and target_min not in (None, "", "-1.0", -1.0)
-    ) or (CONF_TARGET_TEMP_MIN not in user_input and CONF_TARGET_TEMP_MIN in base_copy)
     target_min_key = str(target_min)
     target_min_from_selector = target_min_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
     if target_min_from_selector:
@@ -764,10 +760,6 @@ def _normalize_user_submission(
             CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
         ),
     )
-    target_max_configured = (
-        CONF_TARGET_TEMP_MAX in user_input
-        and target_max not in (None, "", "-1.0", -1.0)
-    ) or (CONF_TARGET_TEMP_MAX not in user_input and CONF_TARGET_TEMP_MAX in base_copy)
     target_max_key = str(target_max)
     target_max_from_selector = target_max_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
     if target_max_from_selector:
@@ -775,16 +767,19 @@ def _normalize_user_submission(
     if target_max is None or (target_max == "" and not target_max_from_selector):
         target_max = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
 
-    if target_min_configured and target_max_configured:
-        try:
-            target_min_value = float(target_min)
-            target_max_value = float(target_max)
-        except TypeError, ValueError:
-            pass
-        else:
-            if target_min_value != -1.0 and target_min_value >= target_max_value:
-                if errors is not None:
-                    errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
+    try:
+        target_min_value = float(target_min)
+        target_max_value = float(target_max)
+    except TypeError, ValueError:
+        pass
+    else:
+        if (
+            target_min_value != -1.0
+            and target_max_value != -1.0
+            and target_min_value >= target_max_value
+        ):
+            if errors is not None:
+                errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
 
     normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
     normalized[CONF_TARGET_TEMP_MAX] = str(target_max)
@@ -1010,7 +1005,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             _LOGGER.debug("ConfigFlow user step received input: %s", user_input)
-            errors = {}
             try:
                 normalized = _normalize_user_submission(
                     user_input, mode="create", base=current, errors=errors
@@ -1018,17 +1012,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
                 raise
-            if errors:
-                fields = _build_user_fields(
-                    mode="create", current=current, user_input=user_input
-                )
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=vol.Schema(fields),
-                    errors=errors,
-                    last_step=False,
-                    description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
-                )
 
             self.data = normalized
             _LOGGER.debug("ConfigFlow user step normalized data: %s", normalized)
@@ -1036,7 +1019,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_name"
 
             heaters = normalized.get(CONF_HEATER) or []
-            if "base" not in errors:
+            if not errors:
                 self.heater_entity_id = list(heaters)
                 self.trv_bundle = []
                 for trv in self.heater_entity_id:
@@ -1187,9 +1170,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_user(self, user_input=None):
         """Handle the user step."""
+        errors: dict[str, str] = {}
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
-            errors: dict[str, str] = {}
             try:
                 normalized = _normalize_user_submission(
                     user_input,
@@ -1201,64 +1184,54 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
-            if errors:
-                fields = _build_user_fields(
-                    mode="update",
-                    current=self._config_entry.data,
-                    user_input=user_input,
-                )
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=vol.Schema(fields),
-                    errors=errors,
-                    last_step=False,
-                    description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
-                )
-
             self.updated_config = normalized
-            self.trv_bundle = []
 
-            # Get the list of heaters from the normalized input
-            heaters = normalized.get(CONF_HEATER, [])
+            if not errors:
+                self.trv_bundle = []
+                # Get the list of heaters from the normalized input
+                heaters = normalized.get(CONF_HEATER, [])
+                # Create a map of existing TRV configs by TRV ID
+                existing_trvs = {
+                    trv.get("trv"): trv
+                    for trv in self._config_entry.data.get(CONF_HEATER, [])
+                    if isinstance(trv, dict) and trv.get("trv")
+                }
 
-            # Create a map of existing TRV configs by TRV ID
-            existing_trvs = {
-                trv.get("trv"): trv
-                for trv in self._config_entry.data.get(CONF_HEATER, [])
-                if isinstance(trv, dict) and trv.get("trv")
-            }
+                for heater_item in heaters:
+                    if isinstance(heater_item, dict):
+                        trv_id = heater_item.get("trv")
+                    else:
+                        trv_id = heater_item
 
-            for heater_item in heaters:
-                if isinstance(heater_item, dict):
-                    trv_id = heater_item.get("trv")
-                else:
-                    trv_id = heater_item
+                    if not trv_id:
+                        continue
 
-                if not trv_id:
-                    continue
+                    if trv_id in existing_trvs:
+                        # Use existing config for this TRV
+                        trv_copy = copy.deepcopy(existing_trvs[trv_id])
+                        trv_copy["adapter"] = None
+                        self.trv_bundle.append(trv_copy)
+                    else:
+                        # This is a new TRV added during edit
+                        integration = await get_trv_intigration(self, trv_id)
+                        self.trv_bundle.append(
+                            {
+                                "trv": trv_id,
+                                "integration": integration,
+                                "model": await get_device_model(self, trv_id),
+                                "adapter": await load_adapter(
+                                    self, integration, trv_id
+                                ),
+                            }
+                        )
 
-                if trv_id in existing_trvs:
-                    # Use existing config for this TRV
-                    trv_copy = copy.deepcopy(existing_trvs[trv_id])
-                    trv_copy["adapter"] = None
-                    self.trv_bundle.append(trv_copy)
-                else:
-                    # This is a new TRV added during edit
-                    integration = await get_trv_intigration(self, trv_id)
-                    self.trv_bundle.append(
-                        {
-                            "trv": trv_id,
-                            "integration": integration,
-                            "model": await get_device_model(self, trv_id),
-                            "adapter": await load_adapter(self, integration, trv_id),
-                        }
-                    )
+                _LOGGER.debug(
+                    "OptionsFlow user step built trv bundle: %s", self.trv_bundle
+                )
 
-            _LOGGER.debug("OptionsFlow user step built trv bundle: %s", self.trv_bundle)
-
-            return await self.async_step_advanced(
-                None, self.trv_bundle[0], self.updated_config
-            )
+                return await self.async_step_advanced(
+                    None, self.trv_bundle[0], self.updated_config
+                )
 
         fields = _build_user_fields(
             mode="update", current=self._config_entry.data, user_input=user_input
@@ -1267,6 +1240,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(fields),
+            errors=errors,
             last_step=False,
             description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
         )

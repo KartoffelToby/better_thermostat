@@ -117,6 +117,14 @@
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
         }
       }
+    },
+    "error": {
+      "failed": "Something went wrong.",
+      "no_name": "Please enter a name.",
+      "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
+      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
+      "target_temp_min_above_max": "The target minimum temperature must be lower than the target maximum temperature.",
+      "no_data": "No data was received. Please try again."
     }
   },
   "issues": {
