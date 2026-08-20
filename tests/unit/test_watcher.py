@@ -262,8 +262,57 @@ class TestGetCriticalEntities:
         assert "climate.trv_2" in result
         assert len(result) == 2
 
-    def test_returns_empty_list_when_no_trvs(self, mock_bt_instance):
-        """Test that empty list is returned when no TRVs configured."""
+    def test_default_policy_excludes_unknown_state_while_zwa021_includes_it(
+        self, mock_bt_instance, mock_hass
+    ):
+        """The default policy rejects STATE_UNKNOWN, while direct-valve ZWA021 allows it."""
+        from homeassistant.const import STATE_UNKNOWN
+
+        import custom_components.better_thermostat.model_fixes.default as default_quirks
+        import custom_components.better_thermostat.model_fixes.ZWA021 as zwa021_quirks
+        from custom_components.better_thermostat.utils.const import CalibrationType
+        from custom_components.better_thermostat.utils.watcher import (
+            get_critical_entities,
+            is_entity_available,
+        )
+
+        class Trv:
+            def __init__(self, *, model_quirks, calibration=None):
+                self.model_quirks = model_quirks
+                self.advanced = (
+                    {"calibration": calibration} if calibration is not None else {}
+                )
+
+        mock_bt_instance.real_trvs = {
+            "climate.trv_default": Trv(model_quirks=default_quirks),
+            "climate.trv_direct": Trv(
+                model_quirks=zwa021_quirks,
+                calibration=CalibrationType.DIRECT_VALVE_BASED,
+            ),
+        }
+
+        result = get_critical_entities(mock_bt_instance)
+
+        assert result == {"climate.trv_default": False, "climate.trv_direct": True}
+
+        mock_hass.states.get.side_effect = lambda entity_id: MagicMock(
+            state=STATE_UNKNOWN
+        )
+        assert (
+            is_entity_available(
+                mock_hass, "climate.trv_default", result["climate.trv_default"]
+            )
+            is False
+        )
+        assert (
+            is_entity_available(
+                mock_hass, "climate.trv_direct", result["climate.trv_direct"]
+            )
+            is True
+        )
+
+    def test_returns_empty_dict_when_no_trvs(self, mock_bt_instance):
+        """Test that an empty dictionary is returned when no TRVs are configured."""
         from custom_components.better_thermostat.utils.watcher import (
             get_critical_entities,
         )
