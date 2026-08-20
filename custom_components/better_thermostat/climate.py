@@ -626,12 +626,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.door_open = None
         self.bt_target_temp_min = (
             float(target_temp_min)
-            if target_temp_min and target_temp_min != "-1.0"
+            if target_temp_min not in (None, "", "-1.0", -1.0)
             else None
         )
         self.bt_target_temp_max = (
             float(target_temp_max)
-            if target_temp_max and target_temp_max != "-1.0"
+            if target_temp_max not in (None, "", "-1.0", -1.0)
             else None
         )
         self.bt_target_temp_step = (

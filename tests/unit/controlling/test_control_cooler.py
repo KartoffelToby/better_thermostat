@@ -689,6 +689,8 @@ class TestControlCoolerLatchOfAFreshThermostat:
             outdoor_sensor=None,
             off_temperature=None,
             tolerance=tolerance,
+            target_temp_min=None,
+            target_temp_max=None,
             target_temp_step=None,
             model="generic",
             cooler_entity_id="climate.cooler",

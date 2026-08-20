@@ -57,6 +57,7 @@
       "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur muss niedriger als die Ziel-Maximaltemperatur sein.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
       "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
     },

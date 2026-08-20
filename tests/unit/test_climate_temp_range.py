@@ -59,6 +59,42 @@ def test_intersection_of_bounds_across_trvs(bt):
     assert bt.bt_max_temp == 28.0
 
 
+def test_configured_min_overrides_child_min(bt):
+    """A configured minimum takes precedence over the child intersection."""
+    bt.bt_target_temp_min = 10.0
+    states = [_trv(min_t=5.0, max_t=30.0)]
+
+    BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert bt.bt_min_temp == 10.0
+    assert bt.bt_max_temp == 30.0
+
+
+def test_configured_max_overrides_child_max(bt):
+    """A configured maximum takes precedence over the child intersection."""
+    bt.bt_target_temp_max = 25.0
+    states = [_trv(min_t=5.0, max_t=30.0)]
+
+    BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert bt.bt_min_temp == 5.0
+    assert bt.bt_max_temp == 25.0
+
+
+def test_inverted_configured_bounds_are_retained_and_warned(bt, caplog):
+    """An inverted configured range is retained and reported as invalid."""
+    bt.bt_target_temp_min = 25.0
+    bt.bt_target_temp_max = 20.0
+    states = [_trv(min_t=5.0, max_t=30.0)]
+
+    with caplog.at_level(logging.WARNING):
+        BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert bt.bt_min_temp == 25.0
+    assert bt.bt_max_temp == 20.0
+    assert "min temp" in caplog.text
+
+
 def test_fahrenheit_bounds_and_step_converted(bt):
     """Fahrenheit bounds convert to Celsius; the step converts as a delta."""
     states = [_trv(min_t=41.0, max_t=86.0, step=1.0, unit=UnitOfTemperature.FAHRENHEIT)]

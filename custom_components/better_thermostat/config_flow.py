@@ -658,7 +658,11 @@ def _build_user_fields(
 
 
 def _normalize_user_submission(
-    user_input: dict[str, Any], *, mode: str, base: Mapping[str, Any] | None = None
+    user_input: dict[str, Any],
+    *,
+    mode: str,
+    base: Mapping[str, Any] | None = None,
+    errors: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
@@ -756,26 +760,46 @@ def _normalize_user_submission(
             CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
         ),
     )
+    target_min_configured = (
+        CONF_TARGET_TEMP_MIN in user_input
+        and target_min not in (None, "", "-1.0", -1.0)
+    ) or (CONF_TARGET_TEMP_MIN not in user_input and CONF_TARGET_TEMP_MIN in base_copy)
     target_min_key = str(target_min)
     target_min_from_selector = target_min_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
     if target_min_from_selector:
         target_min = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_min_key]
     if target_min is None or (target_min == "" and not target_min_from_selector):
         target_min = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
-    normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
-
     target_max = user_input.get(
         CONF_TARGET_TEMP_MAX,
         normalized.get(
             CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
         ),
     )
+    target_max_configured = (
+        CONF_TARGET_TEMP_MAX in user_input
+        and target_max not in (None, "", "-1.0", -1.0)
+    ) or (CONF_TARGET_TEMP_MAX not in user_input and CONF_TARGET_TEMP_MAX in base_copy)
     target_max_key = str(target_max)
     target_max_from_selector = target_max_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
     if target_max_from_selector:
         target_max = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_max_key]
     if target_max is None or (target_max == "" and not target_max_from_selector):
         target_max = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+
+    if target_min_configured and target_max_configured:
+        try:
+            target_min_value = float(target_min)
+            target_max_value = float(target_max)
+        except TypeError, ValueError:
+            pass
+        else:
+            if target_min_value > target_max_value:
+                if errors is not None:
+                    errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
+                return normalized
+
+    normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
     normalized[CONF_TARGET_TEMP_MAX] = str(target_max)
 
     target_step = user_input.get(
@@ -999,13 +1023,26 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             _LOGGER.debug("ConfigFlow user step received input: %s", user_input)
+            errors = {}
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="create", base=current
+                    user_input, mode="create", base=current, errors=errors
                 )
             except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
                 raise
+            if errors:
+                fields = _build_user_fields(
+                    mode="create", current=current, user_input=user_input
+                )
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(fields),
+                    errors=errors,
+                    last_step=False,
+                    description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+                )
+
             self.data = normalized
             _LOGGER.debug("ConfigFlow user step normalized data: %s", normalized)
             if not normalized.get(CONF_NAME):
@@ -1167,14 +1204,32 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Handle the user step."""
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
+            errors: dict[str, str] = {}
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="update", base=self._config_entry.data
+                    user_input,
+                    mode="update",
+                    base=self._config_entry.data,
+                    errors=errors,
                 )
             except Exception as err:
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
+            if errors:
+                fields = _build_user_fields(
+                    mode="update",
+                    current=self._config_entry.data,
+                    user_input=user_input,
+                )
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(fields),
+                    errors=errors,
+                    last_step=False,
+                    description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+                )
+
             self.updated_config = normalized
             self.trv_bundle = []
 
