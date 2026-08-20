@@ -18,6 +18,10 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    trv_state_unknown_as_available,
+)
+
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,18 +40,12 @@ STARTUP_DEGRADED_GRACE_PERIOD = timedelta(minutes=5)
 STARTUP_CRITICAL_GRACE_PERIOD = timedelta(minutes=2)
 
 # States considered unavailable
-UNAVAILABLE_STATES = (
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    None,
-    "missing",
-    "unknown",
-    "unavail",
-    "unavailable",
-)
+UNAVAILABLE_STATES = (STATE_UNAVAILABLE, None, "missing", "unavail", "unavailable")
+
+UNKNOWN_STATES = (STATE_UNKNOWN, "unknown")
 
 
-def is_entity_available(hass, entity) -> bool:
+def is_entity_available(hass, entity, state_unknown_as_available=False) -> bool:
     """Check if an entity is available without side effects.
 
     Parameters
@@ -56,6 +54,9 @@ def is_entity_available(hass, entity) -> bool:
         Home Assistant instance
     entity : str
         Entity ID to check
+    state_unknown_as_available : bool
+        If True, treat ``STATE_UNKNOWN`` as available. If False (default), treat
+        ``STATE_UNKNOWN`` as unavailable.
 
     Returns
     -------
@@ -67,7 +68,9 @@ def is_entity_available(hass, entity) -> bool:
     entity_states = hass.states.get(entity)
     if entity_states is None:
         return False
-    return entity_states.state not in UNAVAILABLE_STATES
+    if state_unknown_as_available:
+        return entity_states.state not in UNAVAILABLE_STATES
+    return entity_states.state not in (UNAVAILABLE_STATES + UNKNOWN_STATES)
 
 
 async def check_entity(self, entity) -> bool:
@@ -211,7 +214,7 @@ def get_optional_sensors(self) -> list:
     return optional
 
 
-def get_critical_entities(self) -> list:
+def get_critical_entities(self) -> dict:
     """Return list of critical entity IDs.
 
     Critical entities are TRVs - without them the thermostat cannot function.
@@ -219,12 +222,13 @@ def get_critical_entities(self) -> list:
 
     Returns
     -------
-    list
-        List of critical entity IDs (TRVs)
+    dict
+        Dictionary of critical entity IDs (TRVs) and their state_unknown_as_available flag
     """
-    critical = []
+    critical = {}
     if hasattr(self, "real_trvs") and self.real_trvs:
-        critical.extend(list(self.real_trvs.keys()))
+        for trv_id in self.real_trvs.keys():
+            critical[trv_id] = trv_state_unknown_as_available(self, trv_id)
     return critical
 
 
@@ -252,8 +256,10 @@ async def check_critical_entities(self) -> bool:
     in_grace = grace_until is not None and dt_util.now() < grace_until
 
     all_available = True
-    for entity in critical:
-        if not is_entity_available(self.hass, entity):
+    for entity, entity_state_unknown_as_available in critical.items():
+        if not is_entity_available(
+            self.hass, entity, entity_state_unknown_as_available
+        ):
             if in_grace:
                 _LOGGER.debug(
                     "better_thermostat %s: Critical entity %s is unavailable "
@@ -437,8 +443,8 @@ async def await_critical_entities(
             return pending
         pending = [
             eid
-            for eid in get_critical_entities(self)
-            if not is_entity_available(self.hass, eid)
+            for eid, state_unknown_as_available in get_critical_entities(self).items()
+            if not is_entity_available(self.hass, eid, state_unknown_as_available)
         ]
         if not pending:
             _LOGGER.debug(
@@ -464,8 +470,8 @@ async def await_critical_entities(
     # Final check after the last sleep
     pending = [
         eid
-        for eid in get_critical_entities(self)
-        if not is_entity_available(self.hass, eid)
+        for eid, state_unknown_as_available in get_critical_entities(self).items()
+        if not is_entity_available(self.hass, eid, state_unknown_as_available)
     ]
     if not pending:
         _LOGGER.debug(
