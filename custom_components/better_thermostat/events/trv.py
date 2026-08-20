@@ -21,6 +21,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
@@ -83,7 +84,10 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
+    if _org_trv_state.state == STATE_UNAVAILABLE or (
+        (not state_unknown_as_available) and _org_trv_state.state == STATE_UNKNOWN
+    ):
         # The device is gone; its last internal temperature must not
         # keep feeding the calibration as if it were live.
         if trv.current_temperature is not None:

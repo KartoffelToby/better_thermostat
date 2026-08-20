@@ -271,7 +271,7 @@ class TestGetCriticalEntities:
 
         result = get_critical_entities(mock_bt_instance)
 
-        assert result == []
+        assert result == {}
 
 
 class TestCheckCriticalEntities:

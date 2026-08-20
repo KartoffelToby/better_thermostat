@@ -19,6 +19,17 @@ _LOGGER = logging.getLogger(__name__)
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 
 
+def trv_state_unknown_as_available(self, entity_id):
+    """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
+
+    Call the configured model quirks implementation to determine it.
+    Some TRVs have a Climate Entity specific Manufacturer Mode for direct valve control
+    that leads to having TRV Climate entity STATE_UNKNOWN even when the device is actually
+    available and controllable.
+    """
+    return False
+
+
 def fix_local_calibration(self, entity_id, offset):
     """Return the given local calibration offset unchanged."""
     return offset
