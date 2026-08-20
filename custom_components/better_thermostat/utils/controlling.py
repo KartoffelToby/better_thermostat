@@ -1181,7 +1181,9 @@ async def check_system_mode(self, heater_entity_id=None):
                 heater_entity_id,
             )
             break
-        if state_unknown_as_available or _trv_state.state == _real_trv.last_hvac_mode:
+        if (
+            _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
+        ) or _trv_state.state == _real_trv.last_hvac_mode:
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
