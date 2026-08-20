@@ -114,6 +114,8 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_WEATHER,
@@ -272,6 +274,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_OUTDOOR_SENSOR, None),
         entry.data.get(CONF_OFF_TEMPERATURE, None),
         entry.data.get(CONF_TOLERANCE, 0.0),
+        entry.data.get(CONF_TARGET_TEMP_MIN, None),
+        entry.data.get(CONF_TARGET_TEMP_MAX, None),
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
@@ -460,6 +464,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         tolerance,
+        target_temp_min,
+        target_temp_max,
         target_temp_step,
         model,
         cooler_entity_id,
@@ -502,6 +508,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             Outdoor temperature above which heating is switched off.
         tolerance : float
             Temperature hysteresis in degrees.
+        target_temp_min : str | float | None
+            Minimum target temperature.
+        target_temp_max : str | float | None
+            Maximum target temperature.
         target_temp_step : str | float | None
             Step size for target temperature adjustments.
         model : str
@@ -609,6 +619,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._current_humidity: float | None = 0.0
         self.window_open = None
         self.door_open = None
+        self.bt_target_temp_min = (
+            float(target_temp_min)
+            if target_temp_min and target_temp_min != "-1.0"
+            else None
+        )
+        self.bt_target_temp_max = (
+            float(target_temp_max)
+            if target_temp_max and target_temp_max != "-1.0"
+            else None
+        )
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
@@ -1305,8 +1325,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if _sf is not None:
                 steps.append(_sf)
-        self.bt_min_temp = max(min_temps) if min_temps else None
-        self.bt_max_temp = min(max_temps) if max_temps else None
+
+        if self.bt_target_temp_min is None:
+            self.bt_min_temp = max(min_temps) if min_temps else None
+        else:
+            self.bt_min_temp = self.bt_target_temp_min
+        if self.bt_target_temp_max is None:
+            self.bt_max_temp = min(max_temps) if max_temps else None
+        else:
+            self.bt_max_temp = self.bt_target_temp_max
 
         if (
             self.bt_min_temp is not None

@@ -49,6 +49,8 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_VALVE_MAINTENANCE,
@@ -68,6 +70,72 @@ CONFIG_WALKTHROUGH_URL = (
     "https://better-thermostat.org/setup/configuration-walkthrough/"
 )
 
+
+_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE = {
+    "auto": "-1.0",
+    "min_max_0": "0.0",
+    "min_max_1": "1.0",
+    "min_max_2": "2.0",
+    "min_max_3": "3.0",
+    "min_max_4": "4.0",
+    "min_max_5": "5.0",
+    "min_max_6": "6.0",
+    "min_max_7": "7.0",
+    "min_max_8": "8.0",
+    "min_max_9": "9.0",
+    "min_max_10": "10.0",
+    "min_max_11": "11.0",
+    "min_max_12": "12.0",
+    "min_max_13": "13.0",
+    "min_max_14": "14.0",
+    "min_max_15": "15.0",
+    "min_max_16": "16.0",
+    "min_max_17": "17.0",
+    "min_max_18": "18.0",
+    "min_max_19": "19.0",
+    "min_max_20": "20.0",
+    "min_max_21": "21.0",
+    "min_max_22": "22.0",
+    "min_max_23": "23.0",
+    "min_max_24": "24.0",
+    "min_max_25": "25.0",
+    "min_max_26": "26.0",
+    "min_max_27": "27.0",
+    "min_max_28": "28.0",
+    "min_max_29": "29.0",
+    "min_max_30": "30.0",
+    "min_max_31": "31.0",
+    "min_max_32": "32.0",
+    "min_max_33": "33.0",
+    "min_max_34": "34.0",
+    "min_max_35": "35.0",
+    "min_max_36": "36.0",
+    "min_max_37": "37.0",
+    "min_max_38": "38.0",
+    "min_max_39": "39.0",
+    "min_max_40": "40.0",
+}
+_TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR = {
+    value: key for key, value in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE.items()
+}
+
+TEMP_MIN_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        # Stable selector tokens keep labels translatable without changing stored values.
+        options=list(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
+        mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="target_temp_min",
+    )
+)
+
+TEMP_MAX_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        # Stable selector tokens keep labels translatable without changing stored values.
+        options=list(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
+        mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="target_temp_max",
+    )
+)
 
 _TARGET_TEMP_STEP_SELECTOR_TO_VALUE = {
     "auto_legacy": "0.0",
@@ -145,6 +213,8 @@ PRESET_SELECTOR = selector.SelectSelector(
 _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
+    CONF_TARGET_TEMP_MIN: "-1.0",
+    CONF_TARGET_TEMP_MAX: "-1.0",
     CONF_TARGET_TEMP_STEP: "0.0",
     CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
@@ -544,6 +614,24 @@ def _build_user_fields(
         default=tolerance_default,
     )
 
+    target_min_default = resolve(
+        CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+    )
+    if target_min_default is not None:
+        target_min_default = _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR.get(
+            str(target_min_default), "auto"
+        )
+    add_field(CONF_TARGET_TEMP_MIN, TEMP_MIN_SELECTOR, default=target_min_default)
+
+    target_max_default = resolve(
+        CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+    )
+    if target_max_default is not None:
+        target_max_default = _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR.get(
+            str(target_max_default), "auto"
+        )
+    add_field(CONF_TARGET_TEMP_MAX, TEMP_MAX_SELECTOR, default=target_max_default)
+
     target_step_default = resolve(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
@@ -648,6 +736,34 @@ def _normalize_user_submission(
             normalized[CONF_TOLERANCE] = float(tolerance)
         except TypeError, ValueError:
             normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+
+    target_min = user_input.get(
+        CONF_TARGET_TEMP_MIN,
+        normalized.get(
+            CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+        ),
+    )
+    target_min_key = str(target_min)
+    target_min_from_selector = target_min_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
+    if target_min_from_selector:
+        target_min = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_min_key]
+    if target_min is None or (target_min == "" and not target_min_from_selector):
+        target_min = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+    normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
+
+    target_max = user_input.get(
+        CONF_TARGET_TEMP_MAX,
+        normalized.get(
+            CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+        ),
+    )
+    target_max_key = str(target_max)
+    target_max_from_selector = target_max_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
+    if target_max_from_selector:
+        target_max = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_max_key]
+    if target_max is None or (target_max == "" and not target_max_from_selector):
+        target_max = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
+    normalized[CONF_TARGET_TEMP_MAX] = str(target_max)
 
     target_step = user_input.get(
         CONF_TARGET_TEMP_STEP,

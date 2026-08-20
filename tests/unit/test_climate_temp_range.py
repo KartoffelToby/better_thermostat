@@ -29,6 +29,8 @@ def bt():
     mock.device_name = "Test BT"
     mock.bt_min_temp = None
     mock.bt_max_temp = None
+    mock.bt_target_temp_min = None
+    mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
     return mock
 
