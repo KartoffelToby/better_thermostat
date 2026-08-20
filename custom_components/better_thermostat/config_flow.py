@@ -789,7 +789,7 @@ def _normalize_user_submission(
         if (
             target_min_value != -1.0
             and target_max_value != -1.0
-            and target_min_value >= target_max_value
+            and target_min_value > target_max_value
         ):
             if errors is not None:
                 errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
