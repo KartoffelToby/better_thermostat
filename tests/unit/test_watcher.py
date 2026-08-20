@@ -266,6 +266,7 @@ class TestGetCriticalEntities:
     ):
         """The default policy rejects STATE_UNKNOWN, while direct-valve ZWA021 allows it."""
         from homeassistant.const import STATE_UNKNOWN
+        from homeassistant.core import State
 
         import custom_components.better_thermostat.model_fixes.default as default_quirks
         import custom_components.better_thermostat.model_fixes.ZWA021 as zwa021_quirks
@@ -294,8 +295,8 @@ class TestGetCriticalEntities:
 
         assert result == {"climate.trv_default": False, "climate.trv_direct": True}
 
-        mock_hass.states.get.side_effect = lambda entity_id: MagicMock(
-            state=STATE_UNKNOWN
+        mock_hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, STATE_UNKNOWN
         )
         assert (
             is_entity_available(
