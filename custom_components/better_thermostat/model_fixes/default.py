@@ -22,10 +22,20 @@ VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 def trv_state_unknown_as_available(self, entity_id):
     """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
 
-    Call the configured model quirks implementation to determine it.
-    Some TRVs have a Climate Entity specific Manufacturer Mode for direct valve control
-    that leads to having TRV Climate entity STATE_UNKNOWN even when the device is actually
-    available and controllable.
+    This default implementation always returns ``False`` without delegating
+    to another model quirks implementation.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        Better Thermostat instance. It is unused by the default policy.
+    entity_id : str
+        TRV entity identifier. It is unused by the default policy.
+
+    Returns
+    -------
+    bool
+        Always ``False``.
     """
     return False
 

@@ -815,10 +815,17 @@ async def control_trv(self, heater_entity_id=None):
         try:
             advance_hvac_action(self)
             _trv = self.hass.states.get(heater_entity_id)
-
+            state_unknown_as_available = trv_state_unknown_as_available(
+                self, heater_entity_id
+            )
             # Check if TRV is available before attempting to control it
             if _trv is None or (
-                _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                (
+                    _trv.state == STATE_UNAVAILABLE
+                    or (
+                        (not state_unknown_as_available) and _trv.state == STATE_UNKNOWN
+                    )
+                )
                 and not _is_boost_heating_active(self)
             ):
                 _LOGGER.debug(

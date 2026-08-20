@@ -84,13 +84,13 @@ async def check_entity(self, entity) -> bool:
     entity_states = self.hass.states.get(entity)
     if entity_states is None:
         return False
-    state = entity_states.state
-    if state in UNAVAILABLE_STATES:
+    state_unknown_as_available = trv_state_unknown_as_available(self, entity)
+    if not is_entity_available(self.hass, entity, state_unknown_as_available):
         _LOGGER.debug(
             "better_thermostat %s: %s is unavailable. with state %s",
             self.device_name,
             entity,
-            state,
+            entity_states.state,
         )
         return False
     if entity in self.devices_errors:
@@ -185,7 +185,7 @@ def get_optional_sensors(self) -> list:
 
 
 def get_critical_entities(self) -> dict:
-    """Return list of critical entity IDs.
+    """Return critical TRV entity policies.
 
     Critical entities are TRVs - without them the thermostat cannot function.
     The room temperature sensor is semi-critical (can fall back to TRV temp).

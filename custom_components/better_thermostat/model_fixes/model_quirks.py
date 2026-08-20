@@ -15,7 +15,20 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def get_model_quirks_name(model):
-    """Return the model quirks name for a given TRV model."""
+    """Return the model quirks module name for a TRV model.
+
+    Parameters
+    ----------
+    model : object or None
+        TRV model identifier. The ``Spirit`` model is mapped to ``ZWA021``;
+        other values are converted to strings.
+
+    Returns
+    -------
+    str
+        Model quirks module name, or an empty string when ``model`` is
+        ``None``.
+    """
     if model is not None:
         model_str = str(model)
         match model_str:
@@ -32,6 +45,27 @@ async def load_model_quirks(self, model, entity_id):
     """Load model quirks module for a given TRV model, falling back to default.
 
     Emits debug logs for both the success and the fallback path.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    model : object or None
+        TRV model identifier used to select the quirks module.
+    entity_id : str
+        TRV entity identifier used in diagnostic log messages.
+
+    Returns
+    -------
+    module
+        Imported model quirks module, or the default quirks module when the
+        model-specific module is unavailable.
+
+    Raises
+    ------
+    ImportError
+        If the model-specific module is unavailable and the default module
+        cannot be imported.
     """
 
     # Normalize model to a safe module suffix
@@ -88,6 +122,20 @@ def trv_state_unknown_as_available(self, entity_id):
     Some TRVs have a Climate Entity specific Manufacturer Mode for direct valve control
     that leads to having TRV Climate entity STATE_UNKNOWN even when the device is actually
     available and controllable.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity identifier of the TRV to check.
+
+    Returns
+    -------
+    bool
+        Whether the TRV should be treated as available while its Climate
+        entity state is ``STATE_UNKNOWN``. Returns ``False`` when no
+        configured model quirks implementation provides this policy.
     """
     _trv = self.real_trvs.get(entity_id)
     if _trv is not None and hasattr(_trv, "model_quirks"):
