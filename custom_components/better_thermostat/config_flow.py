@@ -781,7 +781,7 @@ def _normalize_user_submission(
         except TypeError, ValueError:
             pass
         else:
-            if target_min_value > target_max_value:
+            if target_min_value >= target_max_value:
                 if errors is not None:
                     errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
                 return normalized
