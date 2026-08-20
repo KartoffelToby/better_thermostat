@@ -57,7 +57,7 @@
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "target_temp_min_above_max": "Mål minimumstemperaturen skal være lavere end mål maksimumstemperaturen.",
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
       "no_data": "Ingen data blev modtaget. Prøv venligst igen."
     },
@@ -122,7 +122,7 @@
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "target_temp_min_above_max": "Mål minimumstemperaturen skal være lavere end mål maksimumstemperaturen.",
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
       "no_data": "Ingen data blev modtaget. Prøv venligst igen."
     }

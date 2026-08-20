@@ -57,7 +57,7 @@
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
-      "target_temp_min_above_max": "Minimalna temperatura docelowa musi być niższa od maksymalnej temperatury docelowej.",
+      "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
       "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
       "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
     },
@@ -122,7 +122,7 @@
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
-      "target_temp_min_above_max": "Minimalna temperatura docelowa musi być niższa od maksymalnej temperatury docelowej.",
+      "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
       "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
       "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
     }
