@@ -56,6 +56,7 @@
     "error": {
       "failed": "Qualcosa è andato storto.",
       "no_name": "Per favore inserisci un nome.",
+      "no_heater": "Seleziona almeno un vero termostato.",
       "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
       "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
       "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto.",
@@ -121,6 +122,7 @@
     "error": {
       "failed": "Qualcosa è andato storto.",
       "no_name": "Per favore inserisci un nome.",
+      "no_heater": "Seleziona almeno un vero termostato.",
       "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
       "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
       "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto.",

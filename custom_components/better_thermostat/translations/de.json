@@ -56,6 +56,7 @@
     "error": {
       "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
+      "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
@@ -121,6 +122,7 @@
     "error": {
       "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
+      "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",

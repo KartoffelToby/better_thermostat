@@ -120,6 +120,27 @@ _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR = {
     value: key for key, value in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE.items()
 }
 
+
+def _resolve_min_max_selector_token(value: Any) -> str:
+    """Return the selector token for a stored bound value or a submitted token.
+
+    Parameters
+    ----------
+    value :
+            a stored value such as ``"25.0"`` or a selector token such as
+            ``"min_max_25"``
+
+    Returns
+    -------
+    str
+            the matching selector token, or ``"auto"`` when nothing matches
+    """
+    key = str(value)
+    if key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE:
+        return key
+    return _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR.get(key, "auto")
+
+
 TEMP_MIN_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         # Stable selector tokens keep labels translatable without changing stored values.
@@ -626,18 +647,14 @@ def _build_user_fields(
         CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
     )
     if target_min_default is not None:
-        target_min_default = _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR.get(
-            str(target_min_default), "auto"
-        )
+        target_min_default = _resolve_min_max_selector_token(target_min_default)
     add_field(CONF_TARGET_TEMP_MIN, TEMP_MIN_SELECTOR, default=target_min_default)
 
     target_max_default = resolve(
         CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
     )
     if target_max_default is not None:
-        target_max_default = _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR.get(
-            str(target_max_default), "auto"
-        )
+        target_max_default = _resolve_min_max_selector_token(target_max_default)
     add_field(CONF_TARGET_TEMP_MAX, TEMP_MAX_SELECTOR, default=target_max_default)
 
     target_step_default = resolve(
@@ -1032,6 +1049,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_name"
 
             heaters = normalized.get(CONF_HEATER) or []
+            if not heaters:
+                errors[CONF_HEATER] = "no_heater"
+
             if not errors:
                 self.heater_entity_id = list(heaters)
                 self.trv_bundle = []
@@ -1244,9 +1264,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     "OptionsFlow user step built trv bundle: %s", self.trv_bundle
                 )
 
-                return await self.async_step_advanced(
-                    None, self.trv_bundle[0], self.updated_config
-                )
+                if self.trv_bundle:
+                    return await self.async_step_advanced(
+                        None, self.trv_bundle[0], self.updated_config
+                    )
+
+                errors[CONF_HEATER] = "no_heater"
 
         fields = _build_user_fields(
             mode="update", current=self._config_entry.data, user_input=user_input

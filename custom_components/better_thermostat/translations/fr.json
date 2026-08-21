@@ -56,6 +56,7 @@
     "error": {
       "failed": "quelque chose s'est mal passé.",
       "no_name": "Veuillez entrer un nom.",
+      "no_heater": "Veuillez sélectionner au moins un vrai thermostat.",
       "no_off_mode": "Votre appareil est très spécial et n'a pas de mode hors tension :(\nBetter Thermostat utilisera plutôt la température cible minimale.",
       "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale.",
       "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo.",
@@ -121,6 +122,7 @@
     "error": {
       "failed": "quelque chose s'est mal passé.",
       "no_name": "Veuillez entrer un nom.",
+      "no_heater": "Veuillez sélectionner au moins un vrai thermostat.",
       "no_off_mode": "Votre appareil est très spécial et n'a pas de mode hors tension :(\nBetter Thermostat utilisera plutôt la température cible minimale.",
       "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale.",
       "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo.",

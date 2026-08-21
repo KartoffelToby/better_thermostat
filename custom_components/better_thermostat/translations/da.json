@@ -56,6 +56,7 @@
     "error": {
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
+      "no_heater": "Vælg venligst mindst én rigtig termostat.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
@@ -121,6 +122,7 @@
     "error": {
       "failed": "Noget gik galt.",
       "no_name": "Indtast venligst et navn.",
+      "no_heater": "Vælg venligst mindst én rigtig termostat.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
