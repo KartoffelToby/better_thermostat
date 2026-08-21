@@ -172,10 +172,13 @@ async def async_get_triggers(
 def _resolve_entity_id(hass: HomeAssistant, config: ConfigType) -> str | None:
     """Return the thermostat entity a trigger config watches.
 
-    The automation editor stores the entity next to the device, and a stored
-    automation may hold the registry id rather than the entity id. The
-    blueprints shipped with the integration pick a device only, so the entity
-    has to be recoverable from the device alone as well.
+    The automation editor stores the entity next to the device; the blueprints
+    shipped with the integration pick a device only, so the entity has to be
+    recoverable from the device alone as well.
+
+    A configured value is passed through as it stands, including a registry id:
+    every branch below hands it to a state or numeric-state trigger, and those
+    resolve a registry id to an entity id themselves.
 
     Parameters
     ----------
@@ -187,12 +190,12 @@ def _resolve_entity_id(hass: HomeAssistant, config: ConfigType) -> str | None:
     Returns
     -------
     str or None
-        The entity id to watch, or None when the device carries no Better
-        Thermostat climate entity.
+        The entity or registry id to watch, or None when the device carries no
+        Better Thermostat climate entity.
     """
-    registry = entity_registry.async_get(hass)
     if configured := config.get(CONF_ENTITY_ID):
-        return entity_registry.async_resolve_entity_id(registry, configured)
+        return configured
+    registry = entity_registry.async_get(hass)
     for entry in entity_registry.async_entries_for_device(
         registry, config[CONF_DEVICE_ID]
     ):

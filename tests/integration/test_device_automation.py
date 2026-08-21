@@ -21,6 +21,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_DEVICE_ID,
     CONF_DOMAIN,
+    CONF_ENTITY_ID,
     CONF_TYPE,
 )
 from homeassistant.core import State
@@ -366,6 +367,84 @@ async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_tr
                         CONF_DEVICE_ID: device_id,
                         CONF_TYPE: "heating_active",
                     },
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation")
+
+    _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
+
+    assert await wait_for(hass, lambda: calls)
+
+
+async def test_a_condition_that_names_the_registry_id_reads_the_state(hass, fake_trv):
+    """A condition naming the entity by registry id still reads its state.
+
+    A stored automation may hold the registry id instead of the entity id —
+    that is the point of the id, it survives a rename. The schema accepts both
+    and ``hass.states`` accepts only one, so the registry id has to be resolved
+    before the state is read, or the condition is silently always false.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    condition = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.CONDITION, device_id
+        ),
+        "is_hvac_mode",
+    )
+    condition[CONF_ENTITY_ID] = registry_entry.id
+    condition[ATTR_HVAC_MODE] = "heat"
+    calls = async_mock_service(hass, "test", "automation")
+
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "by_registry_id",
+                    "trigger": {"platform": "event", "event_type": "run_condition"},
+                    "condition": [condition],
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation")
+    assert hass.states.get(BT_ENTITY).state == "heat"
+
+    hass.bus.async_fire("run_condition")
+    await hass.async_block_till_done()
+
+    assert calls, "the condition did not resolve the registry id"
+
+
+async def test_a_trigger_that_names_the_registry_id_watches_the_entity(hass, fake_trv):
+    """A trigger naming the entity by registry id still watches that entity."""
+    _entry, device_id = await _entry_with_device(hass)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        "heating_active",
+    )
+    trigger[CONF_ENTITY_ID] = registry_entry.id
+    calls = async_mock_service(hass, "test", "automation")
+
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "by_registry_id",
+                    "trigger": trigger,
                     "action": {"service": "test.automation"},
                 }
             ]
