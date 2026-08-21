@@ -19,6 +19,7 @@ instance.
 """
 
 from ast import literal_eval
+from datetime import datetime
 from pathlib import Path
 
 from homeassistant.components.automation import config as automation_config
@@ -276,16 +277,17 @@ async def test_weekly_schedule_rejects_an_empty_string_input(hass):
 def _render(template_text: str, context: dict, states: dict):
     """Render a blueprint variable the way Home Assistant would.
 
-    Home Assistant renders a `variables:` entry and then runs `literal_eval`
-    over the result (`homeassistant.helpers.template._parse_result`), keeping
-    the raw string when that fails. A branch rendering the bare word `false`
-    therefore yields the *string* `"false"`, which is truthy -- so the value a
-    template produces has to be a Python literal, not just look like one.
+    Home Assistant strips a rendered `variables:` entry and then runs
+    `literal_eval` over the result (`homeassistant.helpers.template.
+    _parse_result`), keeping the raw string when that fails. A branch
+    rendering the bare word `false` therefore yields the *string* `"false"`,
+    which is truthy -- so the value a template produces has to be a Python
+    literal, not just look like one.
     """
     env = jinja2.Environment()
     env.globals["states"] = lambda entity: states.get(entity, "unknown")
     env.globals["is_state"] = lambda entity, value: states.get(entity) == value
-    rendered = env.from_string(template_text).render(**context)
+    rendered = env.from_string(template_text).render(**context).strip()
     try:
         return literal_eval(rendered)
     except ValueError, TypeError, SyntaxError, MemoryError:
@@ -412,6 +414,53 @@ def test_disabled_branches_render_real_booleans(
 
     assert isinstance(result, bool), f"{name} rendered {result!r}, not a bool"
     assert result is expected
+
+
+_SLOT_TIMES = {
+    "slot1_time": "06:30:00",
+    "slot2_time": "08:30:00",
+    "slot3_time": "17:00:00",
+    "slot4_time": "22:30:00",
+}
+
+
+@pytest.mark.parametrize(
+    ("clock", "expected_slot"),
+    [
+        pytest.param("06:30:00", 1, id="start-of-slot1"),
+        pytest.param("07:15:00", 1, id="inside-slot1"),
+        pytest.param("09:00:00", 2, id="inside-slot2"),
+        pytest.param("18:00:00", 3, id="inside-slot3"),
+        pytest.param("23:00:00", 4, id="inside-slot4"),
+        pytest.param("03:00:00", 4, id="before-slot1-belongs-to-the-night-slot"),
+    ],
+)
+def test_current_schedule_preset_follows_the_active_slot(
+    schedule_variables, clock, expected_slot
+):
+    """Startup recovery, pause resume and arrival apply the current slot's preset.
+
+    `active_slot` renders a bare digit, so `literal_eval` hands it on as an
+    integer. A comparison against the strings `'1'`/`'2'`/`'3'` matches
+    nothing and sends all three paths to the slot 4 preset.
+    """
+    active_slot = _render(
+        schedule_variables["active_slot"],
+        {"now": lambda: datetime.strptime(clock, "%H:%M:%S"), **_SLOT_TIMES},
+        {},
+    )
+
+    assert active_slot == expected_slot
+    assert isinstance(active_slot, int)
+
+    preset = _render(
+        schedule_variables["current_schedule_preset"],
+        {"active_slot": active_slot}
+        | {f"preset_slot{i}": f"preset{i}" for i in range(1, 5)},
+        {},
+    )
+
+    assert preset == f"preset{expected_slot}"
 
 
 def _branch_for_trigger(node, trigger_id):
