@@ -6,12 +6,13 @@ Deleting the config entry must remove the associated repair issues so that
 they do not linger after the BT instance is gone.
 """
 
+from asyncio import Lock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_NAME
 import pytest
 
-from custom_components.better_thermostat import DOMAIN, async_remove_entry
+from custom_components.better_thermostat import DOMAIN, RELOAD_LOCKS, async_remove_entry
 from custom_components.better_thermostat.utils.const import (
     CONF_HEATER,
     CONF_HUMIDITY,
@@ -35,6 +36,34 @@ def _make_entry(**overrides):
     return entry
 
 
+def _make_hass():
+    """Return a Home Assistant double whose ``data`` is a real mapping.
+
+    ``async_remove_entry`` reads ``hass.data`` synchronously. An AsyncMock
+    answers every attribute with a coroutine, so the shared store has to be a
+    real dict for the removal to reach what is in it.
+    """
+    hass = AsyncMock()
+    hass.data = {}
+    return hass
+
+
+@pytest.fixture(autouse=True)
+def patched_remove_store():
+    """Keep the state store out of the repair-issue assertions.
+
+    Removing the store is a separate concern that reaches for the config
+    directory; the Home Assistant double here has none, and answers the
+    lookup with a coroutine nobody awaits.
+    """
+    with patch(
+        "custom_components.better_thermostat.utils.state_manager"
+        ".StateManager.async_remove_store",
+        new_callable=AsyncMock,
+    ):
+        yield
+
+
 @pytest.fixture
 def patched_delete_issue():
     """Patch ``ir.async_delete_issue`` and return the mock for assertions."""
@@ -50,7 +79,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
     @pytest.mark.asyncio
     async def test_deletes_device_name_keyed_issues(self, patched_delete_issue):
         """Issues keyed by device name are removed."""
-        hass = AsyncMock()
+        hass = _make_hass()
         entry = _make_entry()
 
         await async_remove_entry(hass, entry)
@@ -63,7 +92,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
     @pytest.mark.asyncio
     async def test_deletes_missing_entity_for_each_trv(self, patched_delete_issue):
         """``missing_entity_*`` issues are removed for every configured TRV."""
-        hass = AsyncMock()
+        hass = _make_hass()
         entry = _make_entry(
             **{
                 CONF_HEATER: [
@@ -84,7 +113,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         self, patched_delete_issue
     ):
         """Optional sensors (when configured) also get their issues cleaned up."""
-        hass = AsyncMock()
+        hass = _make_hass()
         entry = _make_entry(
             **{
                 CONF_HUMIDITY: "sensor.humidity",
@@ -104,7 +133,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
     @pytest.mark.asyncio
     async def test_skips_unconfigured_optional_sensors(self, patched_delete_issue):
         """Sensors not configured on the entry do not trigger spurious deletes."""
-        hass = AsyncMock()
+        hass = _make_hass()
         entry = _make_entry()
 
         await async_remove_entry(hass, entry)
@@ -121,7 +150,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
     @pytest.mark.asyncio
     async def test_uses_domain_for_every_delete(self, patched_delete_issue):
         """Every cleanup call targets BT's domain."""
-        hass = AsyncMock()
+        hass = _make_hass()
         entry = _make_entry()
 
         await async_remove_entry(hass, entry)
@@ -129,3 +158,21 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         assert patched_delete_issue.call_args_list
         for call in patched_delete_issue.call_args_list:
             assert call.args[1] == DOMAIN
+
+    @pytest.mark.asyncio
+    async def test_drops_the_reload_lock_of_the_removed_entry(
+        self, patched_delete_issue
+    ):
+        """The lock an entry reloads on is dropped with the entry.
+
+        The locks outlive the per-entry data on purpose, so that a reload can
+        hold one across the unload it drives. Removal is therefore the only
+        point at which one can be let go.
+        """
+        hass = _make_hass()
+        entry = _make_entry()
+        hass.data[RELOAD_LOCKS] = {entry.entry_id: Lock(), "other_entry": Lock()}
+
+        await async_remove_entry(hass, entry)
+
+        assert list(hass.data[RELOAD_LOCKS]) == ["other_entry"]
