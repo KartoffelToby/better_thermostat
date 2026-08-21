@@ -65,9 +65,7 @@ def test_innovation_matches_measurement_minus_predicted_y() -> None:
 
 def test_observer_uses_actual_elapsed_time() -> None:
     """A sparse HA event advances the model by its full interval, not 30 s."""
-    plant = PlantModelRC2(
-        PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0
-    )
+    plant = PlantModelRC2(PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0)
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 35.0]))
     y_meas = 20.2

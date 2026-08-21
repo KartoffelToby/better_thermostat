@@ -264,11 +264,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     bt.contact_open = bool(bt.window_open) or bool(bt.door_open)
 
     _record_mpc_v2_reid_sample(
-        bt,
-        "key",
-        applied_valve_pct=40.0,
-        trv_temp=21.0,
-        outdoor_temp=5.0,
+        bt, "key", applied_valve_pct=40.0, trv_temp=21.0, outdoor_temp=5.0
     )
 
     samples = state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples

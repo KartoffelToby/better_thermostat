@@ -556,7 +556,7 @@ def _record_mpc_v2_reid_sample(
         return
     try:
         u_frac = float(applied_valve_pct) / 100.0
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         # A current MPC proposal is not evidence of a physical valve input:
         # the write can still be deferred, clamped, or fail.
         return
@@ -587,9 +587,11 @@ def _confirmed_valve_pct(trv_state) -> float | None:
         getattr(trv_state, "valve_position", None),
         getattr(trv_state, "last_valve_percent", None),
     ):
+        if value is None:
+            continue
         try:
             pct = float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if math.isfinite(pct) and 0.0 <= pct <= 100.0:
             return pct
