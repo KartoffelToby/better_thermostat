@@ -1,10 +1,11 @@
 """An open window and an open door must suppress every calibration mode.
 
 Each controller dispatcher in :mod:`calibration` reads the contact state off
-the BT entity itself, so a mode can be gated on the window alone while its
-siblings gate on both contacts. The asymmetry is invisible in a per-mode
-test: only holding the modes side by side against the same scenario shows a
-door that one of them ignores.
+the BT entity itself, so nothing forces the modes to consult the same flag.
+A per-mode test cannot see that: a mode gated on the window alone still
+passes every window case put to it. Only holding the modes side by side
+against one scenario catches one that reads a narrower flag than its
+siblings.
 
 The assertion is on the valve percentage the control cycle would hand to
 ``set_valve``, not on the dispatcher's return value — the modes disagree on
