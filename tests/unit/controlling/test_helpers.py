@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -1035,11 +1036,8 @@ class TestWriteConfirmTimeout:
     @pytest.mark.asyncio
     async def test_system_mode_polls_for_the_shared_window(self):
         """check_system_mode polls one second at a time up to the window."""
-        mock_state = Mock()
-        mock_state.state = HVACMode.OFF
-
         mock_hass = Mock()
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
 
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
@@ -1060,11 +1058,10 @@ class TestWriteConfirmTimeout:
     @pytest.mark.asyncio
     async def test_target_temperature_polls_for_the_shared_window(self):
         """check_target_temperature polls one second at a time up to the window."""
-        mock_state = Mock()
-        mock_state.attributes = {"temperature": 20.0}
-
         mock_hass = Mock()
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 20.0}
+        )
 
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
