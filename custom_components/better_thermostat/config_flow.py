@@ -530,9 +530,14 @@ def _build_user_fields(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
     if target_step_default is not None:
-        target_step_default = _TARGET_TEMP_STEP_VALUE_TO_SELECTOR.get(
-            str(target_step_default), "auto_legacy"
-        )
+        target_step_key = str(target_step_default)
+        if target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE:
+            # A re-displayed form carries the submitted selector token, not a stored value.
+            target_step_default = target_step_key
+        else:
+            target_step_default = _TARGET_TEMP_STEP_VALUE_TO_SELECTOR.get(
+                target_step_key, "auto_legacy"
+            )
     add_field(CONF_TARGET_TEMP_STEP, TEMP_STEP_SELECTOR, default=target_step_default)
 
     return fields
