@@ -1036,10 +1036,10 @@ class TestWriteConfirmTimeout:
     @pytest.mark.asyncio
     async def test_system_mode_polls_for_the_shared_window(self):
         """check_system_mode polls one second at a time up to the window."""
-        mock_hass = Mock()
+        mock_hass = MagicMock()
         mock_hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
 
-        mock_self = Mock()
+        mock_self = MagicMock()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -1058,12 +1058,12 @@ class TestWriteConfirmTimeout:
     @pytest.mark.asyncio
     async def test_target_temperature_polls_for_the_shared_window(self):
         """check_target_temperature polls one second at a time up to the window."""
-        mock_hass = Mock()
+        mock_hass = MagicMock()
         mock_hass.states.get.return_value = State(
             "climate.trv1", HVACMode.HEAT, {"temperature": 20.0}
         )
 
-        mock_self = Mock()
+        mock_self = MagicMock()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
