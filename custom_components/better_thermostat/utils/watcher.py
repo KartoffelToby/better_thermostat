@@ -119,6 +119,27 @@ async def get_battery_status(self, entity):
                 return
 
 
+def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
+    """Queue a battery read for an available entity, but only when it says something new.
+
+    Both availability checks run on nearly every event, and each read costs
+    a background task plus an entity state write. A battery value is only
+    ever new on the first pass after startup, while it is still unpopulated,
+    or when the entity has just come back from an outage, so those are the
+    passes that read it.
+    """
+    info = self.devices_states.get(entity)
+    needs_initial = (
+        info is not None
+        and info.get("battery_id") is not None
+        and info.get("battery") is None
+    )
+    if recovered or needs_initial:
+        self.hass.async_create_background_task(
+            get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
+        )
+
+
 async def check_all_entities(self) -> bool:
     """Verify all configured entities and report missing ones as issues.
 
@@ -263,20 +284,7 @@ async def check_critical_entities(self) -> bool:
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
             ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-            # Refresh battery status only when it is still unpopulated (first
-            # pass after startup) or when the entity just recovered. This
-            # avoids spawning a redundant background task on every periodic
-            # check, since check_critical_entities runs on nearly every event.
-            info = self.devices_states.get(entity)
-            needs_initial = (
-                info is not None
-                and info.get("battery_id") is not None
-                and info.get("battery") is None
-            )
-            if recovered or needs_initial:
-                self.hass.async_create_background_task(
-                    get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
-                )
+            schedule_battery_refresh(self, entity, recovered=recovered)
     return all_available
 
 
@@ -468,6 +476,9 @@ async def check_and_update_degraded_mode(self) -> bool:
     """
     optional = get_optional_sensors(self)
     unavailable = []
+    # Still the previous pass's list at this point, so it says which sensors
+    # are coming back from an outage on this one.
+    previously_unavailable = set(getattr(self, "unavailable_sensors", None) or ())
 
     for entity in optional:
         if not is_entity_available(self.hass, entity):
@@ -478,9 +489,8 @@ async def check_and_update_degraded_mode(self) -> bool:
                 entity,
             )
         else:
-            # Update battery status for available optional sensors
-            self.hass.async_create_background_task(
-                get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
+            schedule_battery_refresh(
+                self, entity, recovered=entity in previously_unavailable
             )
 
     # Check room temperature sensor - special case with TRV fallback
@@ -494,10 +504,10 @@ async def check_and_update_degraded_mode(self) -> bool:
             self.sensor_entity_id,
         )
     else:
-        # Update battery status for room temperature sensor
-        self.hass.async_create_background_task(
-            get_battery_status(self, self.sensor_entity_id),
-            name=f"bt_battery_status_{self.sensor_entity_id}",
+        schedule_battery_refresh(
+            self,
+            self.sensor_entity_id,
+            recovered=self.sensor_entity_id in previously_unavailable,
         )
 
     # Update instance state

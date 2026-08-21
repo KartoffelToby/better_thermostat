@@ -633,30 +633,74 @@ class TestCheckAndUpdateDegradedMode:
         assert result is True
         assert "sensor.room_temp" in mock_bt_instance.unavailable_sensors
 
-    @pytest.mark.anyio
-    async def test_calls_get_battery_status_for_available_sensors(
-        self, mock_bt_instance
-    ):
-        """Test that get_battery_status is called for available sensors."""
-        from custom_components.better_thermostat.utils.watcher import (
-            check_and_update_degraded_mode,
-        )
+    # The fixture configures four optional sensors plus the room sensor.
+    WATCHED_SENSORS = (
+        "binary_sensor.window",
+        "sensor.humidity",
+        "sensor.outdoor_temp",
+        "weather.home",
+        "sensor.room_temp",
+    )
 
+    @staticmethod
+    def _with_batteries(mock_bt_instance, *, battery):
+        """Give every watched sensor a battery entity in the given read state."""
+        mock_bt_instance.devices_states = {
+            entity: {"battery_id": f"{entity}_battery", "battery": battery}
+            for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
+        }
         mock_state = MagicMock()
         mock_state.state = "20.0"
         mock_bt_instance.hass.states.get.return_value = mock_state
 
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            with patch(
-                "custom_components.better_thermostat.utils.watcher.get_battery_status"
-            ):
-                await check_and_update_degraded_mode(mock_bt_instance)
+    @staticmethod
+    async def _run(mock_bt_instance):
+        """Run one degraded-mode pass and report the tasks it spawned."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
 
-                # Should be called for all available optional sensors + room sensor
-                # 4 optional sensors + 1 room sensor = 5 calls
-                assert (
-                    mock_bt_instance.hass.async_create_background_task.call_count == 5
-                )
+        with (
+            patch("custom_components.better_thermostat.utils.watcher.ir"),
+            patch(
+                "custom_components.better_thermostat.utils.watcher.get_battery_status"
+            ),
+        ):
+            await check_and_update_degraded_mode(mock_bt_instance)
+        return mock_bt_instance.hass.async_create_background_task.call_count
+
+    @pytest.mark.anyio
+    async def test_reads_batteries_while_they_are_still_unpopulated(
+        self, mock_bt_instance
+    ):
+        """First pass after startup: every available sensor gets one read."""
+        self._with_batteries(mock_bt_instance, battery=None)
+
+        assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
+
+    @pytest.mark.anyio
+    async def test_does_not_reread_batteries_that_are_already_known(
+        self, mock_bt_instance
+    ):
+        """This runs on nearly every event, so a known battery reads nothing.
+
+        Every read costs a background task and an entity state write, and a
+        battery whose value is already on record has nothing new to report.
+        """
+        self._with_batteries(mock_bt_instance, battery="87")
+
+        assert await self._run(mock_bt_instance) == 0
+
+    @pytest.mark.anyio
+    async def test_rereads_the_battery_of_a_sensor_that_just_recovered(
+        self, mock_bt_instance
+    ):
+        """A sensor back from an outage may carry a stale battery reading."""
+        self._with_batteries(mock_bt_instance, battery="87")
+        # The previous pass found this one unavailable.
+        mock_bt_instance.unavailable_sensors = ["sensor.humidity"]
+
+        assert await self._run(mock_bt_instance) == 1
 
 
 class TestDegradedModeGracePeriod:
