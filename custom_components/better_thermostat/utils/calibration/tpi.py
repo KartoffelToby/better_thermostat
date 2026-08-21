@@ -7,11 +7,13 @@ cycle duration and exposes rich debug logs for diagnostics.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 import logging
+import math
 from time import monotonic
 from typing import Any
+
+from .types import CalibrationHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,56 +60,22 @@ class _TpiState:
     last_update_ts: float = 0.0
 
 
+def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, str | None]:
+    """Return a usable TPI state; a poisoned one is replaced by a fresh one.
+
+    TPI carries no learned model — a non-finite remnant is simply
+    dropped and the duty cycle derives from live readings again.
+    """
+    for f in fields(state):
+        value = getattr(state, f.name)
+        if isinstance(value, float) and not math.isfinite(value):
+            return _TpiState(), "non-finite state"
+    return state, None
+
+
 # Public alias so callers can reference the state type without
 # importing a private name.
 TpiState = _TpiState
-
-_TPI_STATES: dict[str, _TpiState] = {}
-
-_STATE_EXPORT_FIELDS = ("last_percent",)
-
-
-def export_tpi_state_map(prefix: str | None = None) -> dict[str, dict[str, Any]]:
-    """Return a serializable mapping of TPI states, optionally filtered by key prefix."""
-
-    exported: dict[str, dict[str, Any]] = {}
-    for key, state in _TPI_STATES.items():
-        if prefix is not None and not key.startswith(prefix):
-            continue
-        payload: dict[str, Any] = {}
-        for attr in _STATE_EXPORT_FIELDS:
-            value = getattr(state, attr, None)
-            if value is None:
-                continue
-            payload[attr] = value
-        if payload:
-            exported[key] = payload
-    return exported
-
-
-def import_tpi_state_map(state_map: Mapping[str, Mapping[str, Any]]) -> None:
-    """Hydrate TPI states from a previously exported mapping."""
-
-    for key, payload in state_map.items():
-        if not isinstance(payload, Mapping):
-            continue
-        state = _TPI_STATES.setdefault(key, _TpiState())
-        for attr in _STATE_EXPORT_FIELDS:
-            if attr not in payload:
-                continue
-            value = payload[attr]
-            if value is None:
-                setattr(state, attr, None)
-                continue
-            try:
-                coerced: int | float
-                if attr in ("dead_zone_hits",):
-                    coerced = int(value)
-                else:
-                    coerced = float(value)
-            except (TypeError, ValueError):
-                continue
-            setattr(state, attr, coerced)
 
 
 def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
@@ -115,12 +83,12 @@ def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
         return None
     try:
         return round(float(v), d)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return v
 
 
 def compute_tpi(
-    inp: TpiInput, params: TpiParams, state: _TpiState | None = None
+    inp: TpiInput, params: TpiParams, *, state: _TpiState
 ) -> tuple[TpiOutput | None, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
@@ -131,9 +99,9 @@ def compute_tpi(
     params:
         Controller configuration.
     state:
-        Mutable controller state.  When ``None`` the function falls back
-        to the module-level ``_TPI_STATES`` dict for backwards
-        compatibility, but callers are encouraged to pass state explicitly.
+        Mutable controller state, owned by the caller (typically read from
+        and written back to the ``StateManager``).  It is mutated in place
+        and returned.
 
     Returns
     -------
@@ -143,11 +111,14 @@ def compute_tpi(
     """
     now = monotonic()
 
-    # --- Resolve state ---
-    if state is None:
-        state = _TPI_STATES.setdefault(inp.key, _TpiState())
-    else:
-        _TPI_STATES[inp.key] = state
+    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
+    state, pathology = sanitize_tpi_state(state)
+    if pathology is not None:
+        _LOGGER.warning(
+            "better_thermostat: discarding poisoned TPI state for %s (%s)",
+            inp.key,
+            pathology,
+        )
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
@@ -240,7 +211,7 @@ def _finalize_output(
     return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
 
 
-def build_tpi_key(bt, entity_id: str) -> str:
+def build_tpi_key(bt: CalibrationHost, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
 
     try:
@@ -250,7 +221,7 @@ def build_tpi_key(bt, entity_id: str) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         bucket = "tunknown"
 
     uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")

@@ -5,6 +5,7 @@ which are critical for handling user input and TRV state conversions.
 """
 
 from homeassistant.components.climate.const import HVACMode
+import pytest
 
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.helpers import (
@@ -234,6 +235,20 @@ class TestConvertToFloat:
         result = convert_to_float("1.5e-3", "test", "temperature")
         # Expected behavior: 0.0015 rounded to 0.0 due to 0.01 step
         assert result == 0.0
+
+    @pytest.mark.parametrize("value", ["inf", "-inf", float("inf"), float("-inf")])
+    def test_returns_none_for_infinity(self, value):
+        """Infinite readings degrade to None instead of raising.
+
+        The 0.01 step rounding converts to an integer number of steps, which
+        rejects infinity with OverflowError rather than ValueError.
+        """
+        assert convert_to_float(value, "test", "temperature") is None
+
+    @pytest.mark.parametrize("value", ["nan", float("nan")])
+    def test_returns_none_for_nan(self, value):
+        """NaN readings degrade to None instead of raising."""
+        assert convert_to_float(value, "test", "temperature") is None
 
 
 class TestIsReasonableTemperature:

@@ -16,7 +16,7 @@ or click on the button below:
 
 ## First step
 
-![first step](../../../assets/setup_1.png)
+![first step](../assets/setup_1.png)
 
 **Name** This is a required field. It is the name of the virtual climate. It is used as an entity key name.
 
@@ -30,7 +30,7 @@ or click on the button below:
 
 **Window Sensor** This is an optional field. If you have a window sensor you can use it to turn off the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the GitHub page for more info).
 
-### Example Window/Door - Sensor config
+### Example window/door sensor config
 
 ```yaml
 group:
@@ -50,11 +50,11 @@ group:
 
 **The outdoor temperature threshold** This is an optional field. If you have an outdoor sensor or a weather entity, you can set a threshold. If the outdoor temperature is higher than the threshold, the thermostat will be turned off. If the outdoor temperature is lower than the threshold, the thermostat will be turned on. If you don't have an outdoor sensor or a weather entity, this field will be ignored.
 
-**Tolerance** This is an optional field. It helps prevent the thermostat from turning on and off too often. Here is an example of how it works: If you set the target temperature to 20.0 and the tolerance to 0.3 for example. Then BT will heat to 20.0 and then go to idle until the temperature drops again to 19.7 and then it will heat again to 20.0.
+**Tolerance** This is an optional field. It helps prevent the thermostat from turning on and off too often. Here is an example of how it works: If you set the target temperature to 20.0 and the tolerance to 0.3 for example. Then BT will heat to 20.0 and then go to idle until the temperature drops again to 19.7 and then it will heat again to 20.0. If you configured a cooler, the tolerance delays the switch-on instead of advancing it: with a cooling target of 24.0 and a tolerance of 0.3, BT starts cooling once the temperature reaches 24.3 and keeps cooling until it is back below 24.0. The cooling band is never narrower than 0.2, so with a tolerance of 0.1 cooling still starts at 24.1, but it keeps running until the temperature is back below 23.9.
 
 ## Second step
 
-![second step](../../../assets/config_2.png)
+![second step](../assets/config_2.png)
 
 **Calibration Type** This is a required field. How the calibration should be applied on the TRV (Target temp or offset)
 
@@ -101,11 +101,11 @@ Better Thermostat offers several algorithms to control your heating:
 
 **Quick guide:**
 
-- First-time user? → Start with **AI Time Based** (default)
-- Room heats slowly? → Try **Aggressive**
-- Temperature overshoots? → Try **MPC Predictive**
-- Want fine control? → Try **PID Controller**
-- **Using HomeMatic IP/CCU?** → Offset-based calibration now supports SELECT entities automatically
+- Start with AI Time Based, the default
+- Switch to Aggressive if the room heats slowly
+- Switch to MPC Predictive if the temperature overshoots
+- Switch to PID Controller if you want fine control
+- On HomeMatic IP/CCU, offset-based calibration handles SELECT entities automatically
 
 **Overheating protection** This should only be checked if you have any problems with strong overheating.
 

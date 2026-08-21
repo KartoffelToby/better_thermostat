@@ -1,5 +1,7 @@
 """Config flow for Better Thermostat."""
 
+from __future__ import annotations
+
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
@@ -30,17 +32,22 @@ from .utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_CHILD_LOCK,
     CONF_COOLER,
+    CONF_DOOR_TIMEOUT,
+    CONF_DOOR_TIMEOUT_AFTER,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_HEATER,
     CONF_HOMEMATICIP,
     CONF_HUMIDITY,
+    CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_MODEL,
+    CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
     CONF_PROTECT_OVERHEATING,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
@@ -48,10 +55,12 @@ from .utils.const import (
     CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
+    MpcV2PlantPreset,
 )
-from .utils.helpers import get_device_model, get_trv_intigration
+from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,20 +69,25 @@ CONFIG_WALKTHROUGH_URL = (
 )
 
 
+_TARGET_TEMP_STEP_SELECTOR_TO_VALUE = {
+    "auto_legacy": "0.0",
+    "auto": "",
+    "step_0_1": "0.1",
+    "step_0_2": "0.2",
+    "step_0_25": "0.25",
+    "step_0_5": "0.5",
+    "step_1_0": "1.0",
+}
+_TARGET_TEMP_STEP_VALUE_TO_SELECTOR = {
+    value: key for key, value in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE.items()
+}
+
 TEMP_STEP_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
-        options=[
-            selector.SelectOptionDict(
-                value="0.0", label="Auto"
-            ),  # Keep for backwards compatibility
-            selector.SelectOptionDict(value="", label="Auto (New)"),
-            selector.SelectOptionDict(value="0.1", label="0.1 °C"),
-            selector.SelectOptionDict(value="0.2", label="0.2 °C"),
-            selector.SelectOptionDict(value="0.25", label="0.25 °C"),
-            selector.SelectOptionDict(value="0.5", label="0.5 °C"),
-            selector.SelectOptionDict(value="1.0", label="1 °C"),
-        ],
+        # Stable selector tokens keep labels translatable without changing stored values.
+        options=list(_TARGET_TEMP_STEP_SELECTOR_TO_VALUE),
         mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="target_temp_step",
     )
 )
 
@@ -81,30 +95,31 @@ TEMP_STEP_SELECTOR = selector.SelectSelector(
 CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(
-                value=CalibrationMode.HEATING_POWER_CALIBRATION, label="(AI) Time Based"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.DEFAULT,
-                label="External Sensor Offset Only (Default)",
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.MPC_CALIBRATION, label="MPC Predictive (Beta)"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.AGGRESIVE_CALIBRATION, label="Agressive"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.TPI_CALIBRATION, label="TPI Controller"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.PID_CALIBRATION, label="PID Controller"
-            ),
-            selector.SelectOptionDict(
-                value=CalibrationMode.NO_CALIBRATION, label="No Calibration"
-            ),
+            CalibrationMode.HEATING_POWER_CALIBRATION,
+            CalibrationMode.DEFAULT,
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
+            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.TPI_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+            CalibrationMode.NO_CALIBRATION,
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="calibration_mode",
+    )
+)
+
+
+MPC_V2_PLANT_PRESET_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=[
+            MpcV2PlantPreset.AUTO,
+            MpcV2PlantPreset.SMALL_ROOM,
+            MpcV2PlantPreset.MEDIUM_ROOM,
+            MpcV2PlantPreset.LARGE_ROOM,
+        ],
+        mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="mpc_v2_plant_preset",
     )
 )
 
@@ -112,13 +127,13 @@ CALIBRATION_MODE_SELECTOR = selector.SelectSelector(
 PRESET_SELECTOR = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=[
-            selector.SelectOptionDict(value=PRESET_ECO, label="Eco"),
-            selector.SelectOptionDict(value=PRESET_AWAY, label="Away"),
-            selector.SelectOptionDict(value=PRESET_BOOST, label="Boost"),
-            selector.SelectOptionDict(value=PRESET_COMFORT, label="Comfort"),
-            selector.SelectOptionDict(value=PRESET_HOME, label="Home"),
-            selector.SelectOptionDict(value=PRESET_SLEEP, label="Sleep"),
-            selector.SelectOptionDict(value=PRESET_ACTIVITY, label="Activity"),
+            PRESET_ECO,
+            PRESET_AWAY,
+            PRESET_BOOST,
+            PRESET_COMFORT,
+            PRESET_HOME,
+            PRESET_SLEEP,
+            PRESET_ACTIVITY,
         ],
         mode=selector.SelectSelectorMode.DROPDOWN,
         multiple=True,
@@ -131,6 +146,7 @@ _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_STEP: "0.0",
+    CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
 
 
@@ -162,18 +178,14 @@ async def _load_adapter_info(
         if adapter is None:
             try:
                 adapter = await load_adapter(flow, integration, trv_id)
-            except (
-                RuntimeError,
-                ValueError,
-                TypeError,
-            ):  # pragma: no cover - defensive
+            except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
                 # type: ignore[attr-defined]
                 info = await adapter.get_info(flow, trv_id)
-            except (RuntimeError, ValueError, TypeError, AttributeError):
+            except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
 
     return adapter, info
@@ -196,7 +208,7 @@ def _trv_supports_auto(
     if not trv_state or not hasattr(trv_state, "attributes"):
         return False
     hvac_modes = trv_state.attributes.get("hvac_modes") or []
-    return HVACMode.AUTO in hvac_modes
+    return device_offers_mode(hvac_modes, HVACMode.AUTO)
 
 
 def _build_advanced_fields(
@@ -221,7 +233,7 @@ def _build_advanced_fields(
             elif balance_mode in ("heuristic", "none"):
                 # For other balance modes, set calibration_mode to default if not set
                 if "calibration_mode" not in source:
-                    source["calibration_mode"] = CalibrationMode.MPC_CALIBRATION.value
+                    source["calibration_mode"] = DEFAULT_CALIBRATION_MODE.value
                 # Remove old balance_mode
                 source.pop("balance_mode", None)
 
@@ -244,28 +256,18 @@ def _build_advanced_fields(
 
     options = []
     if support_valve:
-        options.append(
-            selector.SelectOptionDict(
-                value=CalibrationType.DIRECT_VALVE_BASED, label="Direct Valve Based"
-            )
-        )
+        options.append(CalibrationType.DIRECT_VALVE_BASED)
 
-    options.append(
-        selector.SelectOptionDict(
-            value=CalibrationType.TARGET_TEMP_BASED, label="Target Temperature Based"
-        )
-    )
+    options.append(CalibrationType.TARGET_TEMP_BASED)
 
     if support_offset:
-        options.append(
-            selector.SelectOptionDict(
-                value=CalibrationType.LOCAL_BASED, label="Offset Based"
-            )
-        )
+        options.append(CalibrationType.LOCAL_BASED)
 
     calib_selector = selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=options, mode=selector.SelectSelectorMode.DROPDOWN
+            options=options,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+            translation_key="calibration_type",
         )
     )
     ordered: OrderedDict = OrderedDict()
@@ -275,11 +277,16 @@ def _build_advanced_fields(
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
-            default=get_value(
-                CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
-            ),
+            default=get_value(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
         )
     ] = CALIBRATION_MODE_SELECTOR
+
+    ordered[
+        vol.Optional(
+            CONF_MPC_V2_PLANT_PRESET,
+            default=get_value(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO),
+        )
+    ] = MPC_V2_PLANT_PRESET_SELECTOR
 
     ordered[
         vol.Optional(
@@ -317,7 +324,7 @@ def _normalize_advanced_submission(
     normalized: dict[str, Any] = dict(data)
     normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, CalibrationMode.HEATING_POWER_CALIBRATION
+        CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE
     )
     normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
         normalized.get(CONF_PROTECT_OVERHEATING), False
@@ -345,12 +352,12 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
     if isinstance(duration, (int, float)):
         try:
             return max(int(duration), 0)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0
     if isinstance(duration, dict):
         try:
             return int(cv.time_period_dict(duration).total_seconds()) or 0
-        except (vol.Invalid, TypeError, ValueError):
+        except vol.Invalid, TypeError, ValueError:
             return 0
     return 0
 
@@ -358,7 +365,7 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
 def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]:
     try:
         total = int(value or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         total = 0
     total = max(total, 0)
     hours, remainder = divmod(total, 3600)
@@ -455,6 +462,22 @@ def _build_user_fields(
     add_entity_selector(CONF_HEATER, domain="climate", multiple=True, required=True)
     add_entity_selector(CONF_COOLER, domain="climate", multiple=False)
 
+    # Only relevant once a cooler is configured, so keep it out of heat-only forms.
+    if resolve(CONF_COOLER):
+        resend_default = resolve(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
+        )
+        try:
+            resend_default = int(resend_default)
+        except TypeError, ValueError:
+            resend_default = _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL]
+        add_field(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            vol.All(vol.Coerce(int), vol.Range(min=0)),
+            default=resend_default,
+        )
+
     add_entity_selector(
         CONF_SENSOR,
         domain=["sensor", "number", "input_number"],
@@ -474,9 +497,17 @@ def _build_user_fields(
     add_entity_selector(
         CONF_SENSOR_WINDOW, domain=["group", "sensor", "input_boolean", "binary_sensor"]
     )
+    add_entity_selector(
+        CONF_SENSOR_DOOR, domain=["group", "sensor", "input_boolean", "binary_sensor"]
+    )
     add_entity_selector(CONF_WEATHER, domain="weather")
 
-    for key in (CONF_WINDOW_TIMEOUT, CONF_WINDOW_TIMEOUT_AFTER):
+    for key in (
+        CONF_WINDOW_TIMEOUT,
+        CONF_WINDOW_TIMEOUT_AFTER,
+        CONF_DOOR_TIMEOUT,
+        CONF_DOOR_TIMEOUT_AFTER,
+    ):
         if key in user_input and user_input[key] is not None:
             duration_default = user_input[key]
         else:
@@ -494,7 +525,7 @@ def _build_user_fields(
     )
     try:
         off_temp_default = int(off_temp_default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
@@ -505,7 +536,7 @@ def _build_user_fields(
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
     try:
         tolerance_default = float(tolerance_default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         tolerance_default = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
     add_field(
         CONF_TOLERANCE,
@@ -517,7 +548,14 @@ def _build_user_fields(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
     if target_step_default is not None:
-        target_step_default = str(target_step_default)
+        target_step_key = str(target_step_default)
+        if target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE:
+            # A re-displayed form carries the submitted selector token, not a stored value.
+            target_step_default = target_step_key
+        else:
+            target_step_default = _TARGET_TEMP_STEP_VALUE_TO_SELECTOR.get(
+                target_step_key, "auto_legacy"
+            )
     add_field(CONF_TARGET_TEMP_STEP, TEMP_STEP_SELECTOR, default=target_step_default)
 
     return fields
@@ -552,11 +590,12 @@ def _normalize_user_submission(
             if isinstance(item, dict) and item.get("trv")
         ]
     normalized[CONF_HEATER] = list(heaters_list)
-    normalized[CONF_COOLER] = user_input.get(CONF_COOLER, normalized.get(CONF_COOLER))
 
     optional_keys = (
+        CONF_COOLER,
         CONF_SENSOR,
         CONF_SENSOR_WINDOW,
+        CONF_SENSOR_DOOR,
         CONF_HUMIDITY,
         CONF_OUTDOOR_SENSOR,
         CONF_WEATHER,
@@ -571,7 +610,12 @@ def _normalize_user_submission(
         else:
             normalized[key] = None
 
-    for key in (CONF_WINDOW_TIMEOUT, CONF_WINDOW_TIMEOUT_AFTER):
+    for key in (
+        CONF_WINDOW_TIMEOUT,
+        CONF_WINDOW_TIMEOUT_AFTER,
+        CONF_DOOR_TIMEOUT,
+        CONF_DOOR_TIMEOUT_AFTER,
+    ):
         if key in user_input:
             normalized[key] = _duration_dict_to_seconds(user_input.get(key))
         elif mode == "create" and key not in normalized:
@@ -588,7 +632,7 @@ def _normalize_user_submission(
     else:
         try:
             normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[
                 CONF_OFF_TEMPERATURE
             ]
@@ -607,7 +651,7 @@ def _normalize_user_submission(
     else:
         try:
             normalized[CONF_TOLERANCE] = float(tolerance)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
 
     target_step = user_input.get(
@@ -616,9 +660,32 @@ def _normalize_user_submission(
             CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
         ),
     )
-    if target_step in (None, ""):
+    target_step_key = str(target_step)
+    target_step_from_selector = target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE
+    if target_step_from_selector:
+        target_step = _TARGET_TEMP_STEP_SELECTOR_TO_VALUE[target_step_key]
+    if target_step is None or (target_step == "" and not target_step_from_selector):
         target_step = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     normalized[CONF_TARGET_TEMP_STEP] = str(target_step)
+
+    resend_interval = user_input.get(
+        CONF_MIN_COOLER_RESEND_INTERVAL,
+        normalized.get(
+            CONF_MIN_COOLER_RESEND_INTERVAL,
+            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
+        ),
+    )
+    if resend_interval is None:
+        normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
+            CONF_MIN_COOLER_RESEND_INTERVAL
+        ]
+    else:
+        try:
+            normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = max(0, int(resend_interval))
+        except TypeError, ValueError:
+            normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
+                CONF_MIN_COOLER_RESEND_INTERVAL
+            ]
 
     return normalized
 
@@ -652,8 +719,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Better Thermostat."""
 
     VERSION = 18
-
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
         """Initialize the config flow."""
@@ -770,7 +835,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 hvac_modes: list[str] = []
                 if state_obj and hasattr(state_obj, "attributes"):
                     hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
-                if HVACMode.OFF not in hvac_modes:
+                if not device_offers_mode(hvac_modes, HVACMode.OFF):
                     _has_off_mode = False
 
             if not _has_off_mode:
@@ -864,6 +929,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Dynamic config structures use Any as they store heterogeneous data
         self.trv_bundle: list[dict[str, Any]] = []
         self.device_name = ""
+        self.model: str | None = None
         self._last_step = False
         self.updated_config: dict[str, Any] = {}
         self._active_trv_config: dict[str, Any] | None = None
@@ -1081,7 +1147,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced = trv.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             if calibration_mode:
-                # Konvertiere String zu Enum falls nötig
+                # Convert string to enum if needed
                 if isinstance(calibration_mode, str):
                     try:
                         calibration_mode = CalibrationMode(calibration_mode)

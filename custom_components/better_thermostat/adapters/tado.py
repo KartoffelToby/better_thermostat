@@ -4,6 +4,8 @@ This module implements the thin adapter that maps Better Thermostat actions
 onto the Tado climate services (offsets and modes).
 """
 
+from __future__ import annotations
+
 import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -46,7 +48,7 @@ async def get_current_offset(self, entity_id):
         return 0.0
     try:
         return float(str(state.attributes.get("offset_celsius", 0)))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         _LOGGER.warning(
             "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
             self.device_name,
@@ -70,8 +72,24 @@ async def get_max_offset(self, entity_id):
     return 10
 
 
-async def set_offset(self, entity_id, offset):
-    """Set new target offset."""
+async def set_offset(self, entity_id, offset) -> bool:
+    """Write a calibration offset through the Tado offset service.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    offset : float
+        Calibration offset in Kelvin, clamped to the range Tado accepts
+
+    Returns
+    -------
+    bool
+        True once the write went out. The offset rides on the TRV's own
+        service call, so every Tado TRV has the channel.
+    """
     offset = min(10, offset)
     offset = max(-10, offset)
     await self.hass.services.async_call(
@@ -81,7 +99,8 @@ async def set_offset(self, entity_id, offset):
         blocking=True,
         context=self.context,
     )
-    self.real_trvs[entity_id]["last_calibration"] = offset
+    self.real_trvs[entity_id].last_calibration = offset
+    return True
 
 
 async def set_valve(self, entity_id, valve):

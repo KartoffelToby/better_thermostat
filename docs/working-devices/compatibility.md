@@ -22,12 +22,12 @@ Currently, integrations with local calibration support include:
 
 ## Direct valve control (recommended for MPC/PID)
 
-Direct valve control both:
+Direct valve control requires both:
 
 1. Adapter support in Better Thermostat
-2. A compatible offset capability on your TRV/integration
+2. A controllable valve position entity exposed by your TRV/integration
 
-Some devices expose controllable valve position entities. These work best with advanced control modes (MPC/PID), because BT can set valve opening directly.
+Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly.
 
 ## Devices that are known to work
 
@@ -36,6 +36,8 @@ Better Thermostat includes specific fixes and optimizations for the following de
 - BHT-002-GCLZB
 - BTH-RM
 - BTH-RM230Z
+- COZB0001 (Eurotronic Comet Zigbee)
+- ME167 (Avatto)
 - SEA801-Zigbee / SEA802-Zigbee
 - SPZB0001 (Eurotronic Spirit Zigbee)
 - TRVZB (Sonoff TRVZB)

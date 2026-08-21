@@ -1,5 +1,7 @@
 """Weather utils."""
 
+from __future__ import annotations
+
 from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -52,7 +54,6 @@ async def check_weather(self) -> bool:
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
-            # TODO: add condition if heating period (oct-mar) then set it to true?
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
@@ -81,12 +82,26 @@ async def check_weather(self) -> bool:
 
     if self.weather_entity is None and self.outdoor_sensor is None:
         self.call_for_heat = True
-        return True
 
     if old_call_for_heat != self.call_for_heat:
-        return True
-    else:
-        return False
+        from custom_components.better_thermostat.utils.helpers import (
+            async_fire_logbook_entry,
+        )
+
+        if not self.call_for_heat:
+            await async_fire_logbook_entry(
+                self,
+                "summer_mode_on",
+                "turned off because the outdoor temperature is too high",
+            )
+        else:
+            await async_fire_logbook_entry(
+                self,
+                "summer_mode_off",
+                "resumed heating because the outdoor temperature dropped",
+            )
+
+    return old_call_for_heat != self.call_for_heat
 
 
 async def check_weather_prediction(self) -> bool | None:
@@ -210,7 +225,7 @@ async def check_weather_prediction(self) -> bool | None:
             return bool(cond_cur or cond_fc)
         else:
             raise TypeError
-    except (TypeError, ServiceNotSupported, HomeAssistantError):
+    except TypeError, ServiceNotSupported, HomeAssistantError:
         _LOGGER.warning(
             "better_thermostat %s: no weather entity data found.", self.device_name
         )
@@ -282,7 +297,7 @@ async def check_ambient_air_temperature(self):
         items = []
         try:
             items = history_list.get(lower_entity_id) or []
-        except (AttributeError, KeyError, TypeError):
+        except AttributeError, KeyError, TypeError:
             items = []
         for item in items:
             # filter out all None, NaN, "unknown" and "unavailable" states.

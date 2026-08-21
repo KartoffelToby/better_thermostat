@@ -4,6 +4,8 @@ This module dynamically imports model-specific quirk modules and exposes
 small shim functions that delegate into the model-specific implementations.
 """
 
+from __future__ import annotations
+
 import logging
 import re
 
@@ -15,8 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 async def load_model_quirks(self, model, entity_id):
     """Load model quirks module for a given TRV model, falling back to default.
 
-    Adds explicit debug logs for both success and fallback paths to make it
-    visible why nothing appeared previously.
+    Emits debug logs for both the success and the fallback path.
     """
 
     # Normalize model to a safe module suffix
@@ -73,7 +74,7 @@ def fix_local_calibration(self, entity_id, offset):
     local calibration offset.
     """
 
-    _new_offset = self.real_trvs[entity_id]["model_quirks"].fix_local_calibration(
+    _new_offset = self.real_trvs[entity_id].model_quirks.fix_local_calibration(
         self, entity_id, offset
     )
 
@@ -98,7 +99,7 @@ def fix_valve_calibration(self, entity_id, valve):
     valve calibration value.
     """
 
-    quirks = self.real_trvs[entity_id]["model_quirks"]
+    quirks = self.real_trvs[entity_id].model_quirks
     if hasattr(quirks, "fix_valve_calibration"):
         _new_valve = quirks.fix_valve_calibration(self, entity_id, valve)
     else:
@@ -123,9 +124,9 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     requested setpoint temperature.
     """
 
-    _new_temperature = self.real_trvs[entity_id][
-        "model_quirks"
-    ].fix_target_temperature_calibration(self, entity_id, temperature)
+    _new_temperature = self.real_trvs[
+        entity_id
+    ].model_quirks.fix_target_temperature_calibration(self, entity_id, temperature)
 
     if temperature != _new_temperature:
         _LOGGER.debug(
@@ -144,7 +145,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 
     Returns the model-quirks module's response (True if handled).
     """
-    return await self.real_trvs[entity_id]["model_quirks"].override_set_hvac_mode(
+    return await self.real_trvs[entity_id].model_quirks.override_set_hvac_mode(
         self, entity_id, hvac_mode
     )
 
@@ -154,13 +155,13 @@ async def override_set_temperature(self, entity_id, temperature):
 
     Returns the model-quirks module's response (True if handled).
     """
-    return await self.real_trvs[entity_id]["model_quirks"].override_set_temperature(
+    return await self.real_trvs[entity_id].model_quirks.override_set_temperature(
         self, entity_id, temperature
     )
 
 
-async def inital_tweak(self, entity_id):
+async def initial_tweak(self, entity_id):
     """Run initial tweaks for the device."""
-    quirks = self.real_trvs[entity_id]["model_quirks"]
-    if hasattr(quirks, "inital_tweak"):
-        await quirks.inital_tweak(self, entity_id)
+    quirks = self.real_trvs[entity_id].model_quirks
+    if hasattr(quirks, "initial_tweak"):
+        await quirks.initial_tweak(self, entity_id)

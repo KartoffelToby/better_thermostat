@@ -6,7 +6,20 @@ import lit from "@astrojs/lit";
 
 // https://astro.build/config
 export default defineConfig({
-  
+  // Old URLs that are linked from released integration versions and
+  // external sites; keep them working after a page moves or is merged
+  // into another one.
+  redirects: {
+    "/schedule": "/deep-explanations/schedule-and-night-mode",
+    "/qanda": "/faq/common-questions",
+    "/qanda/supported": "/working-devices/compatibility",
+    "/qanda/modes": "/faq/common-questions",
+    "/qanda/debugging": "/faq/debugging",
+    "/qanda/missing_entity": "/faq/missing-entity",
+    "/qanda/degraded_mode": "/faq/degraded-mode",
+    "/qanda/window_sensor": "/faq/window-sensor",
+  },
+
   integrations: [
     lit(),
     starlight({

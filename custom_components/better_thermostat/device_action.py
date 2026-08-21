@@ -26,6 +26,7 @@ from homeassistant.helpers.typing import ConfigType, TemplateVarsType
 import voluptuous as vol
 
 from . import DOMAIN
+from .utils.helpers import is_bt_climate_entity
 
 ACTION_TYPES = {"set_hvac_mode", "set_temperature"}
 
@@ -46,7 +47,7 @@ async def async_get_actions(
 
     # Get all the integrations entities for this device
     for entry in entity_registry.async_entries_for_device(registry, device_id):
-        if entry.domain != DOMAIN:
+        if not is_bt_climate_entity(entry):
             continue
 
         base_action = {

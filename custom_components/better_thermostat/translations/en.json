@@ -8,13 +8,17 @@
           "name": "Name",
           "thermostat": "The real thermostat",
           "cooler": "The cooling device (optional)",
+          "min_cooler_resend_interval": "Minimum seconds between repeated cooler commands (0 = disabled)",
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",
+          "door_sensors": "Door sensor",
           "off_temperature": "The outdoor temperature when the thermostat should turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
           "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+          "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+          "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
@@ -51,7 +55,8 @@
       "failed": "Something went wrong.",
       "no_name": "Please enter a name.",
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
-      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead."
+      "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
+      "no_data": "No data was received. Please try again."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -68,10 +73,13 @@
           "temperature_sensor": "Temperature Sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window Sensor",
+          "door_sensors": "Door sensor",
           "off_temperature": "The outdoor temperature when the thermostat should turn off",
           "tolerance": "Tolerance, to prevent the thermostat from turning on and off too often",
           "window_off_delay": "Delay before the thermostat should turn off when the window is opened",
           "window_off_delay_after": "Delay before the thermostat should turn on when the window is closed",
+          "door_off_delay": "Delay before the thermostat should turn off when the door is opened",
+          "door_off_delay_after": "Delay before the thermostat should turn on when the door is closed",
           "outdoor_sensor": "Outdoor temperature sensor",
           "weather": "Weather entity to get the outdoor temperature",
           "target_temp_step": "Target temperature step",
@@ -120,11 +128,19 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensor error: {sensors} running in degraded mode",
-      "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat will continue to operate with reduced functionality. For example:\n- If the room temperature sensor is unavailable, the TRV's internal sensor will be used instead.\n- If window sensors are unavailable, windows are assumed to be closed.\n- If outdoor/weather sensors are unavailable, heating will always be enabled.\n\nCheck if the affected devices have battery issues or connectivity problems."
+      "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat will continue to operate with reduced functionality. For example:\n- If the room temperature sensor is unavailable, the TRV's internal sensor will be used instead.\n- If a window or door sensor is unavailable, its last known state stays in effect: a contact that was closed keeps heating enabled, a contact that was open keeps heating suppressed until the sensor reports closed again. Only at startup is an unavailable contact sensor treated as closed.\n- If outdoor/weather sensors are unavailable, heating will always be enabled.\n\nCheck if the affected devices have battery issues or connectivity problems."
     },
     "invalid_window_state": {
       "title": "BT: {name} - invalid window sensor state",
       "description": "The window sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your window sensor configuration."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - invalid door sensor state",
+      "description": "The door sensor for Better Thermostat {name} reported an unrecognized state: {state}.\n\nExpected states are: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nPlease check your door sensor configuration."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - invalid external temperature",
+      "description": "The external temperature sensor for Better Thermostat {name} reported an implausible value: {value}.\n\nThe reading was outside the plausible range and has been ignored. Please check your temperature sensor configuration."
     }
   },
   "services": {
@@ -134,16 +150,12 @@
     },
     "reset_heating_power": {
       "name": "Reset heating power",
-      "description": "Reset heating power to default value."
+      "description": "Reset the heating power to its default value."
     },
     "reset_pid_learnings": {
       "name": "Reset PID learnings",
-      "description": "Clear all learned PID state (and optionally learned open caps) for this entity.",
+      "description": "Clear all learned PID state for this entity.",
       "fields": {
-        "include_open_caps": {
-          "name": "Also clear learned open caps",
-          "description": "If enabled, also clears learned min/max open percentages per TRV/target bucket."
-        },
         "apply_pid_defaults": {
           "name": "Apply PID defaults after reset",
           "description": "If enabled, seeds the current target bucket(s) with PID default gains (kp/ki/kd). You can override defaults below."
@@ -174,6 +186,44 @@
         "sleep": "Sleep",
         "activity": "Activity"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Auto (legacy)",
+        "auto": "Auto",
+        "step_0_1": "0.1 °C",
+        "step_0_2": "0.2 °C",
+        "step_0_25": "0.25 °C",
+        "step_0_5": "0.5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "(AI) Time Based (Default)",
+        "default": "External Sensor Offset Only",
+        "mpc_calibration": "MPC Predictive (Beta)",
+        "mpc_v2_calibration": "(AI) MPC v2 (QP + Kalman, experimental)",
+        "fix_calibration": "Aggressive",
+        "tpi_calibration": "TPI Controller",
+        "pid_calibration": "PID Controller",
+        "no_calibration": "No Calibration"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Direct Valve Based",
+        "target_temp_based": "Target Temperature Based",
+        "local_calibration_based": "Offset Based"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Auto (use learned heat-loss rate)",
+        "small_room": "Small room (~10 m², fast response)",
+        "medium_room": "Medium room (~20 m², standard)",
+        "large_room": "Large room (~40 m², slow envelope)"
+      }
     }
   },
   "entity": {
@@ -195,6 +245,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (Derivative)"
+      },
+      "preset_eco": {
+        "name": "Eco"
+      },
+      "preset_eco_min": {
+        "name": "Eco Min"
+      },
+      "preset_eco_max": {
+        "name": "Eco Max"
+      },
+      "preset_away": {
+        "name": "Away"
+      },
+      "preset_away_min": {
+        "name": "Away Min"
+      },
+      "preset_away_max": {
+        "name": "Away Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Comfort"
+      },
+      "preset_comfort_min": {
+        "name": "Comfort Min"
+      },
+      "preset_comfort_max": {
+        "name": "Comfort Max"
+      },
+      "preset_home": {
+        "name": "Home"
+      },
+      "preset_home_min": {
+        "name": "Home Min"
+      },
+      "preset_home_max": {
+        "name": "Home Max"
+      },
+      "preset_sleep": {
+        "name": "Sleep"
+      },
+      "preset_sleep_min": {
+        "name": "Sleep Min"
+      },
+      "preset_sleep_max": {
+        "name": "Sleep Max"
+      },
+      "preset_activity": {
+        "name": "Activity"
+      },
+      "preset_activity_min": {
+        "name": "Activity Min"
+      },
+      "preset_activity_max": {
+        "name": "Activity Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name} Valve Max Opening"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Valve Max Opening"
       }
     },
     "switch": {
@@ -209,6 +328,65 @@
       },
       "child_lock_no_trv": {
         "name": "Child Lock"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "turned off because a window was opened",
+          "window_close": "resumed heating because a window was closed",
+          "summer_mode_on": "turned off because the outdoor temperature is too high",
+          "summer_mode_off": "resumed heating because the outdoor temperature dropped",
+          "degraded_mode_entered": "entered degraded mode because some sensors are unavailable",
+          "degraded_mode_resolved": "exited degraded mode because all sensors are available",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      },
+      "external_temp_ema": {
+        "name": "Temperature EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Temperature EMA 1h"
+      },
+      "temp_slope": {
+        "name": "Temperature Slope"
+      },
+      "heating_power": {
+        "name": "Heating Power"
+      },
+      "heat_loss": {
+        "name": "Heat Loss"
+      },
+      "virtual_temp": {
+        "name": "Virtual Temperature"
+      },
+      "mpc_gain": {
+        "name": "MPC Gain"
+      },
+      "mpc_loss": {
+        "name": "MPC Loss"
+      },
+      "mpc_ka": {
+        "name": "MPC Insulation (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "PID Output"
+      },
+      "pid_error": {
+        "name": "PID Error"
+      },
+      "solar_intensity": {
+        "name": "Sun Intensity Heatup"
       }
     }
   },

@@ -8,13 +8,17 @@
           "name": "Ad",
           "thermostat": "Gerçek termostat",
           "cooler": "Soğutma cihazı (isteğe bağlı)",
+          "min_cooler_resend_interval": "Tekrarlanan soğutucu komutları arasındaki minimum saniye (0 = devre dışı)",
           "temperature_sensor": "Sıcaklık sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere sensörü",
+          "door_sensors": "Kapı sensörü",
           "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
           "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
           "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "door_off_delay": "Kapı açıldığında termostatın kapanması için gecikme süresi",
+          "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
@@ -51,7 +55,8 @@
       "failed": "Bir şeyler yanlış gitti.",
       "no_name": "Lütfen bir ad girin.",
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
-      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak."
+      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -68,10 +73,13 @@
           "temperature_sensor": "Sıcaklık Sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere Sensörü",
+          "door_sensors": "Kapı sensörü",
           "off_temperature": "Termostatın kapanacağı dış ortam sıcaklığı",
           "tolerance": "Tolerans, termostatın çok sık açılıp kapanmasını önlemek için.",
           "window_off_delay": "Pencere açıldığında termostatın kapanması için gecikme süresi",
           "window_off_delay_after": "Pencere kapandığında termostatın açılması için gecikme süresi",
+          "door_off_delay": "Kapı açıldığında termostatın kapanması için gecikme süresi",
+          "door_off_delay_after": "Kapı kapandığında termostatın açılması için gecikme süresi",
           "outdoor_sensor": "Dış ortam sensörünüz varsa, dış ortam sıcaklığını almak için kullanabilirsiniz",
           "weather": "Dış ortam sıcaklığını almak için hava durumu varlığı",
           "target_temp_step": "Hedef sıcaklık adımı",
@@ -125,6 +133,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
       "description": "Better Thermostat {name} için pencere sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen pencere sensörü yapılandırmanızı kontrol edin."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - geçersiz kapı sensörü durumu",
+      "description": "Better Thermostat {name} için kapı sensörü tanınmayan bir durum bildirdi: {state}.\n\nBeklenen durumlar: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nLütfen kapı sensörü yapılandırmanızı kontrol edin."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - geçersiz dış ortam sıcaklığı",
+      "description": "Better Thermostat {name} için dış ortam sıcaklık sensörü mantıksız bir değer bildirdi: {value}.\n\nOkunan değer makul aralığın dışındaydı ve yok sayıldı. Lütfen sıcaklık sensörü yapılandırmanızı kontrol edin."
     }
   },
   "services": {
@@ -138,12 +154,8 @@
     },
     "reset_pid_learnings": {
       "name": "PID öğrenmelerini sıfırla",
-      "description": "Bu varlık için öğrenilen tüm PID durumunu (ve isteğe bağlı olarak öğrenilen açıklık sınırlarını) temizler.",
+      "description": "Bu varlık için öğrenilen tüm PID durumunu temizler.",
       "fields": {
-        "include_open_caps": {
-          "name": "Öğrenilen açıklık sınırlarını da temizle",
-          "description": "Etkinleştirilirse, TRV/hedef aralığı başına öğrenilen minimum/maksimum açıklık yüzdeleri de temizlenir."
-        },
         "apply_pid_defaults": {
           "name": "Sıfırlamadan sonra PID varsayılanlarını uygula",
           "description": "Etkinleştirilirse, geçerli hedef aralıkları PID varsayılan kazançlarıyla (kp/ki/kd) doldurulur. Varsayılanları aşağıda geçersiz kılabilirsiniz."
@@ -174,6 +186,44 @@
         "sleep": "Uyku",
         "activity": "Aktivite"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Otomatik (eski)",
+        "auto": "Otomatik",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "Zamana dayalı yapay zekâ (varsayılan)",
+        "default": "Yalnızca harici sensör ofseti",
+        "mpc_calibration": "MPC öngörülü (beta)",
+        "mpc_v2_calibration": "(Yapay zekâ) MPC v2 (QP + Kalman, deneysel)",
+        "fix_calibration": "Agresif",
+        "tpi_calibration": "TPI denetleyici",
+        "pid_calibration": "PID denetleyici",
+        "no_calibration": "Kalibrasyon yok"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Doğrudan vana kontrolü",
+        "target_temp_based": "Hedef sıcaklığa dayalı",
+        "local_calibration_based": "Ofsete dayalı"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Otomatik (öğrenilen ısı kaybı oranını kullan)",
+        "small_room": "Küçük oda (~10 m², hızlı tepki)",
+        "medium_room": "Orta oda (~20 m², standart)",
+        "large_room": "Büyük oda (~40 m², yavaş yapı kabuğu)"
+      }
     }
   },
   "entity": {
@@ -195,6 +245,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (türevsel)"
+      },
+      "preset_eco": {
+        "name": "Eko"
+      },
+      "preset_eco_min": {
+        "name": "Eko Min"
+      },
+      "preset_eco_max": {
+        "name": "Eko Max"
+      },
+      "preset_away": {
+        "name": "Dışarıda"
+      },
+      "preset_away_min": {
+        "name": "Dışarıda Min"
+      },
+      "preset_away_max": {
+        "name": "Dışarıda Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Konfor"
+      },
+      "preset_comfort_min": {
+        "name": "Konfor Min"
+      },
+      "preset_comfort_max": {
+        "name": "Konfor Max"
+      },
+      "preset_home": {
+        "name": "Evde"
+      },
+      "preset_home_min": {
+        "name": "Evde Min"
+      },
+      "preset_home_max": {
+        "name": "Evde Max"
+      },
+      "preset_sleep": {
+        "name": "Uyku"
+      },
+      "preset_sleep_min": {
+        "name": "Uyku Min"
+      },
+      "preset_sleep_max": {
+        "name": "Uyku Max"
+      },
+      "preset_activity": {
+        "name": "Aktivite"
+      },
+      "preset_activity_min": {
+        "name": "Aktivite Min"
+      },
+      "preset_activity_max": {
+        "name": "Aktivite Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maksimum vana açıklığı"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maksimum vana açıklığı"
       }
     },
     "switch": {
@@ -209,6 +328,65 @@
       },
       "child_lock_no_trv": {
         "name": "Çocuk kilidi"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "bir pencere açıldığı için kapatıldı",
+          "window_close": "bir pencere kapatıldığı için ısıtmaya devam edildi",
+          "summer_mode_on": "dış ortam sıcaklığı çok yüksek olduğu için kapatıldı",
+          "summer_mode_off": "dış ortam sıcaklığı düştüğü için ısıtmaya devam edildi",
+          "degraded_mode_entered": "bazı sensörler kullanılamadığı için kısıtlı moda girildi",
+          "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      },
+      "external_temp_ema": {
+        "name": "Sıcaklık EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Sıcaklık EMA (1 saat)"
+      },
+      "temp_slope": {
+        "name": "Sıcaklık değişim hızı"
+      },
+      "heating_power": {
+        "name": "Isıtma gücü"
+      },
+      "heat_loss": {
+        "name": "Isı kaybı"
+      },
+      "virtual_temp": {
+        "name": "Sanal sıcaklık"
+      },
+      "mpc_gain": {
+        "name": "MPC ısıtma kazancı"
+      },
+      "mpc_loss": {
+        "name": "MPC ısı kaybı"
+      },
+      "mpc_ka": {
+        "name": "MPC yalıtımı (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "PID çıkışı"
+      },
+      "pid_error": {
+        "name": "PID hatası"
+      },
+      "solar_intensity": {
+        "name": "Güneş ısı kazancı"
       }
     }
   },

@@ -8,13 +8,17 @@
           "name": "Nazwa",
           "thermostat": "Twój termostat",
           "cooler": "Urządzenie chłodzące (opcjonalnie)",
+          "min_cooler_resend_interval": "Minimalna liczba sekund między powtórzonymi poleceniami chłodzenia (0 = wyłączone)",
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
+          "door_sensors": "Sensor drzwi",
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
           "tolerance": "Tolerancja, aby zapobiec zbyt częstemu włączaniu i wyłączaniu termostatu",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
           "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
+          "door_off_delay": "Opóźnienie wyłączenia termostatu po otwarciu drzwi",
+          "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
           "target_temp_step": "Krok temperatury docelowej",
@@ -51,7 +55,8 @@
       "failed": "coś poszło nie tak.",
       "no_name": "Proszę podać nazwę.",
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
-      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej."
+      "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
+      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
@@ -68,10 +73,13 @@
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
+          "door_sensors": "Sensor drzwi",
           "off_temperature": "Temperatura zewnętrzna, przy której termostat ma się wyłączyć",
           "tolerance": "Tolerancja, aby zapobiec zbyt częstemu włączaniu i wyłączaniu termostatu",
           "window_off_delay": "Opóźnienie wyłączenia termostatu, kiedy otworzysz okno lub je zamkniesz (w sekundach)",
           "window_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu okna",
+          "door_off_delay": "Opóźnienie wyłączenia termostatu po otwarciu drzwi",
+          "door_off_delay_after": "Opóźnienie włączenia termostatu po zamknięciu drzwi",
           "outdoor_sensor": "Jeśli masz czujnik zewnętrzny, możesz go użyć, aby uzyskać temperaturę zewnętrzną",
           "weather": "Twoja jednostka pogodowa, aby uzyskać temperaturę zewnętrzną",
           "target_temp_step": "Krok temperatury docelowej",
@@ -125,6 +133,14 @@
     "invalid_window_state": {
       "title": "BT: {name} - nieprawidłowy stan czujnika okna",
       "description": "Czujnik okna dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika okna."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} - nieprawidłowy stan czujnika drzwi",
+      "description": "Czujnik drzwi dla Better Thermostat {name} zgłosił nierozpoznany stan: {state}.\n\nOczekiwane stany to: 'on', 'off', 'true', 'false', 'open', 'closed'.\n\nSprawdź konfigurację czujnika drzwi."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} - nieprawidłowa temperatura zewnętrzna",
+      "description": "Czujnik temperatury zewnętrznej dla Better Thermostat {name} zgłosił niewiarygodną wartość: {value}.\n\nOdczyt był poza wiarygodnym zakresem i został zignorowany. Sprawdź konfigurację czujnika temperatury."
     }
   },
   "services": {
@@ -138,12 +154,8 @@
     },
     "reset_pid_learnings": {
       "name": "Zresetuj nauczone wartości PID",
-      "description": "Czyści cały nauczony stan PID (i opcjonalnie nauczone limity otwarcia) dla tej encji.",
+      "description": "Czyści cały nauczony stan PID dla tej encji.",
       "fields": {
-        "include_open_caps": {
-          "name": "Wyczyść także nauczone limity otwarcia",
-          "description": "Jeśli włączone, czyści również nauczone minimalne/maksymalne procenty otwarcia dla każdego TRV/przedziału docelowego."
-        },
         "apply_pid_defaults": {
           "name": "Zastosuj domyślne wartości PID po resecie",
           "description": "Jeśli włączone, bieżące przedziały docelowe zostaną wstępnie wypełnione domyślnymi wzmocnieniami PID (kp/ki/kd). Wartości domyślne można nadpisać poniżej."
@@ -174,6 +186,44 @@
         "sleep": "Sen",
         "activity": "Aktywność"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Automatycznie (stare)",
+        "auto": "Automatycznie",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "AI na podstawie czasu (domyślne)",
+        "default": "Tylko przesunięcie czujnika zewnętrznego",
+        "mpc_calibration": "Predykcyjne MPC (beta)",
+        "mpc_v2_calibration": "(AI) MPC v2 (QP + Kalman, eksperymentalne)",
+        "fix_calibration": "Agresywne",
+        "tpi_calibration": "Regulator TPI",
+        "pid_calibration": "Regulator PID",
+        "no_calibration": "Bez kalibracji"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Bezpośrednie sterowanie zaworem",
+        "target_temp_based": "Na podstawie temperatury docelowej",
+        "local_calibration_based": "Na podstawie przesunięcia"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Automatycznie (użyj wyuczonej szybkości strat ciepła)",
+        "small_room": "Małe pomieszczenie (~10 m², szybka reakcja)",
+        "medium_room": "Średnie pomieszczenie (~20 m², standard)",
+        "large_room": "Duże pomieszczenie (~40 m², wolna przegroda)"
+      }
     }
   },
   "entity": {
@@ -195,6 +245,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (różniczkujący)"
+      },
+      "preset_eco": {
+        "name": "Eko"
+      },
+      "preset_eco_min": {
+        "name": "Eko Min"
+      },
+      "preset_eco_max": {
+        "name": "Eko Max"
+      },
+      "preset_away": {
+        "name": "Poza domem"
+      },
+      "preset_away_min": {
+        "name": "Poza domem Min"
+      },
+      "preset_away_max": {
+        "name": "Poza domem Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Komfort"
+      },
+      "preset_comfort_min": {
+        "name": "Komfort Min"
+      },
+      "preset_comfort_max": {
+        "name": "Komfort Max"
+      },
+      "preset_home": {
+        "name": "W domu"
+      },
+      "preset_home_min": {
+        "name": "W domu Min"
+      },
+      "preset_home_max": {
+        "name": "W domu Max"
+      },
+      "preset_sleep": {
+        "name": "Sen"
+      },
+      "preset_sleep_min": {
+        "name": "Sen Min"
+      },
+      "preset_sleep_max": {
+        "name": "Sen Max"
+      },
+      "preset_activity": {
+        "name": "Aktywność"
+      },
+      "preset_activity_min": {
+        "name": "Aktywność Min"
+      },
+      "preset_activity_max": {
+        "name": "Aktywność Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maksymalne otwarcie zaworu"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maksymalne otwarcie zaworu"
       }
     },
     "switch": {
@@ -209,6 +328,65 @@
       },
       "child_lock_no_trv": {
         "name": "Blokada rodzicielska"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "wyłączono, ponieważ otworzono okno",
+          "window_close": "wznowiono ogrzewanie, ponieważ zamknięto okno",
+          "summer_mode_on": "wyłączono, ponieważ temperatura na zewnątrz jest zbyt wysoka",
+          "summer_mode_off": "wznowiono ogrzewanie, ponieważ temperatura na zewnątrz spadła",
+          "degraded_mode_entered": "wszedł w tryb awaryjny, ponieważ niektóre czujniki są niedostępne",
+          "degraded_mode_resolved": "opuścił tryb awaryjny, ponieważ wszystkie czujniki są dostępne",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      },
+      "external_temp_ema": {
+        "name": "Temperatura EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Temperatura EMA (1 godzina)"
+      },
+      "temp_slope": {
+        "name": "Tempo zmian temperatury"
+      },
+      "heating_power": {
+        "name": "Moc grzewcza"
+      },
+      "heat_loss": {
+        "name": "Straty ciepła"
+      },
+      "virtual_temp": {
+        "name": "Temperatura wirtualna"
+      },
+      "mpc_gain": {
+        "name": "Wzmocnienie grzania MPC"
+      },
+      "mpc_loss": {
+        "name": "Straty ciepła MPC"
+      },
+      "mpc_ka": {
+        "name": "Izolacja MPC (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "Wyjście PID"
+      },
+      "pid_error": {
+        "name": "Uchyb PID"
+      },
+      "solar_intensity": {
+        "name": "Zysk ciepła od słońca"
       }
     }
   },

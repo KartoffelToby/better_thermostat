@@ -9,9 +9,11 @@ service calls that arrive at the device.
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
 from .conftest import (
+    DOMAIN,
     SENSOR_ID,
     WINDOW_ID,
     make_entry,
@@ -112,3 +114,40 @@ async def test_unload_and_reload_the_entry(hass, fake_trv):
         blocking=True,
     )
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+
+
+async def test_climate_entity_id_follows_device_name_after_rename(hass, fake_trv):
+    """Renaming the device renames the climate (and sensor) entity_id to match.
+
+    HA's entity registry reuses the existing entry on reload (unique id ==
+    config entry id), so without an explicit rename the entity_id is frozen
+    at first creation while only the friendly name follows the device.
+    Blueprints that reference ``climate.bt_<room>`` then miss the entity.
+    """
+    _room_sensor(hass)
+    entry = make_entry(name="Livingroom")
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    registry = er.async_get(hass)
+    climate_key = ("climate", DOMAIN, entry.entry_id)
+    sensor_key = (DOMAIN, entry.entry_id + "_external_temp_ema")
+    assert registry.async_get_entity_id(*climate_key) == "climate.livingroom"
+    assert (
+        registry.async_get_entity_id("sensor", *sensor_key)
+        == "sensor.livingroom_temperature_ema"
+    )
+
+    # The device is renamed; the entity_id must follow to climate.bt_livingroom.
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "name": "BT Livingroom"}
+    )
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert registry.async_get_entity_id(*climate_key) == "climate.bt_livingroom"
+    assert (
+        registry.async_get_entity_id("sensor", *sensor_key)
+        == "sensor.bt_livingroom_temperature_ema"
+    )
+    assert hass.states.get("climate.bt_livingroom") is not None

@@ -1,0 +1,114 @@
+"""Tests for the BTH-RM and BTH-RM230Z set_temperature model quirks."""
+
+import importlib
+from unittest.mock import AsyncMock, Mock
+
+from homeassistant.components.climate.const import ClimateEntityFeature
+from homeassistant.const import UnitOfTemperature
+import pytest
+
+RANGE_BIT = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
+
+
+@pytest.fixture(params=["BTH-RM", "BTH-RM230Z"])
+def quirk(request):
+    """Provide each Bosch room-thermostat quirk module under test."""
+    return importlib.import_module(
+        f"custom_components.better_thermostat.model_fixes.{request.param}"
+    )
+
+
+def _make_self(state, temperature_unit=UnitOfTemperature.CELSIUS):
+    """Create a mock BetterThermostat whose TRV state lookup returns state."""
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.context = Mock()
+    mock_self.hass.config.units.temperature_unit = temperature_unit
+    mock_self.hass.states.get.return_value = state
+    mock_self.hass.services.async_call = AsyncMock()
+    return mock_self
+
+
+def _state(supported_features):
+    """Create a mock climate state with the given supported_features."""
+    state = Mock()
+    state.attributes = {"supported_features": supported_features}
+    return state
+
+
+class TestOverrideSetTemperature:
+    """The quirk picks the write attributes from the live feature bitmask."""
+
+    @pytest.mark.asyncio
+    async def test_range_supported_writes_high_and_low(self, quirk):
+        """With the range feature active, both range attributes are written."""
+        mock_self = _make_self(_state(RANGE_BIT))
+
+        handled = await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
+
+        assert handled is True
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": "climate.trv1",
+                "target_temp_high": 21.0,
+                "target_temp_low": 21.0,
+            },
+            blocking=True,
+            context=mock_self.context,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_range_support_writes_single_setpoint(self, quirk):
+        """Without the range feature, the plain temperature attribute is written."""
+        mock_self = _make_self(_state(0))
+
+        handled = await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
+
+        assert handled is True
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "climate",
+            "set_temperature",
+            {"entity_id": "climate.trv1", "temperature": 21.0},
+            blocking=True,
+            context=mock_self.context,
+        )
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_system_converts_range_payload(self, quirk):
+        """On a Fahrenheit install, the range payload carries the converted value."""
+        mock_self = _make_self(
+            _state(RANGE_BIT), temperature_unit=UnitOfTemperature.FAHRENHEIT
+        )
+
+        handled = await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
+
+        assert handled is True
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "climate",
+            "set_temperature",
+            {
+                "entity_id": "climate.trv1",
+                "target_temp_high": 69.8,
+                "target_temp_low": 69.8,
+            },
+            blocking=True,
+            context=mock_self.context,
+        )
+
+    @pytest.mark.asyncio
+    async def test_missing_state_falls_back_to_single_setpoint(self, quirk):
+        """Without a current state, the quirk falls back to a plain write."""
+        mock_self = _make_self(None)
+
+        handled = await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
+
+        assert handled is True
+        mock_self.hass.services.async_call.assert_awaited_once_with(
+            "climate",
+            "set_temperature",
+            {"entity_id": "climate.trv1", "temperature": 21.0},
+            blocking=True,
+            context=mock_self.context,
+        )

@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -23,20 +23,20 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .calibration import _get_current_solar_intensity
-from .utils.const import CONF_CALIBRATION_MODE, CalibrationMode
+from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
+from .utils.helpers import async_normalize_bt_entity_ids
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
-DOMAIN = "better_thermostat"
 
-# Globale Tracking-Variablen für aktive algorithmus-spezifische Entitäten
+# Global tracking variables for active algorithm-specific entities
 _ACTIVE_ALGORITHM_ENTITIES: dict[str, dict[CalibrationMode, list[str]]] = {}
 _ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[..., None]] = {}
 _DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
-# Globale Tracking-Variablen für aktive Preset Number Entitäten
+# Global tracking variables for active preset number entities
 _ACTIVE_PRESET_NUMBERS: dict[
     str, dict[str | None, dict[str, str]]
 ] = {}  # {entry_id: {unique_id: {"preset": preset_name}, ...}}
@@ -74,9 +74,10 @@ async def async_setup_entry(
     algorithm_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
     sensors.extend(algorithm_sensors)
 
+    async_normalize_bt_entity_ids(hass, entry, Platform.SENSOR)
     async_add_entities(sensors, True)
 
-    # Registriere Callback für dynamische Entity-Updates
+    # Register callback for dynamic entity updates
     await _register_dynamic_entity_callback(hass, entry, bt_climate, async_add_entities)
 
 
@@ -90,6 +91,12 @@ async def _setup_algorithm_sensors(
 
     Parameters
     ----------
+    hass : HomeAssistant
+        Home Assistant instance.
+    entry : ConfigEntry
+        Config entry the sensors belong to.
+    bt_climate : BetterThermostat
+        Better Thermostat climate entity the sensors report on.
     algorithms_to_create : set | None
         When provided, only sensors for these algorithms are created.
         When ``None`` (initial setup), all active algorithms are created.
@@ -117,7 +124,7 @@ async def _setup_algorithm_sensors(
         ]
         algorithm_sensors.extend(mpc_sensors)
 
-        # Tracking für aktive MPC-Entitäten
+        # Track active MPC entities
         if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
             _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
         _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_CALIBRATION] = [
@@ -134,10 +141,32 @@ async def _setup_algorithm_sensors(
             entry_id,
         )
 
-    # TODO: Hier können weitere Algorithmen hinzugefügt werden
-    # if CalibrationMode.PID_CALIBRATION in current_algorithms:
-    #     pid_sensors = [...]
-    #     algorithm_sensors.extend(pid_sensors)
+    # Setup PID sensors
+    if CalibrationMode.PID_CALIBRATION in current_algorithms:
+        pid_sensors = [
+            BetterThermostatPidKpSensor(bt_climate),
+            BetterThermostatPidKiSensor(bt_climate),
+            BetterThermostatPidKdSensor(bt_climate),
+            BetterThermostatPidOutputSensor(bt_climate),
+            BetterThermostatPidErrorSensor(bt_climate),
+        ]
+        algorithm_sensors.extend(pid_sensors)
+
+        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
+            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
+        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.PID_CALIBRATION] = [
+            f"{bt_climate.unique_id}_pid_kp",
+            f"{bt_climate.unique_id}_pid_ki",
+            f"{bt_climate.unique_id}_pid_kd",
+            f"{bt_climate.unique_id}_pid_output",
+            f"{bt_climate.unique_id}_pid_error",
+        ]
+
+        _LOGGER.debug(
+            "Better Thermostat %s: Created PID sensors for entry %s",
+            bt_climate.device_name,
+            entry_id,
+        )
 
     return algorithm_sensors
 
@@ -162,7 +191,7 @@ async def _register_dynamic_entity_callback(
             name=f"bt_dynamic_entity_update_{entry.entry_id}",
         )
 
-    # Store callback für späteren Cleanup
+    # Store callback for later cleanup
     _ENTITY_CLEANUP_CALLBACKS[entry.entry_id] = _on_config_change
 
     # Listen to configuration change signals
@@ -184,7 +213,7 @@ async def _handle_dynamic_entity_update(
     current_algorithms = _get_active_algorithms(bt_climate)
     previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}))
 
-    # Prüfe auf Änderungen bei den Algorithmen
+    # Check for changes in the algorithms
     algorithms_added = current_algorithms - previous_algorithms
     algorithms_removed = previous_algorithms - current_algorithms
 
@@ -225,7 +254,7 @@ async def _cleanup_stale_algorithm_entities(
 
     for algorithm, entity_unique_ids in tracked_algorithms.items():
         if algorithm not in current_algorithms:
-            # Dieser Algorithmus ist nicht mehr aktiv - Entitäten entfernen
+            # This algorithm is no longer active - remove its entities
             removed_count = 0
             for entity_unique_id in entity_unique_ids:
                 entity_id = entity_registry.async_get_entity_id(
@@ -261,11 +290,11 @@ async def _cleanup_stale_algorithm_entities(
             if removed_count == len(entity_unique_ids):
                 algorithms_to_remove.append(algorithm)
 
-    # Cleanup tracking für entfernte Algorithmen
+    # Clean up tracking for removed algorithms
     for algorithm in algorithms_to_remove:
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id][algorithm]
 
-    # Entferne entry_id komplett wenn keine Algorithmen mehr getrackt werden
+    # Remove the entry_id entirely once no algorithms are tracked anymore
     if not _ACTIVE_ALGORITHM_ENTITIES[entry_id]:
         del _ACTIVE_ALGORITHM_ENTITIES[entry_id]
 
@@ -277,10 +306,10 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
 
     active_algorithms: set[CalibrationMode] = set()
     for trv_id, trv in bt_climate.real_trvs.items():
-        advanced = trv.get("advanced", {})
+        advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         if calibration_mode:
-            # Konvertiere String zu Enum falls nötig
+            # Convert string to enum if needed
             if isinstance(calibration_mode, str):
                 try:
                     calibration_mode = CalibrationMode(calibration_mode)
@@ -303,13 +332,13 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     if not bt_climate.real_trvs:
         return pid_trvs
     for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.get("advanced", {})
+        advanced = trv_data.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         # Normalize string values to CalibrationMode enum
         if isinstance(calibration_mode, str):
             try:
                 calibration_mode = CalibrationMode(calibration_mode)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
             pid_trvs.add(trv_entity_id)
@@ -547,9 +576,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-# ---------------------------------------------------------------------------
 # Helper
-# ---------------------------------------------------------------------------
 
 
 def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
@@ -560,9 +587,7 @@ def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
     return val
 
 
-# ---------------------------------------------------------------------------
 # Base classes
-# ---------------------------------------------------------------------------
 
 
 class _BtSensorBase(SensorEntity):
@@ -607,7 +632,12 @@ class _BtSensorBase(SensorEntity):
 
 
 class _BtMpcSensorBase(_BtSensorBase):
-    """Base class for MPC algorithm sensors."""
+    """Base class for calibration debug sensors (MPC and PID).
+
+    Reads a single key from the ``calibration_balance['debug']`` payload,
+    iterating all TRVs of the climate entity; the first TRV whose payload
+    contains the key wins.
+    """
 
     _debug_key: str
 
@@ -620,7 +650,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         """
         if not self._bt_climate._available:
             return False
-        if self._bt_climate.window_open:
+        if self._bt_climate.contact_open:
             return False
         if self._bt_climate.hvac_mode == "off":
             return False
@@ -631,7 +661,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         val = None
         if self._bt_climate.real_trvs:
             for trv_data in self._bt_climate.real_trvs.values():
-                cal_bal = trv_data.get("calibration_balance")
+                cal_bal = trv_data.calibration_balance
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
                     if self._debug_key in debug:
@@ -641,7 +671,7 @@ class _BtMpcSensorBase(_BtSensorBase):
         if val is not None:
             try:
                 self._attr_native_value = float(val)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
@@ -662,21 +692,19 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
                 self._attr_native_value = (
                     round(fval, self._rounding) if self._rounding is not None else fval
                 )
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
 
 
-# ---------------------------------------------------------------------------
 # Concrete sensor classes
-# ---------------------------------------------------------------------------
 
 
 class BetterThermostatExternalTempSensor(_BtSensorBase):
     """Representation of a Better Thermostat External Temperature Sensor (EMA)."""
 
-    _attr_name = "Temperature EMA"
+    _attr_translation_key = "external_temp_ema"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _unique_id_suffix = "external_temp_ema"
@@ -687,7 +715,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
         if val is not None:
             try:
                 self._attr_native_value = float(val)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
@@ -696,7 +724,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
 class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
     """Representation of a Better Thermostat External Temperature 1h EMA Sensor."""
 
-    _attr_name = "Temperature EMA 1h"
+    _attr_translation_key = "external_temp_ema_1h"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_suggested_display_precision = 2
@@ -736,7 +764,7 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
                 self._update_ema(float(val))
                 assert self._ema_value is not None  # set by _update_ema
                 self._attr_native_value = round(self._ema_value, 2)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
@@ -745,7 +773,7 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
 class BetterThermostatTempSlopeSensor(_BtSimpleAttributeSensor):
     """Representation of a Better Thermostat Temperature Slope Sensor."""
 
-    _attr_name = "Temperature Slope"
+    _attr_translation_key = "temp_slope"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:chart-line"
@@ -757,7 +785,7 @@ class BetterThermostatTempSlopeSensor(_BtSimpleAttributeSensor):
 class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
     """Representation of a Better Thermostat Heating Power Sensor."""
 
-    _attr_name = "Heating Power"
+    _attr_translation_key = "heating_power"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-plus"
@@ -769,7 +797,7 @@ class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
 class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
     """Representation of a Better Thermostat Heat Loss Sensor."""
 
-    _attr_name = "Heat Loss"
+    _attr_translation_key = "heat_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-minus"
@@ -781,7 +809,7 @@ class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
 class BetterThermostatVirtualTempSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat Virtual Temperature Sensor (MPC)."""
 
-    _attr_name = "Virtual Temperature"
+    _attr_translation_key = "virtual_temp"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_icon = "mdi:thermometer-auto"
@@ -792,7 +820,7 @@ class BetterThermostatVirtualTempSensor(_BtMpcSensorBase):
 class BetterThermostatMpcGainSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat MPC Gain Sensor."""
 
-    _attr_name = "MPC Gain"
+    _attr_translation_key = "mpc_gain"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-plus"
@@ -804,7 +832,7 @@ class BetterThermostatMpcGainSensor(_BtMpcSensorBase):
 class BetterThermostatMpcLossSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat MPC Loss Sensor."""
 
-    _attr_name = "MPC Loss"
+    _attr_translation_key = "mpc_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-minus"
@@ -816,7 +844,7 @@ class BetterThermostatMpcLossSensor(_BtMpcSensorBase):
 class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat MPC Ka (Insulation) Sensor."""
 
-    _attr_name = "MPC Insulation (Ka)"
+    _attr_translation_key = "mpc_ka"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "1/min"
     _attr_icon = "mdi:home-thermometer-outline"
@@ -825,10 +853,67 @@ class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     _unique_id_suffix = "mpc_ka"
 
 
+class BetterThermostatPidKpSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Kp (proportional gain) Sensor."""
+
+    _attr_translation_key = "pid_kp"
+    _attr_device_class = None
+    _attr_icon = "mdi:alpha-p-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "kp"
+    _unique_id_suffix = "pid_kp"
+
+
+class BetterThermostatPidKiSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Ki (integral gain) Sensor."""
+
+    _attr_translation_key = "pid_ki"
+    _attr_device_class = None
+    _attr_icon = "mdi:alpha-i-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "ki"
+    _unique_id_suffix = "pid_ki"
+
+
+class BetterThermostatPidKdSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Kd (derivative gain) Sensor."""
+
+    _attr_translation_key = "pid_kd"
+    _attr_device_class = None
+    _attr_icon = "mdi:alpha-d-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "kd"
+    _unique_id_suffix = "pid_kd"
+
+
+class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Output (valve command) Sensor."""
+
+    _attr_translation_key = "pid_output"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "%"
+    _attr_icon = "mdi:valve"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "u"
+    _unique_id_suffix = "pid_output"
+
+
+class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
+    """Representation of a Better Thermostat PID Error (setpoint deviation) Sensor."""
+
+    _attr_translation_key = "pid_error"
+    _attr_device_class = None
+    _attr_native_unit_of_measurement = "K"
+    _attr_icon = "mdi:thermometer-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _debug_key = "e_K"
+    _unique_id_suffix = "pid_error"
+
+
 class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     """Representation of a Better Thermostat Solar Intensity Sensor."""
 
-    _attr_name = "Sun Intensity Heatup"
+    _attr_translation_key = "solar_intensity"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC

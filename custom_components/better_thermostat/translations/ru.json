@@ -8,13 +8,17 @@
           "name": "Имя",
           "thermostat": "Физический термостат",
           "cooler": "Устройство охлаждения (необязательно)",
+          "min_cooler_resend_interval": "Минимум секунд между повторными командами охлаждения (0 = отключено)",
           "temperature_sensor": "Датчик температуры",
           "humidity_sensor": "Датчик влажности",
           "window_sensors": "Датчики окон",
+          "door_sensors": "Датчики дверей",
           "off_temperature": "Наружная температура для отключения отопления",
           "tolerance": "Гистерезис для предотвращения частых включений и выключений",
           "window_off_delay": "Задержка выключения после открытия окна",
           "window_off_delay_after": "Задержка включения после закрытия окна",
+          "door_off_delay": "Задержка выключения после открытия двери",
+          "door_off_delay_after": "Задержка включения после закрытия двери",
           "outdoor_sensor": "Датчик наружной температуры",
           "weather": "Сущность погоды",
           "target_temp_step": "Шаг изменения заданной температуры",
@@ -51,7 +55,8 @@
       "failed": "Что-то пошло не так.",
       "no_name": "Укажите название.",
       "no_off_mode": "Устройство не поддерживает режим «выкл.» :(\nBetter Thermostat будет использовать минимальную заданную температуру.",
-      "no_outside_temp": "Датчик наружной температуры не найден. Будет использоваться сущность погоды."
+      "no_outside_temp": "Датчик наружной температуры не найден. Будет использоваться сущность погоды.",
+      "no_data": "Данные не получены. Пожалуйста, попробуйте ещё раз."
     },
     "abort": {
       "single_instance_allowed": "Для каждого физического термостата можно создать только один Better Thermostat.",
@@ -68,10 +73,13 @@
           "temperature_sensor": "Датчик температуры",
           "humidity_sensor": "Датчик влажности",
           "window_sensors": "Датчики окон",
+          "door_sensors": "Датчики дверей",
           "off_temperature": "Наружная температура для отключения отопления",
           "tolerance": "Гистерезис для предотвращения частых включений и выключений",
           "window_off_delay": "Задержка выключения после открытия окна",
           "window_off_delay_after": "Задержка включения после закрытия окна",
+          "door_off_delay": "Задержка выключения после открытия двери",
+          "door_off_delay_after": "Задержка включения после закрытия двери",
           "outdoor_sensor": "Датчик наружной температуры",
           "weather": "Сущность погоды",
           "target_temp_step": "Шаг изменения заданной температуры",
@@ -125,6 +133,14 @@
     "invalid_window_state": {
       "title": "BT: {name} — неизвестное состояние датчика окна",
       "description": "Датчик окна Better Thermostat {name} вернул нераспознанное состояние: {state}.\n\nОжидаемые значения: «on», «off», «true», «false», «open», «closed».\n\nПроверьте настройки датчика окна."
+    },
+    "invalid_door_state": {
+      "title": "BT: {name} — неизвестное состояние датчика двери",
+      "description": "Датчик двери Better Thermostat {name} вернул нераспознанное состояние: {state}.\n\nОжидаемые значения: «on», «off», «true», «false», «open», «closed».\n\nПроверьте настройку датчика двери."
+    },
+    "invalid_external_temperature": {
+      "title": "BT: {name} — недопустимая внешняя температура",
+      "description": "Датчик внешней температуры Better Thermostat {name} вернул неправдоподобное значение: {value}.\n\nПоказание вышло за пределы допустимого диапазона и было проигнорировано. Проверьте настройки датчика температуры."
     }
   },
   "services": {
@@ -138,12 +154,8 @@
     },
     "reset_pid_learnings": {
       "name": "Сбросить обученные значения PID",
-      "description": "Очищает всё обученное состояние PID (и при необходимости обученные пределы открытия) для этой сущности.",
+      "description": "Очищает всё обученное состояние PID для этой сущности.",
       "fields": {
-        "include_open_caps": {
-          "name": "Также очистить обученные пределы открытия",
-          "description": "Если включено, также очищаются обученные минимальные/максимальные проценты открытия для каждой термоголовки/целевого диапазона."
-        },
         "apply_pid_defaults": {
           "name": "Применить значения PID по умолчанию после сброса",
           "description": "Если включено, текущие целевые диапазоны заполняются коэффициентами PID по умолчанию (kp/ki/kd). Значения по умолчанию можно переопределить ниже."
@@ -174,6 +186,44 @@
         "sleep": "Сон",
         "activity": "Активность"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Авто (старый режим)",
+        "auto": "Авто",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "ИИ на основе времени (по умолчанию)",
+        "default": "Только смещение по внешнему датчику",
+        "mpc_calibration": "Предиктивный MPC (бета)",
+        "mpc_v2_calibration": "(ИИ) MPC v2 (QP + Kalman, экспериментально)",
+        "fix_calibration": "Агрессивный",
+        "tpi_calibration": "TPI-регулятор",
+        "pid_calibration": "PID-регулятор",
+        "no_calibration": "Без калибровки"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Прямое управление клапаном",
+        "target_temp_based": "По целевой температуре",
+        "local_calibration_based": "По смещению"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Авто (использовать вычисленную скорость теплопотерь)",
+        "small_room": "Небольшая комната (~10 m², быстрый отклик)",
+        "medium_room": "Средняя комната (~20 m², стандарт)",
+        "large_room": "Большая комната (~40 m², медленная оболочка)"
+      }
     }
   },
   "entity": {
@@ -195,6 +245,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (дифференциальный коэффициент)"
+      },
+      "preset_eco": {
+        "name": "Эко"
+      },
+      "preset_eco_min": {
+        "name": "Эко Min"
+      },
+      "preset_eco_max": {
+        "name": "Эко Max"
+      },
+      "preset_away": {
+        "name": "Вне дома"
+      },
+      "preset_away_min": {
+        "name": "Вне дома Min"
+      },
+      "preset_away_max": {
+        "name": "Вне дома Max"
+      },
+      "preset_boost": {
+        "name": "Форсаж"
+      },
+      "preset_boost_min": {
+        "name": "Форсаж Min"
+      },
+      "preset_boost_max": {
+        "name": "Форсаж Max"
+      },
+      "preset_comfort": {
+        "name": "Комфорт"
+      },
+      "preset_comfort_min": {
+        "name": "Комфорт Min"
+      },
+      "preset_comfort_max": {
+        "name": "Комфорт Max"
+      },
+      "preset_home": {
+        "name": "Дома"
+      },
+      "preset_home_min": {
+        "name": "Дома Min"
+      },
+      "preset_home_max": {
+        "name": "Дома Max"
+      },
+      "preset_sleep": {
+        "name": "Сон"
+      },
+      "preset_sleep_min": {
+        "name": "Сон Min"
+      },
+      "preset_sleep_max": {
+        "name": "Сон Max"
+      },
+      "preset_activity": {
+        "name": "Активность"
+      },
+      "preset_activity_min": {
+        "name": "Активность Min"
+      },
+      "preset_activity_max": {
+        "name": "Активность Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: максимальное открытие клапана"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Максимальное открытие клапана"
       }
     },
     "switch": {
@@ -209,6 +328,65 @@
       },
       "child_lock_no_trv": {
         "name": "Детский замок"
+      }
+    },
+    "sensor": {
+      "logbook": {
+        "state": {
+          "window_open": "отключено, так как открыто окно",
+          "window_close": "нагрев возобновлен, так как закрыто окно",
+          "summer_mode_on": "отключено, так как температура на улице слишком высокая",
+          "summer_mode_off": "нагрев возобновлен, так как температура на улице снизилась",
+          "degraded_mode_entered": "перешел в режим ограниченной функциональности, так как некоторые датчики недоступны",
+          "degraded_mode_resolved": "вышел из режима ограниченной функциональности, так как все датчики доступны",
+          "door_open": "turned off because a door was opened",
+          "door_close": "resumed heating because a door was closed"
+        }
+      },
+      "external_temp_ema": {
+        "name": "Сглаженная температура (EMA)"
+      },
+      "external_temp_ema_1h": {
+        "name": "Сглаженная температура (EMA, 1 час)"
+      },
+      "temp_slope": {
+        "name": "Скорость изменения температуры"
+      },
+      "heating_power": {
+        "name": "Мощность нагрева"
+      },
+      "heat_loss": {
+        "name": "Теплопотери"
+      },
+      "virtual_temp": {
+        "name": "Виртуальная температура"
+      },
+      "mpc_gain": {
+        "name": "Коэффициент нагрева MPC"
+      },
+      "mpc_loss": {
+        "name": "Коэффициент теплопотерь MPC"
+      },
+      "mpc_ka": {
+        "name": "Теплоизоляция MPC (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "Выход ПИД"
+      },
+      "pid_error": {
+        "name": "Ошибка ПИД"
+      },
+      "solar_intensity": {
+        "name": "Нагрев от солнечного излучения"
       }
     }
   },

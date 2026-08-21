@@ -4,6 +4,8 @@ Provides Sonoff TRVZB specific helper functions such as writing valve
 percentages and mirroring external temperature into the TRV when supported.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 
@@ -17,18 +19,41 @@ VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 # fail to fully close the valve when commanded to very small openings.
 #
 # Workaround: when requesting a further close (target_pct < last_pct), briefly
-# command the valve to open a bit more and then to the requested target.
+# command the valve to open a bit more and then to the requested target. A
+# close that arrives while that delayed write is still due is written straight
+# away instead of bumping again, so the requested position always reaches the
+# device.
 _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT = 10
 _TRVZB_CLOSE_BUMP_DELAY_S = 5.0
 
 
-def _cancel_pending_valve_bump(trv_state: dict) -> None:
-    task = trv_state.pop("_trvzb_valve_bump_task", None)
-    if task is not None:
-        try:
-            task.cancel()
-        except (asyncio.CancelledError, RuntimeError):
-            pass
+def _cancel_pending_valve_bump(trv_state) -> bool:
+    """Cancel a scheduled valve write and report whether one was still due.
+
+    A task that has already run is not a pending write; it is only the
+    reference the last completed bump left behind.
+
+    Parameters
+    ----------
+    trv_state :
+        Domain object of the TRV whose pending write is to be dropped.
+
+    Returns
+    -------
+    bool
+        True when a write was still due and has been cancelled, False when
+        there was none or it had already run.
+    """
+    task = trv_state.extra.pop("_trvzb_valve_bump_task", None)
+    if task is None:
+        return False
+    try:
+        if task.done():
+            return False
+        task.cancel()
+    except asyncio.CancelledError, RuntimeError:
+        return False
+    return True
 
 
 def fix_local_calibration(self, entity_id, offset):
@@ -42,27 +67,46 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
 
 
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
-    """No special handling required for TRVZB when setting hvac mode."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        context=self.context,
-    )
-    return True
+    """No special HVAC mode handling for TRVZB; the generic adapter performs the write.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    entity_id : str
+            entity_id of the TRV
+    hvac_mode : str
+            the HVAC mode to set
+
+    Returns
+    -------
+    bool
+            False, always: the generic adapter fallback performs the
+            service call, including its retry handling
+    """
+    return False
 
 
 async def override_set_temperature(self, entity_id, temperature):
-    """No special setpoint handling required; ensure manual preset if needed."""
-    await self.hass.services.async_call(
-        "climate",
-        "set_temperature",
-        {"entity_id": entity_id, "temperature": temperature},
-        blocking=True,
-        context=self.context,
-    )
-    return True
+    """No special setpoint handling for TRVZB; the generic adapter performs the write.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    entity_id : str
+            entity_id of the TRV
+    temperature : float
+            the target temperature to set
+
+    Returns
+    -------
+    bool
+            False, always: the generic adapter fallback performs the
+            service call, including step rounding and system-unit
+            conversion
+    """
+    return False
 
 
 async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
@@ -76,7 +120,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     Returns True if at least one write succeeds, False otherwise.
     """
     try:
-        model = str(self.real_trvs[entity_id].get("model", ""))
+        model = str(self.real_trvs[entity_id].model or "")
         # Only attempt for Sonoff TRVZB
         if not (
             "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
@@ -259,7 +303,7 @@ async def override_set_valve(self, entity_id, percent: int):
         target_pct = max(0, min(100, int(percent)))
 
         trv_state = self.real_trvs.get(entity_id)
-        if not isinstance(trv_state, dict):
+        if trv_state is None:
             return False
 
         # During valve maintenance we don't want to add additional delayed steps.
@@ -268,12 +312,12 @@ async def override_set_valve(self, entity_id, percent: int):
             return bool(ok)
 
         # Cancel any previous pending delayed "bump then set".
-        _cancel_pending_valve_bump(trv_state)
+        bump_pending = _cancel_pending_valve_bump(trv_state)
 
-        last_pct_raw = trv_state.get("last_valve_percent")
+        last_pct_raw = trv_state.last_valve_percent
         try:
             last_pct = None if last_pct_raw is None else int(last_pct_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             last_pct = None
 
         # If we don't know the last commanded percent, just set directly.
@@ -281,8 +325,9 @@ async def override_set_valve(self, entity_id, percent: int):
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
             return bool(ok)
 
-        # Only apply workaround when closing further.
-        if target_pct < last_pct:
+        # Only apply workaround when closing further, and only when the motor
+        # was not already driven open by a bump whose write is still due.
+        if target_pct < last_pct and not bump_pending:
             bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
 
             # If we can't "bump open", fall back to direct set.
@@ -291,14 +336,16 @@ async def override_set_valve(self, entity_id, percent: int):
                 ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
                 return bool(ok)
 
-            seq = int(trv_state.get("_trvzb_valve_bump_seq", 0)) + 1
-            trv_state["_trvzb_valve_bump_seq"] = seq
+            seq = int(trv_state.extra.get("_trvzb_valve_bump_seq", 0)) + 1
+            trv_state.extra["_trvzb_valve_bump_seq"] = seq
 
             async def _delayed_set():
                 try:
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
-                    cur_state = self.real_trvs.get(entity_id, {}) or {}
-                    if int(cur_state.get("_trvzb_valve_bump_seq", 0)) != seq:
+                    cur_state = self.real_trvs.get(entity_id)
+                    if cur_state is None or (
+                        int(cur_state.extra.get("_trvzb_valve_bump_seq", 0)) != seq
+                    ):
                         return
                     await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
                 except asyncio.CancelledError:
@@ -310,17 +357,20 @@ async def override_set_valve(self, entity_id, percent: int):
                         ex,
                     )
 
-            trv_state["_trvzb_valve_bump_task"] = (
+            trv_state.extra["_trvzb_valve_bump_task"] = (
                 self.hass.async_create_background_task(
                     _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
                 )
             )
             return True
 
-        # Opening (or same) => set directly.
+        # Opening, unchanged, or a close following a bump that has not run yet:
+        # write the requested position. Bumping again would drive the valve
+        # further open on every closing step while the target the cancelled
+        # write was carrying never reaches the device.
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
         return bool(ok)
-    except (TypeError, ValueError, KeyError, AttributeError):
+    except TypeError, ValueError, KeyError, AttributeError:
         return False
 
 
@@ -332,7 +382,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
     Returns True on success, False otherwise.
     """
     try:
-        model = str(self.real_trvs[entity_id].get("model", ""))
+        model = str(self.real_trvs[entity_id].model or "")
         if not (
             "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
         ):
@@ -387,7 +437,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
         # Clamp and round
         try:
             val = float(temperature)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature got non-float: %s",
                 self.device_name,

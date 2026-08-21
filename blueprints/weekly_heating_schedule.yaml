@@ -395,11 +395,12 @@ blueprint:
       description: >
         A person.*, device_tracker.*, or binary_sensor.* entity representing
         occupancy. Only evaluated when presence mode is enabled above.
-        For multi-person households use a group or a template binary sensor
-        that is 'on' when at least one person is home.
-      default: binary_sensor.bt_presence_placeholder
+        Select one or more entities, or leave empty to disable. The house
+        counts as occupied while at least one of them is home.
+      default: []
       selector:
         entity:
+          multiple: true
           filter:
             - domain: person
             - domain: device_tracker
@@ -444,9 +445,12 @@ blueprint:
       description: >
         An input_boolean helper. Create one under Settings → Helpers → Toggle,
         then select it here. Only used when the pause switch feature is enabled.
-      default: input_boolean.bt_schedule_pause_placeholder
+        Select one or more helpers, or leave empty to disable. The schedule is
+        paused while at least one of them is on.
+      default: []
       selector:
         entity:
+          multiple: true
           domain: input_boolean
 
     # ── Notifications ──────────────────────────────────────────────────────
@@ -499,10 +503,26 @@ variables:
   slot4_preset_saturday: !input slot4_preset_saturday
   slot4_preset_sunday: !input slot4_preset_sunday
   enable_presence_mode: !input enable_presence_mode
-  presence_entity: !input presence_entity
+  # The selection is a list, or a bare entity_id from older configs.
+  # Normalise both to a list so every entity is evaluated, not just the first.
+  presence_entity_selection: !input presence_entity
+  presence_entities: >
+    {%- set sel = presence_entity_selection -%}
+    {%- if sel is string -%}
+    {{ [sel] if sel else [] }}
+    {%- else -%}
+    {{ sel | default([], true) | select('string') | reject('eq', '') | list }}
+    {%- endif -%}
   vacation_preset: !input vacation_preset
   enable_pause_switch: !input enable_pause_switch
-  pause_switch: !input pause_switch
+  pause_switch_selection: !input pause_switch
+  pause_switch_entities: >
+    {%- set sel = pause_switch_selection -%}
+    {%- if sel is string -%}
+    {{ [sel] if sel else [] }}
+    {%- else -%}
+    {{ sel | default([], true) | select('string') | reject('eq', '') | list }}
+    {%- endif -%}
   notify_target: !input notify_target
   enable_notify: !input enable_notify
 
@@ -577,26 +597,43 @@ variables:
     {% endif %}
 
   # ── Preset that should currently be active (for startup / resume) ─────────
+  # `active_slot` arrives here as an integer: Home Assistant runs `literal_eval`
+  # over a rendered variable, so the bare digit becomes a number.
   current_schedule_preset: >
-    {% if active_slot == '1' %}{{ preset_slot1 }}
-    {% elif active_slot == '2' %}{{ preset_slot2 }}
-    {% elif active_slot == '3' %}{{ preset_slot3 }}
+    {% if active_slot | int == 1 %}{{ preset_slot1 }}
+    {% elif active_slot | int == 2 %}{{ preset_slot2 }}
+    {% elif active_slot | int == 3 %}{{ preset_slot3 }}
     {% else %}{{ preset_slot4 }}
     {% endif %}
 
   # ── Anyone home? (only evaluated when presence mode is on) ────────────────
+  # NOTE: the branches render `{{ true }}` / `{{ false }}` rather than bare
+  # `true` / `false`. Home Assistant parses a rendered variable with
+  # `literal_eval`, which rejects the lowercase words and hands back the
+  # *string* -- and a non-empty string is truthy, so `not schedule_paused`
+  # came out False and gated every slot away.
   anyone_home: >
-    {% if not enable_presence_mode or presence_entity == '' %}true
-    {% else %}
-      {% set s = states(presence_entity) %}
-      {{ s in ['home', 'on'] }}
-    {% endif %}
+    {%- if not enable_presence_mode or presence_entities | count == 0 -%}
+    {{ true }}
+    {%- else -%}
+    {%- set ns = namespace(home=false) -%}
+    {%- for entity in presence_entities -%}
+    {%- if states(entity) in ['home', 'on'] -%}{%- set ns.home = true -%}{%- endif -%}
+    {%- endfor -%}
+    {{ ns.home }}
+    {%- endif -%}
 
   # ── Is schedule currently paused? ─────────────────────────────────────────
   schedule_paused: >
-    {% if not enable_pause_switch or pause_switch == '' %}false
-    {% else %}{{ is_state(pause_switch, 'on') }}
-    {% endif %}
+    {%- if not enable_pause_switch or pause_switch_entities | count == 0 -%}
+    {{ false }}
+    {%- else -%}
+    {%- set ns = namespace(paused=false) -%}
+    {%- for entity in pause_switch_entities -%}
+    {%- if is_state(entity, 'on') -%}{%- set ns.paused = true -%}{%- endif -%}
+    {%- endfor -%}
+    {{ ns.paused }}
+    {%- endif -%}
 
 
 # ── Triggers ─────────────────────────────────────────────────────────────────
@@ -709,7 +746,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 1 (nobody home)"
                         message: >
@@ -725,7 +762,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 1"
                     message: >
@@ -762,7 +799,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 2 (nobody home)"
                         message: >
@@ -777,7 +814,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 2"
                     message: >
@@ -814,7 +851,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 3 (nobody home)"
                         message: >
@@ -829,7 +866,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 3"
                     message: >
@@ -866,7 +903,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Slot 4 (nobody home)"
                         message: >
@@ -881,7 +918,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Slot 4"
                     message: >
@@ -919,7 +956,7 @@ action:
                     - condition: template
                       value_template: "{{ enable_notify and notify_target != '' }}"
                   then:
-                    - service: !input notify_target
+                    - service: "{{ notify_target }}"
                       data:
                         title: "BT Schedule – Startup recovery (nobody home)"
                         message: >
@@ -934,7 +971,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Startup recovery"
                     message: >
@@ -952,6 +989,11 @@ action:
           id: pause_off
         - condition: template
           value_template: "{{ enable_pause_switch }}"
+        # The trigger fires when *any* selected switch goes off. Without this,
+        # turning one off would resume the schedule while another still holds
+        # the pause. `schedule_paused` reads every selected entity.
+        - condition: template
+          value_template: "{{ not schedule_paused }}"
       sequence:
         - choose:
             - conditions:
@@ -971,7 +1013,7 @@ action:
                 - condition: template
                   value_template: "{{ enable_notify and notify_target != '' }}"
               then:
-                - service: !input notify_target
+                - service: "{{ notify_target }}"
                   data:
                     title: "BT Schedule – Resumed"
                     message: >
@@ -995,7 +1037,7 @@ action:
             - condition: template
               value_template: "{{ enable_notify and notify_target != '' }}"
           then:
-            - service: !input notify_target
+            - service: "{{ notify_target }}"
               data:
                 title: "BT Schedule – Welcome home"
                 message: >
@@ -1010,11 +1052,11 @@ action:
           id: left_home
         - condition: template
           value_template: "{{ enable_presence_mode and not schedule_paused }}"
-        # Double-check presence is truly away (re-evaluated after the 2-min delay)
+        # Double-check presence is truly away (re-evaluated after the 2-min delay).
+        # `anyone_home` reads every selected entity, so one person still home
+        # keeps the vacation preset from being applied.
         - condition: template
-          value_template: >
-            {% set s = states(presence_entity) %}
-            {{ s not in ['home', 'on'] }}
+          value_template: "{{ not anyone_home }}"
       sequence:
         - service: climate.set_preset_mode
           data:
@@ -1024,7 +1066,7 @@ action:
             - condition: template
               value_template: "{{ enable_notify and notify_target != '' }}"
           then:
-            - service: !input notify_target
+            - service: "{{ notify_target }}"
               data:
                 title: "BT Schedule – Nobody home"
                 message: >

@@ -35,25 +35,53 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import logging
+import math
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .calibration.mpc import MpcState, export_mpc_state_map, import_mpc_state_map
-from .calibration.pid import PIDState, export_pid_states, import_pid_states
-from .calibration.tpi import TpiState, export_tpi_state_map, import_tpi_state_map
-from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
+from .calibration.mpc import MpcState
+from .calibration.mpc_v2 import (
+    MpcV2Params,
+    MpcV2State,
+    export_mpc_v2_state,
+    import_mpc_v2_state,
+)
+from .calibration.pid import PIDState
+from .calibration.tpi import TpiState
+from .const import (
+    DOMAIN,
+    MAX_HEAT_LOSS,
+    MAX_HEATING_POWER,
+    MIN_HEAT_LOSS,
+    MIN_HEATING_POWER,
+)
 from .thermal_learning import clamp
+
+
+@dataclass
+class MpcV2StateData:
+    """Persistable per-key state for the MPC v2 controller.
+
+    ``snapshot`` is the opaque payload returned by
+    :meth:`MpcV2Controller.export_snapshot` — restored verbatim by
+    :meth:`MpcV2Controller.restore_snapshot`. Top-level fields mirror the
+    metadata the runtime state holds independently of the controller.
+    """
+
+    last_percent: float | None = None
+    last_compute_ts: float = 0.0
+    created_ts: float = 0.0
+    outdoor_fallback_logged: bool = False
+    snapshot: dict[str, Any] = field(default_factory=dict)
+
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "better_thermostat"
 CURRENT_VERSION = 1
 
-# ---------------------------------------------------------------------------
 # State dataclasses (only those NOT owned by a controller module)
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -74,15 +102,14 @@ class RuntimeState:
 
     version: int = CURRENT_VERSION
     mpc: dict[str, MpcState] = field(default_factory=dict)
+    mpc_v2: dict[str, MpcV2StateData] = field(default_factory=dict)
     pid: dict[str, PIDState] = field(default_factory=dict)
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
     presets: dict[str, float] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # Serialization helpers
-# ---------------------------------------------------------------------------
 
 # Fields that should be coerced to int during deserialization.
 _INT_FIELDS = frozenset(
@@ -162,9 +189,30 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                setattr(state, attr, float(value))
-        except (TypeError, ValueError):
+                number = float(value)
+                if not math.isfinite(number):
+                    continue
+                setattr(state, attr, number)
+        except TypeError, ValueError, OverflowError:
             continue
+    return state
+
+
+def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
+    """Deserialize a single MPC v2 state dict into MpcV2StateData."""
+    state = MpcV2StateData()
+    for attr in ("last_percent", "last_compute_ts", "created_ts"):
+        value = raw.get(attr)
+        if value is None:
+            continue
+        try:
+            setattr(state, attr, float(value))
+        except TypeError, ValueError, OverflowError:
+            continue
+    state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
+    snapshot = raw.get("snapshot")
+    if isinstance(snapshot, Mapping):
+        state.snapshot = dict(snapshot)
     return state
 
 
@@ -184,8 +232,11 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
-                setattr(state, attr, float(value))
-        except (TypeError, ValueError):
+                number = float(value)
+                if not math.isfinite(number):
+                    continue
+                setattr(state, attr, number)
+        except TypeError, ValueError, OverflowError:
             continue
     return state
 
@@ -201,8 +252,11 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             setattr(state, attr, None)
             continue
         try:
-            setattr(state, attr, float(value))
-        except (TypeError, ValueError):
+            number = float(value)
+            if not math.isfinite(number):
+                continue
+            setattr(state, attr, number)
+        except TypeError, ValueError, OverflowError:
             continue
     return state
 
@@ -216,6 +270,12 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for key, state_dict in mpc_raw.items():
             if isinstance(state_dict, dict):
                 state.mpc[key] = deserialize_mpc(state_dict)
+
+    mpc_v2_raw = raw.get("mpc_v2", {})
+    if isinstance(mpc_v2_raw, Mapping):
+        for key, state_dict in mpc_v2_raw.items():
+            if isinstance(state_dict, dict):
+                state.mpc_v2[key] = deserialize_mpc_v2(state_dict)
 
     pid_raw = raw.get("pid", {})
     if isinstance(pid_raw, Mapping):
@@ -235,13 +295,17 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         heat_loss_rate = thermal_raw.get("heat_loss_rate")
         try:
             heating_power = float(heating_power) if heating_power is not None else None
-        except (TypeError, ValueError):
+            if heating_power is not None and not math.isfinite(heating_power):
+                heating_power = None
+        except TypeError, ValueError, OverflowError:
             heating_power = None
         try:
             heat_loss_rate = (
                 float(heat_loss_rate) if heat_loss_rate is not None else None
             )
-        except (TypeError, ValueError):
+            if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
+                heat_loss_rate = None
+        except TypeError, ValueError, OverflowError:
             heat_loss_rate = None
         state.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
@@ -252,15 +316,13 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for name, temp in presets_raw.items():
             try:
                 state.presets[str(name)] = float(temp)
-            except (TypeError, ValueError):
+            except TypeError, ValueError, OverflowError:
                 continue
 
     return state
 
 
-# ---------------------------------------------------------------------------
 # Migration
-# ---------------------------------------------------------------------------
 
 
 def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
@@ -279,9 +341,7 @@ def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-# ---------------------------------------------------------------------------
 # StateManager
-# ---------------------------------------------------------------------------
 
 
 class StateManager:
@@ -301,6 +361,9 @@ class StateManager:
         )
         self._entry_id = entry_id
         self._state = RuntimeState()
+        # Live MPC v2 controllers, held in memory across cycles. The persisted
+        # ``_state.mpc_v2`` snapshots are folded in only at save time.
+        self._mpc_v2_live: dict[str, MpcV2State] = {}
         self._dirty = False
 
     # -- Public properties ---------------------------------------------------
@@ -329,6 +392,42 @@ class StateManager:
         self._state.mpc[key] = mpc
         self._dirty = True
 
+    def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
+        """Return the live MPC v2 controller state, building it on first use.
+
+        The live controller (Kalman/QP/governor) is kept in memory across
+        control cycles. On first access it is rehydrated from the persisted
+        snapshot (when one exists); thereafter the same instance is reused, so
+        learned state is not rebuilt every cycle. Conversion to the persistable
+        form happens only at save time (see :meth:`_sync_mpc_v2_live`).
+        """
+        live = self._mpc_v2_live.get(key)
+        if live is None:
+            persisted = self._state.mpc_v2.get(key)
+            live = (
+                import_mpc_v2_state(asdict(persisted), params)
+                if persisted is not None
+                else MpcV2State()
+            )
+            self._mpc_v2_live[key] = live
+        return live
+
+    def set_mpc_v2_live(self, key: str, state: MpcV2State) -> None:
+        """Store the live MPC v2 controller state for a key and mark dirty."""
+        self._mpc_v2_live[key] = state
+        self._dirty = True
+
+    def _sync_mpc_v2_live(self) -> None:
+        """Fold live MPC v2 controllers into the persistable snapshot.
+
+        Runs at save time only; the per-cycle path keeps the live controller in
+        memory and never serialises it.
+        """
+        for key, live in self._mpc_v2_live.items():
+            exported = export_mpc_v2_state(live)
+            if exported is not None:
+                self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+
     def get_pid(self, key: str) -> PIDState:
         """Get or create PID state for a key."""
         if key not in self._state.pid:
@@ -340,6 +439,19 @@ class StateManager:
         """Set PID state for a key and mark dirty."""
         self._state.pid[key] = pid
         self._dirty = True
+
+    def reset_pid_states(self, prefix: str) -> int:
+        """Drop all PID states whose key starts with *prefix*.
+
+        Returns the number of removed entries; marks the store dirty when
+        anything was removed.
+        """
+        keys = [key for key in self._state.pid if key.startswith(prefix)]
+        for key in keys:
+            del self._state.pid[key]
+        if keys:
+            self._dirty = True
+        return len(keys)
 
     def get_tpi(self, key: str) -> TpiState:
         """Get or create TPI state for a key."""
@@ -379,38 +491,7 @@ class StateManager:
         """Manually mark state as needing persistence."""
         self._dirty = True
 
-    # -- Controller bridging -------------------------------------------------
-
-    def hydrate_controllers(self, prefix: str) -> None:
-        """Seed the module-level controller caches from persisted state.
-
-        The MPC/PID/TPI controllers keep their own global ``_*_STATES`` dicts.
-        This copies the persisted entries whose key starts with *prefix* into
-        those caches so ``compute_*()`` works immediately after startup.
-        """
-        mpc_data = {
-            key: asdict(mpc)
-            for key, mpc in self._state.mpc.items()
-            if key.startswith(prefix)
-        }
-        if mpc_data:
-            import_mpc_state_map(mpc_data)
-
-        pid_data = {
-            key: asdict(pid)
-            for key, pid in self._state.pid.items()
-            if key.startswith(prefix)
-        }
-        if pid_data:
-            import_pid_states(pid_data, prefix_filter=prefix)
-
-        tpi_data = {
-            key: asdict(tpi)
-            for key, tpi in self._state.tpi.items()
-            if key.startswith(prefix)
-        }
-        if tpi_data:
-            import_tpi_state_map(tpi_data)
+    # -- Thermal stats ---------------------------------------------------------
 
     def clamped_thermal(self) -> tuple[float | None, float | None]:
         """Return persisted thermal stats clamped to their valid bounds.
@@ -426,7 +507,7 @@ class StateManager:
                 heating_power = clamp(
                     float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError, OverflowError:
                 heating_power = None
 
         heat_loss_rate: float | None = None
@@ -435,34 +516,30 @@ class StateManager:
                 heat_loss_rate = clamp(
                     float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError, OverflowError:
                 heat_loss_rate = None
 
         return heating_power, heat_loss_rate
 
-    def sync_controllers(
-        self, prefix: str, heating_power: float | None, heat_loss_rate: float | None
+    def record_thermal(
+        self, heating_power: float | None, heat_loss_rate: float | None
     ) -> None:
-        """Export the module-level controller caches back into the store.
+        """Record the entity-held thermal stats before a save.
 
-        Pulls the latest MPC/PID/TPI runtime state for *prefix* from the global
-        controller caches and records the supplied thermal stats, so a following
-        save reflects current runtime values.
+        Non-finite samples (NaN/inf) are dropped to ``None`` so a bad reading
+        cannot be persisted and reloaded; this mirrors the finite handling in
+        ``clamped_thermal()``.
         """
-        for key, state_dict in export_mpc_state_map(prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_mpc(key, deserialize_mpc(state_dict))
 
-        for key, state_dict in export_pid_states(prefix=prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_pid(key, deserialize_pid(state_dict))
-
-        for key, state_dict in export_tpi_state_map(prefix).items():
-            if isinstance(state_dict, dict):
-                self.set_tpi(key, deserialize_tpi(state_dict))
+        def _finite_or_none(value: float | None) -> float | None:
+            try:
+                return value if value is not None and math.isfinite(value) else None
+            except TypeError:
+                return None
 
         self.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=_finite_or_none(heating_power),
+            heat_loss_rate=_finite_or_none(heat_loss_rate),
         )
 
     # -- Load / Save ---------------------------------------------------------
@@ -506,6 +583,7 @@ class StateManager:
 
     async def save(self) -> None:
         """Persist current state to HA Store unconditionally."""
+        self._sync_mpc_v2_live()
         data = _serialize(self._state)
         await self._store.async_save(data)
         self._dirty = False
