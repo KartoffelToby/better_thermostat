@@ -702,6 +702,23 @@ class TestCheckAndUpdateDegradedMode:
 
         assert await self._run(mock_bt_instance) == 1
 
+    @pytest.mark.anyio
+    async def test_skips_a_recovered_sensor_that_has_no_battery_entity(
+        self, mock_bt_instance
+    ):
+        """Recovery alone is not a reason to read: there has to be something to read.
+
+        ``get_battery_status`` returns immediately for an entity with no
+        mapped battery, so scheduling one costs a task and yields nothing.
+        """
+        mock_bt_instance.devices_states = {}
+        mock_state = MagicMock()
+        mock_state.state = "20.0"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.unavailable_sensors = list(self.WATCHED_SENSORS)
+
+        assert await self._run(mock_bt_instance) == 0
+
 
 class TestDegradedModeGracePeriod:
     """Tests for the startup grace period that suppresses degraded-mode noise."""

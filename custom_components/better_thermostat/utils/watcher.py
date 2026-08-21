@@ -127,14 +127,24 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
     ever new on the first pass after startup, while it is still unpopulated,
     or when the entity has just come back from an outage, so those are the
     passes that read it.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity : str
+        Entity ID whose battery reading may need refreshing
+    recovered : bool
+        True when the entity has just become available again, whose stored
+        reading may have gone stale during the outage
     """
     info = self.devices_states.get(entity)
-    needs_initial = (
-        info is not None
-        and info.get("battery_id") is not None
-        and info.get("battery") is None
-    )
-    if recovered or needs_initial:
+    if info is None or info.get("battery_id") is None:
+        # No battery entity is mapped to this one, so there is nothing for
+        # get_battery_status to read.
+        return
+
+    if recovered or info.get("battery") is None:
         self.hass.async_create_background_task(
             get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
         )
