@@ -277,7 +277,18 @@ class TestGetCriticalEntities:
         )
 
         class Trv:
+            """Represent a TRV fixture with model-specific policy configuration."""
+
             def __init__(self, *, model_quirks, calibration=None):
+                """Initialize the TRV fixture.
+
+                Parameters
+                ----------
+                model_quirks
+                    Model quirks module used by the watcher policy.
+                calibration
+                    Optional calibration mode.
+                """
                 self.model_quirks = model_quirks
                 self.advanced = (
                     {"calibration": calibration} if calibration is not None else {}
