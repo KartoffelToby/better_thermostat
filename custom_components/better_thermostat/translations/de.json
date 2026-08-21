@@ -185,6 +185,44 @@
         "sleep": "Schlafen",
         "activity": "Aktivität"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Automatisch (alt)",
+        "auto": "Automatisch",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "KI zeitbasiert (Standard)",
+        "default": "Nur externer Sensorversatz",
+        "mpc_calibration": "MPC prädiktiv (Beta)",
+        "mpc_v2_calibration": "(KI) MPC v2 (QP + Kalman, experimentell)",
+        "fix_calibration": "Aggressiv",
+        "tpi_calibration": "TPI-Regler",
+        "pid_calibration": "PID-Regler",
+        "no_calibration": "Keine Kalibrierung"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Direkte Ventilsteuerung",
+        "target_temp_based": "Zieltemperaturbasiert",
+        "local_calibration_based": "Versatzbasiert"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Automatisch (gelernte Wärmeverlustrate verwenden)",
+        "small_room": "Kleiner Raum (~10 m², schnelle Reaktion)",
+        "medium_room": "Mittlerer Raum (~20 m², Standard)",
+        "large_room": "Großer Raum (~40 m², träge Gebäudehülle)"
+      }
     }
   },
   "entity": {
@@ -206,6 +244,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (Differential)"
+      },
+      "preset_eco": {
+        "name": "Eco"
+      },
+      "preset_eco_min": {
+        "name": "Eco Min"
+      },
+      "preset_eco_max": {
+        "name": "Eco Max"
+      },
+      "preset_away": {
+        "name": "Abwesend"
+      },
+      "preset_away_min": {
+        "name": "Abwesend Min"
+      },
+      "preset_away_max": {
+        "name": "Abwesend Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Komfort"
+      },
+      "preset_comfort_min": {
+        "name": "Komfort Min"
+      },
+      "preset_comfort_max": {
+        "name": "Komfort Max"
+      },
+      "preset_home": {
+        "name": "Zuhause"
+      },
+      "preset_home_min": {
+        "name": "Zuhause Min"
+      },
+      "preset_home_max": {
+        "name": "Zuhause Max"
+      },
+      "preset_sleep": {
+        "name": "Schlafen"
+      },
+      "preset_sleep_min": {
+        "name": "Schlafen Min"
+      },
+      "preset_sleep_max": {
+        "name": "Schlafen Max"
+      },
+      "preset_activity": {
+        "name": "Aktivität"
+      },
+      "preset_activity_min": {
+        "name": "Aktivität Min"
+      },
+      "preset_activity_max": {
+        "name": "Aktivität Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maximale Ventilöffnung"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maximale Ventilöffnung"
       }
     },
     "switch": {
@@ -234,6 +341,51 @@
           "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",
           "door_close": "heizt wieder, weil eine Tür geschlossen wurde"
         }
+      },
+      "external_temp_ema": {
+        "name": "Temperatur-EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Temperatur-EMA (1 Stunde)"
+      },
+      "temp_slope": {
+        "name": "Temperaturänderung"
+      },
+      "heating_power": {
+        "name": "Heizleistung"
+      },
+      "heat_loss": {
+        "name": "Wärmeverlust"
+      },
+      "virtual_temp": {
+        "name": "Virtuelle Temperatur"
+      },
+      "mpc_gain": {
+        "name": "MPC-Heizverstärkung"
+      },
+      "mpc_loss": {
+        "name": "MPC-Wärmeverlust"
+      },
+      "mpc_ka": {
+        "name": "MPC-Isolierung (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "PID-Ausgang"
+      },
+      "pid_error": {
+        "name": "PID-Abweichung"
+      },
+      "solar_intensity": {
+        "name": "Solare Wärmeaufnahme"
       }
     }
   },

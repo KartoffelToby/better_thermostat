@@ -18,9 +18,15 @@ Assistant's event-loop / frame guards that are unavailable outside a running
 instance.
 """
 
+from ast import literal_eval
 from pathlib import Path
 
+from homeassistant.components.automation import config as automation_config
+from homeassistant.components.blueprint.models import Blueprint, BlueprintInputs
+from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util.yaml import loader as yaml_loader
+import jinja2
 import pytest
 import voluptuous as vol
 import yaml
@@ -163,3 +169,303 @@ def test_blueprint_saves_with_default_inputs(path):
 
     problems = _collect_problems(relevant)
     assert not problems, f"{path.name} would fail to save:\n" + "\n".join(problems)
+
+
+# ── Input shapes beyond the declared defaults ────────────────────────────────
+#
+# Substituting only the declared defaults exercises the one case that was
+# already green while #2039 was open. These are the shapes a saved automation
+# actually holds once the presence and pause inputs became list selectors,
+# including the plain string a config saved before that change still carries.
+
+WEEKLY_SCHEDULE = BLUEPRINTS_DIR / "weekly_heating_schedule.yaml"
+
+_INPUT_SHAPES = [
+    pytest.param({}, id="form-untouched"),
+    # The shape from #2039: the notification target is optional, but clearing
+    # it left `service: !input notify_target` holding '' -- which is not a
+    # valid service name, so the whole automation refused to save. Runtime
+    # guards cannot help; validation happens before any of them run.
+    pytest.param({"notify_target": ""}, id="notification-target-cleared"),
+    pytest.param(
+        {"notify_target": "", "presence_entity": [], "pause_switch": []},
+        id="notification-target-cleared-and-presence-empty",
+    ),
+    pytest.param(
+        {"presence_entity": [], "pause_switch": []}, id="cleared-to-empty-list"
+    ),
+    pytest.param(
+        {"presence_entity": ["person.a"], "pause_switch": ["input_boolean.p"]},
+        id="single-item-list",
+    ),
+    pytest.param(
+        {
+            "presence_entity": ["person.a", "person.b"],
+            "pause_switch": ["input_boolean.p", "input_boolean.q"],
+        },
+        id="multi-item-list",
+    ),
+    pytest.param(
+        {"presence_entity": "person.a", "pause_switch": "input_boolean.p"},
+        id="legacy-plain-entity-id",
+    ),
+]
+
+
+_REQUIRED = {"thermostat_target": {"entity_id": "climate.bt_test"}}
+
+
+async def _validate_weekly_schedule(hass, overrides):
+    """Validate the blueprint the way Home Assistant does when saving.
+
+    `_collect_problems` above checks the two fields that are known to break a
+    save; this goes through the real path instead -- `async_substitute()` then
+    the automation config validator -- so the whole trigger/condition/action
+    schema is applied, not just those fields.
+    """
+    data = await hass.async_add_executor_job(
+        yaml_loader.load_yaml, str(WEEKLY_SCHEDULE)
+    )
+    blueprint = Blueprint(
+        data,
+        path=WEEKLY_SCHEDULE.name,
+        expected_domain="automation",
+        schema=BLUEPRINT_SCHEMA,
+    )
+    inputs = BlueprintInputs(
+        blueprint,
+        {
+            "use_blueprint": {
+                "path": WEEKLY_SCHEDULE.name,
+                "input": {**_REQUIRED, **overrides},
+            }
+        },
+    )
+    inputs.validate()
+    return await automation_config.async_validate_config_item(
+        hass, "automation", inputs.async_substitute()
+    )
+
+
+@pytest.mark.parametrize("overrides", _INPUT_SHAPES)
+async def test_weekly_schedule_validates_for_every_input_shape(hass, overrides):
+    """Every shape a stored config can hold has to survive a save."""
+    config = await _validate_weekly_schedule(hass, overrides)
+
+    assert config is not None
+    assert config.validation_status == "ok", config.validation_error
+
+
+async def test_weekly_schedule_rejects_an_empty_string_input(hass):
+    """A known limitation, pinned so it is not mistaken for a fixed case.
+
+    An empty string is the shape reported in #2039. It cannot be repaired
+    inside the blueprint: a trigger `entity_id` accepts no templates, so there
+    is nowhere to normalise the value before Home Assistant validates it. It
+    is also not reachable through the UI, since saving is what fails.
+    """
+    with pytest.raises(vol.Invalid, match="neither a valid entity ID"):
+        await _validate_weekly_schedule(
+            hass, {"presence_entity": "", "pause_switch": ""}
+        )
+
+
+# ── Runtime behaviour of the presence / pause variables ──────────────────────
+
+
+def _render(template_text: str, context: dict, states: dict):
+    """Render a blueprint variable the way Home Assistant would.
+
+    Home Assistant renders a `variables:` entry and then runs `literal_eval`
+    over the result (`homeassistant.helpers.template._parse_result`), keeping
+    the raw string when that fails. A branch rendering the bare word `false`
+    therefore yields the *string* `"false"`, which is truthy -- so the value a
+    template produces has to be a Python literal, not just look like one.
+    """
+    env = jinja2.Environment()
+    env.globals["states"] = lambda entity: states.get(entity, "unknown")
+    env.globals["is_state"] = lambda entity, value: states.get(entity) == value
+    rendered = env.from_string(template_text).render(**context)
+    try:
+        return literal_eval(rendered)
+    except ValueError, TypeError, SyntaxError, MemoryError:
+        return rendered
+
+
+@pytest.fixture(name="schedule_variables")
+def schedule_variables_fixture():
+    """The `variables:` block of the weekly schedule blueprint."""
+    return _load(WEEKLY_SCHEDULE)["variables"]
+
+
+@pytest.mark.parametrize(
+    ("selection", "expected"),
+    [
+        pytest.param(["person.a", "person.b"], ["person.a", "person.b"], id="list"),
+        pytest.param(["person.a"], ["person.a"], id="single-item-list"),
+        pytest.param("person.a", ["person.a"], id="legacy-plain-entity-id"),
+        pytest.param([], [], id="cleared-to-empty-list"),
+        pytest.param("", [], id="empty-string"),
+    ],
+)
+def test_presence_selection_normalises_to_a_list(
+    schedule_variables, selection, expected
+):
+    """Every stored shape has to reduce to a list of entity ids."""
+    assert (
+        _render(
+            schedule_variables["presence_entities"],
+            {"presence_entity_selection": selection},
+            {},
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("states", "expected"),
+    [
+        pytest.param({"person.a": "not_home", "person.b": "home"}, True, id="one-home"),
+        pytest.param({"person.a": "home", "person.b": "home"}, True, id="both-home"),
+        pytest.param(
+            {"person.a": "not_home", "person.b": "not_home"}, False, id="none-home"
+        ),
+    ],
+)
+def test_anyone_home_reads_every_selected_entity(schedule_variables, states, expected):
+    """Reading only the first entity applied the vacation preset with someone home."""
+    result = _render(
+        schedule_variables["anyone_home"],
+        {"enable_presence_mode": True, "presence_entities": ["person.a", "person.b"]},
+        states,
+    )
+
+    assert result is expected
+
+
+@pytest.mark.parametrize(
+    ("states", "expected"),
+    [
+        pytest.param(
+            {"input_boolean.p": "off", "input_boolean.q": "on"}, True, id="one-on"
+        ),
+        pytest.param(
+            {"input_boolean.p": "off", "input_boolean.q": "off"}, False, id="none-on"
+        ),
+    ],
+)
+def test_schedule_paused_reads_every_selected_entity(
+    schedule_variables, states, expected
+):
+    """Same defect as presence: only the first switch was ever evaluated."""
+    result = _render(
+        schedule_variables["schedule_paused"],
+        {
+            "enable_pause_switch": True,
+            "pause_switch_entities": ["input_boolean.p", "input_boolean.q"],
+        },
+        states,
+    )
+
+    assert result is expected
+
+
+@pytest.mark.parametrize(
+    ("name", "context", "expected"),
+    [
+        pytest.param(
+            "anyone_home",
+            {"enable_presence_mode": False, "presence_entities": []},
+            True,
+            id="presence-disabled",
+        ),
+        pytest.param(
+            "anyone_home",
+            {"enable_presence_mode": True, "presence_entities": []},
+            True,
+            id="presence-enabled-but-nothing-selected",
+        ),
+        pytest.param(
+            "schedule_paused",
+            {"enable_pause_switch": False, "pause_switch_entities": []},
+            False,
+            id="pause-disabled",
+        ),
+        pytest.param(
+            "schedule_paused",
+            {"enable_pause_switch": True, "pause_switch_entities": []},
+            False,
+            id="pause-enabled-but-nothing-selected",
+        ),
+    ],
+)
+def test_disabled_branches_render_real_booleans(
+    schedule_variables, name, context, expected
+):
+    """A bare `false` renders as a truthy string, which gated every slot away.
+
+    `schedule_paused` is the one that bit: with the pause feature off -- the
+    default -- it produced the string `"false"`, so the slot condition
+    `{{ not schedule_paused }}` evaluated to False and no preset was applied.
+    """
+    result = _render(schedule_variables[name], context, {})
+
+    assert isinstance(result, bool), f"{name} rendered {result!r}, not a bool"
+    assert result is expected
+
+
+def _branch_for_trigger(node, trigger_id):
+    """Find the `choose` branch guarded by a given trigger id, at any depth."""
+    if isinstance(node, dict):
+        conditions = node.get("conditions")
+        if isinstance(conditions, list) and any(
+            isinstance(c, dict)
+            and c.get("condition") == "trigger"
+            and trigger_id
+            in ([c.get("id")] if isinstance(c.get("id"), str) else (c.get("id") or []))
+            for c in conditions
+        ):
+            return node
+        for value in node.values():
+            if (found := _branch_for_trigger(value, trigger_id)) is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            if (found := _branch_for_trigger(item, trigger_id)) is not None:
+                return found
+    return None
+
+
+def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
+    schedule_variables,
+):
+    """The trigger fires when *any* selected switch goes off.
+
+    With more than one pause switch, turning one off must not resume the
+    schedule while another is still on. The branch therefore has to re-check
+    `schedule_paused`, which reads the whole selection.
+    """
+    blueprint = _load(WEEKLY_SCHEDULE)
+    branch = _branch_for_trigger(blueprint["action"], "pause_off")
+    assert branch is not None, "no branch is guarded by the pause_off trigger"
+
+    guards = [
+        c.get("value_template")
+        for c in branch["conditions"]
+        if isinstance(c, dict) and c.get("condition") == "template"
+    ]
+    assert any(g and "not schedule_paused" in g for g in guards), (
+        f"pause_off branch does not re-check schedule_paused: {guards}"
+    )
+
+    # And the guard has to actually block: one switch off, the other still on.
+    still_paused = _render(
+        schedule_variables["schedule_paused"],
+        {
+            "enable_pause_switch": True,
+            "pause_switch_entities": ["input_boolean.p", "input_boolean.q"],
+        },
+        {"input_boolean.p": "off", "input_boolean.q": "on"},
+    )
+
+    assert still_paused is True

@@ -185,6 +185,44 @@
         "sleep": "Spánok",
         "activity": "Aktivita"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Automaticky (staré)",
+        "auto": "Automaticky",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "AI podľa času (predvolené)",
+        "default": "Iba posun externého snímača",
+        "mpc_calibration": "Prediktívne MPC (beta)",
+        "mpc_v2_calibration": "(AI) MPC v2 (QP + Kalman, experimentálne)",
+        "fix_calibration": "Agresívne",
+        "tpi_calibration": "Regulátor TPI",
+        "pid_calibration": "Regulátor PID",
+        "no_calibration": "Bez kalibrácie"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Priame ovládanie ventilu",
+        "target_temp_based": "Podľa cieľovej teploty",
+        "local_calibration_based": "Podľa posunu"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Automaticky (použiť naučenú mieru tepelných strát)",
+        "small_room": "Malá miestnosť (~10 m², rýchla odozva)",
+        "medium_room": "Stredná miestnosť (~20 m², štandard)",
+        "large_room": "Veľká miestnosť (~40 m², pomalý obvodový plášť)"
+      }
     }
   },
   "entity": {
@@ -206,6 +244,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (Derivačné)"
+      },
+      "preset_eco": {
+        "name": "Eko"
+      },
+      "preset_eco_min": {
+        "name": "Eko Min"
+      },
+      "preset_eco_max": {
+        "name": "Eko Max"
+      },
+      "preset_away": {
+        "name": "Preč"
+      },
+      "preset_away_min": {
+        "name": "Preč Min"
+      },
+      "preset_away_max": {
+        "name": "Preč Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Komfort"
+      },
+      "preset_comfort_min": {
+        "name": "Komfort Min"
+      },
+      "preset_comfort_max": {
+        "name": "Komfort Max"
+      },
+      "preset_home": {
+        "name": "Doma"
+      },
+      "preset_home_min": {
+        "name": "Doma Min"
+      },
+      "preset_home_max": {
+        "name": "Doma Max"
+      },
+      "preset_sleep": {
+        "name": "Spánok"
+      },
+      "preset_sleep_min": {
+        "name": "Spánok Min"
+      },
+      "preset_sleep_max": {
+        "name": "Spánok Max"
+      },
+      "preset_activity": {
+        "name": "Aktivita"
+      },
+      "preset_activity_min": {
+        "name": "Aktivita Min"
+      },
+      "preset_activity_max": {
+        "name": "Aktivita Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maximálne otvorenie ventilu"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maximálne otvorenie ventilu"
       }
     },
     "switch": {
@@ -234,6 +341,51 @@
           "door_open": "turned off because a door was opened",
           "door_close": "resumed heating because a door was closed"
         }
+      },
+      "external_temp_ema": {
+        "name": "Teplota EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Teplota EMA (1 hodina)"
+      },
+      "temp_slope": {
+        "name": "Rýchlosť zmeny teploty"
+      },
+      "heating_power": {
+        "name": "Vykurovací výkon"
+      },
+      "heat_loss": {
+        "name": "Tepelná strata"
+      },
+      "virtual_temp": {
+        "name": "Virtuálna teplota"
+      },
+      "mpc_gain": {
+        "name": "Zisk vykurovania MPC"
+      },
+      "mpc_loss": {
+        "name": "Tepelná strata MPC"
+      },
+      "mpc_ka": {
+        "name": "Izolácia MPC (Ka)"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "Výstup PID"
+      },
+      "pid_error": {
+        "name": "Odchýlka PID"
+      },
+      "solar_intensity": {
+        "name": "Solárny tepelný zisk"
       }
     }
   },

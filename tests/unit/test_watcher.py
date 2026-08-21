@@ -244,6 +244,23 @@ class TestGetOptionalSensors:
             "weather.home",
         ]
 
+    def test_excludes_door_sensor_when_not_configured(self, mock_bt_instance):
+        """Without a door sensor the optional list stays unchanged."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_optional_sensors,
+        )
+
+        mock_bt_instance.door_id = None
+
+        result = get_optional_sensors(mock_bt_instance)
+
+        assert result == [
+            "binary_sensor.window",
+            "sensor.humidity",
+            "sensor.outdoor_temp",
+            "weather.home",
+        ]
+
 
 class TestGetCriticalEntities:
     """Tests for get_critical_entities function."""

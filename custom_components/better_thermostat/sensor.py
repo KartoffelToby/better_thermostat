@@ -731,7 +731,7 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
 class BetterThermostatExternalTempSensor(_BtSensorBase):
     """Representation of a Better Thermostat External Temperature Sensor (EMA)."""
 
-    _attr_name = "Temperature EMA"
+    _attr_translation_key = "external_temp_ema"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _unique_id_suffix = "external_temp_ema"
@@ -751,7 +751,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
 class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
     """Representation of a Better Thermostat External Temperature 1h EMA Sensor."""
 
-    _attr_name = "Temperature EMA 1h"
+    _attr_translation_key = "external_temp_ema_1h"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_suggested_display_precision = 2
@@ -800,7 +800,7 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
 class BetterThermostatTempSlopeSensor(_BtSimpleAttributeSensor):
     """Representation of a Better Thermostat Temperature Slope Sensor."""
 
-    _attr_name = "Temperature Slope"
+    _attr_translation_key = "temp_slope"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:chart-line"
@@ -812,7 +812,7 @@ class BetterThermostatTempSlopeSensor(_BtSimpleAttributeSensor):
 class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
     """Representation of a Better Thermostat Heating Power Sensor."""
 
-    _attr_name = "Heating Power"
+    _attr_translation_key = "heating_power"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-plus"
@@ -824,7 +824,7 @@ class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
 class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
     """Representation of a Better Thermostat Heat Loss Sensor."""
 
-    _attr_name = "Heat Loss"
+    _attr_translation_key = "heat_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-minus"
@@ -836,7 +836,7 @@ class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
 class BetterThermostatVirtualTempSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat Virtual Temperature Sensor (MPC)."""
 
-    _attr_name = "Virtual Temperature"
+    _attr_translation_key = "virtual_temp"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_icon = "mdi:thermometer-auto"
@@ -847,7 +847,7 @@ class BetterThermostatVirtualTempSensor(_BtMpcSensorBase):
 class BetterThermostatMpcGainSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat MPC Gain Sensor."""
 
-    _attr_name = "MPC Gain"
+    _attr_translation_key = "mpc_gain"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-plus"
@@ -859,7 +859,7 @@ class BetterThermostatMpcGainSensor(_BtMpcSensorBase):
 class BetterThermostatMpcLossSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat MPC Loss Sensor."""
 
-    _attr_name = "MPC Loss"
+    _attr_translation_key = "mpc_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-minus"
@@ -871,7 +871,7 @@ class BetterThermostatMpcLossSensor(_BtMpcSensorBase):
 class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat MPC Ka (Insulation) Sensor."""
 
-    _attr_name = "MPC Insulation (Ka)"
+    _attr_translation_key = "mpc_ka"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "1/min"
     _attr_icon = "mdi:home-thermometer-outline"
@@ -957,7 +957,7 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
 class BetterThermostatPidKpSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat PID Kp (proportional gain) Sensor."""
 
-    _attr_name = "PID Kp"
+    _attr_translation_key = "pid_kp"
     _attr_device_class = None
     _attr_icon = "mdi:alpha-p-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -968,7 +968,7 @@ class BetterThermostatPidKpSensor(_BtMpcSensorBase):
 class BetterThermostatPidKiSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat PID Ki (integral gain) Sensor."""
 
-    _attr_name = "PID Ki"
+    _attr_translation_key = "pid_ki"
     _attr_device_class = None
     _attr_icon = "mdi:alpha-i-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -979,7 +979,7 @@ class BetterThermostatPidKiSensor(_BtMpcSensorBase):
 class BetterThermostatPidKdSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat PID Kd (derivative gain) Sensor."""
 
-    _attr_name = "PID Kd"
+    _attr_translation_key = "pid_kd"
     _attr_device_class = None
     _attr_icon = "mdi:alpha-d-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -990,7 +990,7 @@ class BetterThermostatPidKdSensor(_BtMpcSensorBase):
 class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat PID Output (valve command) Sensor."""
 
-    _attr_name = "PID Output"
+    _attr_translation_key = "pid_output"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_icon = "mdi:valve"
@@ -1002,7 +1002,7 @@ class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
 class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
     """Representation of a Better Thermostat PID Error (setpoint deviation) Sensor."""
 
-    _attr_name = "PID Error"
+    _attr_translation_key = "pid_error"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K"
     _attr_icon = "mdi:thermometer-alert"
@@ -1014,7 +1014,7 @@ class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
 class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     """Representation of a Better Thermostat Solar Intensity Sensor."""
 
-    _attr_name = "Sun Intensity Heatup"
+    _attr_translation_key = "solar_intensity"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC

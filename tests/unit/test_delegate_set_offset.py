@@ -1,11 +1,13 @@
-"""The delegate's set_offset separates the intent from the command.
+"""The delegate records the offset it asked for, separate from what was sent.
 
-``last_calibration_requested`` is the offset asked for; the adapter
-records the value it actually put on the wire in ``last_calibration``.
-Only a write the adapter accepted counts as either.
+``last_calibration`` is what the adapter put on the wire after its own clamp to
+the device's declared offset range; ``last_calibration_requested`` is the value
+that was asked for before that clamp. Keeping the two apart is what lets the
+write gate tell a device resting at a declared limit from one that dropped the
+write.
 
-Both records, and the True the caller arms its confirmation watchdog on,
-follow the adapter's boolean answer: only a write that went out counts.
+Both records, and the True the caller arms its confirmation watchdog on, follow
+the adapter's boolean answer: only a write that went out counts.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -28,7 +30,9 @@ def bt():
     mock = MagicMock()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
-    trv = Trv(entity_id=ENTITY_ID, local_calibration_min=-3.0)
+    trv = Trv(
+        entity_id=ENTITY_ID, local_calibration_min=-3.0, local_calibration_max=3.0
+    )
     trv.adapter = MagicMock()
     trv.adapter.set_offset = AsyncMock(return_value=True)
     mock.real_trvs = {ENTITY_ID: trv}
@@ -37,7 +41,7 @@ def bt():
 
 @pytest.mark.asyncio
 async def test_accepted_write_records_the_requested_offset(bt):
-    """A successful write reports success and remembers what was asked for."""
+    """A write the adapter accepted reports success and records what was asked."""
     result = await set_offset(bt, ENTITY_ID, -2.0)
 
     assert result is True
@@ -45,16 +49,17 @@ async def test_accepted_write_records_the_requested_offset(bt):
 
 
 @pytest.mark.asyncio
-async def test_failed_write_records_nothing(bt):
-    """An adapter raising on every retry leaves the intent unrecorded.
+async def test_failed_write_leaves_the_requested_offset_untouched(bt):
+    """A write that raised on every retry records nothing and reports failure.
 
-    A recorded intent would suppress the retry on the next cycle for a
-    write that never left the house. The backoff between the attempts is
-    recorded rather than slept through, so the retry schedule is asserted
-    without spending it.
+    A recorded intent would suppress the retry on the next cycle for a write
+    that never left the house. The backoff between the attempts is recorded
+    rather than slept through, so the retry schedule is asserted without
+    spending it.
     """
+    bt.real_trvs[ENTITY_ID].last_calibration_requested = -1.0
     bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
-        side_effect=ConnectionError("boom")
+        side_effect=RuntimeError("device refused")
     )
     delays = []
 
@@ -65,7 +70,7 @@ async def test_failed_write_records_nothing(bt):
         result = await set_offset(bt, ENTITY_ID, -2.0)
 
     assert result is False
-    assert bt.real_trvs[ENTITY_ID].last_calibration_requested is None
+    assert bt.real_trvs[ENTITY_ID].last_calibration_requested == -1.0
     assert (
         bt.real_trvs[ENTITY_ID].adapter.set_offset.await_count
         == len(RETRY_BACKOFF_S) + 1
@@ -73,6 +78,23 @@ async def test_failed_write_records_nothing(bt):
     assert len(delays) == len(RETRY_BACKOFF_S)
     for actual, base in zip(delays, RETRY_BACKOFF_S, strict=True):
         assert base * (1 - RETRY_JITTER) <= actual <= base * (1 + RETRY_JITTER)
+
+
+@pytest.mark.asyncio
+async def test_failed_write_on_a_blank_record_records_nothing(bt):
+    """A connection error on an unrecorded offset leaves the record blank."""
+    bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
+        side_effect=ConnectionError("boom")
+    )
+
+    async def _skip_delay(seconds):
+        return None
+
+    with patch("asyncio.sleep", new=_skip_delay):
+        result = await set_offset(bt, ENTITY_ID, -2.0)
+
+    assert result is False
+    assert bt.real_trvs[ENTITY_ID].last_calibration_requested is None
 
 
 @pytest.mark.asyncio
@@ -96,19 +118,20 @@ async def test_a_written_zero_offset_is_still_a_write(bt):
 
 
 @pytest.mark.asyncio
-async def test_clamped_write_keeps_intent_and_command_apart(bt):
-    """An adapter clamping to its minimum records both values."""
+async def test_clamped_write_keeps_the_pre_clamp_intent(bt):
+    """An adapter clamp moves the command, not the recorded intent."""
 
     async def _clamping_set_offset(_self, entity_id, offset):
-        trv = bt.real_trvs[entity_id]
-        trv.last_calibration = max(offset, trv.local_calibration_min)
+        trv = _self.real_trvs[entity_id]
+        trv.last_calibration = max(float(trv.local_calibration_min), float(offset))
         return True
 
     bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
         side_effect=_clamping_set_offset
     )
 
-    await set_offset(bt, ENTITY_ID, -5.0)
+    result = await set_offset(bt, ENTITY_ID, -5.0)
 
+    assert result is True
     assert bt.real_trvs[ENTITY_ID].last_calibration == -3.0
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested == -5.0

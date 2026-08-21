@@ -1482,6 +1482,7 @@ class TestTargetTempAdoption:
 
         assert mock_bt.bt_target_temp == 22.0
         assert mock_bt.bt_target_cooltemp == 22.5  # untouched
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
         assert (
             "reported setpoint 24.00 does not clear the cooling target 22.50"
             in caplog.text
@@ -1611,6 +1612,7 @@ class TestTargetTempAdoption:
 
         assert mock_bt.bt_target_temp == 22.0
         assert mock_bt.bt_target_cooltemp is None
+        mock_bt.async_write_ha_state.assert_called()
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1759,6 +1761,7 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert mock_bt.hvac_mode == HVACMode.HEAT_COOL
         assert mock_bt.bt_target_temp == 5.0
         assert mock_bt.bt_target_cooltemp == 5.5
         assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp

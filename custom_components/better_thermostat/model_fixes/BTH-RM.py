@@ -88,8 +88,12 @@ async def override_set_temperature(self, entity_id, temperature):
     _supports_range = supports_temperature_range(state)
 
     _LOGGER.debug(
-        f"better_thermostat {self.device_name}: TRV {entity_id} device quirk bth-rm "
-        f"found supported_features {state.attributes.get('supported_features', 0)} (range={_supports_range})"
+        "better_thermostat %s: TRV %s device quirk bth-rm "
+        "found supported_features %s (range=%s)",
+        self.device_name,
+        entity_id,
+        state.attributes.get("supported_features", 0),
+        _supports_range,
     )
 
     if _supports_range:

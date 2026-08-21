@@ -66,6 +66,9 @@ def bt():
     mock.bt_target_temp = 21.0
     mock.bt_target_cooltemp = 25.0
     mock.bt_hvac_mode = HVACMode.HEAT
+    mock._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(mock, v)
+    )
     mock.cur_temp = 20.0
     mock.tolerance = 0.3
     mock.startup_running = False

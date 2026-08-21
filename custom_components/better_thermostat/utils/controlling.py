@@ -876,7 +876,8 @@ async def control_cooler(self, snapshot=None):
     Deactivates cooling when the temperature falls back below the cooling
     target — or below the cooling target minus the width
     COOLER_MODE_HYSTERESIS_K borrows from underneath it whenever the tolerance
-    is narrower than that minimum band — or when BT HVAC mode is OFF.
+    is narrower than that minimum band — or when BT HVAC mode is OFF, or
+    while a window or door contact is open.
 
     The control queue passes the cycle's snapshot in; a standalone
     invocation observes the world itself.
