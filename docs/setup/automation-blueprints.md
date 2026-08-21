@@ -8,7 +8,7 @@ description: Ready-made Home Assistant automation blueprints for Better Thermost
 # Automation Blueprints
 
 Better Thermostat ships a collection of **ready-made automation blueprints** that take
-advantage of the purpose-specific device triggers introduced in HA 2025.12.  
+advantage of Better Thermostat's purpose-specific device triggers.  
 Each blueprint can be imported into Home Assistant with one click and customised through
 the standard UI – no YAML editing required.
 
@@ -198,8 +198,8 @@ All 8 BT presets are available per slot per day type: `none`, `eco`, `away`,
 
 ## How device triggers work
 
-These blueprints use Better Thermostat's **purpose-specific device triggers**
-(HA 2025.12+). Each trigger maps directly to an attribute or action of the
+These blueprints use Better Thermostat's **purpose-specific device triggers**.
+Each trigger maps directly to an attribute or action of the
 Better Thermostat climate entity:
 
 | Trigger type | Fires when |

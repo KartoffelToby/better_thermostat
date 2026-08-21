@@ -392,7 +392,7 @@ wheels = [
 
 [[package]]
 name = "better-thermostat"
-version = "1.9.0.dev0"
+version = "1.9.0rc0"
 source = { virtual = "." }
 dependencies = [
     { name = "homeassistant" },
