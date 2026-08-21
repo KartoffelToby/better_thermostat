@@ -462,7 +462,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
                 target_temp_C=self.bt_target_temp,
                 current_temp_C=self.cur_temp,
                 trv_temp_C=trv_state.current_temperature,
-                window_open=self.window_open or False,
+                window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
