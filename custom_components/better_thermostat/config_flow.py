@@ -536,9 +536,12 @@ def _build_user_fields(
         default = resolve(key)
         if key == CONF_HEATER and isinstance(default, list):
             default = [
-                item.get("trv")
+                item.get("trv") if isinstance(item, dict) else item
                 for item in default
-                if isinstance(item, dict) and item.get("trv")
+                if (
+                    (isinstance(item, dict) and item.get("trv"))
+                    or (not isinstance(item, dict) and item)
+                )
             ]
         if key == CONF_HEATER and not default:
             default = None
