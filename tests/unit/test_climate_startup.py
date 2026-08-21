@@ -152,10 +152,19 @@ class TestStartupUnloadBailout:
         async def fake_sleep(_seconds):
             bt.is_removed = True
 
-        with patch(
-            "custom_components.better_thermostat.climate.asyncio.sleep",
-            side_effect=fake_sleep,
-        ) as mock_sleep:
+        with (
+            # Each pass of the wait branch reports on the critical entities;
+            # against a mocked thermostat that check has nothing to read, and
+            # this test is about the bail-out, not about the reporting.
+            patch(
+                "custom_components.better_thermostat.climate.check_critical_entities",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.asyncio.sleep",
+                side_effect=fake_sleep,
+            ) as mock_sleep,
+        ):
             await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
 
         mock_sleep.assert_awaited_once()

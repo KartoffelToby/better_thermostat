@@ -1190,6 +1190,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
+                # This loop waits for as long as it takes, and nothing
+                # downstream of it runs while it does, so without this call a
+                # TRV that never comes back is never reported at all — while
+                # one that disappears after startup is. The critical check
+                # owns the rule for when waiting turns into reporting and
+                # stays quiet for the length of the grace window.
+                await check_critical_entities(self)
                 await asyncio.sleep(20)
                 if self.is_removed:
                     return
