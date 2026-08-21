@@ -146,6 +146,6 @@ class TestIgnoreTrvStates:
 
     def test_ignore_trv_states_default_is_false(self):
         """The ignore_trv_states flag defaults to False when not set."""
-        trv_data = Trv.from_legacy_dict("climate.test_trv", {})
+        trv_data = Trv.from_legacy_dict("climate.default_test", {})
 
         assert trv_data.ignore_trv_states is False

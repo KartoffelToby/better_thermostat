@@ -38,7 +38,6 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
 
 CONF_HEATER: Final = "thermostat"
 CONF_COOLER: Final = "cooler"
-CONF_MIN_COOLER_RESEND_INTERVAL: Final = "min_cooler_resend_interval"
 CONF_SENSOR: Final = "temperature_sensor"
 CONF_HUMIDITY: Final = "humidity_sensor"
 CONF_SENSOR_WINDOW: Final = "window_sensors"

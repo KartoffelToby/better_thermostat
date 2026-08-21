@@ -4,11 +4,20 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
+from dataclasses import replace
 import inspect
 from unittest.mock import MagicMock, patch
 
 from homeassistant.core import State
 import pytest
+
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.lifecycle import (
+    LifecyclePhase,
+    LifecycleState,
+)
+from custom_components.better_thermostat.trv import Trv
 
 
 def _close_coro(coro, *args, **kwargs):
@@ -49,14 +58,16 @@ def mock_bt_instance(mock_hass):
     bt.humidity_sensor_entity_id = "sensor.humidity"
     bt.outdoor_sensor = "sensor.outdoor_temp"
     bt.weather_entity = "weather.home"
-    bt.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
+    bt.real_trvs = {
+        "climate.trv_1": Trv(entity_id="climate.trv_1"),
+        "climate.trv_2": Trv(entity_id="climate.trv_2"),
+    }
     bt.devices_errors = []
-    bt.degraded_mode = False
-    bt.unavailable_sensors = []
-    bt._degraded_grace_until = None
     bt._degraded_warning_emitted = False
     bt._critical_grace_until = None
     bt.is_removed = False
+    bt.kernel_state = KernelState()
+    bt.clock = FakeClock()
     return bt
 
 
@@ -182,8 +193,13 @@ class TestGetOptionalSensors:
 
         assert result == []
 
-    def test_includes_door_sensor_when_configured(self, mock_bt_instance):
-        """A configured door sensor is watched like the other optional sensors."""
+    def test_includes_the_door_sensor(self, mock_bt_instance):
+        """A configured door sensor is watched like the window sensor.
+
+        Both contact sensors count as closed while unavailable, so
+        heating simply continues and degraded mode is the only thing
+        that reveals the outage.
+        """
         from custom_components.better_thermostat.utils.watcher import (
             get_optional_sensors,
         )
@@ -316,8 +332,6 @@ class TestCheckCriticalEntities:
         """Unavailable TRV during startup grace does not raise a repair issue."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
@@ -325,7 +339,9 @@ class TestCheckCriticalEntities:
         mock_state = MagicMock()
         mock_state.state = "unavailable"
         mock_bt_instance.hass.states.get.return_value = mock_state
-        mock_bt_instance._critical_grace_until = dt_util.now() + timedelta(minutes=2)
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() + timedelta(minutes=2)
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             result = await check_critical_entities(mock_bt_instance)
@@ -339,8 +355,6 @@ class TestCheckCriticalEntities:
         """Unavailable TRV after grace expiry raises a repair issue."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
@@ -349,7 +363,9 @@ class TestCheckCriticalEntities:
         mock_state.state = "unavailable"
         mock_bt_instance.hass.states.get.return_value = mock_state
         # Grace expired one minute ago
-        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() - timedelta(minutes=1)
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             result = await check_critical_entities(mock_bt_instance)
@@ -405,8 +421,6 @@ class TestCheckCriticalEntities:
         """Available TRVs are processed even when another TRV is unavailable."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
@@ -417,7 +431,9 @@ class TestCheckCriticalEntities:
             return state
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
-        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() - timedelta(minutes=1)
+        )
         mock_bt_instance.devices_errors = ["climate.trv_2"]
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
@@ -544,14 +560,18 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is True
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert "binary_sensor.window" in mock_bt_instance.unavailable_sensors
 
     @pytest.mark.anyio
     async def test_sets_degraded_mode_when_door_sensor_unavailable(
         self, mock_bt_instance
     ):
-        """A dead door sensor reaches degraded mode and raises the repair issue."""
+        """A dead door sensor surfaces as degraded mode.
+
+        It counts as closed, so heating continues and nothing else in the
+        system reacts — without the annunciation the outage is invisible.
+        """
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -560,7 +580,10 @@ class TestCheckAndUpdateDegradedMode:
 
         def mock_get(entity_id):
             state = MagicMock()
-            state.state = "unavailable" if entity_id == "binary_sensor.door" else "20.0"
+            if entity_id == "binary_sensor.door":
+                state.state = "unavailable"
+            else:
+                state.state = "20.0"
             return state
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
@@ -569,29 +592,43 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is True
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert "binary_sensor.door" in mock_bt_instance.unavailable_sensors
         assert mock_ir.async_create_issue.called
 
     @pytest.mark.anyio
-    async def test_no_degraded_mode_when_door_sensor_not_configured(
+    async def test_ladder_reaches_hold_when_all_trvs_unavailable(
         self, mock_bt_instance
     ):
-        """An unconfigured door sensor never counts as unavailable."""
+        """A full TRV outage steps the ladder down to HOLD.
+
+        Stored temperatures from before the outage must not keep the
+        ladder off the HOLD rung.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
 
-        mock_bt_instance.door_id = None
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = "unavailable"
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_and_update_degraded_mode(mock_bt_instance)
+            await check_and_update_degraded_mode(mock_bt_instance)
+            # Downgrades commit after the down-debounce window.
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert result is False
-        assert mock_bt_instance.unavailable_sensors == []
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
 
     @pytest.mark.anyio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
@@ -608,7 +645,7 @@ class TestCheckAndUpdateDegradedMode:
             result = await check_and_update_degraded_mode(mock_bt_instance)
 
         assert result is False
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert mock_bt_instance.unavailable_sensors == []
 
     @pytest.mark.anyio
@@ -748,7 +785,10 @@ class TestDegradedModeGracePeriod:
         mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
             "binary_sensor.window"
         )
-        mock_bt_instance._degraded_grace_until = None
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(phase=LifecyclePhase.STARTING, grace_until=None),
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
@@ -763,8 +803,6 @@ class TestDegradedModeGracePeriod:
         """Grace active → degraded transition logs DEBUG, no issue, no WARNING."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -772,13 +810,19 @@ class TestDegradedModeGracePeriod:
         mock_bt_instance.hass.states.get.side_effect = self._mock_get_with_unavailable(
             "binary_sensor.window"
         )
-        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=mock_bt_instance.clock.now() + timedelta(minutes=5),
+            ),
+        )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is True
+        assert mock_bt_instance.kernel_state.control_mode.degraded is True
         assert not any("Entering degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_create_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
@@ -788,8 +832,6 @@ class TestDegradedModeGracePeriod:
         """Grace passed → still-degraded re-check logs WARNING and raises issue."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -798,7 +840,13 @@ class TestDegradedModeGracePeriod:
             "binary_sensor.window"
         )
         # Grace expired 1 minute ago
-        mock_bt_instance._degraded_grace_until = dt_util.now() - timedelta(minutes=1)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=mock_bt_instance.clock.now() - timedelta(minutes=1),
+            ),
+        )
         # Simulate that the silent-during-grace check already set degraded=True
         mock_bt_instance.degraded_mode = True
 
@@ -815,8 +863,6 @@ class TestDegradedModeGracePeriod:
         """Recover during grace → no INFO log, no issue deleted (none was created)."""
         from datetime import timedelta
 
-        from homeassistant.util import dt as dt_util
-
         from custom_components.better_thermostat.utils.watcher import (
             check_and_update_degraded_mode,
         )
@@ -826,7 +872,13 @@ class TestDegradedModeGracePeriod:
         mock_state.state = "20.0"
         mock_bt_instance.hass.states.get.return_value = mock_state
         # Mock was previously set to degraded silently during grace
-        mock_bt_instance._degraded_grace_until = dt_util.now() + timedelta(minutes=5)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING,
+                grace_until=mock_bt_instance.clock.now() + timedelta(minutes=5),
+            ),
+        )
         mock_bt_instance.degraded_mode = True
         mock_bt_instance._degraded_warning_emitted = False
 
@@ -834,7 +886,7 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("INFO"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert not any("Exiting degraded mode" in r.message for r in caplog.records)
         assert not mock_ir.async_delete_issue.called
 
@@ -855,7 +907,7 @@ class TestDegradedModeGracePeriod:
             with caplog.at_level("INFO"):
                 await check_and_update_degraded_mode(mock_bt_instance)
 
-        assert mock_bt_instance.degraded_mode is False
+        assert mock_bt_instance.kernel_state.control_mode.degraded is False
         assert any("Exiting degraded mode" in r.message for r in caplog.records)
         assert mock_ir.async_delete_issue.called
         assert mock_bt_instance._degraded_warning_emitted is False
@@ -893,9 +945,12 @@ class TestCoolerDegradedMode:
     @staticmethod
     def _arm_grace(bt, delta):
         """Set the degraded-mode grace deadline to ``now + delta``."""
-        from homeassistant.util import dt as dt_util
-
-        bt._degraded_grace_until = dt_util.now() + delta
+        bt.kernel_state = replace(
+            bt.kernel_state,
+            lifecycle=LifecycleState(
+                phase=LifecyclePhase.STARTING, grace_until=bt.clock.now() + delta
+            ),
+        )
 
     @staticmethod
     def _only_dead(unavailable_id):

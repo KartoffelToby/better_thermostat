@@ -4,10 +4,37 @@ from __future__ import annotations
 
 import numpy as np
 
+from custom_components.better_thermostat.utils import state_manager as _state_manager
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+    params as _params,
+    reid as _reid,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
+    GAIN_HEATER_BOUNDS,
+    TAU_ROOM_BOUNDS_MIN,
     PlantModelRC2,
     PlantParams,
 )
+
+
+class TestPlantPriorBands:
+    """Every producer and consumer of a plant prior reads one band."""
+
+    def test_reid_reads_the_bands_from_plant(self) -> None:
+        """The offline fit clamps its emission against these very tuples."""
+        assert _reid.TAU_ROOM_BOUNDS_MIN is TAU_ROOM_BOUNDS_MIN
+        assert _reid.GAIN_HEATER_BOUNDS is GAIN_HEATER_BOUNDS
+
+    def test_state_manager_reads_the_bands_from_plant(self) -> None:
+        """The restore gate rejects against these very tuples."""
+        assert _state_manager.TAU_ROOM_BOUNDS_MIN is TAU_ROOM_BOUNDS_MIN
+        assert _state_manager.GAIN_HEATER_BOUNDS is GAIN_HEATER_BOUNDS
+
+    def test_heat_loss_derivation_clamps_to_the_band(self) -> None:
+        """The AUTO heuristic lands on the band edges, not on its own numbers."""
+        low, high = TAU_ROOM_BOUNDS_MIN
+        assert _params.make_plant_prior(heat_loss_rate=1.0).tau_room_min == low
+        assert _params.make_plant_prior(heat_loss_rate=0.0001).tau_room_min == high
 
 
 def test_state_dim_is_two() -> None:
@@ -53,6 +80,16 @@ def test_linearisation_matches_discrete_step_for_small_dt() -> None:
     x_next_lin = A @ x + B.flatten() * u + d
     # Linearised around operating x[1], they should agree to ~1e-12.
     np.testing.assert_allclose(x_next_lin, x_next_nonlin, atol=1e-10)
+
+
+def test_long_linearised_interval_is_composed_from_stable_substeps() -> None:
+    """A sparse observer update stays finite even across a one-hour gap."""
+    plant = PlantModelRC2(PlantParams(tau_rad_min=15.0), dt_s=30.0)
+    A, B, d = plant.linearised_AB(T_outdoor_C=5.0, T_rad_op_C=30.0, dt_s=3600.0)
+
+    assert np.all(np.isfinite(A))
+    assert np.all(np.isfinite(B))
+    assert np.all(np.isfinite(d))
 
 
 def test_linearisation_stable_eigenvalues() -> None:

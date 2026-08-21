@@ -9,8 +9,6 @@ import json
 import numpy as np
 import pytest
 
-pytest.importorskip("daqp")
-
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     PLANT_PRESETS,
     SNAPSHOT_VERSION,
@@ -91,6 +89,39 @@ def test_diagnostics_exposed() -> None:
     # Estimates are finite numbers once the controller has run a cycle.
     assert diag.T_room_hat == diag.T_room_hat  # not NaN
     assert diag.T_rad_hat == diag.T_rad_hat
+
+
+def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
+    """The next cycle models the adapter-confirmed input, not its proposal."""
+    state = MpcV2State()
+    _out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), state, now=100.0)
+    assert state.controller is not None
+    state.controller.set_command_u(0.9)
+
+    seen_previous_input: list[float] = []
+    original_step = state.controller.step
+
+    def _capture_step(*args, **kwargs):
+        seen_previous_input.append(state.controller._last_u)
+        return original_step(*args, **kwargs)
+
+    state.controller.step = _capture_step  # type: ignore[method-assign]
+    out, state = compute_mpc_v2(
+        _baseline_input(applied_valve_pct=20.0), MpcV2Params(), state, now=400.0
+    )
+    assert out is not None
+    assert seen_previous_input == [0.2]
+
+
+def test_integral_uses_elapsed_control_interval() -> None:
+    """A delayed replan integrates over its real prior valve interval."""
+    params = MpcV2Params()
+    params.governor.enabled = False
+    controller = MpcV2Controller(params)
+    controller.step(100.0, 20.0, 22.0, 5.0)
+    controller.set_applied_u(0.5)
+    controller.step(1000.0, 20.0, 22.0, 5.0)
+    assert controller.optimiser.e_integral_K_min == pytest.approx(-30.0)
 
 
 def test_snapshot_round_trip_preserves_last_u() -> None:
@@ -263,19 +294,19 @@ def test_outdoor_fallback_logs_once(caplog) -> None:
     assert len(fallback_warnings) == 1
 
 
-def test_daqp_guard_raises_when_unavailable(monkeypatch) -> None:
-    """Patching DAQP_AVAILABLE to False must surface at controller init."""
+def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
+    """Patching DAQP unavailable must still construct a usable controller."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
-    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
-    try:
-        with pytest.raises(ImportError, match="daqp"):
-            MpcV2Controller(MpcV2Params())
-    finally:
-        monkeypatch.undo()
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    controller = MpcV2Controller(MpcV2Params())
+    u, _diag = controller.step(
+        t_s=1000.0, T_room_C=19.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+    assert 0.0 <= u <= 1.0
 
 
 def test_snapshot_carries_version_tag() -> None:

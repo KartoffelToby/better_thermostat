@@ -175,34 +175,33 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 
 async def set_offset(self, entity_id, offset) -> bool:
-    """Set new target offset.
+    """Set new target offset and record the value that was asked for.
 
-    An adapter answers ``True`` once the offset write went out and ``False``
-    when the device has no offset channel to write to. Only ``True`` counts
-    as a command in flight: it is what records the requested value and what
-    tells the caller to arm the confirmation watchdog. The written offset
-    itself is not a usable answer, because the legitimate value 0.0 reads
-    the same as a device that wrote nothing.
+    An adapter answers ``True`` once the offset write went out and
+    ``False`` when the device has no offset channel to write to. Only
+    ``True`` counts as a command in flight: it is what records
+    ``last_calibration_requested`` and what tells the caller to arm the
+    confirmation watchdog. The written offset itself is not a usable
+    answer, because the legitimate value 0.0 reads the same as a device
+    that wrote nothing.
 
-    The requested value is recorded on a write only, so a command that never
-    left the house neither counts as issued nor suppresses the retry on the
-    next control cycle.
+    ``last_calibration_requested`` is written on a write only: a
+    swallowed failure would otherwise look like a command in flight.
 
     Parameters
     ----------
     self : BetterThermostat
-        The Better Thermostat climate entity instance.
+        The Better Thermostat climate entity instance
     entity_id : str
-        Entity id of the TRV to write the offset to.
+        Entity ID of the TRV to write to
     offset : float
-        Calibration offset to request, before the adapter's own clamp to the
-        device's declared offset range.
+        The offset asked for, before the adapter's own range clamp
 
     Returns
     -------
     bool
         True when the adapter put the offset on the wire, False when the
-        device has no offset channel or every retry raised.
+        device has no offset channel or every retry raised
     """
 
     @async_retry(retries=5)
@@ -275,9 +274,19 @@ async def set_valve(self, entity_id, valve):
         valve_writable = (
             trv_state.valve_position_writable if trv_state is not None else None
         )
+        # The answer says a command went out, so it is tied to the adapter's
+        # own declaration rather than to the discovered entity: an ecosystem
+        # that declares no valve channel writes nothing, and reporting the
+        # discovery as a completed write would tell the caller a position was
+        # taken that the device never saw. An adapter without a declaration
+        # falls back to the discovered surface, as elsewhere.
+        declared = getattr(
+            trv_state.adapter if trv_state is not None else None, "CAPABILITIES", None
+        )
+        adapter_writes_valve = declared is None or declared.valve_write
 
         # Only write to a helper entity when we know it's writable.
-        if valve_entity and valve_writable is True:
+        if valve_entity and valve_writable is True and adapter_writes_valve:
             await self.real_trvs[entity_id].adapter.set_valve(
                 self, entity_id, target_pct
             )

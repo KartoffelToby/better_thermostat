@@ -46,6 +46,7 @@ def _trv(
     min_temp: float = 5,
     quirks: object | None = None,
     valve_entity: str | None = None,
+    valve_writable: bool = True,
     calibration: str | None = None,
 ) -> Trv:
     """Build a ``real_trvs[entity_id]`` entry for testing."""
@@ -57,6 +58,7 @@ def _trv(
             "min_temp": min_temp,
             "model_quirks": quirks,
             "valve_position_entity": valve_entity,
+            "valve_position_writable": valve_writable,
         },
     )
 

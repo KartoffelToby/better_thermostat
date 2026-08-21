@@ -19,7 +19,7 @@ We've created a companion UI element which can display more information than the
 
 - If you have a question or need help please create a new [discussion](https://github.com/KartoffelToby/better_thermostat/discussions) or check if your question is already answered
 - If you have a suggestion, found a bug, or want to add a new device or function create a new [issue](https://github.com/KartoffelToby/better_thermostat/issues)
-- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls)
+- If you want to contribute to this project create a new [pull request](https://github.com/KartoffelToby/better_thermostat/pulls); the architecture is documented under [Internals](https://better-thermostat.org/internals/architecture/)
 
 ### Features
 
@@ -36,6 +36,7 @@ This integration brings some smartness to your connected radiator thermostats se
 - Dynamic preset temperature learning & persistence (baseline/"no preset" remembers the last temperature you set and survives restarts)
 - **Advanced Control Algorithms**: Choose between MPC, PID, TPI, AI Time Based or simple target temperature matching for precise control.
 - **Selectable Presets**: Configure which preset modes are available for your thermostat during setup.
+- **Fail-soft and observable**: keeps controlling while a usable temperature source remains (a dead room sensor falls back to the TRV-internal mean). When none is left it drops to HOLD, keeping the mode, holding the device on the raw user target, pausing calibration and enforcing the frost floor. Both steps are surfaced as repair issues. Radio writes are spaced out to protect TRV batteries, and the diagnostics download ships a flight recorder for bug reports.
 
 ### Advanced Control Algorithms
 

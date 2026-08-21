@@ -1,5 +1,7 @@
 """Tests for the TPI (Time Proportional Integrator) controller."""
 
+from unittest.mock import patch
+
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
     TpiParams,
@@ -108,3 +110,27 @@ class TestTpiController:
         bt.bt_target_temp = None
         key = build_tpi_key(bt, "climate.test")
         assert key == "test_bt:climate.test:tunknown"
+
+
+class TestTpiTimeHandling:
+    """Injected timestamps replace the module's wall clock."""
+
+    def test_injected_now_is_used_without_wall_clock(self):
+        """Passing ``now`` stamps the state; the wall clock is never read."""
+        params = TpiParams()
+        state = TpiState()
+        inp = TpiInput(
+            key="k",
+            current_temp_C=20.0,
+            target_temp_C=22.0,
+            window_open=False,
+            heating_allowed=True,
+        )
+        with patch(
+            "custom_components.better_thermostat.utils.calibration.tpi.monotonic",
+            side_effect=AssertionError("wall clock must not be read"),
+        ):
+            result, state = compute_tpi(inp, params, state=state, now=500.0)
+
+        assert result is not None
+        assert state.last_update_ts == 500.0

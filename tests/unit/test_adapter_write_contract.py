@@ -1,14 +1,18 @@
 """Every adapter's write paths answer to the same contract.
 
-Five modules implement the same write surface for five ecosystems, and
-the shell reaches them through a duck-typed dispatch that cannot check
-any of it. What holds them together is therefore written down here
-rather than in a base class:
+Six modules implement the same write surface for six ecosystems, and the
+shell reaches them through a duck-typed dispatch that cannot check any of
+it. What holds them together is therefore written down here rather than
+in a base class:
 
-* a valve write lands inside the bounds the number entity itself
-  declares, whatever step grid it publishes;
-* the setpoint and mode payloads carry the same domain, service and
-  keys, in the system's temperature unit.
+* an adapter's ``CAPABILITIES`` declaration is what the delegate keys the
+  valve channel on, so the declaration and the wire have to agree — an
+  ecosystem that declares no valve channel must not be reported as having
+  taken a position;
+* a valve write lands inside the bounds the number entity itself declares,
+  whatever step grid it publishes;
+* the setpoint and mode payloads carry the same domain, service and keys,
+  in the system's temperature unit.
 
 A new adapter is covered by all of it the moment it joins ``ADAPTERS``.
 
@@ -26,6 +30,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters import (
     deconz,
+    delegate,
     generic,
     mqtt,
     tado,
@@ -44,12 +49,27 @@ ADAPTERS = {
     "zwave_js": zwave_js,
 }
 ADAPTER_IDS = sorted(ADAPTERS)
-# The adapters that own a valve channel: they alone ever assign
-# ``valve_position_entity``, in their own ``init``.
-VALVE_ADAPTERS = ["mqtt", "zwave_js"]
+
+
+def _declares_valve_write(module):
+    """Whether the module's own declaration offers a valve channel.
+
+    Read through ``getattr`` so a module that declares nothing at all
+    fails the declaration test alone, instead of taking the rest of this
+    file down with an import-time error.
+    """
+    declared = getattr(module, "CAPABILITIES", None)
+    return declared is not None and declared.valve_write
+
+
+VALVE_ADAPTERS = sorted(
+    name for name, module in ADAPTERS.items() if _declares_valve_write(module)
+)
+NON_VALVE_ADAPTERS = sorted(set(ADAPTER_IDS) - set(VALVE_ADAPTERS))
 
 
 def _thermostat(
+    adapter=None,
     valve_entity=VALVE_ENTITY,
     valve_writable=True,
     valve_bounds=(0.0, 100.0, 1.0),
@@ -59,6 +79,8 @@ def _thermostat(
 
     Parameters
     ----------
+    adapter : module or None
+        Adapter module the TRV resolved to, for delegate-level calls.
     valve_entity : str or None
         Entity ID of the discovered valve number entity, or None or the
         empty string to model a TRV for which discovery found none.
@@ -93,6 +115,9 @@ def _thermostat(
     trv = Trv(entity_id=ENTITY_ID)
     trv.valve_position_entity = valve_entity
     trv.valve_position_writable = valve_writable
+    trv.adapter = adapter
+    # A quirk surface with no override, so the delegate reaches the adapter.
+    trv.model_quirks = MagicMock(spec=[])
     thermostat.real_trvs = {ENTITY_ID: trv}
     return thermostat
 
@@ -103,6 +128,62 @@ def _calls(thermostat):
         (call.args[0], call.args[1], call.args[2])
         for call in thermostat.hass.services.async_call.await_args_list
     ]
+
+
+class TestTheDeclarationIsTheContract:
+    """The delegate keys the valve channel on what the adapter declares."""
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    def test_every_adapter_declares_its_capabilities(self, name):
+        """The declaration exists, so the fallback stays a fallback."""
+        assert hasattr(ADAPTERS[name], "CAPABILITIES")
+
+    @pytest.mark.parametrize("name", NON_VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_an_undeclared_valve_channel_is_never_reported_as_written(self, name):
+        """No write goes out and none is claimed to have gone out.
+
+        Discovery can hand any adapter a valve entity; only the declaration
+        says whether the ecosystem can act on it.
+        """
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is False
+        assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_declared_valve_channel_writes_and_says_so(self, name):
+        """The answer and the wire agree the other way round too."""
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        assert len(_calls(thermostat)) == 1
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    @pytest.mark.parametrize(
+        ("valve_entity", "valve_writable"),
+        [(None, True), (VALVE_ENTITY, False), (VALVE_ENTITY, None)],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unusable_valve_entity_is_never_reported_as_written(
+        self, name, valve_entity, valve_writable
+    ):
+        """A missing or read-only entity is no channel either."""
+        thermostat = _thermostat(
+            adapter=ADAPTERS[name],
+            valve_entity=valve_entity,
+            valve_writable=valve_writable,
+        )
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is False
+        assert _calls(thermostat) == []
 
 
 # Grids a number entity can publish, including the ones where the step does

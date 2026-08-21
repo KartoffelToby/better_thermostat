@@ -21,13 +21,17 @@ from ..utils.helpers import (
     find_valve_entity,
     get_device_model,
 )
-from .base import wait_for_calibration_entity_or_timeout
+from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
 from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Z-Wave JS: both channels ride on a discovered number entity, so each is
+# offered only for devices that expose one.
+CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True)
 
 # Models whose valve is driven through a model quirk (Multilevel Switch command
 # class while in manufacturer-specific mode) rather than a writable number

@@ -13,9 +13,8 @@ Absorbed tests from:
 """
 
 import asyncio
-from contextlib import contextmanager
+from dataclasses import replace
 import inspect
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
@@ -24,6 +23,18 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
+from custom_components.better_thermostat.core.fsm.mode import ModeState
+from custom_components.better_thermostat.core.fsm.reachability import ReachabilityState
+from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
+from custom_components.better_thermostat.core.snapshot import (
+    parse_hvac_mode as _parse_mode,
+)
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -39,7 +50,6 @@ from custom_components.better_thermostat.utils.controlling import (
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 _PATCHES = {
     "convert_outbound_states": f"{_CTRL}.convert_outbound_states",
-    "handle_contact_open": f"{_CTRL}.handle_contact_open",
     "set_hvac_mode": f"{_CTRL}.set_hvac_mode",
     "set_temperature": f"{_CTRL}.set_temperature",
     "set_offset": f"{_CTRL}.set_offset",
@@ -55,6 +65,17 @@ def _close_coro(coro, **kwargs):
     if inspect.iscoroutine(coro):
         coro.close()
     return Mock()
+
+
+def _kernel_state_for(mock_self):
+    """Kernel regions mirroring the mock's flag attributes (like production)."""
+    state = running_kernel_state()
+    parsed = _parse_mode(str(mock_self.bt_hvac_mode))
+    if parsed is not None:
+        state = replace(state, mode=ModeState(hvac_mode=parsed))
+    if mock_self.window_open:
+        state = replace(state, window=WindowState(phase=WindowPhase.OPEN))
+    return state
 
 
 def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
@@ -90,8 +111,6 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.calculate_heating_power = AsyncMock()
     mock_self.bt_hvac_mode = kwargs.pop("bt_hvac_mode", HVACMode.HEAT)
     mock_self.window_open = kwargs.pop("window_open", False)
-    mock_self.door_open = kwargs.pop("door_open", False)
-    mock_self.contact_open = bool(mock_self.window_open) or bool(mock_self.door_open)
     mock_self.call_for_heat = kwargs.pop("call_for_heat", True)
     mock_self.cooler_entity_id = kwargs.pop("cooler_entity_id", None)
     mock_self.preset_mode = kwargs.pop("preset_mode", None)
@@ -100,6 +119,18 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.context = kwargs.pop("context", None)
     mock_self.ignore_states = kwargs.pop("ignore_states", False)
     mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
+    mock_self.clock = FakeClock()
+    mock_self.startup_running = False
+    mock_self.in_maintenance = False
+    mock_self.degraded_mode = False
+    mock_self.outdoor_sensor = None
+    mock_self.weather_entity = None
+    mock_self.cur_temp_filtered = None
+    mock_self.temp_slope = None
+    mock_self.bt_target_cooltemp = None
+    mock_self.tolerance = kwargs.pop("tolerance", 0.0)
+    mock_self.bt_min_temp = 5.0
+    mock_self.bt_max_temp = 30.0
 
     if real_trvs is None:
         real_trvs = {"climate.trv1": _default_trv_config()}
@@ -108,6 +139,8 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     # Set any additional attributes
     for key, value in kwargs.items():
         setattr(mock_self, key, value)
+
+    mock_self.kernel_state = _kernel_state_for(mock_self)
 
     return mock_self
 
@@ -156,15 +189,14 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -174,7 +206,6 @@ class TestControlTrvUnavailablePath:
             # Return None so the HVAC mode change condition short-circuits
             # (_new_hvac_mode is not None → False).  When _trv is None the
             # unavailable path cannot compare _trv.state without crashing.
-            mock_window.return_value = None
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -188,26 +219,64 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_offline_trv_schedules_reachability_retry(self):
+        """Skipping an offline TRV schedules the region's retry.
+
+        Consumes the reachability region's retry_at: a follow-up
+        control cycle is scheduled for the retry window.
+        """
+        mock_self = _make_mock_self(trv_state=STATE_UNAVAILABLE)
+        mock_self.kernel_state = replace(
+            mock_self.kernel_state,
+            reachability={
+                "climate.trv1": ReachabilityState(
+                    online=False, offline_since=100.0, retry_count=0, retry_at=130.0
+                )
+            },
+        )
+        mock_self.real_trvs["climate.trv1"].reachability_retry_pending = False
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+            assert result is True
+            assert (
+                mock_self.real_trvs["climate.trv1"].reachability_retry_pending is True
+            )
+            assert mock_self.task_manager.create_task.called
 
     @pytest.mark.asyncio
     async def test_unavailable_trv_no_operations_called(self):
@@ -216,9 +285,11 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             result = await control_trv(mock_self, "climate.trv1")
@@ -236,22 +307,20 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -300,17 +369,16 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
-            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -319,7 +387,6 @@ class TestControlTrvUnavailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -350,17 +417,16 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
-            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -368,7 +434,6 @@ class TestControlTrvUnavailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -398,18 +463,19 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
-            patch(_PATCHES["set_offset"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -418,7 +484,6 @@ class TestControlTrvUnavailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -434,22 +499,20 @@ class TestControlTrvUnavailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -477,26 +540,107 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 21.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is True
+
+    @pytest.mark.asyncio
+    async def test_unsupported_heat_mode_writes_only_the_setpoint(self):
+        """A device offering no heating mode keeps its mode and gets the setpoint.
+
+        The full outbound conversion runs so the payload really is the one a
+        wall thermostat with ``[auto, cool, off]`` produces for a heat demand.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.AUTO,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=True,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
+                    hvac_mode=HVACMode.AUTO,
+                    last_hvac_mode=HVACMode.AUTO,
+                )
+            },
+        )
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override_mode,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_mode,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_override_mode.assert_not_awaited()
+            mock_set_mode.assert_not_awaited()
+            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
+
+    @pytest.mark.asyncio
+    async def test_swapped_device_without_auto_still_gets_heat(self):
+        """A swapped valve offering only off/heat is switched to heat.
+
+        The full outbound conversion runs, so this is the payload a device
+        sitting in OFF receives on a heat demand.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=True,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
+                    hvac_mode=HVACMode.OFF,
+                    last_hvac_mode=HVACMode.OFF,
+                    advanced={
+                        "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "no_off_system_mode": False,
+                        "heat_auto_swapped": True,
+                    },
+                )
+            },
+        )
+
+        with (
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_mode,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+            mock_set_mode.assert_awaited_once_with(
+                mock_self, "climate.trv1", HVACMode.HEAT
+            )
+            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
 
     @pytest.mark.asyncio
     async def test_set_temperature_quirk_skips_generic_adapter(self):
@@ -507,22 +651,20 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=True)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=True
             ) as mock_override,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 21.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -549,22 +691,20 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ) as mock_override,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": outbound,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -580,22 +720,20 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ) as mock_override,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 21.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -604,20 +742,32 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_available_trv_convert_fails_returns_false(self):
-        """Test that convert failure returns False for available TRV."""
+        """Test that convert failure returns False for available TRV.
+
+        The failing worker must not back off under the TRV lock: every
+        other TRV of the cycle contends for it, so a sleep taken here
+        stalls the whole cycle on the one device that failed.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
         )
 
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
         ):
             mock_convert.return_value = "ERROR"
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is False
+            # No sleep on this path ran while holding the lock.
+            assert not any(lock_held_during_sleep)
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_in_available_path(self):
@@ -641,16 +791,17 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -658,7 +809,6 @@ class TestControlTrvAvailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_valve.return_value = True
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -692,16 +842,17 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["get_current_offset"]) as mock_get_offset,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+            ) as mock_get_offset,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -711,7 +862,6 @@ class TestControlTrvAvailablePath:
             }
             # Current calibration already matches target
             mock_get_offset.return_value = 2.0
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -739,16 +889,17 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["get_current_offset"]) as mock_get_offset,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+            ) as mock_get_offset,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -758,7 +909,6 @@ class TestControlTrvAvailablePath:
             }
             # Fatal error: get_current_offset returns None
             mock_get_offset.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -777,13 +927,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -792,7 +943,6 @@ class TestControlTrvAvailablePath:
             }
             mock_set_hvac.return_value = None
             mock_override.return_value = False
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -817,13 +967,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -832,12 +983,81 @@ class TestControlTrvAvailablePath:
             }
             mock_set_hvac.return_value = None
             mock_override.return_value = False
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
             # Task should be created for check_system_mode
             mock_self.task_manager.create_task.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_dropout_after_valve_write_sends_no_hvac_mode(self):
+        """A TRV that drops offline during the cycle gets no mode write.
+
+        The mode is re-read once the valve write has awaited. An
+        ``unavailable`` reading is not a reported mode: taken as one it
+        makes the unchanged intent look like a change, so BT addresses a
+        device that cannot answer and books the write as settled.
+        """
+        offline_state = Mock()
+        offline_state.state = STATE_UNAVAILABLE
+        offline_state.attributes = {}
+
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    system_mode_received=True,
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    },
+                )
+            },
+        )
+        # A valve balance gives the cycle a write to await on.
+        mock_self.real_trvs["climate.trv1"].calibration_balance = {
+            "apply_valve": True,
+            "valve_percent": 80,
+        }
+
+        live_state = mock_self.hass.states.get("climate.trv1")
+        mock_self.hass.states.get = Mock(side_effect=lambda *a, **k: live_state)
+
+        async def drop_trv_offline(*args, **kwargs):
+            nonlocal live_state
+            live_state = offline_state
+            return True
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_valve"], autospec=True, side_effect=drop_trv_offline
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        mock_set_valve.assert_awaited_once()
+        # The intent still matches the last mode the TRV reported.
+        mock_override_hvac.assert_not_called()
+        mock_set_hvac.assert_not_called()
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
     async def test_lock_usage(self):
@@ -857,109 +1077,25 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
                 "system_mode": HVACMode.HEAT,
             }
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
             # Lock should have been acquired
             lock_acquire_mock.assert_awaited()
-
-    @pytest.mark.asyncio
-    async def test_unsupported_heat_mode_writes_only_the_setpoint(self):
-        """A device offering no heating mode keeps its mode and gets the setpoint.
-
-        The full outbound conversion runs so the payload really is the one a
-        wall thermostat with ``[auto, cool, off]`` produces for a heat demand.
-        """
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.AUTO,
-            trv_attrs={"temperature": 20.0},
-            call_for_heat=True,
-            bt_target_temp=22.0,
-            real_trvs={
-                "climate.trv1": _default_trv_config(
-                    hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
-                    hvac_mode=HVACMode.AUTO,
-                    last_hvac_mode=HVACMode.AUTO,
-                )
-            },
-        )
-
-        with (
-            patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
-            ),
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            await control_trv(mock_self, "climate.trv1")
-
-            mock_set_hvac.assert_not_awaited()
-            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
-
-    @pytest.mark.asyncio
-    async def test_swapped_device_without_auto_still_gets_heat(self):
-        """A swapped valve offering only off/heat is switched to heat.
-
-        The full outbound conversion runs, so this is the payload a device
-        sitting in OFF receives on a heat demand.
-        """
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.OFF,
-            trv_attrs={"temperature": 20.0},
-            call_for_heat=True,
-            bt_target_temp=22.0,
-            real_trvs={
-                "climate.trv1": _default_trv_config(
-                    hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
-                    hvac_mode=HVACMode.OFF,
-                    last_hvac_mode=HVACMode.OFF,
-                    advanced={
-                        "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
-                        "no_off_system_mode": False,
-                        "heat_auto_swapped": True,
-                    },
-                )
-            },
-        )
-
-        with (
-            patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
-            ),
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()) as mock_set_temp,
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            await control_trv(mock_self, "climate.trv1")
-
-            mock_set_hvac.assert_awaited_once_with(
-                mock_self, "climate.trv1", HVACMode.HEAT
-            )
-            mock_set_temp.assert_awaited_once_with(mock_self, "climate.trv1", 22.0)
 
     @pytest.mark.asyncio
     async def test_window_open_sets_mode_to_off(self):
@@ -973,13 +1109,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac,
-            patch(_PATCHES["override_set_hvac_mode"]) as mock_override,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_override,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -988,8 +1125,6 @@ class TestControlTrvAvailablePath:
             }
             mock_set_hvac.return_value = None
             mock_override.return_value = False
-            # handle_contact_open returns OFF when window is open
-            mock_window.return_value = HVACMode.OFF
 
             result = await control_trv(mock_self, "climate.trv1")
 
@@ -1014,15 +1149,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1030,7 +1164,6 @@ class TestControlTrvAvailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -1060,15 +1193,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1076,7 +1208,6 @@ class TestControlTrvAvailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -1099,15 +1230,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1115,7 +1245,6 @@ class TestControlTrvAvailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -1141,15 +1270,14 @@ class TestControlTrvAvailablePath:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
-            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1157,7 +1285,6 @@ class TestControlTrvAvailablePath:
                 "system_mode": HVACMode.HEAT,
             }
             mock_set_temp.return_value = None
-            mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
 
@@ -1165,6 +1292,150 @@ class TestControlTrvAvailablePath:
             mock_set_temp.assert_called_once()
             assert mock_set_temp.call_args[0][2] == 5.0
             mock_set_hvac.assert_not_awaited()
+
+
+class TestControlTrvIgnoreFlagReset:
+    """The ignore_trv_states flag never survives control_trv.
+
+    While the flag is True, TRV-side user setpoint changes are dropped, so
+    every exit path (return, exception, cancellation) must reset it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_adapter_exception_resets_ignore_trv_states(self):
+        """A failing adapter write propagates but still resets the flag."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(
+                _PATCHES["set_temperature"],
+                autospec=True,
+                side_effect=RuntimeError("adapter failure"),
+            ),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            with pytest.raises(RuntimeError, match="adapter failure"):
+                await control_trv(mock_self, "climate.trv1")
+
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+
+    @pytest.mark.asyncio
+    async def test_cancellation_resets_ignore_trv_states(self):
+        """Cancelling control_trv mid-write resets the flag."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        entered_write = asyncio.Event()
+        release_write = asyncio.Event()
+
+        async def _blocking_set_temperature(*args, **kwargs):
+            entered_write.set()
+            await release_write.wait()
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(
+                _PATCHES["set_temperature"],
+                autospec=True,
+                side_effect=_blocking_set_temperature,
+            ),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            task = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
+            await asyncio.wait_for(entered_write.wait(), timeout=5)
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
+
+    @pytest.mark.asyncio
+    async def test_cancel_while_waiting_for_lock_keeps_holder_flag(self):
+        """Cancelling a caller queued on the lock leaves the holder's flag alone.
+
+        Only the invocation that set ignore_trv_states may clear it. A second
+        invocation cancelled while still waiting for _temp_lock never set the
+        flag, so its cleanup must not clear it for the concurrent holder that
+        is mid-write.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        entered_write = asyncio.Event()
+        release_write = asyncio.Event()
+
+        async def _blocking_set_temperature(*args, **kwargs):
+            entered_write.set()
+            await release_write.wait()
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(
+                _PATCHES["set_temperature"],
+                autospec=True,
+                side_effect=_blocking_set_temperature,
+            ),
+        ):
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            holder = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
+            await asyncio.wait_for(entered_write.wait(), timeout=5)
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+            waiter = asyncio.create_task(control_trv(mock_self, "climate.trv1"))
+            # Let the waiter run until it suspends on the held lock.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+
+            # The holder is still mid-write; its suppression flag must survive.
+            assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is True
+
+            holder.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await holder
+
+        assert mock_self.real_trvs["climate.trv1"].ignore_trv_states is False
 
 
 # ---------------------------------------------------------------------------
@@ -1205,12 +1476,24 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = True  # Window is OPEN
-        mock_self.contact_open = True
         mock_self.call_for_heat = True
         mock_self.cooler_entity_id = None
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock()
         mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
+        mock_self.clock = FakeClock()
+        mock_self.startup_running = False
+        mock_self.in_maintenance = False
+        mock_self.degraded_mode = False
+        mock_self.ignore_states = False
+        mock_self.outdoor_sensor = None
+        mock_self.weather_entity = None
+        mock_self.cur_temp_filtered = None
+        mock_self.temp_slope = None
+        mock_self.bt_target_cooltemp = None
+        mock_self.tolerance = 0.0
+        mock_self.bt_min_temp = 5.0
+        mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
@@ -1236,6 +1519,8 @@ class TestBoostModeSafetyOverride:
             )
         }
 
+        mock_self.kernel_state = _kernel_state_for(mock_self)
+
         set_valve_calls = []
 
         async def track_set_valve(*args, **kwargs):
@@ -1244,8 +1529,8 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"], side_effect=track_set_valve),
-            patch(_PATCHES["set_hvac_mode"]),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=track_set_valve),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
@@ -1261,6 +1546,188 @@ class TestBoostModeSafetyOverride:
             assert len(set_valve_calls) == 2
             assert set_valve_calls[0][2] == 100  # Boost: 100%
             assert set_valve_calls[1][2] == 0  # Safety reset: 0%
+
+    @pytest.mark.asyncio
+    async def test_boost_does_not_override_hold(self):
+        """The HOLD rung outranks boost.
+
+        During a total sensor outage no valve write happens, boost
+        preset or not. The setpoint channel locks the raw user target
+        (passthrough through the safety hull) instead.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+        mock_self.kernel_state = replace(
+            mock_self.kernel_state, control_mode=ControlModeState(mode=ControlMode.HOLD)
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        mock_set_valve.assert_not_called()
+        # The raw target is locked on the device (22.0, not boost max).
+        mock_set_temp.assert_called_once()
+        assert mock_set_temp.call_args[0][2] == 22.0
+
+    @pytest.mark.asyncio
+    async def test_boost_safety_reset_stamps_the_valve_budget(self):
+        """The 0% safety reset occupies the valve budget slot.
+
+        It bypasses the budget gate (closing is the safe direction) but
+        stamps the slot like every other valve write.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            window_open=True,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+        # A valve write 10 s ago keeps the budget closed for the boost
+        # 100% write; only the safety reset may run.
+        mock_self.real_trvs["climate.trv1"].last_valve_write_monotonic = 0.0
+        mock_self.clock.advance(10.0)
+
+        set_valve_calls = []
+
+        async def track_set_valve(*args, **kwargs):
+            set_valve_calls.append(args)
+            return True
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=track_set_valve),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        assert [call[2] for call in set_valve_calls] == [0]
+        assert mock_self.real_trvs["climate.trv1"].last_valve_write_monotonic == 10.0
+
+    @pytest.mark.asyncio
+    async def test_failed_safety_reset_schedules_a_retry_cycle(self):
+        """A failed 0% safety reset is re-requested like any other write.
+
+        The budget slot is already stamped when the delegate reports
+        failure, so without a follow-up cycle the valve stays at 100%
+        with HVAC OFF until some unrelated event triggers control.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            window_open=True,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+        captured = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+
+        set_valve_calls = []
+
+        async def failing_set_valve(*args, **kwargs):
+            set_valve_calls.append(args)
+            # The boost 100% write succeeds; the 0% safety reset fails.
+            return args[2] != 0
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=failing_set_valve),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        assert [call[2] for call in set_valve_calls] == [100, 0]
+
+        retries = [
+            (coro, name) for coro, name in captured if "budget_retry" in (name or "")
+        ]
+        assert len(retries) == 1
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is True
+
+        coro, _name = retries[0]
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await coro
+        mock_self.control_queue_task.put_nowait.assert_called_once()
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
+
+        # Close any other captured coroutines to avoid RuntimeWarning.
+        for coro, name in captured:
+            if "budget_retry" not in (name or ""):
+                coro.close()
 
     @pytest.mark.asyncio
     async def test_no_heat_call_resets_valve_during_boost(self):
@@ -1287,12 +1754,24 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
-        mock_self.contact_open = False
         mock_self.call_for_heat = False  # No heat call
         mock_self.cooler_entity_id = None
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock()
         mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
+        mock_self.clock = FakeClock()
+        mock_self.startup_running = False
+        mock_self.in_maintenance = False
+        mock_self.degraded_mode = False
+        mock_self.ignore_states = False
+        mock_self.outdoor_sensor = None
+        mock_self.weather_entity = None
+        mock_self.cur_temp_filtered = None
+        mock_self.temp_slope = None
+        mock_self.bt_target_cooltemp = None
+        mock_self.tolerance = 0.0
+        mock_self.bt_min_temp = 5.0
+        mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
@@ -1318,6 +1797,8 @@ class TestBoostModeSafetyOverride:
             )
         }
 
+        mock_self.kernel_state = _kernel_state_for(mock_self)
+
         set_valve_calls = []
 
         async def track_set_valve(*args, **kwargs):
@@ -1326,8 +1807,8 @@ class TestBoostModeSafetyOverride:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"], side_effect=track_set_valve),
-            patch(_PATCHES["set_hvac_mode"]),
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=track_set_valve),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
         ):
             mock_convert.return_value = {
                 "temperature": 20.0,
@@ -1343,6 +1824,95 @@ class TestBoostModeSafetyOverride:
             assert len(set_valve_calls) == 2
             assert set_valve_calls[0][2] == 100  # Boost: 100%
             assert set_valve_calls[1][2] == 0  # Safety reset: 0%
+
+
+class TestValveWriteResult:
+    """The valve channel acts on what the delegate answers.
+
+    A write the delegate refused still stamped the budget slot, so the
+    next cycle has to be requested explicitly. Without it the valve keeps
+    the position the device never took until an unrelated event triggers
+    control.
+    """
+
+    @staticmethod
+    def _boost_valve_self():
+        """Mock BetterThermostat whose boost drives a 100 % valve write."""
+        return _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+    @staticmethod
+    async def _run_cycle(mock_self, valve_result):
+        """Run one control cycle with the delegate answering ``valve_result``.
+
+        Returns the valve mock and the names of the tasks the cycle
+        created.
+        """
+        captured = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=valve_result
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        for coro, _name in captured:
+            coro.close()
+        return mock_set_valve, [name for _coro, name in captured]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_valve_write_schedules_a_retry_cycle(self):
+        """A delegate answering False leaves a follow-up cycle queued."""
+        mock_self = self._boost_valve_self()
+
+        mock_set_valve, task_names = await self._run_cycle(mock_self, False)
+
+        assert mock_set_valve.call_args[0][2] == 100
+        assert "bt_budget_retry_climate.trv1" in task_names
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is True
+
+    @pytest.mark.asyncio
+    async def test_an_accepted_valve_write_schedules_nothing(self):
+        """A delegate answering True needs no catch-up cycle."""
+        mock_self = self._boost_valve_self()
+
+        mock_set_valve, task_names = await self._run_cycle(mock_self, True)
+
+        assert mock_set_valve.call_args[0][2] == 100
+        assert "bt_budget_retry_climate.trv1" not in task_names
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
 
 
 # ---------------------------------------------------------------------------
@@ -1393,11 +1963,25 @@ class TestRaceConditionLockCoverage:
         mock_self._temp_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
+        mock_self.clock = FakeClock()
+        mock_self.startup_running = False
+        mock_self.in_maintenance = False
+        mock_self.degraded_mode = False
+        mock_self.ignore_states = False
+        mock_self.outdoor_sensor = None
+        mock_self.weather_entity = None
+        mock_self.cur_temp_filtered = None
+        mock_self.temp_slope = None
+        mock_self.bt_target_cooltemp = None
+        mock_self.tolerance = 0.0
+        mock_self.bt_min_temp = 5.0
+        mock_self.bt_max_temp = 30.0
+        mock_self.preset_mode = None
+        mock_self.cooler_entity_id = None
         mock_self.cur_temp = 20.0
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
-        mock_self.contact_open = False
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
@@ -1447,6 +2031,8 @@ class TestRaceConditionLockCoverage:
             ),
         }
 
+        mock_self.kernel_state = _kernel_state_for(mock_self)
+
         execution_log = []
         lock_acquired_count = 0
         original_lock_acquire = mock_self._temp_lock.acquire
@@ -1463,17 +2049,21 @@ class TestRaceConditionLockCoverage:
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac_mode,
-            patch(_PATCHES["set_offset"]) as mock_set_offset,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -1485,6 +2075,7 @@ class TestRaceConditionLockCoverage:
                 execution_log.append(f"set_valve_start_{args[1]}")
                 await asyncio.sleep(0.01)
                 execution_log.append(f"set_valve_end_{args[1]}")
+                return True
 
             async def delayed_set_hvac_mode(*args, **kwargs):
                 execution_log.append(f"set_hvac_mode_start_{args[1]}")
@@ -1495,6 +2086,7 @@ class TestRaceConditionLockCoverage:
                 execution_log.append(f"set_offset_start_{args[1]}")
                 await asyncio.sleep(0.01)
                 execution_log.append(f"set_offset_end_{args[1]}")
+                return True
 
             async def delayed_set_temp(*args, **kwargs):
                 execution_log.append(f"set_temp_start_{args[1]}")
@@ -1571,11 +2163,25 @@ class TestRaceConditionLockCoverage:
         mock_self._temp_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
+        mock_self.clock = FakeClock()
+        mock_self.startup_running = False
+        mock_self.in_maintenance = False
+        mock_self.degraded_mode = False
+        mock_self.ignore_states = False
+        mock_self.outdoor_sensor = None
+        mock_self.weather_entity = None
+        mock_self.cur_temp_filtered = None
+        mock_self.temp_slope = None
+        mock_self.bt_target_cooltemp = None
+        mock_self.tolerance = 0.0
+        mock_self.bt_min_temp = 5.0
+        mock_self.bt_max_temp = 30.0
+        mock_self.preset_mode = None
+        mock_self.cooler_entity_id = None
         mock_self.cur_temp = 20.0
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
-        mock_self.contact_open = False
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
@@ -1623,16 +2229,18 @@ class TestRaceConditionLockCoverage:
             ),
         }
 
+        mock_self.kernel_state = _kernel_state_for(mock_self)
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_temperature"]),
+            patch(_PATCHES["set_temperature"], autospec=True),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -1671,11 +2279,25 @@ class TestRaceConditionLockCoverage:
         mock_self._temp_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
+        mock_self.clock = FakeClock()
+        mock_self.startup_running = False
+        mock_self.in_maintenance = False
+        mock_self.degraded_mode = False
+        mock_self.ignore_states = False
+        mock_self.outdoor_sensor = None
+        mock_self.weather_entity = None
+        mock_self.cur_temp_filtered = None
+        mock_self.temp_slope = None
+        mock_self.bt_target_cooltemp = None
+        mock_self.tolerance = 0.0
+        mock_self.bt_min_temp = 5.0
+        mock_self.bt_max_temp = 30.0
+        mock_self.preset_mode = None
+        mock_self.cooler_entity_id = None
         mock_self.cur_temp = 20.0
         mock_self.bt_target_temp = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
-        mock_self.contact_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
@@ -1701,21 +2323,27 @@ class TestRaceConditionLockCoverage:
             )
         }
 
+        mock_self.kernel_state = _kernel_state_for(mock_self)
+
         lock_state_during_operations = []
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_valve"]) as mock_set_valve,
-            patch(_PATCHES["set_hvac_mode"]) as mock_set_hvac_mode,
-            patch(_PATCHES["set_offset"]) as mock_set_offset,
-            patch(_PATCHES["set_temperature"]) as mock_set_temp,
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], new=AsyncMock(return_value=0.0)),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -1727,6 +2355,7 @@ class TestRaceConditionLockCoverage:
                 lock_state_during_operations.append(
                     ("set_valve", mock_self._temp_lock.locked())
                 )
+                return True
 
             async def check_lock_on_set_hvac_mode(*args, **kwargs):
                 lock_state_during_operations.append(
@@ -1737,6 +2366,7 @@ class TestRaceConditionLockCoverage:
                 lock_state_during_operations.append(
                     ("set_offset", mock_self._temp_lock.locked())
                 )
+                return True
 
             async def check_lock_on_set_temp(*args, **kwargs):
                 lock_state_during_operations.append(
@@ -1758,6 +2388,62 @@ class TestRaceConditionLockCoverage:
                     f"This causes race conditions in parallel execution."
                 )
 
+    @pytest.mark.asyncio
+    async def test_deferred_setpoint_settles_outside_the_lock(self):
+        """A budget-deferred setpoint must not hold the TRV lock while settling.
+
+        Every TRV of a cycle contends for the same _temp_lock, so a
+        settle sleep taken inside it serialises the whole cycle on the
+        slowest deferral instead of overlapping them.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 18.0},
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+        )
+        # A setpoint write 10 s ago keeps the budget closed, so the
+        # differing target below is deferred rather than written.
+        mock_self.real_trvs["climate.trv1"].last_write_monotonic = 0.0
+        mock_self.clock.advance(10.0)
+
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
+        set_temperature_calls = []
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["set_temperature"],
+                autospec=True,
+                side_effect=lambda *a, **k: set_temperature_calls.append(a),
+            ),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
+        ):
+            mock_convert.return_value = {
+                "temperature": 22.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            result = await control_trv(mock_self, "climate.trv1")
+
+        assert result is True
+        # The write was deferred, not sent.
+        assert set_temperature_calls == []
+        # The settle sleep ran, and never while holding the lock.
+        assert lock_held_during_sleep
+        assert not any(lock_held_during_sleep)
+        assert mock_self._temp_lock.locked() is False
+
 
 # ---------------------------------------------------------------------------
 # Grouped TRV calibration (from test_grouped_trv_calibration.py)
@@ -1769,18 +2455,31 @@ def mock_bt_grouped():
     """Create a mock BetterThermostat instance for grouped TRV testing."""
     bt = MagicMock()
     bt.hass = MagicMock()
+    bt.clock = FakeClock()
+    bt.startup_running = False
+    bt.in_maintenance = False
+    bt.degraded_mode = False
+    bt.ignore_states = False
+    bt.outdoor_sensor = None
+    bt.weather_entity = None
+    bt.cur_temp_filtered = None
+    bt.temp_slope = None
+    bt.bt_target_cooltemp = None
+    bt.tolerance = 0.0
+    bt.bt_min_temp = 5.0
+    bt.bt_max_temp = 30.0
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = "heat"
     bt.bt_target_temp = 21.0
     bt.cur_temp = 20.0
     bt.window_open = False
-    bt.contact_open = False
     bt.call_for_heat = True
     bt.tolerance = 0.5
     bt._temp_lock = asyncio.Lock()
     bt.calculate_heating_power = AsyncMock()
-    bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
 
+    bt.kernel_state = _kernel_state_for(bt)
+    bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
         "climate.trv_1": Trv.from_legacy_dict(
             "climate.trv_1",
@@ -1837,14 +2536,14 @@ class TestGroupedTrvCalibration:
     """
 
     @pytest.mark.anyio
-    async def test_confirmed_command_releases_flag_and_writes_new_intent(
+    async def test_confirmed_command_releases_the_gate_and_writes_the_new_intent(
         self, mock_bt_grouped
     ):
-        """A confirmed command releases the flag and the new intent is written.
+        """A device holding its last command accepts a changed intent.
 
-        The device reports the offset it was last commanded, so the write is
-        acknowledged and the stuck flag is released; BT wants a different
-        offset now, which is exactly when a write has to go out.
+        The report equals the value last written, so the unacknowledged
+        write is confirmed; the gate opens and the new intent goes out
+        instead of the channel stalling on a flag nobody clears.
         """
         entity_id = "climate.trv_3"
 
@@ -1855,13 +2554,15 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock) as mock_set_offset,
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.0  # confirms last_calibration
@@ -1894,13 +2595,15 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock) as mock_set_offset,
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.0
@@ -1919,18 +2622,69 @@ class TestGroupedTrvCalibration:
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
     @pytest.mark.anyio
+    async def test_missing_reference_calibration_skips_offset_write(
+        self, mock_bt_grouped
+    ):
+        """No reference calibration skips the offset write without aborting.
+
+        With no stored last_calibration and an unparseable device offset
+        there is nothing to compare against; the cycle still performs the
+        setpoint write instead of failing.
+        """
+        entity_id = "climate.trv_1"
+        mock_bt_grouped.real_trvs[entity_id].last_calibration = None
+
+        mock_trv_state = MagicMock()
+        mock_trv_state.state = "heat"
+        mock_trv_state.attributes = {"temperature": 20.0}
+        mock_bt_grouped.hass.states.get.return_value = mock_trv_state
+
+        with (
+            patch(
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+            ) as mock_get_offset,
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_offset"], autospec=True, return_value=True
+            ) as mock_set_offset,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_get_offset.return_value = "not-a-number"
+            mock_convert.return_value = {
+                "temperature": 21.0,
+                "local_temperature_calibration": 3.0,
+                "local_temperature": 20.0,
+                "system_mode": "heat",
+            }
+
+            result = await control_trv(mock_bt_grouped, entity_id)
+
+            assert result is True
+            mock_set_offset.assert_not_called()
+            mock_set_temp.assert_awaited_once_with(mock_bt_grouped, entity_id, 21.0)
+
+    @pytest.mark.anyio
     @pytest.mark.parametrize(
-        "step,reported,released",
+        ("step", "reported", "released"),
         [(0.5, 2.2, True), (0.5, 2.3, False), (1.0, 2.5, True)],
     )
-    async def test_confirmation_window_is_half_the_device_offset_step(
+    async def test_confirmation_window_is_half_the_device_step(
         self, mock_bt_grouped, step, reported, released
     ):
-        """The confirmation window is half the device's own offset step.
+        """A report within half the device's own offset step confirms.
 
-        A device snaps a commanded offset onto its own grid, so a report up to
-        half a step away from the command still confirms it, and anything
-        beyond that is a divergence.
+        That is the distance a device can move a written value by
+        snapping it onto its own grid, so it is the width of the window
+        in which the report still counts as the command.
         """
         entity_id = "climate.trv_3"
         mock_bt_grouped.real_trvs[entity_id].local_calibration_step = step
@@ -1942,13 +2696,13 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock),
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = reported
@@ -1977,13 +2731,13 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], new_callable=AsyncMock
+                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], new_callable=AsyncMock),
-            patch(_PATCHES["set_temperature"], new_callable=AsyncMock),
-            patch(_PATCHES["set_hvac_mode"], new_callable=AsyncMock),
-            patch(_PATCHES["set_valve"], new_callable=AsyncMock),
+            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.6
@@ -2036,7 +2790,7 @@ class TestControlTrvOnADualRoleEntity:
         )
         # The device reports OFF, so every candidate outbound mode differs
         # from it and reaches set_hvac_mode where the test can read it.
-        mock_self = _make_mock_self(
+        return _make_mock_self(
             trv_state=HVACMode.OFF,
             trv_attrs={"temperature": 21.0},
             real_trvs={cls.SHARED_ID: trv},
@@ -2044,25 +2798,20 @@ class TestControlTrvOnADualRoleEntity:
             cooler_entity_id=cls.SHARED_ID,
             bt_target_temp=21.0,
         )
-        return mock_self
 
     @staticmethod
     async def _outbound_system_mode(mock_self, entity_id):
         """Run one control_trv cycle and return the mode it wrote out."""
         with (
             patch(
-                _PATCHES["handle_contact_open"],
-                side_effect=lambda _s, r: r.get("system_mode"),
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),
             patch(
-                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(
-                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
-            ),
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()) as mock_set_hvac,
-            patch(_PATCHES["set_temperature"], new=AsyncMock()),
-            patch(_PATCHES["set_valve"], new=AsyncMock()),
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             await control_trv(mock_self, entity_id)
@@ -2119,24 +2868,29 @@ class TestControlTrvOnADualRoleEntity:
 
 
 # ---------------------------------------------------------------------------
-# Calibration write gate: intent, command and the device's report
+# Offset write gate: intent, command and the device's report
 # ---------------------------------------------------------------------------
 
 
-def _offset_trv(**overrides):
-    """Return a LOCAL_BASED real_trvs entry driven by the offset write gate."""
+def _offset_trv_config(**overrides):
+    """Return a Trv configured for offset (LOCAL_BASED) calibration."""
     cfg = {
         "ignore_trv_states": False,
         "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
         "min_temp": 5.0,
         "max_temp": 30.0,
         "temperature": 20.0,
-        "current_temperature": 20.0,
         "last_temperature": 20.0,
         "last_hvac_mode": HVACMode.HEAT,
-        "system_mode_received": True,
-        "target_temp_received": True,
         "hvac_mode": HVACMode.HEAT,
+        "system_mode_received": False,
+        "target_temp_received": False,
+        "calibration_received": True,
+        "last_calibration": 0.0,
+        "local_calibration_min": -7.0,
+        "local_calibration_max": 7.0,
+        "local_calibration_step": 0.5,
+        "local_temperature_calibration_entity": "number.trv1_offset",
         "advanced": {
             "calibration_mode": CalibrationMode.DEFAULT,
             "calibration": CalibrationType.LOCAL_BASED,
@@ -2147,337 +2901,289 @@ def _offset_trv(**overrides):
     return Trv.from_legacy_dict("climate.trv1", cfg)
 
 
-@contextmanager
-def _offset_cycle(
-    reported,
-    desired_offset,
-    desired_temperature=20.0,
-    system_mode=HVACMode.HEAT,
-    offset_write_succeeds=True,
-):
-    """Patch control_trv's collaborators around the offset write gate.
-
-    ``reported`` is what the device publishes as its current offset,
-    ``desired_offset`` what this cycle wants to hold.
-    """
-    mocks = SimpleNamespace(
-        convert=Mock(
-            return_value={
-                "temperature": desired_temperature,
-                "local_temperature_calibration": desired_offset,
-                "local_temperature": 20.0,
-                "system_mode": system_mode,
-            }
-        ),
-        get_offset=AsyncMock(return_value=reported),
-        set_offset=AsyncMock(return_value=offset_write_succeeds),
-        set_temperature=AsyncMock(),
-        set_hvac_mode=AsyncMock(),
+def _make_offset_self(**overrides):
+    """Mock BetterThermostat driving one offset-calibrated TRV."""
+    return _make_mock_self(
+        trv_state=HVACMode.HEAT,
+        trv_attrs={"temperature": 20.0},
+        real_trvs={"climate.trv1": _offset_trv_config(**overrides)},
     )
+
+
+async def _run_offset_cycle(
+    mock_self, desired_offset, reported_offset, set_offset=None, system_mode=None
+):
+    """Run one control_trv cycle for the offset-calibrated TRV."""
+    if set_offset is None:
+        set_offset = AsyncMock(return_value=True)
     with (
-        patch(_PATCHES["convert_outbound_states"], new=mocks.convert),
-        patch(_PATCHES["get_current_offset"], new=mocks.get_offset),
-        patch(_PATCHES["set_offset"], new=mocks.set_offset),
-        patch(_PATCHES["set_temperature"], new=mocks.set_temperature),
-        patch(_PATCHES["set_hvac_mode"], new=mocks.set_hvac_mode),
-        patch(_PATCHES["set_valve"], new=AsyncMock()),
-        patch(_PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)),
-        patch(_PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)),
+        patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+        patch(
+            _PATCHES["get_current_offset"], autospec=True, return_value=reported_offset
+        ) as mock_get_offset,
+        patch(_PATCHES["set_offset"], autospec=True, side_effect=set_offset),
+        patch(_PATCHES["set_temperature"], autospec=True),
+        patch(_PATCHES["set_hvac_mode"], autospec=True),
+        patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+        patch(_PATCHES["override_set_hvac_mode"], autospec=True, return_value=False),
+        patch(_PATCHES["override_set_temperature"], autospec=True, return_value=False),
         patch("asyncio.sleep", new=AsyncMock()),
     ):
-        yield mocks
+        mock_convert.return_value = {
+            "temperature": 20.0,
+            "local_temperature_calibration": desired_offset,
+            "local_temperature": 20.0,
+            "system_mode": system_mode or HVACMode.HEAT,
+        }
+        await control_trv(mock_self, "climate.trv1")
+    return set_offset, mock_get_offset
 
 
-def _watchdog_names(mock_self):
-    """Return the names of every background task control_trv created."""
-    return [
-        call.kwargs.get("name")
-        for call in mock_self.task_manager.create_task.call_args_list
-    ]
+def _accepted_write(mock_self):
+    """Bookkeeping of an accepted write: the command and the intent.
 
-
-class TestCalibrationWriteGate:
-    """The offset write gate compares the device report against the command.
-
-    The intent this cycle computed is compared against the value last
-    requested, and the device's report against the command that was put on
-    the wire, so an unconfirmed write is re-asserted rather than leaving
-    the channel wedged.
+    The adapter records the value it put on the wire and the delegate
+    the value asked for, both before the device has said anything.
     """
 
-    @pytest.mark.asyncio
-    async def test_unconfirmed_write_is_reasserted(self):
-        """An offset that the device never took is written again."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0, calibration_received=False
-                )
-            },
-        )
+    async def _set_offset(_self, entity_id, offset):
+        trv = mock_self.real_trvs[entity_id]
+        trv.last_calibration = offset
+        trv.last_calibration_requested = offset
+        return True
 
-        with _offset_cycle(reported=0.0, desired_offset=-2.0) as mocks:
-            result = await control_trv(mock_self, "climate.trv1")
+    return AsyncMock(side_effect=_set_offset)
 
-        assert result is True
-        mocks.set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+class TestOffsetWriteGate:
+    """The offset channel re-asserts what the device did not take."""
 
     @pytest.mark.asyncio
-    async def test_write_arms_the_calibration_watchdog(self):
-        """A write clears the flag and hands the release to the watchdog."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0, calibration_received=False
-                )
-            },
+    async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):
+        """An unacknowledged write leaves the channel open.
+
+        The device reports exactly what it was last told, so nothing is
+        in flight; the pending intent must reach it.
+        """
+        mock_self = _make_offset_self(calibration_received=False, last_calibration=0.0)
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0
         )
 
-        with _offset_cycle(reported=0.0, desired_offset=-2.0):
-            await control_trv(mock_self, "climate.trv1")
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
+    async def test_write_arms_the_confirmation_watchdog(self):
+        """A write closes the gate and schedules the release that reopens it."""
+        mock_self = _make_offset_self(calibration_received=False, last_calibration=0.0)
+        tasks = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), tasks.append(name)) and Mock()
+            )
+        )
+
+        await _run_offset_cycle(mock_self, desired_offset=-2.0, reported_offset=0.0)
 
         assert mock_self.real_trvs["climate.trv1"].calibration_received is False
-        assert "bt_check_calibration_climate.trv1" in _watchdog_names(mock_self)
+        assert "bt_check_calibration_climate.trv1" in tasks
 
     @pytest.mark.asyncio
-    async def test_channel_does_not_wedge_across_cycles(self):
-        """A device that silently drops every offset gets one write per cycle.
+    async def test_silently_dropped_write_is_reasserted_every_released_cycle(self):
+        """A device that keeps reporting the old offset is written to again.
 
-        The adapter and the delegate record the write, so from the second
-        cycle on the only thing that can arm a write is the report having
-        diverged from the recorded command.
+        The divergence arm never wedges: each cycle that finds the gate
+        open and the report away from the command re-sends the command.
         """
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0, calibration_received=True
-                )
-            },
-        )
+        mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
+        set_offset = _accepted_write(mock_self)
 
-        with _offset_cycle(reported=0.0, desired_offset=-2.0) as mocks:
+        for _ in range(3):
+            mock_self.real_trvs["climate.trv1"].calibration_received = True
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-2.0,
+                reported_offset=0.0,
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
 
-            async def _record_write(_self, entity_id, offset):
-                """Record what the adapter and the delegate record on a write."""
-                trv = _self.real_trvs[entity_id]
-                trv.last_calibration = offset
-                trv.last_calibration_requested = offset
-                return True
-
-            mocks.set_offset.side_effect = _record_write
-
-            for _ in range(3):
-                # The watchdog releases the flag when the device stays silent.
-                mock_self.real_trvs["climate.trv1"].calibration_received = True
-                await control_trv(mock_self, "climate.trv1")
-
-        assert mocks.set_offset.await_count == 3
+        assert set_offset.await_count == 3
 
     @pytest.mark.asyncio
-    async def test_confirmed_offset_is_not_rewritten(self):
-        """A device holding the requested offset receives nothing."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-2.0,
-                    last_calibration_requested=-2.0,
-                    calibration_received=True,
-                )
-            },
+    async def test_converged_offset_is_not_rewritten(self):
+        """Intent, command and report agreeing produces no write."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
         )
 
-        with _offset_cycle(reported=-2.0, desired_offset=-2.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=-2.0
+        )
 
-        mocks.set_offset.assert_not_awaited()
+        set_offset.assert_not_awaited()
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
 
     @pytest.mark.asyncio
-    async def test_adapter_clamp_does_not_become_a_retry_loop(self):
-        """A device resting at a limit it declared is left alone.
+    async def test_declared_clamp_is_not_rewritten(self):
+        """An adapter clamp the device honours is convergence, not a miss.
 
-        The adapter clamped the requested -5.0 to the device's -3.0 minimum,
-        so the report equals the command even though it differs from the
-        intent. Comparing intent against command would rewrite every cycle.
+        The device holds the clamped command it was given, so the intent
+        that exceeded its range must not be re-sent on every cycle.
         """
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-3.0,
-                    last_calibration_requested=-5.0,
-                    calibration_received=True,
-                )
-            },
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-3.0,
+            last_calibration_requested=-5.0,
         )
+        set_offset = AsyncMock(return_value=True)
 
-        with _offset_cycle(reported=-3.0, desired_offset=-5.0) as mocks:
-            for _ in range(5):
-                await control_trv(mock_self, "climate.trv1")
+        for _ in range(5):
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-5.0,
+                reported_offset=-3.0,
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
 
-        mocks.set_offset.assert_not_awaited()
-        assert "bt_check_calibration_climate.trv1" not in _watchdog_names(mock_self)
+        set_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_intent_moving_past_the_clamp_still_writes(self):
-        """A new intent reaches the device even while it sits at a clamp."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-3.0,
-                    last_calibration_requested=-5.0,
-                    calibration_received=True,
-                )
-            },
+    async def test_new_intent_past_a_clamp_is_written_once(self):
+        """A changed intent still reaches a device resting at its clamp."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-3.0,
+            last_calibration_requested=-5.0,
         )
 
-        with _offset_cycle(reported=-3.0, desired_offset=-6.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-6.0, reported_offset=-3.0
+        )
 
-        mocks.set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -6.0)
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -6.0)
 
     @pytest.mark.asyncio
-    async def test_dropped_write_is_reasserted(self):
-        """A report that diverged from the command re-sends the command."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-2.0,
-                    last_calibration_requested=-2.0,
-                    calibration_received=True,
-                )
-            },
+    async def test_dropped_write_is_reasserted_against_an_unchanged_intent(self):
+        """The report, not the intent, decides whether the command arrived."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
         )
 
-        with _offset_cycle(reported=0.0, desired_offset=-2.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0
+        )
 
-        mocks.set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
-    async def test_fine_step_device_detects_a_small_divergence(self):
-        """On a 0.1 step device a 0.3 K divergence is not a grid artifact."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-2.0,
-                    local_calibration_step=0.1,
-                    calibration_received=True,
-                )
-            },
+    async def test_report_beyond_half_a_step_counts_as_diverged(self):
+        """On a fine grid a small deviation is already a lost write."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+            local_calibration_step=0.1,
         )
 
-        with _offset_cycle(reported=-1.7, desired_offset=-2.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=-1.7
+        )
 
-        mocks.set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
-    async def test_coarse_step_device_accepts_a_half_step_snap(self):
-        """On a 1.0 step device a half-step snap confirms the command."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-2.0,
-                    local_calibration_step=1.0,
-                    calibration_received=True,
-                )
-            },
+    async def test_report_within_half_a_step_counts_as_confirmed(self):
+        """On a coarse grid the same deviation is the device's own snap."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
+            local_calibration_step=1.0,
         )
 
-        with _offset_cycle(reported=-2.5, desired_offset=-2.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=-2.5
+        )
 
-        mocks.set_offset.assert_not_awaited()
+        set_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_failed_write_keeps_the_channel_open(self):
-        """A write the adapter refused arms no watchdog and is retried."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0, calibration_received=True
-                )
-            },
+    async def test_failed_write_keeps_the_gate_open_and_retries(self):
+        """A write the adapter refused arms nothing and is retried."""
+        mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
+        tasks = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), tasks.append(name)) and Mock()
+            )
+        )
+        set_offset = AsyncMock(return_value=False)
+
+        await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0, set_offset=set_offset
         )
 
-        with _offset_cycle(
-            reported=0.0, desired_offset=-2.0, offset_write_succeeds=False
-        ) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert not [name for name in tasks if name.startswith("bt_check_calibration")]
 
-            assert mock_self.real_trvs["climate.trv1"].calibration_received is True
-            assert "bt_check_calibration_climate.trv1" not in _watchdog_names(mock_self)
+        mock_self.clock.advance(31.0)
+        await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0, set_offset=set_offset
+        )
 
-            await control_trv(mock_self, "climate.trv1")
-
-        assert mocks.set_offset.await_count == 2
+        assert set_offset.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_no_calibration_mode_skips_the_whole_block(self):
-        """NO_CALIBRATION neither reads nor writes the offset entity."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0,
-                    calibration_received=True,
-                    advanced={
-                        "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                        "calibration": CalibrationType.LOCAL_BASED,
-                        "no_off_system_mode": False,
-                    },
-                )
+    async def test_no_calibration_mode_leaves_the_channel_alone(self):
+        """NO_CALIBRATION reads no offset, writes none and arms nothing."""
+        mock_self = _make_offset_self(
+            calibration_received=False,
+            last_calibration=0.0,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationType.LOCAL_BASED,
+                "no_off_system_mode": False,
             },
         )
+        tasks = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), tasks.append(name)) and Mock()
+            )
+        )
 
-        with _offset_cycle(reported=0.0, desired_offset=-2.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, get_offset = await _run_offset_cycle(
+            mock_self, desired_offset=-2.0, reported_offset=0.0
+        )
 
-        mocks.get_offset.assert_not_awaited()
-        mocks.set_offset.assert_not_awaited()
-        assert "bt_check_calibration_climate.trv1" not in _watchdog_names(mock_self)
+        set_offset.assert_not_awaited()
+        get_offset.assert_not_awaited()
+        assert not [name for name in tasks if name.startswith("bt_check_calibration")]
 
     @pytest.mark.asyncio
-    async def test_off_mode_skips_the_whole_block(self):
-        """An OFF cycle writes no offset even when the report diverged."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            bt_hvac_mode=HVACMode.OFF,
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=-2.0, calibration_received=True
-                )
-            },
+    async def test_off_mode_leaves_the_channel_alone(self):
+        """An OFF TRV keeps its offset even when the report diverged."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=-2.0,
+            last_calibration_requested=-2.0,
         )
 
-        with _offset_cycle(
-            reported=0.0, desired_offset=-2.0, system_mode=HVACMode.OFF
-        ) as mocks:
-            await control_trv(mock_self, "climate.trv1")
+        set_offset, _ = await _run_offset_cycle(
+            mock_self,
+            desired_offset=-2.0,
+            reported_offset=0.0,
+            system_mode=HVACMode.OFF,
+        )
 
-        mocks.set_offset.assert_not_awaited()
+        set_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_declared_step_finer_than_the_reported_grid_converges(self):
@@ -2488,64 +3194,52 @@ class TestCalibrationWriteGate:
         grid, so without the floor every cycle would read the rounding as
         a divergence and re-assert the same command forever.
         """
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0,
-                    last_calibration_requested=0.0,
-                    local_calibration_step=0.01,
-                    calibration_received=True,
-                )
-            },
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=0.0,
+            last_calibration_requested=0.0,
+            local_calibration_step=0.01,
         )
         reported = {"value": 0.0}
 
         async def _write_and_round(_self, entity_id, offset):
             """Take the command and publish it on the device's own grid."""
-            trv = _self.real_trvs[entity_id]
+            trv = mock_self.real_trvs[entity_id]
             trv.last_calibration = offset
             trv.last_calibration_requested = offset
             reported["value"] = round(round(offset / 0.05) * 0.05, 6)
             return True
 
-        writes = 0
+        set_offset = AsyncMock(side_effect=_write_and_round)
         for _ in range(20):
-            with _offset_cycle(
-                reported=reported["value"], desired_offset=-2.32
-            ) as mocks:
-                mocks.set_offset.side_effect = _write_and_round
-                # The watchdog releases the gate at the end of its window.
-                mock_self.real_trvs["climate.trv1"].calibration_received = True
-                await control_trv(mock_self, "climate.trv1")
-                writes += mocks.set_offset.await_count
+            mock_self.real_trvs["climate.trv1"].calibration_received = True
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-2.32,
+                reported_offset=reported["value"],
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
 
-        assert writes == 1
+        assert set_offset.await_count == 1
 
     @pytest.mark.asyncio
     async def test_each_write_arms_a_watchdog_for_its_own_command(self):
         """Every accepted write takes the next generation."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=0.0,
-                    last_calibration_requested=0.0,
-                    calibration_received=True,
-                )
-            },
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=0.0,
+            last_calibration_requested=0.0,
         )
         watchdog = Mock(return_value=None)
 
-        with (
-            _offset_cycle(reported=0.0, desired_offset=-2.0),
-            patch(f"{_CTRL}.check_calibration", new=watchdog),
-        ):
+        with patch(f"{_CTRL}.check_calibration", new=watchdog):
             for _ in range(3):
                 mock_self.real_trvs["climate.trv1"].calibration_received = True
-                await control_trv(mock_self, "climate.trv1")
+                await _run_offset_cycle(
+                    mock_self, desired_offset=-2.0, reported_offset=0.0
+                )
+                mock_self.clock.advance(31.0)
 
         assert [call.args[2] for call in watchdog.call_args_list] == [1, 2, 3]
         assert mock_self.real_trvs["climate.trv1"].calibration_write_generation == 3
@@ -2558,55 +3252,28 @@ class TestCalibrationWriteGate:
         write a newer one, leaving the earlier watchdog winding down. Its
         release must not open the channel for the write still in flight.
         """
-        trv = _offset_trv(
+        mock_self = _make_offset_self(
+            calibration_received=False,
             last_calibration=-2.0,
             last_calibration_requested=-2.0,
-            calibration_received=False,
         )
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={"climate.trv1": trv},
-        )
+        trv = mock_self.real_trvs["climate.trv1"]
         trv.calibration_write_generation = 1
         earlier_watchdog = check_calibration(mock_self, "climate.trv1", 1)
 
         # The cycle confirms -2.0 and writes -3.0, arming the newer watchdog.
-        with _offset_cycle(reported=-2.0, desired_offset=-3.0) as mocks:
-            await control_trv(mock_self, "climate.trv1")
-
-            mocks.set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -3.0)
-            assert trv.calibration_received is False
-            assert trv.calibration_write_generation == 2
-
-            with patch(
-                _PATCHES["get_current_offset"], new=AsyncMock(return_value=-2.0)
-            ):
-                assert await earlier_watchdog is True
-
-        assert trv.calibration_received is False
-
-    @pytest.mark.asyncio
-    async def test_unreadable_report_without_reference_skips_the_write(self):
-        """No reference and no readable report skips the offset, not the cycle."""
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={
-                "climate.trv1": _offset_trv(
-                    last_calibration=None, calibration_received=True
-                )
-            },
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=-3.0, reported_offset=-2.0
         )
 
-        with _offset_cycle(
-            reported="not-a-number", desired_offset=-2.0, desired_temperature=21.0
-        ) as mocks:
-            result = await control_trv(mock_self, "climate.trv1")
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -3.0)
+        assert trv.calibration_received is False
+        assert trv.calibration_write_generation == 2
 
-        assert result is True
-        mocks.set_offset.assert_not_awaited()
-        mocks.set_temperature.assert_awaited_once_with(mock_self, "climate.trv1", 21.0)
+        with patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-2.0):
+            assert await earlier_watchdog is True
+
+        assert trv.calibration_received is False
 
 
 SELECT_CALIBRATION_ENTITY = "select.trv1_calibration"
@@ -2681,20 +3348,15 @@ class TestSnappingSelectOffsetConverges:
         Mock
             A stand-in for the Better Thermostat climate entity instance.
         """
-        trv = _offset_trv(
+        mock_self = _make_offset_self(
+            calibration_received=True,
             last_calibration=0.0,
             last_calibration_requested=0.0,
-            calibration_received=True,
             local_temperature_calibration_entity=SELECT_CALIBRATION_ENTITY,
             # A select publishes no step, so discovery falls back to 1.0.
             local_calibration_step=1.0,
         )
-        trv.adapter = generic
-        mock_self = _make_mock_self(
-            trv_state=HVACMode.HEAT,
-            trv_attrs={"temperature": 20.0},
-            real_trvs={"climate.trv1": trv},
-        )
+        mock_self.real_trvs["climate.trv1"].adapter = generic
         trv_state = mock_self.hass.states.get.return_value
         mock_self.hass.states.get.side_effect = lambda entity_id: (
             device.state() if entity_id == SELECT_CALIBRATION_ENTITY else trv_state
@@ -2708,15 +3370,20 @@ class TestSnappingSelectOffsetConverges:
         device = _SnappingSelect()
         mock_self = self._wire(device)
         trv = mock_self.real_trvs["climate.trv1"]
+        # The real write path: the delegate records the intent and the
+        # adapter the command.
+        set_offset = AsyncMock(side_effect=delegate.set_offset)
 
         for _ in range(5):
             # The watchdog releases the gate at the end of its window.
             trv.calibration_received = True
-            with _offset_cycle(reported=device.reported, desired_offset=-2.0) as mocks:
-                # The real write path: the delegate records the intent and
-                # the adapter the command.
-                mocks.set_offset.side_effect = delegate.set_offset
-                await control_trv(mock_self, "climate.trv1")
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=-2.0,
+                reported_offset=device.reported,
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
 
         assert device.written == ["-3.0k"]
         assert trv.last_calibration == -3.0
@@ -2728,13 +3395,16 @@ class TestSnappingSelectOffsetConverges:
         device = _SnappingSelect()
         mock_self = self._wire(device)
         trv = mock_self.real_trvs["climate.trv1"]
+        set_offset = AsyncMock(side_effect=delegate.set_offset)
 
         for desired in (-2.0, 2.0):
             trv.calibration_received = True
-            with _offset_cycle(
-                reported=device.reported, desired_offset=desired
-            ) as mocks:
-                mocks.set_offset.side_effect = delegate.set_offset
-                await control_trv(mock_self, "climate.trv1")
+            await _run_offset_cycle(
+                mock_self,
+                desired_offset=desired,
+                reported_offset=device.reported,
+                set_offset=set_offset,
+            )
+            mock_self.clock.advance(31.0)
 
         assert device.written == ["-3.0k", "3.0k"]

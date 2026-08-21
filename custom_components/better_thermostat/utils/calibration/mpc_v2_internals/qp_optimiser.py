@@ -1,4 +1,4 @@
-"""Finite-horizon QP MPC — DAQP-backed receding-horizon optimiser.
+"""Finite-horizon QP MPC with an optional DAQP accelerator.
 
 Solves over ``u = [u_0, …, u_{N-1}]``:
 
@@ -10,10 +10,10 @@ Solves over ``u = [u_0, …, u_{N-1}]``:
 where ``I_k`` is the predicted integrated tracking error. Hard constraints
 ``u ∈ [u_min, u_max]`` and ``|Δu| ≤ Δu_max`` are encoded directly.
 
-DAQP (dense active-set) is preferred over OSQP for two reasons: the wheel
-is ~30× smaller (~100 KB vs ~3 MB) — important for HA installs that
-bundle the integration over HACS — and there's no setup phase to amortise
-when re-solving every step with a freshly linearised plant model.
+DAQP (dense active-set) is used when its native wheel is available.  Home
+Assistant's Alpine-based images cannot install that wheel on every supported
+architecture, so a small coordinate-descent solver using only NumPy provides
+the same objective and hard valve constraints everywhere else.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from ._types import FloatArray
 from .plant import PlantModelRC2
 
 
-def _try_import_daqp() -> tuple[Any | None, str | None]:
-    """Return ``(module, None)`` on success or ``(None, error_message)``.
+def _try_import_daqp() -> Any | None:
+    """Return the optional DAQP module, or ``None`` when it is unavailable.
 
     ``daqp`` is an optional dependency — it is not a manifest requirement
     (it has no aarch64 wheel for the HA Python) and may be absent, and it ships
@@ -39,30 +39,13 @@ def _try_import_daqp() -> tuple[Any | None, str | None]:
     which are written once at import.
     """
     try:
-        return importlib.import_module("daqp"), None
-    except ImportError as err:  # pragma: no cover — exercised only on broken installs
-        return None, str(err)
+        return importlib.import_module("daqp")
+    except ImportError:  # pragma: no cover — depends on the active platform
+        return None
 
 
-_daqp, _DAQP_IMPORT_ERROR = _try_import_daqp()
+_daqp = _try_import_daqp()
 DAQP_AVAILABLE = _daqp is not None
-
-
-def require_daqp() -> Any:
-    """Return the imported daqp module, raising a descriptive ImportError if absent.
-
-    DAQP ships as a small native wheel that occasionally fails to install on
-    exotic platforms. We check at controller construction so the user gets a
-    clear message in the HA log instead of a stack trace from inside the
-    first QP solve.
-    """
-    if not DAQP_AVAILABLE or _daqp is None:
-        raise ImportError(
-            "MPC v2 requires the 'daqp' QP solver but the import failed: "
-            f"{_DAQP_IMPORT_ERROR}. Pick a different calibration_mode or "
-            "install the wheel manually in the HA Python environment."
-        )
-    return _daqp
 
 
 @dataclass
@@ -98,8 +81,18 @@ class QpParams:
     adaptive_step_s_max: float = 300.0
 
 
+@dataclass(frozen=True)
+class _SolverBounds:
+    """Hard valve constraints passed to an optimiser backend."""
+
+    u_last: float
+    u_min: float
+    u_max: float
+    delta_u_max: float
+
+
 class QpOptimiser:
-    """DAQP-backed receding-horizon optimiser returning the next valve fraction."""
+    """Receding-horizon optimiser returning the next valve fraction."""
 
     def __init__(self, plant: PlantModelRC2, params: QpParams) -> None:
         """Bind the plant and weights and precompute horizon helpers.
@@ -154,13 +147,11 @@ class QpOptimiser:
     ) -> float:
         """Solve the horizon QP and return the first valve command ``u_0``.
 
-        Builds the condensed prediction matrices from the linearised plant,
-        assembles the Hessian and gradient, and calls DAQP under box and
-        rate-limit constraints. On solver failure returns the clamped previous
-        input ``u_last`` as a safe fallback.
+        Builds the condensed prediction matrices from the linearised plant and
+        assembles the Hessian and gradient. DAQP solves the small dense QP when
+        available; otherwise a NumPy coordinate-descent solver uses the same
+        objective, box bounds, and rate limits.
         """
-        daqp = require_daqp()
-
         n = self.plant.state_dim
         N = self.N
 
@@ -246,15 +237,82 @@ class QpOptimiser:
         # would halve the linear term and bias the solution).
         H_scaled = 2.0 * H
         g_scaled = 2.0 * g
-        bsense = np.zeros(A_con_dense.shape[0], dtype=np.int32)
-        x, _fval, exitflag, _info = daqp.solve(
-            H_scaled, g_scaled, A_con_dense, ub, lb, bsense
+        if DAQP_AVAILABLE and _daqp is not None:
+            try:
+                bsense = np.zeros(A_con_dense.shape[0], dtype=np.int32)
+                x, _fval, exitflag, _info = _daqp.solve(
+                    H_scaled, g_scaled, A_con_dense, ub, lb, bsense
+                )
+                if exitflag == 1:
+                    return max(u_min, min(u_max, float(x[0])))
+            except ArithmeticError, RuntimeError, ValueError:
+                # DAQP is an optional accelerator. A numerical failure must
+                # not disable heating when the portable solver can continue.
+                pass
+
+        x = self._solve_coordinate_descent(
+            H_scaled,
+            g_scaled,
+            _SolverBounds(
+                u_last=u_last, u_min=u_min, u_max=u_max, delta_u_max=delta_u_max
+            ),
         )
-        if exitflag != 1:
-            return max(u_min, min(u_max, u_last))
         # ``x[0]`` is a numpy scalar; convert once to a plain float so the
         # caller doesn't propagate numpy types into JSON-bound state.
         return max(u_min, min(u_max, float(x[0])))
+
+    def _solve_coordinate_descent(
+        self, hessian: FloatArray, gradient: FloatArray, bounds: _SolverBounds
+    ) -> FloatArray:
+        """Solve the small convex QP with constrained coordinate descent.
+
+        The horizon is only twelve values by default, so exact one-dimensional
+        updates are inexpensive. Each update minimises its coordinate's convex
+        quadratic while holding its neighbours fixed; the derived interval
+        enforces the valve box and both adjacent rate constraints exactly.
+        """
+        n = self.N
+        if n <= 0:
+            return np.empty(0)
+        u_last = bounds.u_last
+        u_min = bounds.u_min
+        u_max = bounds.u_max
+        delta_u_max = bounds.delta_u_max
+
+        # Start with a feasible flat trajectory. The first intersection can
+        # only be empty for invalid caller configuration; retain the safely
+        # clamped command in that defensive case.
+        first_lo = max(u_min, u_last - delta_u_max)
+        first_hi = min(u_max, u_last + delta_u_max)
+        if first_lo > first_hi:
+            return np.full(n, max(u_min, min(u_max, u_last)))
+        x = np.full(n, np.clip(u_last, first_lo, first_hi), dtype=float)
+
+        for _ in range(1000):
+            max_change = 0.0
+            for idx in range(n):
+                lo, hi = u_min, u_max
+                if idx == 0:
+                    lo = max(lo, u_last - delta_u_max)
+                    hi = min(hi, u_last + delta_u_max)
+                else:
+                    lo = max(lo, x[idx - 1] - delta_u_max)
+                    hi = min(hi, x[idx - 1] + delta_u_max)
+                if idx + 1 < n:
+                    lo = max(lo, x[idx + 1] - delta_u_max)
+                    hi = min(hi, x[idx + 1] + delta_u_max)
+
+                diagonal = float(hessian[idx, idx])
+                if diagonal <= 0.0 or not np.isfinite(diagonal):
+                    return x
+                partial_gradient = float(hessian[idx] @ x + gradient[idx])
+                unconstrained = x[idx] - partial_gradient / diagonal
+                updated = float(np.clip(unconstrained, lo, hi))
+                max_change = max(max_change, abs(updated - x[idx]))
+                x[idx] = updated
+            if max_change < 1e-8:
+                break
+        return x
 
     def _steady_state_for(self, T_sp: float, T_outdoor_C: float) -> FloatArray:
         T_rad_ss = self.plant.steady_radiator_temp(T_sp, T_outdoor_C)

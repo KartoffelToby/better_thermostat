@@ -11,12 +11,19 @@ operation.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import logging
+import math
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.util import dt as dt_util
+
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    LadderParams,
+    step as control_mode_step,
+    step_ladder as control_mode_step_ladder,
+)
 
 from .const import DOMAIN
 
@@ -184,6 +191,11 @@ def get_optional_sensors(self) -> list:
     Optional sensors are those that can be unavailable without
     blocking thermostat operation (degraded mode).
 
+    The contact sensors (window, door) belong here precisely because a
+    lost one counts as closed: heating continues, so the outage has no
+    other visible symptom and degraded mode is the only thing that
+    surfaces it.
+
     The cooler belongs here too: while it is unavailable the heating
     side keeps running, so the outage has no other visible symptom and
     degraded mode is the only thing that surfaces it.
@@ -249,7 +261,7 @@ async def check_critical_entities(self) -> bool:
     """
     critical = get_critical_entities(self)
     grace_until = getattr(self, "_critical_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
+    in_grace = grace_until is not None and self.clock.now() < grace_until
 
     all_available = True
     for entity in critical:
@@ -313,8 +325,8 @@ async def await_optional_sensors(
     After a reboot, optional sensors (outdoor, weather, window, door,
     humidity) frequently need a few seconds to initialise.  This helper
     retries with increasing intervals so that
-    ``check_and_update_degraded_mode`` is not called while sensors are still
-    starting up.
+    ``check_and_update_degraded_mode`` is not called while sensors are
+    still starting up.
 
     Parameters
     ----------
@@ -475,8 +487,9 @@ async def await_critical_entities(
 async def check_and_update_degraded_mode(self) -> bool:
     """Check optional sensors and update degraded mode status.
 
-    Sets self.degraded_mode to True if any optional sensor is unavailable.
-    Updates self.unavailable_sensors with list of unavailable optional sensors.
+    Advances the control-mode region (whose ``degraded`` the entity
+    exposes as the ``degraded_mode`` property) and updates
+    self.unavailable_sensors with the unavailable optional sensors.
 
     Returns
     -------
@@ -519,16 +532,40 @@ async def check_and_update_degraded_mode(self) -> bool:
             recovered=self.sensor_entity_id in previously_unavailable,
         )
 
-    # Update instance state
-    old_degraded = getattr(self, "degraded_mode", False)
-    self.degraded_mode = len(unavailable) > 0
+    # The control-mode region is the typed record; the entity's
+    # degraded_mode property derives from it.
+    old_degraded = self.kernel_state.control_mode.degraded
+    self.kernel_state = replace(
+        self.kernel_state,
+        control_mode=control_mode_step(
+            self.kernel_state.control_mode, unavailable, self.clock.monotonic()
+        ),
+    )
+    # A stored reading only counts while its TRV is actually reachable;
+    # otherwise a pre-outage value would keep HOLD unreachable forever.
+    trv_temp_ok = any(
+        isinstance(trv.current_temperature, (int, float))
+        and math.isfinite(float(trv.current_temperature))
+        and is_entity_available(self.hass, entity_id)
+        for entity_id, trv in self.real_trvs.items()
+    )
+    self.kernel_state = replace(
+        self.kernel_state,
+        control_mode=control_mode_step_ladder(
+            self.kernel_state.control_mode,
+            room_sensor_ok=bool(sensor_available),
+            trv_temp_ok=trv_temp_ok,
+            now=self.clock.monotonic(),
+            params=LadderParams(),
+        ),
+    )
     self.unavailable_sensors = unavailable
+    degraded = self.kernel_state.control_mode.degraded
 
-    grace_until = getattr(self, "_degraded_grace_until", None)
-    in_grace = grace_until is not None and dt_util.now() < grace_until
+    in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())
     has_warned = getattr(self, "_degraded_warning_emitted", False)
 
-    if self.degraded_mode and not has_warned and not in_grace:
+    if degraded and not has_warned and not in_grace:
         _LOGGER.warning(
             "better_thermostat %s: Entering degraded mode. Unavailable sensors: %s",
             self.device_name,
@@ -559,14 +596,14 @@ async def check_and_update_degraded_mode(self) -> bool:
             "degraded_mode_entered",
             "entered degraded mode because some sensors are unavailable",
         )
-    elif self.degraded_mode and in_grace and not old_degraded:
+    elif degraded and in_grace and not old_degraded:
         _LOGGER.debug(
             "better_thermostat %s: degraded mode during startup grace period "
             "(unavailable: %s); waiting for sensors before warning",
             self.device_name,
             ", ".join(unavailable),
         )
-    elif not self.degraded_mode and has_warned:
+    elif not degraded and has_warned:
         _LOGGER.info(
             "better_thermostat %s: Exiting degraded mode. All sensors available.",
             self.device_name,
@@ -585,4 +622,4 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
 
     self.async_write_ha_state()
-    return self.degraded_mode
+    return degraded

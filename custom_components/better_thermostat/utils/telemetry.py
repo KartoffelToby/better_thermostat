@@ -244,6 +244,8 @@ _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
     ("tau_room_min", "mpc_v2_tau_room_min", 1),
     ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
     ("group_valve_pct", "mpc_v2_group_valve_pct", 1),
+    ("reid_tau_room", "mpc_v2_reid_tau_room", 1),
+    ("reid_gain", "mpc_v2_reid_gain", 2),
 )
 
 

@@ -10,6 +10,7 @@ and assigns the results to entity attributes.
 from __future__ import annotations
 
 import logging
+import math
 from statistics import mean
 
 from homeassistant.const import ATTR_TEMPERATURE
@@ -108,6 +109,8 @@ def clamp_heating_power(raw: str | int | float | None, device_name: str) -> floa
         value = 0.01 if raw is None else float(raw)
     except TypeError, ValueError:
         value = 0.01
+    if not math.isfinite(value):
+        value = 0.01
     bounded = clamp(value, MIN_HEATING_POWER, MAX_HEATING_POWER)
     if bounded != value:
         _LOGGER.info(
@@ -129,5 +132,7 @@ def clamp_heat_loss(raw: str | int | float | None) -> float | None:
     try:
         value = float(raw)
     except TypeError, ValueError:
+        return None
+    if not math.isfinite(value):
         return None
     return clamp(value, MIN_HEAT_LOSS, MAX_HEAT_LOSS)

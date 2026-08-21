@@ -8,7 +8,6 @@
           "name": "Name",
           "thermostat": "The real thermostat",
           "cooler": "The cooling device (optional)",
-          "min_cooler_resend_interval": "Minimum seconds between repeated cooler commands (0 = disabled)",
           "temperature_sensor": "Temperature sensor",
           "humidity_sensor": "Humidity sensor",
           "window_sensors": "Window sensor",
@@ -128,7 +127,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensor error: {sensors} running in degraded mode",
-      "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat will continue to operate with reduced functionality. For example:\n- If the room temperature sensor is unavailable, the TRV's internal sensor will be used instead.\n- If a window or door sensor is unavailable, its last known state stays in effect: a contact that was closed keeps heating enabled, a contact that was open keeps heating suppressed until the sensor reports closed again. Only at startup is an unavailable contact sensor treated as closed.\n- If outdoor/weather sensors are unavailable, heating will always be enabled.\n\nCheck if the affected devices have battery issues or connectivity problems."
+      "description": "Better Thermostat is running in degraded mode because some sensors are unavailable: {sensors}\n\nThe thermostat keeps controlling and steps down gracefully:\n- If the room temperature sensor is unavailable, the average of the TRV-internal temperatures substitutes for it.\n- If neither the room sensor nor any TRV temperature is usable, the thermostat stops adjusting and keeps the last commanded state; frost protection stays active.\n- If a contact sensor (window or door) is unavailable, the contact is assumed closed and heating continues; a lost sensor must not stop heating.\n- If outdoor/weather sensors are unavailable, heating stays enabled.\n\nCheck whether the affected devices have battery or connectivity problems. This issue clears itself once all sensors are available again."
     },
     "invalid_window_state": {
       "title": "BT: {name} - invalid window sensor state",
@@ -369,6 +368,18 @@
       },
       "mpc_ka": {
         "name": "MPC Insulation (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 Virtual Temperature"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 Coupling"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 Disturbance"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 Room Time Constant"
       },
       "pid_kp": {
         "name": "PID Kp"

@@ -8,7 +8,6 @@
           "name": "Názov",
           "thermostat": "Skutočný termostat",
           "cooler": "Chladiace zariadenie (voliteľné)",
-          "min_cooler_resend_interval": "Minimálny počet sekúnd medzi opakovanými príkazmi chladenia (0 = vypnuté)",
           "temperature_sensor": "Snímač teploty",
           "humidity_sensor": "Snímač vlhkosti",
           "window_sensors": "Snímač okna",
@@ -128,7 +127,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - chyba snímača: {sensors} beží v obmedzenom režime",
-      "description": "Better Thermostat beží v obmedzenom režime, pretože niektoré snímače nie sú dostupné: {sensors}\n\nTermostat bude naďalej fungovať s obmedzenou funkcionalitou. Napríklad:\n- Ak snímač izbovej teploty nie je dostupný, použije sa interný snímač TRV.\n- Ak snímače okien nie sú dostupné, okná sa považujú za zatvorené.\n- Ak vonkajšie/meteorologické snímače nie sú dostupné, kúrenie bude vždy zapnuté.\n\nSkontrolujte, či postihnuté zariadenia nemajú problémy s batériou alebo pripojením."
+      "description": "Better Thermostat beží v obmedzenom režime, pretože niektoré senzory nie sú dostupné: {sensors}\n\nTermostat naďalej reguluje a postupne obmedzuje funkčnosť:\n- Ak nie je dostupný senzor izbovej teploty, nahradí ho priemer interných teplôt hlavíc TRV.\n- Ak nie je použiteľný ani izbový senzor, ani žiadna teplota TRV, termostat prestane regulovať a zachová posledný nastavený stav; ochrana proti zamrznutiu zostáva aktívna.\n- Ak nie je dostupný senzor okna, okno sa považuje za zatvorené a vykurovanie pokračuje; stratený senzor nesmie zastaviť vykurovanie.\n- Ak nie sú dostupné vonkajšie/poveternostné senzory, vykurovanie zostáva zapnuté.\n\nSkontrolujte, či dotknuté zariadenia nemajú problémy s batériou alebo pripojením. Toto upozornenie zmizne samo, keď budú všetky senzory opäť dostupné."
     },
     "invalid_window_state": {
       "title": "BT: {name} - neplatný stav snímača okna",
@@ -369,6 +368,18 @@
       },
       "mpc_ka": {
         "name": "Izolácia MPC (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "Virtuálna teplota MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Väzba MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Porucha MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Časová konštanta miestnosti MPC v2"
       },
       "pid_kp": {
         "name": "PID Kp"

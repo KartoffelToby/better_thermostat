@@ -8,7 +8,6 @@
           "name": "Nazwa",
           "thermostat": "Twój termostat",
           "cooler": "Urządzenie chłodzące (opcjonalnie)",
-          "min_cooler_resend_interval": "Minimalna liczba sekund między powtórzonymi poleceniami chłodzenia (0 = wyłączone)",
           "temperature_sensor": "Sensor temperatury",
           "humidity_sensor": "Sensor wilgotności",
           "window_sensors": "Sensor okna",
@@ -128,7 +127,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - błąd czujnika: {sensors} działa w trybie ograniczonym",
-      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat będzie nadal działać z ograniczoną funkcjonalnością. Na przykład:\n- Jeśli czujnik temperatury pokojowej jest niedostępny, zostanie użyty wewnętrzny czujnik TRV.\n- Jeśli czujniki okien są niedostępne, okna są uznawane za zamknięte.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie będzie zawsze włączone.\n\nSprawdź, czy dotknięte urządzenia mają problemy z baterią lub łącznością."
+      "description": "Better Thermostat działa w trybie ograniczonym, ponieważ niektóre czujniki są niedostępne: {sensors}\n\nTermostat nadal reguluje i stopniowo ogranicza działanie:\n- Jeśli czujnik temperatury pomieszczenia jest niedostępny, zastępuje go średnia z wewnętrznych temperatur głowic TRV.\n- Jeśli ani czujnik pomieszczenia, ani żadna temperatura TRV nie jest użyteczna, termostat przestaje regulować i zachowuje ostatnio ustawiony stan; ochrona przed zamarzaniem pozostaje aktywna.\n- Jeśli czujnik okna jest niedostępny, okno jest uznawane za zamknięte i ogrzewanie jest kontynuowane; utracony czujnik nie może zatrzymać ogrzewania.\n- Jeśli czujniki zewnętrzne/pogodowe są niedostępne, ogrzewanie pozostaje włączone.\n\nSprawdź, czy urządzenia, których to dotyczy, nie mają problemów z baterią lub łącznością. To powiadomienie zniknie samo, gdy wszystkie czujniki będą ponownie dostępne."
     },
     "invalid_window_state": {
       "title": "BT: {name} - nieprawidłowy stan czujnika okna",
@@ -369,6 +368,18 @@
       },
       "mpc_ka": {
         "name": "Izolacja MPC (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "Temperatura wirtualna MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Sprzężenie MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Zakłócenie MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Stała czasowa pomieszczenia MPC v2"
       },
       "pid_kp": {
         "name": "PID Kp"

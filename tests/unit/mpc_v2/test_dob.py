@@ -57,14 +57,27 @@ def test_two_near_zero_dt_updates_do_not_amplify() -> None:
 
 
 def test_regular_dt_converges_towards_innovation_rate() -> None:
-    """Repeated same-sign innovations at tau-scale dt approach the rate."""
+    """Repeated same-sign innovations at tau-scale dt approach the rate.
+
+    The innovation is sized so its rate stays inside ``max_abs_K_per_min``,
+    leaving the EMA rather than the bound to decide where the estimate ends
+    up; the bound itself is covered by
+    ``test_large_sensor_jump_is_bounded_before_feed_forward``.
+    """
     tau_s = 600.0
     dt_s = 300.0
-    innovation_K = 0.5
+    innovation_K = 0.1
     innov_rate = innovation_K / (dt_s / 60.0)
+    assert innov_rate < DobParams().max_abs_K_per_min
 
     dob = DisturbanceObserver(DobParams(tau_s=tau_s))
     for _ in range(50):
         dob.update(innovation_K, dt_s=dt_s)
 
     assert dob.D_hat_K_per_min == pytest.approx(innov_rate, rel=1e-6)
+
+
+def test_large_sensor_jump_is_bounded_before_feed_forward() -> None:
+    """Quantised sensor jumps cannot create an implausible steady-state load."""
+    dob = DisturbanceObserver(DobParams(tau_s=1.0, max_abs_K_per_min=0.05))
+    assert dob.update(5.0, dt_s=60.0) == pytest.approx(0.05)

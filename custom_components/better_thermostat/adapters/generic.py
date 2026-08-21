@@ -17,9 +17,13 @@ from ..utils.helpers import (
     find_local_calibration_entity,
     normalize_hvac_mode,
 )
-from .base import wait_for_calibration_entity_or_timeout
+from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
 
 _LOGGER = logging.getLogger(__name__)
+
+# Generic HA climate entities: offset via a discovered number entity,
+# no valve-position channel.
+CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=False)
 
 
 def _option_to_offset(option) -> float | None:

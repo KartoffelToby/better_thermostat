@@ -87,69 +87,82 @@ class TestShouldHeatWithTolerance:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 1b: should_cool_with_tolerance
+# Group 2: should_cool_with_tolerance
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestShouldCoolWithTolerance:
     """Tests for should cool with tolerance."""
 
-    def test_starts_at_upper_edge(self):
-        """Cooling starts when temp reaches cool_target + tolerance."""
+    def test_starts_at_the_upper_edge(self):
+        """Cooling starts when temp >= cool_target + tolerance."""
         assert should_cool_with_tolerance(24.5, 24.0, 0.5, False) is True
 
     def test_no_start_in_band_when_idle(self):
-        """No start inside (cool_target, cool_target + tolerance) when idle."""
+        """No start in [cool_target, cool_target+tol) when not yet cooling."""
         assert should_cool_with_tolerance(24.4, 24.0, 0.5, False) is False
 
     def test_continues_in_band_when_cooling(self):
         """Continue cooling inside the band when already cooling."""
+        assert should_cool_with_tolerance(24.4, 24.0, 0.5, True) is True
         assert should_cool_with_tolerance(24.1, 24.0, 0.5, True) is True
 
-    def test_holds_at_cool_target(self):
-        """Test Holds at cool target."""
+    def test_holds_at_the_cooling_target(self):
+        """The satisfied-side edge is the cooling target itself."""
         assert should_cool_with_tolerance(24.0, 24.0, 0.5, True) is True
 
-    def test_releases_below_cool_target(self):
-        """Cooling stops below cool_target – never cool past the setpoint."""
+    def test_stops_below_the_cooling_target(self):
+        """Cooling ends once the room is below the cooling target."""
         assert should_cool_with_tolerance(23.9, 24.0, 0.5, True) is False
 
-    def test_min_band_wider_than_tolerance_lowers_hold_edge(self):
-        """A tolerance below min_band takes the missing width from below the target."""
+    def test_min_band_wider_than_tolerance_lowers_the_hold_edge(self):
+        """A too-narrow band takes the missing width from below the target."""
+        assert should_cool_with_tolerance(23.9, 24.0, 0.1, True, min_band=0.3) is True
+        assert should_cool_with_tolerance(23.7, 24.0, 0.1, True, min_band=0.3) is False
         # min_band 0.5, tolerance 0.2 → hold edge at 24.0 - 0.3 = 23.7
         assert should_cool_with_tolerance(23.8, 24.0, 0.2, True, min_band=0.5) is True
         assert should_cool_with_tolerance(23.6, 24.0, 0.2, True, min_band=0.5) is False
 
-    def test_min_band_wider_than_tolerance_keeps_switch_on_edge(self):
-        """min_band widens the band downwards only – the start edge stays put."""
-        assert should_cool_with_tolerance(24.1, 24.0, 0.2, False, min_band=0.5) is False
+    def test_min_band_leaves_the_switch_on_edge_alone(self):
+        """The guard buys decision stability, not a colder room."""
+        assert should_cool_with_tolerance(24.1, 24.0, 0.1, False, min_band=0.3) is True
+        assert should_cool_with_tolerance(24.0, 24.0, 0.1, False, min_band=0.3) is False
         assert should_cool_with_tolerance(24.2, 24.0, 0.2, False, min_band=0.5) is True
+        assert should_cool_with_tolerance(24.1, 24.0, 0.2, False, min_band=0.5) is False
 
-    def test_min_band_narrower_than_tolerance_ignored(self):
-        """A min_band the tolerance already covers leaves both edges untouched."""
+    def test_min_band_narrower_than_tolerance_is_ignored(self):
+        """A band the tolerance already fills keeps both edges untouched."""
         assert should_cool_with_tolerance(24.0, 24.0, 0.5, True, min_band=0.2) is True
+        assert should_cool_with_tolerance(23.99, 24.0, 0.5, True, min_band=0.2) is False
         assert should_cool_with_tolerance(23.9, 24.0, 0.5, True, min_band=0.2) is False
         assert should_cool_with_tolerance(24.5, 24.0, 0.5, False, min_band=0.2) is True
 
     def test_negative_tolerance_clamped(self):
-        """Negative tolerance is clamped to 0 → both edges sit on cool_target."""
+        """Negative tolerance is clamped to 0 → same as zero tolerance."""
         assert should_cool_with_tolerance(24.0, 24.0, -1.0, False) is True
+        assert should_cool_with_tolerance(23.99, 24.0, -1.0, False) is False
         assert should_cool_with_tolerance(23.9, 24.0, -1.0, False) is False
 
-    def test_negative_tolerance_clamped_before_min_band(self):
+    def test_negative_tolerance_clamped_before_the_min_band(self):
         """A clamped tolerance still leaves min_band its full width to give."""
         # tolerance clamped to 0, min_band 0.4 → hold edge at 24.0 - 0.4 = 23.6
         assert should_cool_with_tolerance(23.7, 24.0, -1.0, True, min_band=0.4) is True
         assert should_cool_with_tolerance(23.5, 24.0, -1.0, True, min_band=0.4) is False
 
-    def test_zero_tolerance_collapses_band(self):
-        """Zero tolerance without a min_band: start and hold edge are both target."""
+    def test_zero_tolerance(self):
+        """Zero tolerance: both edges collapse onto the cooling target."""
         assert should_cool_with_tolerance(24.0, 24.0, 0.0, False) is True
+        assert should_cool_with_tolerance(23.99, 24.0, 0.0, False) is False
         assert should_cool_with_tolerance(23.99, 24.0, 0.0, True) is False
+
+    def test_zero_tolerance_with_a_min_band(self):
+        """A min_band alone is enough to keep a zero-tolerance decision stable."""
+        assert should_cool_with_tolerance(23.9, 24.0, 0.0, True, min_band=0.2) is True
+        assert should_cool_with_tolerance(23.9, 24.0, 0.0, False, min_band=0.2) is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 2: to_pct
+# Group 3: to_pct
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -183,7 +196,7 @@ class TestToPct:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 3: compute_hvac_action
+# Group 4: compute_hvac_action
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -368,7 +381,7 @@ class TestComputeHvacAction:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Group 4: Hysteresis state transitions
+# Group 5: Hysteresis state transitions
 # ═══════════════════════════════════════════════════════════════════════════
 
 

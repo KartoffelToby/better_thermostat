@@ -15,12 +15,11 @@ cycle.
 Process noise on ``T_rad`` is intentionally larger than on ``T_room`` so
 the filter adapts quickly to radiator dynamics the model gets wrong.
 
-Each update propagates exactly one plant step (``plant_step_s``) regardless
-of the actual wall-clock spacing of control cycles. For the slow thermal
-plant this mis-weights the model dynamics between irregular cycles, but the
-measurement correction on every cycle keeps the room channel anchored; the
-controller additionally rejects sub-second repeat steps so the same
-measurement is never folded in twice within one control pass.
+Each update propagates by the actual wall-clock spacing of control cycles.
+The QP can still use a separate fixed coarse horizon, but the observer must
+not interpret a five-minute measurement interval as one 30-second model step:
+doing so biases the inferred radiator temperature and turns ordinary room
+motion into a fictitious disturbance.
 """
 
 from __future__ import annotations
@@ -94,16 +93,25 @@ class KalmanObserver:
         P0[0, 0] = 0.01
         self.P = P0
 
-    def update(self, y_meas: float, u: float, T_outdoor_C: float) -> FloatArray:
+    def update(
+        self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
+    ) -> FloatArray:
         """Run one predict/correct step and return the updated state estimate.
 
         Predicts through the linearised RC2 dynamics for input ``u``, then
         corrects with the room measurement ``y_meas`` and returns a copy of the
         new ``[T_room, T_rad]`` estimate.
         """
-        A, B, d = self.plant.linearised_AB(T_outdoor_C, float(self.x_hat[1]))
+        elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
+        A, B, d = self.plant.linearised_AB(
+            T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
+        )
         x_pred = A @ self.x_hat + B.flatten() * u + d
-        P_pred = A @ self.P @ A.T + self.Q
+        # ``Q`` is configured for the plant's nominal observer step.  Scale
+        # it with elapsed time so sparse events increase uncertainty instead
+        # of making the filter over-confident.
+        q_scale = elapsed_s / max(self.plant.dt_s, 1e-9)
+        P_pred = A @ self.P @ A.T + self.Q * q_scale
         innovation = y_meas - float((self.C @ x_pred).item())
         # ``S = C·P_pred·Cᵀ + R`` is 1×1; invert it as a guarded scalar
         # reciprocal so a corrupted (e.g. restored) covariance can't drive a
@@ -114,8 +122,13 @@ class KalmanObserver:
         self.P = (np.eye(2) - K @ self.C) @ P_pred
         return self.x_hat.copy()
 
-    def innovation(self, y_meas: float, u: float, T_outdoor_C: float) -> float:
+    def innovation(
+        self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
+    ) -> float:
         """Pre-update residual — used by the disturbance observer."""
-        A, B, d = self.plant.linearised_AB(T_outdoor_C, float(self.x_hat[1]))
+        elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
+        A, B, d = self.plant.linearised_AB(
+            T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
+        )
         x_pred = A @ self.x_hat + B.flatten() * u + d
         return y_meas - float((self.C @ x_pred).item())

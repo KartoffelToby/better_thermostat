@@ -9,9 +9,49 @@ instances of this class, accessed via typed attributes.
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from types import ModuleType
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
+
+from homeassistant.components.climate.const import HVACMode
+
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.helpers import device_offers_mode
+
+
+@runtime_checkable
+class ModelQuirks(Protocol):
+    """Structural surface of a model-quirk module.
+
+    Quirk modules are plain modules under ``model_fixes/``; this is the
+    contract every one of them provides. ``override_set_valve`` is the
+    one optional extension — callers probe it with ``getattr``, and
+    :meth:`Trv.capabilities` turns its presence into a capability.
+    """
+
+    fix_local_calibration: Callable[..., float]
+    fix_target_temperature_calibration: Callable[..., float]
+    override_set_hvac_mode: Callable[..., Awaitable[bool]]
+    override_set_temperature: Callable[..., Awaitable[bool]]
+
+
+@dataclass(frozen=True)
+class TrvCapabilities:
+    """What this TRV can do.
+
+    The adapter module declares what its ecosystem supports
+    (``CAPABILITIES`` in ``adapters/*``); this descriptor intersects
+    that declaration with the discovered entity surface and the model
+    quirks. The kernel expresses intent; whoever writes consults the
+    capabilities instead of re-deriving them from scattered quirk and
+    entity checks.
+    """
+
+    supports_offset_write: bool = False
+    supports_valve_write: bool = False
+    supports_off_mode: bool = True
 
 
 @dataclass
@@ -25,6 +65,8 @@ class Trv:
     model: str | None = None
     calibration: Any = None
     adapter: ModuleType | None = None
+    # A model-quirk module satisfying the ModelQuirks surface, loaded
+    # dynamically like the adapter and therefore typed as the module.
     model_quirks: ModuleType | None = None
     advanced: dict[str, Any] = field(default_factory=dict)
 
@@ -58,9 +100,11 @@ class Trv:
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
-    # ``last_calibration`` is the command the adapter actually wrote after its
-    # own clamp to the declared offset range; ``last_calibration_requested`` is
-    # the value that was asked for before that clamp.
+    # ``last_calibration`` is the command the adapter actually put on the
+    # wire, after its own clamp to the device's declared offset range;
+    # ``last_calibration_requested`` is the value asked for before that
+    # clamp. Keeping them apart lets a device resting at a limit it
+    # declared be recognised as converged instead of rewritten.
     last_calibration: float | None = None
     last_calibration_requested: float | None = None
     # Identity of the offset command currently in flight. Each accepted write
@@ -69,14 +113,35 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
-    # HVAC modes already annunciated as unsupported, so the control loop
-    # reports each one once instead of on every cycle. Cleared whenever the
-    # device reports a different mode list.
+    # Per-channel write-budget stamps (setpoint, offset, valve) so one
+    # channel's write cannot starve another channel's slot.
+    last_write_monotonic: float | None = None
+    last_offset_write_monotonic: float | None = None
+    last_valve_write_monotonic: float | None = None
+    # Whether a follow-up control cycle is already scheduled for a
+    # budget-deferred setpoint write.
+    budget_retry_pending: bool = False
+    # Whether a follow-up control cycle is already scheduled for this
+    # TRV's next reachability-retry window.
+    reachability_retry_pending: bool = False
+    # Outbound HVAC modes already annunciated as not offered by this
+    # device, so the error is logged once per mode instead of per cycle.
     unsupported_modes_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
     balance: dict[str, Any] | None = None
+    # Per-TRV calibrator (BalanceCalibrator): the protocol adapter the
+    # dispatch observes every cycle and actuates through when ready.
+    calibrator: Any | None = None
+
+    # -- Calibrator annunciation --------------------------------------------
+    # Worst health grade the calibrator reported for this TRV, plus the
+    # recent commanded percentages the oscillation detector looks at.
+    calibrator_health: CalibratorHealth = CalibratorHealth.HEALTHY
+    balance_percent_history: deque[float] = field(
+        default_factory=lambda: deque(maxlen=10)
+    )
 
     # -- Quirk scratchpad ----------------------------------------------------
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
@@ -96,28 +161,51 @@ class Trv:
         self.accept_next_internal_temp = False
         return accepted
 
+    def capabilities(self) -> TrvCapabilities:
+        """Effective capabilities: adapter declaration ∩ discovered surface."""
+        quirk_valve = callable(getattr(self.model_quirks, "override_set_valve", None))
+        offset_entity = self.local_temperature_calibration_entity is not None
+        valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
+
+        declared = getattr(self.adapter, "CAPABILITIES", None)
+        if declared is None:
+            # Adapter without a declaration: the discovered surface rules.
+            offset = offset_entity
+            valve = valve_entity
+        else:
+            offset = declared.offset_write and (
+                offset_entity or not declared.offset_needs_entity
+            )
+            valve = declared.valve_write and (
+                valve_entity or not declared.valve_needs_entity
+            )
+
+        # An unreported mode list counts as no-off: BT then sends min temp
+        # instead of an OFF the device may not support. The cached list holds
+        # the device's own spelling, so membership is decided on the normalized
+        # list, like every other capability check.
+        no_off = (
+            self.hvac_modes is None
+            or not device_offers_mode(self.hvac_modes, HVACMode.OFF)
+            or (self.advanced or {}).get("no_off_system_mode", False) is True
+        )
+        return TrvCapabilities(
+            supports_offset_write=offset,
+            supports_valve_write=valve or quirk_valve,
+            supports_off_mode=not no_off,
+        )
+
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
         """Build a Trv from a plain per-entity dict.
 
         Known keys become typed fields; unknown keys land in ``extra``.
-        A legacy ``extra`` dict is merged into ``extra`` rather than
-        nested, and a legacy ``entity_id`` key is ignored in favor of
-        the ``entity_id`` argument.
-
-        Parameters
-        ----------
-        entity_id : str
-            Entity id of the TRV this state belongs to.
-        data : dict[str, Any]
-            Legacy per-entity dict as previously stored in ``real_trvs``.
-
-        Returns
-        -------
-        Trv
-            Typed equivalent of ``data``.
+        The explicit ``entity_id`` argument wins over an ``entity_id``
+        key in the dict, and an ``extra`` dict is merged into the extra
+        mapping instead of being nested under it; a non-dict ``extra``
+        value is kept under the ``extra`` key.
         """
-        fields_in: dict[str, Any] = {}
+        fields_in = {}
         extra: dict[str, Any] = {}
         for key, value in data.items():
             if key == "entity_id":

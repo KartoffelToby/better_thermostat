@@ -11,7 +11,7 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import State, callback
+from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
@@ -38,17 +38,18 @@ from custom_components.better_thermostat.utils.helpers import (
     get_device_model,
     group_all_members_off,
     is_reasonable_temperature,
+    last_sent_cooler_temperature,
     mode_remap,
     normalize_step,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
 async def trigger_trv_change(self, event):
     """Trigger a change in the trv state."""
     if self.startup_running:
@@ -73,6 +74,13 @@ async def trigger_trv_change(self, event):
             entity_id,
         )
         return
+    if entity_id not in self.real_trvs:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s is no longer tracked, skipping",
+            self.device_name,
+            entity_id,
+        )
+        return
 
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -85,7 +93,7 @@ async def trigger_trv_change(self, event):
 
     if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         # The device is gone; its last internal temperature must not
-        # keep feeding the calibration as if it were live.
+        # keep feeding SENSOR_FALLBACK and the ladder as if it were live.
         if trv.current_temperature is not None:
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s became %s; invalidating its "
@@ -95,9 +103,13 @@ async def trigger_trv_change(self, event):
                 _org_trv_state.state,
             )
             trv.current_temperature = None
-            # The next valid reading is the first live data after the
-            # outage and must not be dropped by the debounce below.
-            trv.accept_next_internal_temp = True
+        # The next valid reading is the first live data after the
+        # outage and must not be dropped by the debounce below.
+        trv.accept_next_internal_temp = True
+        # Reachability/fail-soft state must re-evaluate now; otherwise it
+        # stays stale until the next unrelated event.
+        self.async_write_ha_state()
+        request_control_cycle(self)
         return
 
     advanced = trv.advanced or {}
@@ -189,19 +201,31 @@ async def trigger_trv_change(self, event):
             )
             _main_change = False
             if trv.calibration == 0:
+                # The awaits above (model detection, quirk loading) can
+                # outlive the entry: the offset read resolves the adapter
+                # through a raw real_trvs index, so skip it once the TRV
+                # is no longer tracked.
+                if entity_id not in self.real_trvs:
+                    _LOGGER.debug(
+                        "better_thermostat %s: TRV %s is no longer tracked, "
+                        "skipping offset read",
+                        self.device_name,
+                        entity_id,
+                    )
+                    return
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
         return
 
-    # The offered HVAC modes change at runtime on devices whose heating /
-    # cooling changeover is driven centrally, so every mode is judged against
-    # the currently reported list rather than the startup snapshot. The
-    # adoption precedes the inbound remapping below because the state carried
-    # by this event is a state of the capabilities it reports: remapping it
-    # against the previous list decodes it into a mode of a device that no
-    # longer exists, and the entity mode that follows from it is emitted
-    # before any later cache update could correct it.
+    # The offered mode list changes at runtime on devices whose
+    # heating/cooling changeover is driven centrally, so every mode is judged
+    # against the currently reported list rather than the startup snapshot.
+    # The adoption precedes the inbound remapping below because the state
+    # carried by this event is a state of the capabilities it reports:
+    # remapping it against the previous list decodes it into a mode of a
+    # device that no longer exists, and the entity mode that follows from it
+    # is emitted before any later cache update could correct it.
     adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
     try:
@@ -285,7 +309,7 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp,
             trv.last_temperature,
             self.bt_target_cooltemp,
-            self.last_sent_cooler_temp,
+            last_sent_cooler_temperature(self),
         )
     else:
         _known_values = (self.bt_target_temp, trv.last_temperature)
@@ -363,18 +387,18 @@ async def trigger_trv_change(self, event):
                 # Residual tie-break only, the counterpart of the one below.
                 self._enforce_heat_below_cool()
             else:
-                # A knob turn on the TRV is authoritative for the heating
-                # channel alone, so a setpoint that would cross the cooling
-                # target is lowered to clear it and the cooling target stays
-                # where the user put it.
+                # What the TRV reports speaks for the heating channel alone: a
+                # value that would cross the cooling target is lowered below
+                # it, so a knob turn on a radiator valve cannot move the
+                # cooler's target.
                 _adopted_heating_setpoint = self._clamp_inbound_heat_target(
                     _new_heating_setpoint
                 )
                 if _adopted_heating_setpoint != _new_heating_setpoint:
-                    # A user turning the knob up reports every intermediate
-                    # setpoint, so this is annunciated at info level: the target
-                    # is being honoured as far as the cooling channel allows,
-                    # which is not the anomaly a warning stands for.
+                    # A user turning the knob up step by step would collect one
+                    # warning per press, so yielding to the cooling target is an
+                    # INFO: the range clamp above and the ordering fallback below
+                    # own the WARNING level.
                     _LOGGER.info(
                         "better_thermostat %s: TRV %s reported setpoint %.2f does not "
                         "clear the cooling target %.2f, keeping %.2f",
@@ -392,15 +416,14 @@ async def trigger_trv_change(self, event):
                     _adopted_heating_setpoint,
                 )
                 self.bt_target_temp = _adopted_heating_setpoint
-                if self.cooler_entity_id is not None:
-                    # Residual tie-break only: the clamp already cleared the
-                    # cooling target unless it ran into bt_min_temp, so this
-                    # moves the cooling target by at most one step as long as
-                    # that target lies inside the configured range, and only
-                    # when no legal heating setpoint below it exists. A range
-                    # the children narrowed above a target already in place is
-                    # the exception.
-                    self._enforce_cool_above_heat()
+                # The clamp leaves the cooling target alone, so this only settles
+                # the degenerate case where no heating value below the cooling
+                # target exists inside the range: at a cooling target within one
+                # step of bt_min_temp it lifts that target by one step, and a
+                # range the children narrowed above a target already in place is
+                # what moves it further — that move is what brings it back inside
+                # the range.
+                self._enforce_cool_above_heat()
 
             _main_change = True
         elif _new_heating_setpoint != _old_heating_setpoint:
@@ -449,21 +472,16 @@ async def trigger_trv_change(self, event):
                     self.bt_hvac_mode = HVACMode.OFF
             else:
                 self.bt_hvac_mode = HVACMode.HEAT
-                # A valve that was switched off at the knob reports its turn
-                # back up while bt_hvac_mode still reads OFF, so the tie-break
-                # in the setpoint block above was gated out for a heating
-                # target the bound had to pin to the cooling target at
-                # bt_min_temp. Resolving the mode is what puts a group with a
-                # cooler into HEAT_COOL, so that pair is separated here. This
-                # branch also runs on reports that leave the mode as it was,
-                # where the call only acts on a pair that is already crossed —
-                # the one case it exists to settle wherever it is called from.
+                # Leaving OFF is what puts a group with a cooler into HEAT_COOL,
+                # so this is the first moment the ordering of the two targets is
+                # checked at all: a setpoint adopted while the group was still
+                # off has not passed that check yet.
                 self._enforce_cool_above_heat()
             _main_change = True
 
     if _main_change is True:
         self.async_write_ha_state()
-        return await self.control_queue_task.put(self)
+        return request_control_cycle(self)
 
     self.async_write_ha_state()
     return

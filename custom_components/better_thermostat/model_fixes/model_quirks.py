@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import logging
 import re
+from types import ModuleType
 
 from homeassistant.helpers.importlib import async_import_module
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def load_model_quirks(self, model, entity_id):
+async def load_model_quirks(self, model, entity_id) -> ModuleType:
     """Load model quirks module for a given TRV model, falling back to default.
 
     Emits debug logs for both the success and the fallback path.
