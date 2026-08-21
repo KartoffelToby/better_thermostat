@@ -397,6 +397,10 @@ def _compute_mpc_balance(self, entity_id: str):
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
+    if self.state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
+
     mpc_state = self.state_mgr.get_mpc(mpc_key)
 
     # Self-heal a poisoned state before it reaches the controller; the

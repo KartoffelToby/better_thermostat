@@ -1348,6 +1348,15 @@ class TestEnforceCoolAboveHeat:
         self._call(mock_bt, regardless_of_hvac_mode=True)
         assert mock_bt.bt_target_cooltemp == 26.0
 
+    def test_default_is_mode_gated(self, mock_bt):
+        """A caller that omits the flag is gated on HEAT_COOL."""
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_cooltemp = 20.0
+        self._call(mock_bt)
+        assert mock_bt.bt_target_cooltemp == 20.0
+
     def test_cool_above_heat_is_noop(self, mock_bt):
         """A cool target already above the heat target is unchanged."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
@@ -1485,6 +1494,7 @@ class TestEnforceCoolAboveHeat:
         assert mock_bt.bt_target_cooltemp == 22.5
         assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
         assert "adjusted to 22.50 to stay above heating target 22.00" in caplog.text
+        assert "raised to the configured maximum" not in caplog.text
 
     def test_cool_target_above_the_maximum_is_raised_not_lowered(self, mock_bt):
         """A cool target outside the range is still ordered above the heat one.
@@ -1637,6 +1647,22 @@ class TestEnforceHeatBelowCool:
             "heating target 22.00 set to the configured minimum 20.00, which is "
             "not below the cooling target 15.00" in caplog.text
         )
+
+    def test_ordered_result_is_reported_as_ordered(self, mock_bt, caplog):
+        """A heat target that ends up below the cool target reports the ordering."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 24.0
+        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_min_temp = 5.0
+        mock_bt.bt_target_cooltemp = 22.0
+        caplog.set_level(logging.WARNING)
+        self._call(mock_bt)
+        assert mock_bt.bt_target_temp == 21.5
+        assert (
+            "heating target 24.00 adjusted to 21.50 to stay below cooling "
+            "target 22.00" in caplog.text
+        )
+        assert "configured minimum" not in caplog.text
 
     def test_pair_resting_on_the_minimum_is_left_alone(self, mock_bt, caplog):
         """Both targets at the minimum have nowhere left to move."""
@@ -1928,7 +1954,11 @@ class TestSeedCoolTarget:
             mock_bt, InboundSetpoint(raw=24.0, value=24.0, clamped=False, is_echo=False)
         )
         assert mock_bt.bt_target_cooltemp == 24.0
-        assert "cool target is unknown, taking it as the cool target" in caplog.text
+        assert (
+            "reports setpoint 24.0 while the cool target is unknown, taking it "
+            "as the cool target" in caplog.text
+        )
+        assert "outside of range" not in caplog.text
 
     def test_clamped_setpoint_stores_the_clamped_value_and_warns(self, mock_bt, caplog):
         """The stored target is written back, so the substitution must be visible."""
@@ -1938,7 +1968,10 @@ class TestSeedCoolTarget:
             mock_bt, InboundSetpoint(raw=31.0, value=30.0, clamped=True, is_echo=False)
         )
         assert mock_bt.bt_target_cooltemp == 30.0
-        assert "reported setpoint 31.0 outside of range" in caplog.text
+        assert (
+            "reported setpoint 31.0 outside of range while the cool target is "
+            "unknown, taking 30.0 as the cool target" in caplog.text
+        )
 
     def test_setpoint_colliding_with_the_heat_target_is_lifted(self, mock_bt):
         """The observed value yields, the heating target the user set stays."""
@@ -1947,6 +1980,17 @@ class TestSeedCoolTarget:
         mock_bt.bt_target_temp_step = 0.5
         self._call(
             mock_bt, InboundSetpoint(raw=21.0, value=21.0, clamped=False, is_echo=False)
+        )
+        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.bt_target_temp == 22.0
+
+    def test_setpoint_taken_while_off_is_lifted(self, mock_bt):
+        """A seed taken while BT is off is the one the first cooling cycle uses."""
+        mock_bt.hvac_mode = HVACMode.OFF
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_temp_step = 0.5
+        self._call(
+            mock_bt, InboundSetpoint(raw=20.0, value=20.0, clamped=False, is_echo=False)
         )
         assert mock_bt.bt_target_cooltemp == 22.5
         assert mock_bt.bt_target_temp == 22.0

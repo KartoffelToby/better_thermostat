@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
+    DOMAIN as CLIMATE_DOMAIN,
     ClimateEntityFeature,
     HVACMode,
 )
@@ -2135,3 +2136,13 @@ async def async_fire_logbook_entry(self, key: str, default_msg: str) -> None:
                 "domain": DOMAIN,
             },
         )
+
+
+def is_bt_climate_entity(entry: er.RegistryEntry) -> bool:
+    """Return True if the registry entry is a Better Thermostat climate entity.
+
+    The device trigger/action/condition entry points use this to filter a
+    device's entities down to the one BT climate entity: it must belong to
+    this integration (platform) and be a climate entity (domain).
+    """
+    return entry.platform == DOMAIN and entry.domain == CLIMATE_DOMAIN

@@ -185,6 +185,44 @@
         "sleep": "Søvn",
         "activity": "Aktivitet"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Automatisk (gammel)",
+        "auto": "Automatisk",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "AI tidsbaseret (standard)",
+        "default": "Kun ekstern sensorforskydning",
+        "mpc_calibration": "MPC forudsigende (beta)",
+        "mpc_v2_calibration": "(AI) MPC v2 (QP + Kalman, eksperimentel)",
+        "fix_calibration": "Aggressiv",
+        "tpi_calibration": "TPI-regulator",
+        "pid_calibration": "PID-regulator",
+        "no_calibration": "Ingen kalibrering"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Direkte ventilstyring",
+        "target_temp_based": "Baseret på måltemperatur",
+        "local_calibration_based": "Baseret på forskydning"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Automatisk (brug den lærte varmetabsrate)",
+        "small_room": "Lille rum (~10 m², hurtig reaktion)",
+        "medium_room": "Mellemstort rum (~20 m², standard)",
+        "large_room": "Stort rum (~40 m², langsom klimaskærm)"
+      }
     }
   },
   "entity": {
@@ -206,6 +244,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (differentiel)"
+      },
+      "preset_eco": {
+        "name": "Eco"
+      },
+      "preset_eco_min": {
+        "name": "Eco Min"
+      },
+      "preset_eco_max": {
+        "name": "Eco Max"
+      },
+      "preset_away": {
+        "name": "Ude"
+      },
+      "preset_away_min": {
+        "name": "Ude Min"
+      },
+      "preset_away_max": {
+        "name": "Ude Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Komfort"
+      },
+      "preset_comfort_min": {
+        "name": "Komfort Min"
+      },
+      "preset_comfort_max": {
+        "name": "Komfort Max"
+      },
+      "preset_home": {
+        "name": "Hjemme"
+      },
+      "preset_home_min": {
+        "name": "Hjemme Min"
+      },
+      "preset_home_max": {
+        "name": "Hjemme Max"
+      },
+      "preset_sleep": {
+        "name": "Søvn"
+      },
+      "preset_sleep_min": {
+        "name": "Søvn Min"
+      },
+      "preset_sleep_max": {
+        "name": "Søvn Max"
+      },
+      "preset_activity": {
+        "name": "Aktivitet"
+      },
+      "preset_activity_min": {
+        "name": "Aktivitet Min"
+      },
+      "preset_activity_max": {
+        "name": "Aktivitet Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maksimal ventilåbning"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maksimal ventilåbning"
       }
     },
     "switch": {
@@ -234,6 +341,63 @@
           "door_open": "turned off because a door was opened",
           "door_close": "resumed heating because a door was closed"
         }
+      },
+      "external_temp_ema": {
+        "name": "Temperatur-EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Temperatur-EMA (1 time)"
+      },
+      "temp_slope": {
+        "name": "Temperaturændring"
+      },
+      "heating_power": {
+        "name": "Varmeydelse"
+      },
+      "heat_loss": {
+        "name": "Varmetab"
+      },
+      "virtual_temp": {
+        "name": "Virtuel temperatur"
+      },
+      "mpc_gain": {
+        "name": "MPC-varmeforstærkning"
+      },
+      "mpc_loss": {
+        "name": "MPC-varmetab"
+      },
+      "mpc_ka": {
+        "name": "MPC-isolering (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2-virtuel temperatur"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2-kobling"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2-forstyrrelse"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2-rumtidskonstant"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "PID-udgang"
+      },
+      "pid_error": {
+        "name": "PID-afvigelse"
+      },
+      "solar_intensity": {
+        "name": "Solvarmetilskud"
       }
     }
   },

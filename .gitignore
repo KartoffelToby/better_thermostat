@@ -82,5 +82,15 @@ logs/
 *~
 node_modules
 
+#AI
+.claude/
+.harness/
+.mcp.json
+.memory/
+.opencode/
+AGENTS.md
+CLAUDE.md
+STACK.md
+opencode.json
 .codebase-memory
 .serena

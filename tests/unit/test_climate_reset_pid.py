@@ -136,7 +136,13 @@ async def test_overrides_are_passed_through(bt):
 
 @pytest.mark.asyncio
 async def test_seeding_preserves_other_state_fields(bt):
-    """Seeding only updates gains; learned fields like the integral survive."""
+    """Seeding only updates gains; learned fields like the integral survive.
+
+    Note: this isolates the seeding code path by mocking
+    ``reset_pid_states`` so the full reset is not run. The assertions
+    therefore verify seeding-in-isolation, not that learned fields
+    survive a complete ``reset_pid_learnings_service`` execution.
+    """
     bt.state_mgr.pid["uid:climate.trv:t21.0"] = PIDState(pid_integral=7.5)
     # Reset clears the entry, so seed into a pre-populated *fresh* manager:
     bt.state_mgr.reset_pid_states = lambda prefix: 0

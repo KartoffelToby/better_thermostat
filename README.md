@@ -10,8 +10,8 @@
 
 ## Requirements
 
-- Minimum required Home Assistant version: `2025.12`
-  (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Frequirements.dev.txt&search=homeassistant%3D%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](requirements.dev.txt))
+- Minimum required Home Assistant version: `2026.7.2`
+  (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Fpyproject.toml&search=homeassistant%3E%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](pyproject.toml))
 
 ### Companion UI
 

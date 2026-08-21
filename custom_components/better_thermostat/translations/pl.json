@@ -185,6 +185,44 @@
         "sleep": "Sen",
         "activity": "Aktywność"
       }
+    },
+    "target_temp_step": {
+      "options": {
+        "auto_legacy": "Automatycznie (stare)",
+        "auto": "Automatycznie",
+        "step_0_1": "0,1 °C",
+        "step_0_2": "0,2 °C",
+        "step_0_25": "0,25 °C",
+        "step_0_5": "0,5 °C",
+        "step_1_0": "1 °C"
+      }
+    },
+    "calibration_mode": {
+      "options": {
+        "heating_power_calibration": "AI na podstawie czasu (domyślne)",
+        "default": "Tylko przesunięcie czujnika zewnętrznego",
+        "mpc_calibration": "Predykcyjne MPC (beta)",
+        "mpc_v2_calibration": "(AI) MPC v2 (QP + Kalman, eksperymentalne)",
+        "fix_calibration": "Agresywne",
+        "tpi_calibration": "Regulator TPI",
+        "pid_calibration": "Regulator PID",
+        "no_calibration": "Bez kalibracji"
+      }
+    },
+    "calibration_type": {
+      "options": {
+        "direct_valve_based": "Bezpośrednie sterowanie zaworem",
+        "target_temp_based": "Na podstawie temperatury docelowej",
+        "local_calibration_based": "Na podstawie przesunięcia"
+      }
+    },
+    "mpc_v2_plant_preset": {
+      "options": {
+        "auto": "Automatycznie (użyj wyuczonej szybkości strat ciepła)",
+        "small_room": "Małe pomieszczenie (~10 m², szybka reakcja)",
+        "medium_room": "Średnie pomieszczenie (~20 m², standard)",
+        "large_room": "Duże pomieszczenie (~40 m², wolna przegroda)"
+      }
     }
   },
   "entity": {
@@ -206,6 +244,75 @@
       },
       "pid_kd_no_trv": {
         "name": "PID Kd (różniczkujący)"
+      },
+      "preset_eco": {
+        "name": "Eko"
+      },
+      "preset_eco_min": {
+        "name": "Eko Min"
+      },
+      "preset_eco_max": {
+        "name": "Eko Max"
+      },
+      "preset_away": {
+        "name": "Poza domem"
+      },
+      "preset_away_min": {
+        "name": "Poza domem Min"
+      },
+      "preset_away_max": {
+        "name": "Poza domem Max"
+      },
+      "preset_boost": {
+        "name": "Boost"
+      },
+      "preset_boost_min": {
+        "name": "Boost Min"
+      },
+      "preset_boost_max": {
+        "name": "Boost Max"
+      },
+      "preset_comfort": {
+        "name": "Komfort"
+      },
+      "preset_comfort_min": {
+        "name": "Komfort Min"
+      },
+      "preset_comfort_max": {
+        "name": "Komfort Max"
+      },
+      "preset_home": {
+        "name": "W domu"
+      },
+      "preset_home_min": {
+        "name": "W domu Min"
+      },
+      "preset_home_max": {
+        "name": "W domu Max"
+      },
+      "preset_sleep": {
+        "name": "Sen"
+      },
+      "preset_sleep_min": {
+        "name": "Sen Min"
+      },
+      "preset_sleep_max": {
+        "name": "Sen Max"
+      },
+      "preset_activity": {
+        "name": "Aktywność"
+      },
+      "preset_activity_min": {
+        "name": "Aktywność Min"
+      },
+      "preset_activity_max": {
+        "name": "Aktywność Max"
+      },
+      "valve_max_opening": {
+        "name": "{trv_name}: maksymalne otwarcie zaworu"
+      },
+      "valve_max_opening_no_trv": {
+        "name": "Maksymalne otwarcie zaworu"
       }
     },
     "switch": {
@@ -234,6 +341,63 @@
           "door_open": "turned off because a door was opened",
           "door_close": "resumed heating because a door was closed"
         }
+      },
+      "external_temp_ema": {
+        "name": "Temperatura EMA"
+      },
+      "external_temp_ema_1h": {
+        "name": "Temperatura EMA (1 godzina)"
+      },
+      "temp_slope": {
+        "name": "Tempo zmian temperatury"
+      },
+      "heating_power": {
+        "name": "Moc grzewcza"
+      },
+      "heat_loss": {
+        "name": "Straty ciepła"
+      },
+      "virtual_temp": {
+        "name": "Temperatura wirtualna"
+      },
+      "mpc_gain": {
+        "name": "Wzmocnienie grzania MPC"
+      },
+      "mpc_loss": {
+        "name": "Straty ciepła MPC"
+      },
+      "mpc_ka": {
+        "name": "Izolacja MPC (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "Temperatura wirtualna MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Sprzężenie MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Zakłócenie MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Stała czasowa pomieszczenia MPC v2"
+      },
+      "pid_kp": {
+        "name": "PID Kp"
+      },
+      "pid_ki": {
+        "name": "PID Ki"
+      },
+      "pid_kd": {
+        "name": "PID Kd"
+      },
+      "pid_output": {
+        "name": "Wyjście PID"
+      },
+      "pid_error": {
+        "name": "Uchyb PID"
+      },
+      "solar_intensity": {
+        "name": "Zysk ciepła od słońca"
       }
     }
   },

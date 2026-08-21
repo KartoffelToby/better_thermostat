@@ -1,7 +1,8 @@
 """Tests for the startup() submethods extracted from BetterThermostat.startup().
 
 Covers: _check_entities_ready, _collect_trv_states, _resolve_temperature_range,
-_initialize_sensors, _restore_state, _validate_hvac_mode.
+_initialize_sensors, _seed_cool_target_from_cooler, _finalize_startup,
+_restore_state, _validate_hvac_mode.
 """
 
 import asyncio
@@ -91,7 +92,6 @@ def bt():
     mock._current_humidity = None
     mock.window_open = None
     mock.contact_open = None
-    mock.last_window_state = None
     mock.last_main_hvac_mode = None
     mock.call_for_heat = None
     mock._saved_temperature = None
@@ -1262,24 +1262,34 @@ class TestCoolerTargetReadAtListenerRegistration:
         assert bt.control_queue_task.empty()
 
     @pytest.mark.asyncio
-    async def test_setpoint_outside_the_range_is_clamped_and_reported(self, bt, caplog):
+    @pytest.mark.parametrize(
+        ("minimum", "maximum", "raw", "bounded"),
+        [(5.0, 30.0, 31.0, 30.0), (22.0, 30.0, 20.0, 22.0)],
+    )
+    async def test_setpoint_outside_the_range_is_clamped_and_reported(
+        self, bt, caplog, minimum, maximum, raw, bounded
+    ):
         """A cooler absent from the range derivation can report outside it.
 
         The temperature range comes from the devices that were reachable, and an
         offline cooler contributed no bounds of its own, so the setpoint it
-        reports once it joins can sit above the advertised maximum. Storing it
-        unclamped would put the published target outside the range and write a
-        value the cooler may reject.
+        reports once it joins can sit on either side of the advertised range.
+        Storing it unclamped would put the published target outside the range
+        and write a value the cooler may reject.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_max_temp = 30.0
-        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 31.0})})
+        bt.bt_min_temp = minimum
+        bt.bt_max_temp = maximum
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: raw})})
 
         caplog.set_level(logging.WARNING)
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 30.0
-        assert "reported setpoint 31.0 outside of range" in caplog.text
+        assert bt.bt_target_cooltemp == bounded
+        assert (
+            f"reported setpoint {raw} outside of range while the cool target is "
+            f"unknown, taking {bounded} as the cool target" in caplog.text
+        )
 
     @pytest.mark.asyncio
     async def test_setpoint_colliding_with_the_heat_target_is_lifted(self, bt):
@@ -1290,8 +1300,26 @@ class TestCoolerTargetReadAtListenerRegistration:
         cooling side.
         """
         bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
         bt.bt_target_temp = 21.0
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 19.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 21.5
+        assert bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_setpoint_is_ordered_while_the_thermostat_is_off(self, bt):
+        """An off thermostat orders the pair the moment the value is stored.
+
+        Switching it on does not revisit the two targets, so a seed left
+        unordered here would be the pair the first cooling cycle works with.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.OFF
+        bt.bt_target_temp = 21.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 16.0})})
 
         await _run_finalize_startup(bt)
 
@@ -1600,16 +1628,6 @@ class TestValidateHvacMode:
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.last_main_hvac_mode == HVACMode.HEAT
-
-    def test_last_window_state_set(self, bt):
-        """Test Last window state set."""
-        bt.bt_hvac_mode = HVACMode.HEAT
-        bt.window_open = True
-        bt.contact_open = True
-        bt.humidity_sensor_entity_id = None
-        states = [_make_trv_state()]
-        BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt.last_window_state is True
 
     def test_humidity_sensor_re_read(self, bt):
         """Test Humidity sensor re read."""

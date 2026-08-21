@@ -80,6 +80,7 @@ async def trigger_door_change(self, event) -> None:
             issue_id=f"invalid_door_state_{self.device_name}",
             is_fixable=False,
             is_persistent=False,
+            learn_more_url="https://better-thermostat.org/faq/door-sensor",
             severity=ir.IssueSeverity.ERROR,
             translation_key="invalid_door_state",
             translation_placeholders={

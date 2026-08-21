@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from homeassistant.components.climate.const import (
     ATTR_HVAC_ACTION,
     ATTR_HVAC_MODE,
-    DOMAIN as CLIMATE_DOMAIN,
     HVACAction,
     HVACMode,
 )
@@ -24,6 +23,7 @@ from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from . import DOMAIN
+from .utils.helpers import is_bt_climate_entity
 
 CONDITION_TYPES = {"is_hvac_mode", "is_hvac_action"}
 
@@ -59,10 +59,7 @@ async def async_get_conditions(
 
     # Get all the integrations entities for this device
     for entry in entity_registry.async_entries_for_device(registry, device_id):
-        # Both condition types read attributes of the Better Thermostat
-        # climate entity, so only that entity qualifies: it must belong to
-        # this integration (platform) and be a climate entity (domain).
-        if entry.platform != DOMAIN or entry.domain != CLIMATE_DOMAIN:
+        if not is_bt_climate_entity(entry):
             continue
 
         base_condition = {

@@ -1,7 +1,7 @@
 ---
 title: Window sensor
 description: How Better Thermostat reads the window sensor and how the open/close delays behave.
-slug: qanda/window_sensor
+slug: faq/window-sensor
 ---
 
 When the configured window sensor reports **open**, Better Thermostat

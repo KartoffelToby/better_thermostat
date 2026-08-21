@@ -302,6 +302,27 @@ class TestCoolerSetpointClamping:
         assert "does not clear the heating target" in caplog.text
 
     @pytest.mark.asyncio
+    async def test_setpoint_at_exact_min_is_kept_without_a_heating_target(
+        self, mock_bt, caplog
+    ):
+        """The lower bound is inclusive and passes the value through untouched.
+
+        With the heating target unknown the range is the only bound, so neither
+        bound moved the reported setpoint and neither may say that it did.
+        """
+        mock_bt.bt_target_temp = None
+        old_state = _make_state(attributes={"temperature": 25.0})
+        new_state = _make_state(attributes={"temperature": 5.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        caplog.set_level(logging.INFO)
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 5.0
+        assert "setpoint outside of range" not in caplog.text
+        assert "does not clear the heating target" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_setpoint_at_exact_max_not_clamped(self, mock_bt):
         """Setpoint exactly at max should not trigger clamping."""
         old_state = _make_state(attributes={"temperature": 25.0})
@@ -461,6 +482,7 @@ class TestInboundCoolSetpointClamp:
 
         assert mock_bt.bt_target_cooltemp == 27.0
         assert mock_bt.bt_target_temp == 20.0  # unchanged
+        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
         assert "heating target" not in caplog.text
 
     @pytest.mark.asyncio
@@ -1038,7 +1060,8 @@ class TestUnknownCoolTargetSeed:
 
         assert mock_bt.bt_target_cooltemp == 18.0
         assert (
-            f"Cooler {ENTITY_ID} reported setpoint 16.0 outside of range" in caplog.text
+            f"Cooler {ENTITY_ID} reported setpoint 16.0 outside of range while "
+            "the cool target is unknown, taking 18.0 as the cool target" in caplog.text
         )
 
     @pytest.mark.asyncio
@@ -1088,11 +1111,12 @@ class TestUnknownCoolTargetSeed:
     async def test_known_cool_target_is_not_re_seeded(self, mock_bt, caplog):
         """A target BT already holds is only moved by the adoption gate.
 
-        With the previous state carrying no setpoint the gate declines, and a
-        known target must stay put rather than fall back to the device value.
+        A cooler coming back from an outage publishes no previous setpoint, so
+        the gate declines, and a known target must stay put rather than fall
+        back to the device value.
         """
         mock_bt.bt_target_cooltemp = 25.0
-        old_state = State(ENTITY_ID, "cool", attributes={"current_temperature": 26.0})
+        old_state = State(ENTITY_ID, STATE_UNAVAILABLE)
         new_state = _make_state(attributes={"temperature": 27.0})
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -1198,6 +1222,7 @@ class TestUnknownCoolTargetSeed:
         assert mock_bt.bt_target_cooltemp is None
         mock_bt._seed_cool_target.assert_not_called()
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+        mock_bt.async_write_ha_state.assert_called_once()
 
     @pytest.mark.parametrize("dead_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
     @pytest.mark.asyncio
@@ -1210,8 +1235,9 @@ class TestUnknownCoolTargetSeed:
         satisfies every condition of the adoption gate, which would store that
         retained value as the cool target, raised clear of the heating target
         it leaves where the user set it. The cool target staying unknown is
-        therefore what proves the gate never ran, together with the control
-        cycle it does not request; the heating target holds either way.
+        therefore what proves the gate never ran, together with the seeding
+        branch that never ran either and the control cycle neither of them
+        requests; the heating target holds either way.
         """
         mock_bt.bt_target_cooltemp = None
         mock_bt.bt_target_temp = 20.0
@@ -1223,6 +1249,7 @@ class TestUnknownCoolTargetSeed:
 
         assert mock_bt.bt_target_cooltemp is None
         assert mock_bt.bt_target_temp == 20.0
+        mock_bt._seed_cool_target.assert_not_called()
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.parametrize("dead_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])

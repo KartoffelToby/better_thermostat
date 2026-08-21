@@ -1,7 +1,7 @@
 ---
 title: Degraded mode
 description: What the degraded-mode warning means and how Better Thermostat keeps controlling when sensors fail.
-slug: qanda/degraded_mode
+slug: faq/degraded-mode
 ---
 
 Better Thermostat raises a **degraded mode** repair issue when one of the

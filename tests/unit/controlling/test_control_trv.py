@@ -1252,6 +1252,47 @@ class TestControlTrvAvailablePath:
             assert mock_set_temp.call_args[0][2] == 5.0
             mock_set_hvac.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_none_hvac_modes_does_not_crash(self):
+        """A TRV reporting no hvac_modes (None) must not crash control_trv.
+
+        ``Trv.hvac_modes`` defaults to None and stays None when a TRV exposes
+        no ``hvac_modes`` attribute. The membership check for HVACMode.OFF must
+        tolerate that instead of raising TypeError; a None list is treated as
+        "no OFF mode available", so an OFF request falls back to min_temp.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            call_for_heat=False,  # No heat needed -> OFF
+            real_trvs={"climate.trv1": _default_trv_config(hvac_modes=None)},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_set_temp.return_value = None
+
+            await control_trv(mock_self, "climate.trv1")
+
+            # None hvac_modes -> treated as no OFF mode -> min_temp (5.0) sent.
+            mock_set_temp.assert_called_once()
+            assert mock_set_temp.call_args[0][2] == 5.0
+            mock_set_hvac.assert_not_awaited()
+
 
 class TestControlTrvIgnoreFlagReset:
     """The ignore_trv_states flag never survives control_trv.
@@ -2629,7 +2670,7 @@ class TestGroupedTrvCalibration:
 
             assert result is True
             mock_set_offset.assert_not_called()
-            mock_set_temp.assert_called_once()
+            mock_set_temp.assert_awaited_once_with(mock_bt_grouped, entity_id, 21.0)
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(

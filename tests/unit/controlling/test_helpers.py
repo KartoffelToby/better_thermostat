@@ -5,6 +5,7 @@ Tests for:
 - check_target_temperature()
 - _get_valve_control()
 - advance_hvac_action()
+- check_calibration()
 
 The window suppression that used to live in handle_window_open() is now
 decided by the core kernel (see tests/unit/test_core_decide.py) and
@@ -18,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -1021,3 +1023,72 @@ class TestCalibrationMatchTolerance:
 
         assert OFFSET_MATCH_TOLERANCE_K == 0.05
         assert SETPOINT_MATCH_TOLERANCE == 0.01
+
+
+# ---------------------------------------------------------------------------
+# All three write watchdogs share one confirmation window
+# ---------------------------------------------------------------------------
+
+
+class TestWriteConfirmTimeout:
+    """Every write channel polls for WRITE_CONFIRM_TIMEOUT_S before giving up."""
+
+    @pytest.mark.asyncio
+    async def test_system_mode_polls_for_the_shared_window(self):
+        """check_system_mode polls one second at a time up to the window."""
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_hvac_mode": HVACMode.HEAT, "system_mode_received": False},
+            )
+        }
+        durations, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            await check_system_mode(mock_self, "climate.trv1")
+
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+
+    @pytest.mark.asyncio
+    async def test_target_temperature_polls_for_the_shared_window(self):
+        """check_target_temperature polls one second at a time up to the window."""
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 20.0}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
+        }
+        durations, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            await check_target_temperature(mock_self, "climate.trv1")
+
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+
+    @pytest.mark.asyncio
+    async def test_calibration_polls_for_the_shared_window(self):
+        """check_calibration polls one second at a time up to the window."""
+        mock_self = TestCheckCalibration._mock_self()
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-1.0),
+            sleep_patch,
+        ):
+            await check_calibration(mock_self, "climate.trv1")
+
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
