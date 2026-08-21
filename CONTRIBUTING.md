@@ -172,3 +172,26 @@ Dependencies are declared in `pyproject.toml` (`[project]` for the runtime
 platform, `[dependency-groups].dev` for tooling) and pinned in `uv.lock`. To
 update a dependency, run e.g. `uv lock --upgrade-package homeassistant` and
 commit the changed `uv.lock`.
+
+## Coverage floors
+
+CI measures coverage per module and compares it against `.coverage-floors.json`,
+which holds the level each module is at today. A change that leaves one of them
+less covered than it was fails the build; a module nobody has measured yet has
+nothing to fall below and passes.
+
+The floors are per module rather than one number for the project because a
+single project-wide threshold is bought back by adding tests where they are
+easiest to write, and every user-visible bug this project has had came from a
+sparsely covered edge instead.
+
+Raising coverage does not update the file — record the new level explicitly, so
+that the level being held is a decision someone made:
+
+```bash
+uv run pytest tests --cov=custom_components/better_thermostat --cov-report=json:coverage.json
+uv run python scripts/coverage_floors.py update
+```
+
+`update` prints every floor it lowers. If a pull request lowers one, the diff
+says which module gave up coverage and by how much.
