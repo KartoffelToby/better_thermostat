@@ -90,13 +90,12 @@ async def check_entity(self, entity) -> bool:
             state,
         )
         return False
-    if entity in self.devices_errors:
+    recovered = entity in self.devices_errors
+    if recovered:
         self.devices_errors.remove(entity)
         self.async_write_ha_state()
         ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-    self.hass.async_create_background_task(
-        get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
-    )
+    schedule_battery_refresh(self, entity, recovered=recovered)
     return True
 
 

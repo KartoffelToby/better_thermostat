@@ -7,6 +7,7 @@ optional vs critical sensor classification, and degraded mode state management.
 import inspect
 from unittest.mock import MagicMock, patch
 
+from homeassistant.core import State
 import pytest
 
 
@@ -643,15 +644,20 @@ class TestCheckAndUpdateDegradedMode:
     )
 
     @staticmethod
+    def _all_sensors_reporting(mock_bt_instance):
+        """Make every entity lookup return an available state."""
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, "20.0"
+        )
+
+    @staticmethod
     def _with_batteries(mock_bt_instance, *, battery):
         """Give every watched sensor a battery entity in the given read state."""
         mock_bt_instance.devices_states = {
             entity: {"battery_id": f"{entity}_battery", "battery": battery}
             for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
         }
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        TestCheckAndUpdateDegradedMode._all_sensors_reporting(mock_bt_instance)
 
     @staticmethod
     async def _run(mock_bt_instance):
@@ -669,7 +675,7 @@ class TestCheckAndUpdateDegradedMode:
             await check_and_update_degraded_mode(mock_bt_instance)
         return mock_bt_instance.hass.async_create_background_task.call_count
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_reads_batteries_while_they_are_still_unpopulated(
         self, mock_bt_instance
     ):
@@ -678,7 +684,7 @@ class TestCheckAndUpdateDegradedMode:
 
         assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_does_not_reread_batteries_that_are_already_known(
         self, mock_bt_instance
     ):
@@ -691,7 +697,7 @@ class TestCheckAndUpdateDegradedMode:
 
         assert await self._run(mock_bt_instance) == 0
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_rereads_the_battery_of_a_sensor_that_just_recovered(
         self, mock_bt_instance
     ):
@@ -702,7 +708,7 @@ class TestCheckAndUpdateDegradedMode:
 
         assert await self._run(mock_bt_instance) == 1
 
-    @pytest.mark.anyio
+    @pytest.mark.asyncio
     async def test_skips_a_recovered_sensor_that_has_no_battery_entity(
         self, mock_bt_instance
     ):
@@ -712,9 +718,7 @@ class TestCheckAndUpdateDegradedMode:
         mapped battery, so scheduling one costs a task and yields nothing.
         """
         mock_bt_instance.devices_states = {}
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        self._all_sensors_reporting(mock_bt_instance)
         mock_bt_instance.unavailable_sensors = list(self.WATCHED_SENSORS)
 
         assert await self._run(mock_bt_instance) == 0
