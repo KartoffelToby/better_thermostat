@@ -83,6 +83,16 @@ COOLER_RESEND = (
     "custom_components.better_thermostat.utils.controlling.COOLER_RESEND_INTERVAL_S"
 )
 
+# The two startup grace windows, during which an unavailable entity is waited
+# for instead of reported. Both are minutes long, so a test that wants to see
+# what happens after one has closed shortens it here rather than waiting.
+CRITICAL_GRACE = (
+    "custom_components.better_thermostat.climate.STARTUP_CRITICAL_GRACE_PERIOD"
+)
+DEGRADED_GRACE = (
+    "custom_components.better_thermostat.climate.STARTUP_DEGRADED_GRACE_PERIOD"
+)
+
 
 @pytest.fixture(autouse=True)
 async def _recorder(recorder_mock):
@@ -169,6 +179,18 @@ class SimulatedClimate(ClimateEntity):
         self.set_temperature_calls: list[float | dict[str, float]] = []
         self.set_hvac_mode_calls: list[str] = []
         self.drop_next_setpoint_write = False
+
+    def set_available(self, available: bool) -> None:
+        """Take the device off the air, or put it back on.
+
+        An entity that publishes ``unavailable`` is what a battery device out
+        of radio range, a cloud integration that has not reconnected, and an
+        integration that has not finished loading all look like from the
+        outside. Nothing else about the device changes, which is the point:
+        the same entity is expected back.
+        """
+        self._attr_available = available
+        self.async_write_ha_state()
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Apply and confirm a setpoint write.

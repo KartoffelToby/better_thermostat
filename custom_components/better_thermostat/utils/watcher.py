@@ -273,29 +273,33 @@ async def check_critical_entities(self) -> bool:
                     self.device_name,
                     entity,
                 )
-            else:
+            elif entity not in self.devices_errors:
+                # Both the log line and the repair announce the outage, so
+                # both follow the transition into it. The check runs on every
+                # trigger and on every pass of the startup wait loop, and an
+                # entity that stays away would otherwise be announced for as
+                # long as it is gone.
                 _LOGGER.warning(
                     "better_thermostat %s: Critical entity %s is unavailable",
                     self.device_name,
                     entity,
                 )
-                if entity not in self.devices_errors:
-                    self.devices_errors.append(entity)
-                    self.async_write_ha_state()
-                    ir.async_create_issue(
-                        hass=self.hass,
-                        domain=DOMAIN,
-                        issue_id=f"missing_entity_{entity}",
-                        is_fixable=True,
-                        is_persistent=False,
-                        learn_more_url="https://better-thermostat.org/faq/missing-entity",
-                        severity=ir.IssueSeverity.ERROR,
-                        translation_key="missing_entity",
-                        translation_placeholders={
-                            "entity": str(entity),
-                            "name": str(self.device_name),
-                        },
-                    )
+                self.devices_errors.append(entity)
+                self.async_write_ha_state()
+                ir.async_create_issue(
+                    hass=self.hass,
+                    domain=DOMAIN,
+                    issue_id=f"missing_entity_{entity}",
+                    is_fixable=True,
+                    is_persistent=False,
+                    learn_more_url="https://better-thermostat.org/faq/missing-entity",
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="missing_entity",
+                    translation_placeholders={
+                        "entity": str(entity),
+                        "name": str(self.device_name),
+                    },
+                )
             all_available = False
         else:
             recovered = entity in self.devices_errors
