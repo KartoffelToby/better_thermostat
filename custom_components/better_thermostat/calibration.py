@@ -397,11 +397,12 @@ def _compute_mpc_balance(self, entity_id: str):
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
-    if self.state_mgr is None:
+    state_mgr = getattr(self, "state_mgr", None)
+    if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
 
-    mpc_state = self.state_mgr.get_mpc(mpc_key)
+    mpc_state = state_mgr.get_mpc(mpc_key)
 
     # Self-heal a poisoned state before it reaches the controller; the
     # verdict is annunciated on the TRV.
@@ -429,15 +430,15 @@ def _compute_mpc_balance(self, entity_id: str):
             ),
             params,
             state=mpc_state,
-            all_states=self.state_mgr.state.mpc,
+            all_states=state_mgr.state.mpc,
         )
-        self.state_mgr.set_mpc(mpc_key, mpc_state)
+        state_mgr.set_mpc(mpc_key, mpc_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         # A healed (sanitized) state must reach the store even when the
         # compute fails, otherwise the poisoned version stays on disk and
         # is re-healed every cycle.
         if _mpc_health != CalibratorHealth.HEALTHY:
-            self.state_mgr.set_mpc(mpc_key, mpc_state)
+            state_mgr.set_mpc(mpc_key, mpc_state)
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",
             self.device_name,
@@ -900,7 +901,11 @@ def _compute_tpi_balance(self, entity_id: str):
     params = TpiParams()
 
     key = build_tpi_key(self, entity_id)
-    tpi_state = self.state_mgr.get_tpi(key)
+    state_mgr = getattr(self, "state_mgr", None)
+    if state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
+    tpi_state = state_mgr.get_tpi(key)
     tpi_state, _tpi_health = sanitize_tpi_state(tpi_state)
     annunciate_health(self, entity_id, _tpi_health)
 
@@ -920,13 +925,13 @@ def _compute_tpi_balance(self, entity_id: str):
             state=tpi_state,
             now=self.clock.monotonic(),
         )
-        self.state_mgr.set_tpi(key, tpi_state)
+        state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         # A healed (sanitized) state must reach the store even when the
         # compute fails, otherwise the poisoned version stays on disk and
         # is re-healed every cycle.
         if _tpi_health != CalibratorHealth.HEALTHY:
-            self.state_mgr.set_tpi(key, tpi_state)
+            state_mgr.set_tpi(key, tpi_state)
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",
             self.device_name,
@@ -965,13 +970,18 @@ def _compute_pid_balance(self, entity_id: str):
         trv_state.calibration_balance = None
         return None, False
 
+    state_mgr = getattr(self, "state_mgr", None)
+    if state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
+
     if self.contact_open is True or self.bt_hvac_mode == HVACMode.OFF:
         # Standby: no actuation, but the measurement chain keeps
         # following the room so control resumes bump-free (the first
         # post-standby cycle sees a fresh measurement and a small dt
         # instead of an hours-old timestamp).
         key = build_pid_key(self, entity_id)
-        pid_state = self.state_mgr.get_pid(key)
+        pid_state = state_mgr.get_pid(key)
         pid_state = pid_observe_standby(
             PIDParams(),
             pid_state,
@@ -981,13 +991,13 @@ def _compute_pid_balance(self, entity_id: str):
                 self.cur_temp_filtered if _pid_room_temp is self.cur_temp else None
             ),
         )
-        self.state_mgr.set_pid(key, pid_state)
+        state_mgr.set_pid(key, pid_state)
         trv_state.calibration_balance = None
         return None, False
 
     # Build PID params from config and learned values
     key = build_pid_key(self, entity_id)
-    pid_state = self.state_mgr.get_pid(key)
+    pid_state = state_mgr.get_pid(key)
 
     # Self-heal a poisoned state (non-finite values, runaway gains,
     # wound-up integrator) before it reaches the controller.
@@ -1039,13 +1049,13 @@ def _compute_pid_balance(self, entity_id: str):
             state=pid_state,
             now=self.clock.monotonic(),
         )
-        self.state_mgr.set_pid(key, pid_state)
+        state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         # A healed (sanitized) state must reach the store even when the
         # compute fails, otherwise the poisoned version stays on disk and
         # is re-healed every cycle.
         if _pid_health != CalibratorHealth.HEALTHY:
-            self.state_mgr.set_pid(key, pid_state)
+            state_mgr.set_pid(key, pid_state)
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
             self.device_name,
