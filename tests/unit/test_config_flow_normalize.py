@@ -8,7 +8,10 @@ drop the previously stored value instead of silently keeping it.
 
 from homeassistant.const import CONF_NAME
 
-from custom_components.better_thermostat.config_flow import _normalize_user_submission
+from custom_components.better_thermostat.config_flow import (
+    _build_user_fields,
+    _normalize_user_submission,
+)
 from custom_components.better_thermostat.utils.const import (
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
@@ -74,6 +77,17 @@ def test_cooler_retained_when_present_in_input():
     )
 
     assert normalized[CONF_COOLER] == "climate.ac"
+
+
+def test_heaters_are_preserved_when_form_is_redisplayed():
+    """Previously selected entity IDs remain visible after a validation error."""
+    fields = _build_user_fields(
+        mode="create", current={CONF_HEATER: ["climate.trv", "climate.trv_2"]}
+    )
+
+    heater_key = next(key for key in fields if key.schema == CONF_HEATER)
+
+    assert heater_key.description["suggested_value"] == ["climate.trv", "climate.trv_2"]
 
 
 def test_cooler_updated_to_different_entity():
