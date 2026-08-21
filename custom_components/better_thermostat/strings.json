@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "MPC Insulation (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 Virtual Temperature"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 Coupling"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 Disturbance"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 Room Time Constant"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },

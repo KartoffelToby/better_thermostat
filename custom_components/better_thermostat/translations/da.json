@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "MPC-isolering (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2-virtuel temperatur"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2-kobling"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2-forstyrrelse"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2-rumtidskonstant"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },

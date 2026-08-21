@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "Isolamento MPC (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "Temperatura virtuale MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Accoppiamento MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Disturbo MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Costante di tempo del locale MPC v2"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },

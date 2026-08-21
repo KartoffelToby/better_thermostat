@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "Izolácia MPC (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "Virtuálna teplota MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Väzba MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Porucha MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Časová konštanta miestnosti MPC v2"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },

@@ -914,7 +914,7 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
 class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 estimated room temperature."""
 
-    _attr_name = "MPC v2 Virtual Temperature"
+    _attr_translation_key = "mpc_v2_virtual_temp"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_icon = "mdi:thermometer-auto"
@@ -925,7 +925,7 @@ class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
 class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 radiator-to-room coupling."""
 
-    _attr_name = "MPC v2 Coupling"
+    _attr_translation_key = "mpc_v2_coupling"
     _attr_icon = "mdi:heat-wave"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "coupling_rad_room"
@@ -935,7 +935,7 @@ class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
 class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 estimated unmodelled heat disturbance."""
 
-    _attr_name = "MPC v2 Disturbance"
+    _attr_translation_key = "mpc_v2_disturbance"
     _attr_native_unit_of_measurement = "K/min"
     _attr_icon = "mdi:thermometer-minus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -946,7 +946,7 @@ class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
 class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 room time constant."""
 
-    _attr_name = "MPC v2 Room Time Constant"
+    _attr_translation_key = "mpc_v2_room_time_constant"
     _attr_native_unit_of_measurement = "min"
     _attr_icon = "mdi:home-clock-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC

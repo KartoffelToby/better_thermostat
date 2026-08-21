@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "MPC yalıtımı (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 sanal sıcaklık"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 bağlaşım"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 bozucu etki"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 oda zaman sabiti"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },

@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "Μόνωση MPC (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "Εικονική θερμοκρασία MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Σύζευξη MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Διαταραχή MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Σταθερά χρόνου δωματίου MPC v2"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },

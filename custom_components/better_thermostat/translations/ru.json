@@ -369,6 +369,18 @@
       "mpc_ka": {
         "name": "Теплоизоляция MPC (Ka)"
       },
+      "mpc_v2_virtual_temp": {
+        "name": "Виртуальная температура MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Связь MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Возмущение MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Постоянная времени помещения MPC v2"
+      },
       "pid_kp": {
         "name": "PID Kp"
       },
