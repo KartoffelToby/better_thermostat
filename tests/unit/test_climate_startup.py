@@ -83,7 +83,6 @@ def bt():
     mock._current_humidity = None
     mock.window_open = None
     mock.contact_open = None
-    mock.last_window_state = None
     mock.last_main_hvac_mode = None
     mock.call_for_heat = None
     mock._saved_temperature = None
@@ -1566,16 +1565,6 @@ class TestValidateHvacMode:
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.last_main_hvac_mode == HVACMode.HEAT
-
-    def test_last_window_state_set(self, bt):
-        """Test Last window state set."""
-        bt.bt_hvac_mode = HVACMode.HEAT
-        bt.window_open = True
-        bt.contact_open = True
-        bt.humidity_sensor_entity_id = None
-        states = [_make_trv_state()]
-        BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt.last_window_state is True
 
     def test_humidity_sensor_re_read(self, bt):
         """Test Humidity sensor re read."""
