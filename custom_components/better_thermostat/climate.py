@@ -874,7 +874,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._config_entry_id = self._unique_id
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
-        self.last_window_state = None
         self._last_call_for_heat = None
         self._available = False
         self.context = None
@@ -1984,7 +1983,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         else:
             self._current_humidity = 0.0
 
-        self.last_window_state = self.window_open
         if self.bt_hvac_mode not in (HVACMode.OFF, HVACMode.HEAT_COOL, HVACMode.HEAT):
             self.bt_hvac_mode = HVACMode.HEAT
 
