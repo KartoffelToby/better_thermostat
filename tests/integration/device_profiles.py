@@ -335,3 +335,22 @@ SINGLE_ROLE_PROFILES = (
 """Every profile a test can drive as the single controlled device."""
 
 ROLE_SCENARIOS = (HEAT_ONLY, SEPARATE_COOLER, RANGED_COOLER, DUAL_ROLE)
+"""Every wiring of a room a test can drive."""
+
+SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario] = {
+    "a head that offers no heating mode at all": AUTO_COOL_AC,
+    "a head whose calibration is a number entity on its device": MQTT_OFFSET_TRV,
+    "one entity wired as thermostat and as cooler": DUAL_ROLE,
+    "a thermostat entity with no device registry entry": GENERIC_HEAT_TRV,
+}
+"""The device shapes users have reported a bug against, by what they are.
+
+A report teaches the project a shape of device or wiring it did not have. The
+regression test that closes the report covers the one path the bug sat on; the
+entry here is what makes the whole integration suite run against that shape
+from then on. Adding to this table is half of closing such a report — see
+CONTRIBUTING.md.
+
+A report about the config flow or about entity startup has no device shape and
+does not belong here; those live in their own scenario files.
+"""
