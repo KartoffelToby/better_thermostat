@@ -172,8 +172,8 @@ All 8 BT presets are available per slot per day type: `none`, `eco`, `away`,
 
 | Feature | How it works |
 |---|---|
-| **Presence-based away mode** | Enable + select a `person.*` / `device_tracker.*` / `binary_sensor.*`. While nobody is home the *Vacation preset* is applied instead of the schedule. Returns to the correct slot automatically on arrival. |
-| **Schedule pause switch** | Point to an `input_boolean` helper. Turning it on freezes the schedule; turning it off immediately re-applies the correct slot. |
+| **Presence-based away mode** | Enable + select one or more `person.*` / `device_tracker.*` / `binary_sensor.*` entities (leave empty to disable). While none of them is home the *Vacation preset* is applied instead of the schedule. Returns to the correct slot automatically on arrival. |
+| **Schedule pause switch** | Point to one or more `input_boolean` helpers (leave empty to disable). The schedule is frozen while at least one of them is on; turning them off immediately re-applies the correct slot. |
 | **HA restart recovery** | After a restart, waits 30 s for entities to load, then applies the currently correct slot (or vacation preset). |
 | **Notifications** | Optional `notify.*` service receives a message on every slot change, presence event, and startup recovery. |
 
@@ -188,8 +188,8 @@ All 8 BT presets are available per slot per day type: `none`, `eco`, `away`,
 | Slot 2 | Start times & presets (Weekday / Saturday / Sunday) |
 | Slot 3 | Start times & presets (Weekday / Saturday / Sunday) |
 | Slot 4 | Start times & presets (Weekday / Saturday / Sunday) |
-| Presence | Enable toggle · presence entity · vacation preset |
-| Pause | Enable toggle · input_boolean helper |
+| Presence | Enable toggle · presence entities · vacation preset |
+| Pause | Enable toggle · input_boolean helpers |
 | Notifications | notify.* target |
 
 [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FKartoffelToby%2Fbetter_thermostat%2Fblob%2Fmaster%2Fblueprints%2Fweekly_heating_schedule.yaml)
