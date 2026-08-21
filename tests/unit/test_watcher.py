@@ -359,6 +359,45 @@ class TestCheckCriticalEntities:
         assert mock_ir.async_create_issue.called
 
     @pytest.mark.anyio
+    async def test_warns_once_while_a_trv_stays_unavailable(
+        self, mock_bt_instance, caplog
+    ):
+        """A continuing outage is announced when it starts, not while it lasts.
+
+        The check runs on every trigger and on every pass of the startup wait
+        loop, so an entity that stays away is seen over and over. The repair
+        issue is raised once; the log line has to follow the same transition
+        or it repeats for as long as the device is gone.
+        """
+        from datetime import timedelta
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance._critical_grace_until = (
+            mock_bt_instance.clock.now() - timedelta(minutes=1)
+        )
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                await check_critical_entities(mock_bt_instance)
+                await check_critical_entities(mock_bt_instance)
+                await check_critical_entities(mock_bt_instance)
+
+        announced = [
+            r.getMessage() for r in caplog.records if "is unavailable" in r.message
+        ]
+        # Three passes over the fixture's devices: one line per device that is
+        # gone, not one per pass.
+        trv_count = len(mock_bt_instance.real_trvs)
+        assert len(announced) == len(set(announced)) == trv_count
+        assert mock_ir.async_create_issue.call_count == trv_count
+
+    @pytest.mark.anyio
     async def test_auto_clear_issue_on_recovery(self, mock_bt_instance):
         """Issue is cleared when a previously-unavailable TRV becomes available."""
         from custom_components.better_thermostat.utils.watcher import (
