@@ -305,11 +305,12 @@ def _compute_mpc_balance(self, entity_id: str):
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
-    if self.state_mgr is None:
+    state_mgr = getattr(self, "state_mgr", None)
+    if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
 
-    mpc_state = self.state_mgr.get_mpc(mpc_key)
+    mpc_state = state_mgr.get_mpc(mpc_key)
 
     try:
         mpc_output, mpc_state = compute_mpc(
@@ -332,9 +333,9 @@ def _compute_mpc_balance(self, entity_id: str):
             ),
             params,
             state=mpc_state,
-            all_states=self.state_mgr.state.mpc,
+            all_states=state_mgr.state.mpc,
         )
-        self.state_mgr.set_mpc(mpc_key, mpc_state)
+        state_mgr.set_mpc(mpc_key, mpc_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",
@@ -564,7 +565,11 @@ def _compute_tpi_balance(self, entity_id: str):
     params = TpiParams()
 
     key = build_tpi_key(self, entity_id)
-    tpi_state = self.state_mgr.get_tpi(key)
+    state_mgr = getattr(self, "state_mgr", None)
+    if state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
+    tpi_state = state_mgr.get_tpi(key)
 
     try:
         tpi_output, tpi_state = compute_tpi(
@@ -581,7 +586,7 @@ def _compute_tpi_balance(self, entity_id: str):
             params,
             state=tpi_state,
         )
-        self.state_mgr.set_tpi(key, tpi_state)
+        state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",
@@ -631,7 +636,11 @@ def _compute_pid_balance(self, entity_id: str):
 
     # Build PID params from config and learned values
     key = build_pid_key(self, entity_id)
-    pid_state = self.state_mgr.get_pid(key)
+    state_mgr = getattr(self, "state_mgr", None)
+    if state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
+    pid_state = state_mgr.get_pid(key)
 
     # Use learned gains if available, otherwise from config, otherwise defaults
     params = PIDParams(
@@ -675,7 +684,7 @@ def _compute_pid_balance(self, entity_id: str):
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
         )
-        self.state_mgr.set_pid(key, pid_state)
+        state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
