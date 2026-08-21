@@ -591,6 +591,8 @@ def _confirmed_valve_pct(trv_state) -> float | None:
         getattr(trv_state, "valve_position", None),
         getattr(trv_state, "last_valve_percent", None),
     ):
+        if value is None:
+            continue
         try:
             pct = float(value)
         except TypeError, ValueError:
