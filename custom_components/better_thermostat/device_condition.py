@@ -19,6 +19,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import condition, config_validation as cv, entity_registry
+from homeassistant.helpers.config_validation import DEVICE_CONDITION_BASE_SCHEMA
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
@@ -27,9 +28,12 @@ from .utils.helpers import is_bt_climate_entity
 
 CONDITION_TYPES = {"is_hvac_mode", "is_hvac_action"}
 
-HVAC_MODE_CONDITION = vol.Schema(
+# Both extend the device-condition base schema, which carries the `condition`,
+# `device_id` and `domain` keys every condition this platform offers is built
+# with; a bare schema rejects its own output.
+HVAC_MODE_CONDITION = DEVICE_CONDITION_BASE_SCHEMA.extend(
     {
-        vol.Required(CONF_ENTITY_ID): cv.entity_id,
+        vol.Required(CONF_ENTITY_ID): cv.entity_id_or_uuid,
         vol.Required(CONF_TYPE): "is_hvac_mode",
         vol.Required(ATTR_HVAC_MODE): vol.In(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL]
@@ -37,9 +41,9 @@ HVAC_MODE_CONDITION = vol.Schema(
     }
 )
 
-HVAC_ACTION_CONDITION = vol.Schema(
+HVAC_ACTION_CONDITION = DEVICE_CONDITION_BASE_SCHEMA.extend(
     {
-        vol.Required(CONF_ENTITY_ID): cv.entity_id,
+        vol.Required(CONF_ENTITY_ID): cv.entity_id_or_uuid,
         vol.Required(CONF_TYPE): "is_hvac_action",
         vol.Required(ATTR_HVAC_ACTION): vol.In(
             [HVACAction.OFF, HVACAction.HEATING, HVACAction.IDLE]
@@ -87,11 +91,13 @@ def async_condition_from_config(
         def test_is_hvac_mode(
             hass: HomeAssistant, variables: Mapping[str, object] | None
         ) -> bool:
-            """Test if an HVAC mode condition is met."""
+            """Test if an HVAC mode condition is met.
+
+            A climate entity carries its mode as the state, not as an
+            attribute; ``hvac_action`` is the one that is an attribute.
+            """
             state = hass.states.get(config[CONF_ENTITY_ID])
-            return (
-                state is not None and state.attributes.get(ATTR_HVAC_MODE) == hvac_mode
-            )
+            return state is not None and state.state == hvac_mode
 
         return test_is_hvac_mode
 
