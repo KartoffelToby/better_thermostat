@@ -69,10 +69,10 @@ async def let_the_wait_loop_run(hass, rounds: int = 20) -> None:
 async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     """A device that is still booting is waited for, not announced.
 
-    This is the case that produced false repair issues: a cloud-backed valve
-    is routinely still unavailable when Home Assistant has finished starting.
-    The thermostat holds in startup, says nothing, and comes up as soon as
-    the device does — with the device's own capabilities read, which is the
+    A cloud-backed valve is routinely still unavailable by the time Home
+    Assistant has finished starting, so a repair issue here would be a false
+    one. The thermostat holds in startup, says nothing, and comes up as soon
+    as the device does — with the device's own capabilities read, which is the
     proof that it waited for the real thing rather than guessing.
     """
     set_room_sensor(hass, 19.0)
@@ -244,13 +244,12 @@ async def test_a_rename_into_a_taken_id_lands_on_a_free_one(hass, fake_trv):
 async def test_a_taken_id_does_not_cost_the_thermostat_its_entity(hass, fake_trv):
     """Setting up against an occupied id still yields a working thermostat.
 
-    This is the shape the outage was reported in: an id that looks like Better
-    Thermostat's is already in the registry, and no ``climate.bt_*`` entity
-    appears. Home Assistant's registry resolves that collision on its own, so
-    no change in this repository can turn this test red today — it guards
-    against Better Thermostat ever taking the choice away from the registry,
-    because having no climate entity at all is indistinguishable from a setup
-    that failed outright.
+    An id that looks like Better Thermostat's can already be in the registry,
+    held by another integration. Home Assistant's registry resolves that
+    collision on its own, so no change in this repository can turn this test
+    red today — it guards against Better Thermostat ever taking the choice
+    away from the registry, because having no climate entity at all is
+    indistinguishable from a setup that failed outright.
     """
     set_room_sensor(hass, 19.0)
     registry = er.async_get(hass)
