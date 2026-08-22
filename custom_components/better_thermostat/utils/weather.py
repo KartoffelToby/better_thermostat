@@ -18,10 +18,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 from homeassistant.helpers.recorder import get_instance
 import homeassistant.util.dt as dt_util
 
-# from datetime import datetime, timedelta
-# import homeassistant.util.dt as dt_util
-# from homeassistant.components.recorder.history import state_changes_during_period
-from .helpers import convert_to_float_celsius
+from .helpers import async_fire_logbook_entry, convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,10 +81,6 @@ async def check_weather(self) -> bool:
         self.call_for_heat = True
 
     if old_call_for_heat != self.call_for_heat:
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
-
         if not self.call_for_heat:
             await async_fire_logbook_entry(
                 self,

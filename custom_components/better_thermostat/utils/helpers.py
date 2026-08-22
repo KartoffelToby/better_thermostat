@@ -23,7 +23,11 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    translation,
+)
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.util import slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -2048,11 +2052,6 @@ async def get_device_model(self, entity_id: str) -> str:
 
 async def async_fire_logbook_entry(self, key: str, default_msg: str) -> None:
     """Fire a logbook entry safely, with fallback translations."""
-    from homeassistant.helpers import translation
-    from homeassistant.util import slugify
-
-    from custom_components.better_thermostat.utils.const import DOMAIN
-
     hass_obj = getattr(self, "hass", None)
     log_msg = default_msg
     if hass_obj is not None:

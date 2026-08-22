@@ -63,15 +63,15 @@ ignore = [
     "PLR0912", # Too many branches
     "PLR0913", # Too many arguments
     "PLR0911", # Too many return statements
-    "PLC0415", # Import outside top level
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-# Test code does not need docstrings on every function/class/method.
-"tests/**" = ["D"]
+# Test code does not need docstrings on every function/class/method, and it
+# imports inside function bodies.
+"tests/**" = ["D", "PLC0415"]
 
 # BLE001 is silenced outright in the files below: ruff reports none of their
 # blind broad exception handlers — `except Exception` that neither re-raises

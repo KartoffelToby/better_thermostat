@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, replace
 import logging
 import math
 
@@ -492,11 +493,7 @@ def _compute_mpc_balance(self, entity_id: str):
         _schedule_mpc()
 
     # Return an MpcOutput-like object with the TRV-specific valve_percent
-    from dataclasses import replace as _dc_replace
-
-    trv_output = _dc_replace(
-        mpc_output, valve_percent=clamp_valve_percent(this_trv_pct)
-    )
+    trv_output = replace(mpc_output, valve_percent=clamp_valve_percent(this_trv_pct))
 
     return trv_output, supports_valve
 
@@ -851,8 +848,6 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     if per_trv_max_opening is not None:
         this_trv_pct = min(this_trv_pct, per_trv_max_opening)
 
-    from dataclasses import asdict
-
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = {
         "valve_percent": int(round(max(0.0, min(100.0, this_trv_pct)))),
@@ -873,9 +868,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     if callable(_schedule_save):
         _schedule_save()
 
-    from dataclasses import replace as _dc_replace
-
-    trv_output = _dc_replace(
+    trv_output = replace(
         mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_pct))))
     )
     return trv_output, supports_valve

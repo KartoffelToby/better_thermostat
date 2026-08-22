@@ -20,7 +20,7 @@ from custom_components.better_thermostat.events.window import (
 )
 
 _WINDOW = "custom_components.better_thermostat.events.window"
-_LOGBOOK = "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry"
+_LOGBOOK = f"{_WINDOW}.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay=0):
