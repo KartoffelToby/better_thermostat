@@ -119,7 +119,8 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 # The entries below name the files that do not meet it yet and list exactly the
 # rules each one is exempt from; a rule not listed applies to that file too.
 # The list only ever shrinks: an entry is removed once its file is annotated,
-# and no new entry is added — a new file is strict from the start.
+# and no new entry is added — a new file is strict from the start. That shape is
+# held by tests/unit/test_type_strictness_exemptions.py.
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/__init__.py"
