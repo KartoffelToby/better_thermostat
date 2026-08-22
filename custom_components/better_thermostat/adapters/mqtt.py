@@ -48,16 +48,19 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     """
     # Try to discover valve position entity early
     try:
-        from ..utils.helpers import find_valve_entity as _find_valve
-
-        valve = await _find_valve(self, entity_id)
+        valve = await find_valve_entity(self, entity_id)
         if valve is not None:
             self.real_trvs[entity_id].valve_position_entity = valve.get("entity_id")
             self.real_trvs[entity_id].valve_position_writable = bool(
                 valve.get("writable", False)
             )
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity discovery for %s failed",
+            self.device_name,
+            entity_id,
+            exc_info=True,
+        )
 
     if (
         self.real_trvs[entity_id].local_temperature_calibration_entity is None

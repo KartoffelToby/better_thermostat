@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 import json
 import logging
 import os
@@ -92,9 +92,7 @@ ATTR_STATE_HEATING_STATS: Final = "heating_stats"
 ATTR_STATE_ERRORS: Final = "errors"
 ATTR_STATE_BATTERIES: Final = "batteries"
 ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
-# ECO mode logic removed; keep eco temperature for preset support
 
-# set_eco_mode and save/restore temperature services removed; ECO preset still supported via PRESET_ECO
 SERVICE_RESET_HEATING_POWER: Final = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS: Final = "reset_pid_learnings"
 SERVICE_RUN_VALVE_MAINTENANCE: Final = "run_valve_maintenance"
@@ -108,13 +106,6 @@ BETTERTHERMOSTAT_RESET_PID_SCHEMA: Final = make_entity_service_schema(
         vol.Optional("defaults_kd"): vol.Coerce(float),
     }
 )
-
-
-class BetterThermostatEntityFeature(IntEnum):
-    """Supported features of the climate entity."""
-
-    TARGET_TEMPERATURE = 1
-    TARGET_TEMPERATURE_RANGE = 2
 
 
 class CalibrationType(StrEnum):

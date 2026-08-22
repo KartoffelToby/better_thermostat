@@ -20,14 +20,18 @@ reset_pid_learnings:
   fields:
     apply_pid_defaults:
       name: Apply PID defaults after reset
-      description: If enabled, seeds the current target bucket(s) with PID default gains (kp/ki/kd). You can override defaults below.
+      description: >-
+        If enabled, seeds the current target bucket(s) with PID default gains
+        (kp/ki/kd). You can override defaults below.
       required: false
       default: false
       selector:
         boolean: {}
     defaults_kp:
       name: Default kp
-      description: Proportional gain to seed after reset (falls back to BalanceParams.kp if not provided).
+      description: >-
+        Proportional gain to seed after reset (falls back to BalanceParams.kp
+        if not provided).
       required: false
       selector:
         number:
@@ -36,7 +40,9 @@ reset_pid_learnings:
           step: 0.1
     defaults_ki:
       name: Default ki
-      description: Integral gain to seed after reset (falls back to BalanceParams.ki if not provided).
+      description: >-
+        Integral gain to seed after reset (falls back to BalanceParams.ki if
+        not provided).
       required: false
       selector:
         number:
@@ -45,7 +51,9 @@ reset_pid_learnings:
           step: 0.001
     defaults_kd:
       name: Default kd
-      description: Derivative gain to seed after reset (falls back to BalanceParams.kd if not provided).
+      description: >-
+        Derivative gain to seed after reset (falls back to BalanceParams.kd
+        if not provided).
       required: false
       selector:
         number:

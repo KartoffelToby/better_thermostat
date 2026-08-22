@@ -21,7 +21,7 @@ from custom_components.better_thermostat.events.door import (
 )
 
 _DOOR = "custom_components.better_thermostat.events.door"
-_LOGBOOK = "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry"
+_LOGBOOK = f"{_DOOR}.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", door_open=False, open_delay=0, close_delay=0):

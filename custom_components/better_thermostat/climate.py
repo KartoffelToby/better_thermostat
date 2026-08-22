@@ -44,7 +44,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import Context, State, callback
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import entity_platform
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_platform,
+    entity_registry as er,
+)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
@@ -66,6 +70,7 @@ from .adapters.delegate import (
     load_adapter,
     set_hvac_mode as adapter_set_hvac_mode,
     set_temperature as adapter_set_temperature,
+    set_valve as adapter_set_valve,
 )
 from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
@@ -90,7 +95,7 @@ from .core.recorder import FlightRecorder
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
-from .events.temperature import trigger_temperature_change
+from .events.temperature import _update_external_temp_ema, trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import initial_tweak, load_model_quirks
@@ -157,6 +162,7 @@ from .utils.controlling import (
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
     InboundSetpoint,
+    async_fire_logbook_entry,
     async_normalize_bt_entity_ids,
     attr_to_celsius,
     convert_to_float,
@@ -179,6 +185,7 @@ from .utils.hvac_action import (
     compute_hvac_action,
     should_heat_with_tolerance,
 )
+from .utils.migrate_v0_stores import migrate_v0_stores
 from .utils.preset_manager import PresetManager
 from .utils.restore import (
     clamp_heat_loss,
@@ -380,7 +387,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # ------------------------------------------------------------------
 
     # -- Container bridges -----------------------------------------------
-    # Historical attribute names delegating into the typed containers
+    # Flat attribute names delegating into the typed containers
     # (BtConfig is frozen: config bridges are read-only by design).
 
     @property
@@ -634,11 +641,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     main_trv_id = self.all_trvs
 
                 if main_trv_id:
-                    from homeassistant.helpers import (
-                        device_registry as dr,
-                        entity_registry as er,
-                    )
-
                     ent_reg = er.async_get(self.hass)
                     dev_reg = dr.async_get(self.hass)
                     trv_ent = ent_reg.async_get(main_trv_id)
@@ -783,8 +785,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 _tolerance,
             )
 
-        # The three attribute lifecycles, each in its own container; the
-        # historical attribute names delegate via properties.
+        # Static configuration and live runtime values each get a container;
+        # the flat attribute names delegate into them via properties.
         self.config = BtConfig(
             device_name=name,
             model=model,
@@ -1084,8 +1086,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Unified state persistence
         try:
-            from .utils.migrate_v0_stores import migrate_v0_stores
-
             self.state_mgr = StateManager(self.hass, self._config_entry_id)
             await self.state_mgr.load()
             await migrate_v0_stores(
@@ -1177,10 +1177,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
         await check_ambient_air_temperature(self)
         if self._last_call_for_heat != self.call_for_heat:
-            from custom_components.better_thermostat.utils.helpers import (
-                async_fire_logbook_entry,
-            )
-
             if not self.call_for_heat:
                 await async_fire_logbook_entry(
                     self,
@@ -1641,15 +1637,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.cur_temp is not None:
             self.last_known_external_temp = self.cur_temp
             try:
-                from .events.temperature import _update_external_temp_ema
-
                 _update_external_temp_ema(self, float(self.cur_temp))
                 _LOGGER.debug(
                     "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
                     self.device_name,
                     self.cur_temp,
                 )
-            except (ValueError, TypeError, ImportError) as e:
+            except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
                     self.device_name,
@@ -2594,7 +2588,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             trvs_to_service = []
 
-        # Sync the schedule with legacy writers, then advance the region.
+        # Adopt the schedule the entity attribute carries, then advance the
+        # region.
         region = self.kernel_state.maintenance
         schedule = self.next_valve_maintenance
         if not isinstance(schedule, datetime):
@@ -2669,11 +2664,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         pass
 
             # Bind adapter callbacks to self
-            from .adapters.delegate import set_valve as _delegate_set_valve
-
             async def _set_valve(entity_id: str, pct: int) -> bool:
                 try:
-                    ok = await _delegate_set_valve(self, entity_id, int(pct))
+                    ok = await adapter_set_valve(self, entity_id, int(pct))
                     return bool(ok)
                 except Exception:
                     _LOGGER.debug(
@@ -2744,9 +2737,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if control_needed or self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     request_control_cycle(self)
-                except Exception:
+                except AttributeError:
                     # Queue not ready; the periodic tick will catch up.
                     pass
+                except Exception:
+                    # This is the last statement of the ``finally``: an
+                    # exception leaving here replaces the one the maintenance
+                    # run is propagating, so the kick reports and stops.
+                    _LOGGER.debug(
+                        "better_thermostat %s: control cycle request after "
+                        "maintenance failed",
+                        self.device_name,
+                        exc_info=True,
+                    )
 
     # -- Unified state persistence helpers ------------------------------------
 
@@ -2868,8 +2871,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "unit_of_measurement"
                     ),
                 )
-        except Exception:
-            pass
+        except AttributeError:
+            _LOGGER.debug(
+                "better_thermostat %s: outdoor sensor %s could not be read",
+                self.device_name,
+                self.outdoor_sensor,
+                exc_info=True,
+            )
         return None
 
     @property
@@ -2925,35 +2933,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if self.kernel_state.control_mode.degraded_since is not None
                 else None
             ),
-            # ECO mode attribute removed: eco preset supported via PRESET_ECO
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
             ),
         }
 
         # Optional: next scheduled valve maintenance (ISO8601)
-        try:
-            if (
-                hasattr(self, "next_valve_maintenance")
-                and self.next_valve_maintenance is not None
-            ):
-                dev_specific["next_valve_maintenance"] = (
-                    self.next_valve_maintenance.isoformat()
-                )
-        except Exception:
-            pass
+        if self.next_valve_maintenance is not None:
+            dev_specific["next_valve_maintenance"] = (
+                self.next_valve_maintenance.isoformat()
+            )
 
         # Optional: summarize last valve method per TRV (adapter vs override)
-        try:
-            methods = {}
-            for trv_id, info in (self.real_trvs or {}).items():
-                m = info.last_valve_method
-                if m:
-                    methods[trv_id] = m
-            if methods:
-                dev_specific["valve_method"] = methods
-        except Exception:
-            pass
+        methods = {
+            trv_id: info.last_valve_method
+            for trv_id, info in self.real_trvs.items()
+            if info.last_valve_method
+        }
+        if methods:
+            dev_specific["valve_method"] = methods
 
         dev_specific.update(collect_cycle_telemetry(self))
         dev_specific.update(collect_balance_attrs(self))
@@ -3125,10 +3123,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         str(action_raw).lower() if action_raw is not None else ""
                     )
                     if action_str:
-                        try:
-                            info.hvac_action = action_str
-                        except Exception:
-                            pass
+                        info.hvac_action = action_str
                 except Exception:
                     action_str = ""
 
@@ -3549,9 +3544,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         the range is not a setpoint BT can hold, and that cap is where the
         separation gives way: a heating target resting on the maximum or above
         it puts the floor on that target or below it, so the value returned
-        there no longer clears it. The residual
-        :meth:`_enforce_heat_below_cool` settles that degenerate case, and it
-        does so by moving the heating target.
+        there does not clear it. The residual :meth:`_enforce_heat_below_cool`
+        settles that degenerate case, and it does so by moving the heating
+        target.
 
         The bound applies whenever a cooling channel is configured rather than
         only while the live mode is HEAT_COOL, matching
@@ -3595,11 +3590,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         raising that target. The ceiling is held at the configured minimum, and
         that bound is where the separation gives way in the same way: a cooling
         target resting on the minimum or below it puts the ceiling on that
-        target or above it, so the value returned there no longer clears it.
-        The residual :meth:`_enforce_cool_above_heat` settles that degenerate
-        case, and it does so by moving the cooling target. Like its counterpart
-        the bound keys off the configured cooling channel rather than the live
-        mode, and here that is what makes it hold at all: a valve with
+        target or above it, so the value returned there does not clear it. The
+        residual :meth:`_enforce_cool_above_heat` settles that degenerate case,
+        and it does so by moving the cooling target. Like its counterpart the
+        bound keys off the configured cooling channel rather than the live mode,
+        and here that is what makes it hold at all: a valve with
         ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
         still OFF, and the same event then resolves the mode to HEAT.
 
@@ -3985,15 +3980,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         finally:
             self.bt_update_lock = False
 
-    # Backwards compatibility: If anything external still tries to call the old
-    # (incorrect) async method name, provide a thin wrapper. This is intentionally
-    # NOT async so HA will not pick it up as the implementation again.
-    # type: ignore[override] # Backward compatibility wrapper
+    # The synchronous half of the ClimateEntity preset API. Home Assistant core
+    # calls `async_set_preset_mode`, so this entry point serves callers outside
+    # core and hands the work to the async method.
     def set_preset_mode(self, preset_mode: str) -> None:
-        """Backward compatible wrapper.
+        """Set new preset mode (HA sync API).
 
-        This wrapper schedules the new async method on the event loop. It should
-        only be hit by external/custom code; HA core will prefer async_set_preset_mode.
+        Schedules :meth:`async_set_preset_mode` on the event loop and returns
+        without waiting for it, so the state update propagates asynchronously.
         """
         if self.hass is None:
             return
@@ -4147,8 +4141,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Skip if startup is still running to avoid race conditions or confusing logs
         if self.startup_running:
             return
-
-        from .events.temperature import _update_external_temp_ema
 
         _LOGGER.debug(
             "better_thermostat %s: _async_update_ema_periodic triggered",

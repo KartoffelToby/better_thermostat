@@ -24,6 +24,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     step as control_mode_step,
     step_ladder as control_mode_step_ladder,
 )
+from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
 
 from .const import DOMAIN
 
@@ -77,35 +78,6 @@ def is_entity_available(hass, entity) -> bool:
     return entity_states.state not in UNAVAILABLE_STATES
 
 
-async def check_entity(self, entity) -> bool:
-    """Check if a specific entity is present and available.
-
-    Returns True if the entity is available and known to Home Assistant,
-    otherwise raises an issue and returns False.
-    """
-    if entity is None:
-        return False
-    entity_states = self.hass.states.get(entity)
-    if entity_states is None:
-        return False
-    state = entity_states.state
-    if state in UNAVAILABLE_STATES:
-        _LOGGER.debug(
-            "better_thermostat %s: %s is unavailable. with state %s",
-            self.device_name,
-            entity,
-            state,
-        )
-        return False
-    recovered = entity in self.devices_errors
-    if recovered:
-        self.devices_errors.remove(entity)
-        self.async_write_ha_state()
-        ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-    schedule_battery_refresh(self, entity, recovered=recovered)
-    return True
-
-
 async def get_battery_status(self, entity):
     """Read a battery entity for a device and update internal state.
 
@@ -154,35 +126,6 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
         self.hass.async_create_background_task(
             get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
         )
-
-
-async def check_all_entities(self) -> bool:
-    """Verify all configured entities and report missing ones as issues.
-
-    Returns True if all entities are available.
-    """
-    entities = self.all_entities
-    for entity in entities:
-        if not await check_entity(self, entity):
-            name = entity
-            self.devices_errors.append(name)
-            self.async_write_ha_state()
-            ir.async_create_issue(
-                hass=self.hass,
-                domain=DOMAIN,
-                issue_id=f"missing_entity_{name}",
-                is_fixable=True,
-                is_persistent=False,
-                learn_more_url="https://better-thermostat.org/faq/missing-entity",
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="missing_entity",
-                translation_placeholders={
-                    "entity": str(name),
-                    "name": str(self.device_name),
-                },
-            )
-            return False
-    return True
 
 
 def get_optional_sensors(self) -> list:
@@ -591,10 +534,6 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
         self._degraded_warning_emitted = True
 
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
-
         await async_fire_logbook_entry(
             self,
             "degraded_mode_entered",
@@ -614,10 +553,6 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
         ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
         self._degraded_warning_emitted = False
-
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
 
         await async_fire_logbook_entry(
             self,

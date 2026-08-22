@@ -79,8 +79,7 @@ reviews:
     # ruff is the linter and formatter of record for this repo.
     ruff:
       enabled: true
-    # Disabled: pylint crashed in CodeRabbit's sandbox on a prior review and
-    # would only duplicate ruff.
+    # pylint would only repeat the PL rules ruff already selects.
     pylint:
       enabled: false
 

@@ -532,7 +532,7 @@ class TestInitializeSensors:
         """Test Ema initialized with cur temp."""
         sensor = _make_sensor_state("21.5")
         with patch(
-            "custom_components.better_thermostat.events.temperature._update_external_temp_ema"
+            "custom_components.better_thermostat.climate._update_external_temp_ema"
         ):
             BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.last_known_external_temp is not None

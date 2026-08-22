@@ -112,7 +112,11 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     entry : ConfigEntry
         The config entry being removed.
     """
-    from .utils.state_manager import StateManager
+    # Runtime import: config_flow and the three device-automation modules
+    # execute this package for DOMAIN alone, on installs that may have no
+    # entry set up. A module-level import would put the state store, and the
+    # calibration models and numpy behind it, on those paths.
+    from .utils.state_manager import StateManager  # noqa: PLC0415
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
 
