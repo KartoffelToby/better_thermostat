@@ -3,7 +3,8 @@ default_config:
 lovelace:
   mode: yaml
   resources:
-    - url: http://0.0.0.0:4000/better-thermostat-ui-card.js #/hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
+    # Alternative: /hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
+    - url: http://0.0.0.0:4000/better-thermostat-ui-card.js
       type: module
 #    - url: http://bs-local.com:5000/better-thermostat-ui-card.js
 #      type: module
@@ -36,16 +37,16 @@ climate:
 input_boolean:
   heater:
     name: Heater
-    initial: on
+    initial: true
   heater2:
     name: Heater2
-    initial: on
+    initial: true
   cooler:
     name: Cooler
-    initial: on
+    initial: true
   window_open:
     name: Window open
-    initial: off
+    initial: false
 
 input_number:
   internal_sensor:
@@ -107,7 +108,6 @@ template:
         state: '{{ states.input_number.outside_sensor.state | round(1, default=18) }}'
 
 
-# If you need to debug uncomment the line below (doc: https://www.home-assistant.io/integrations/debugpy/)
+# If you need to debug uncomment the line below
+# (doc: https://www.home-assistant.io/integrations/debugpy/)
 debugpy:
-
-

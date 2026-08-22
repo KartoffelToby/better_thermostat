@@ -21,8 +21,10 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           enable-cache: true
-      # --only-group dev skips Home Assistant; ruff is all lint needs.
+      # Every lint tool lives in the dev group, so the project deps stay out.
       - name: ruff check
         run: uv run --locked --only-group dev ruff check
       - name: ruff format --check
         run: uv run --locked --only-group dev ruff format --check
+      - name: yamllint
+        run: uv run --locked --only-group dev yamllint --strict .
