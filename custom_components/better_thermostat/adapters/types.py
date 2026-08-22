@@ -24,9 +24,10 @@ if TYPE_CHECKING:
 class AdapterProbeHost(Protocol):
     """Host surface an adapter reads while probing a device.
 
-    ``get_info`` answers from the entity registry alone, so it runs on a
-    config flow handler as well as on the climate entity. Neither the
-    per-TRV records nor a call origin exist at that point.
+    ``get_info`` answers from what Home Assistant already knows about the
+    device, so it runs on a config flow handler as well as on the climate
+    entity. Neither the per-TRV records nor a call origin exist at that
+    point.
     """
 
     @property
