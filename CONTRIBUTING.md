@@ -132,6 +132,43 @@ Translations can also be edited with the [INLANG Editor](https://inlang.com/edit
 ### Reporting Bugs
 
 You can create an issue if you have any kind of bug or error but please use the issue template.
+
+## Closing a device- or configuration-specific bug
+
+Most bugs reported here are not calculation errors. They are a device that
+speaks a slightly different dialect, or a combination of configuration options
+nobody had put together before. Such a bug is closed with **two** artefacts,
+not one:
+
+1. **A regression test at the level the bug sat.** A wrong number gets a unit
+   test; a write that never reached the device gets an integration test.
+2. **A row in the device matrix** — a `DeviceProfile` or `RoleScenario` in
+   `tests/integration/device_profiles.py` describing the shape the report came
+   from.
+
+The first artefact proves this bug is gone. The second is what catches the
+next one: every test parametrized over the matrix runs against that shape from
+then on, so what the report taught us is not confined to the single test
+written for it.
+
+A profile states a whole device — its integration, its calibration strategy,
+its mode vocabulary, its setpoint grid, whether its entity carries a device
+registry entry — because those are inseparable in the field. A Zigbee2MQTT
+head *is* the mqtt integration plus local calibration, and pairing one with
+the other integration describes a device that does not exist. Reuse the
+profile that already matches; add a row only when the shape is genuinely new.
+
+`SHAPES_FROM_REPORTS` in the same file names the shapes that reached us this
+way, and a test asserts each of them is still part of the matrix the
+integration suite runs over — a profile that quietly drops out of the matrix
+stops covering anything.
+
+Not every report has a device shape. A bug in the config flow, or in what
+happens while entities are still coming up, belongs in
+`tests/integration/test_config_flow.py` or
+`tests/integration/test_startup_scenarios.py` instead; those drive
+configurations and timelines rather than devices.
+
 ## Docstring type
 
 We use numpy type docstrings. Documentation can be found here:

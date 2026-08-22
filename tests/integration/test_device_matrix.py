@@ -49,7 +49,9 @@ from .device_profiles import (
     MQTT_OFFSET_TRV,
     OFFSET_NUMBER_ID,
     RANGED_COOLER,
+    ROLE_SCENARIOS,
     SEPARATE_COOLER,
+    SHAPES_FROM_REPORTS,
     SINGLE_ROLE_PROFILES,
     SPARE_HEAT_TRV,
     SPARE_TRV_ID,
@@ -58,6 +60,7 @@ from .device_profiles import (
     VALVE_NUMBER_ID,
     VALVE_TRV,
     DeviceProfile,
+    RoleScenario,
 )
 
 
@@ -494,3 +497,23 @@ async def test_cooling_demand_reaches_the_cooler(hass, device_role):
         cooler.profile.supported_features & ClimateEntityFeature.TARGET_TEMPERATURE
     )
     assert isinstance(written, dict) is not takes_a_setpoint
+
+
+@pytest.mark.parametrize(
+    ("description", "shape"),
+    [
+        pytest.param(description, shape, id=description)
+        for description, shape in sorted(SHAPES_FROM_REPORTS.items())
+    ],
+)
+def test_every_reported_shape_is_still_in_the_matrix(description, shape):
+    """A shape a user reported stays in the matrix the suite runs over.
+
+    The regression test written for a report covers the one path the bug sat
+    on. What keeps the shape covered afterwards is its membership here: drop a
+    profile from the matrix and every parametrized test quietly stops running
+    against it, with nothing failing to say so.
+    """
+    matrix = ROLE_SCENARIOS if isinstance(shape, RoleScenario) else SINGLE_ROLE_PROFILES
+
+    assert shape in matrix, f"{description} is no longer part of the matrix"
