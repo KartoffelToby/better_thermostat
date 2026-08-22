@@ -12,7 +12,7 @@ import json
 import logging
 import math
 from random import randint
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -4231,3 +4231,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             except asyncio.CancelledError:
                 pass
         await super().async_will_remove_from_hass()
+
+
+if TYPE_CHECKING:
+    from .model_fixes.types import ModelFixHost
+
+    def _as_model_fix_host(entity: BetterThermostat) -> ModelFixHost:
+        """State that this entity provides the model-fix quirk surface.
+
+        The quirks receive the entity as their ``self`` through the
+        dynamically imported quirks module, a path no call site types. This
+        conversion is the one place a checker compares the entity against
+        ``ModelFixHost``, so a member the protocol declares and the entity
+        does not provide is an error here.
+        """
+        return entity

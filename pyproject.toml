@@ -201,34 +201,6 @@ matches = "custom_components/better_thermostat/events/window.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/BTH-RM.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/BTH-RM230Z.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/SPZB0001.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/TRVZB.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/TV02-Zigbee.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/ZWA021.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/default.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/model_fixes/model_quirks.py"
 errors = { implicit-any-parameter = false }
 

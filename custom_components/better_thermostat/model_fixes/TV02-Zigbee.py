@@ -6,6 +6,7 @@ import logging
 
 from homeassistant.components.climate.const import HVACMode
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
 )
@@ -13,26 +14,30 @@ from custom_components.better_thermostat.utils.helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return local calibration offset unchanged for TRV02 devices."""
     return offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return target temperature unchanged for TRV02 devices."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Enable device quirks while setting HVAC mode.
 
     Parameters
     ----------
-    self :
-        self instance of better_thermostat
-    entity_id :
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
         Entity id of the TRV.
-    hvac_mode:
+    hvac_mode : str
         HVAC mode to be set.
 
     Returns
@@ -65,7 +70,9 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     return True
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Enable device quirks while setting temperature.
 
     Switches the TRV to the manual preset before the setpoint write so
@@ -73,11 +80,11 @@ async def override_set_temperature(self, entity_id, temperature):
 
     Parameters
     ----------
-    self :
-        self instance of better_thermostat
-    entity_id :
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
         Entity id of the TRV.
-    temperature:
+    temperature : float
         Temperature to be set, in Celsius (converted to the system unit
         before the write).
 
