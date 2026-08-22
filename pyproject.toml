@@ -10,6 +10,7 @@ dev = [
     "daqp>=0.8.7",  # QP solver used by MPC v2; tests/unit/mpc_v2 skips without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.0.0",  # the per-module coverage floors in CI depend on it
     "pytest-homeassistant-custom-component>=0.13.346",
     "pre-commit>=4.6.0",
     "codespell>=2.4.3",
