@@ -1,9 +1,9 @@
 """Tests for the per-file budget of blind exception handlers.
 
 The budget is the thing that notices when a change adds a handler that swallows
-a failure silently, so the check itself has to be right about three cases: a
-file that stayed level passes, a file that gained one fails, and a file nobody
-has budgeted fails on its first finding rather than on its second.
+a failure silently, so the check itself has to be right about a file that
+stayed level, a file that gained one, a file that fell, and a file nobody has
+budgeted — which fails on its first finding rather than on its second.
 
 The count underneath those cases has to be right about one more thing: it is
 taken with the repository's lint settings ignored, so the suppressions that

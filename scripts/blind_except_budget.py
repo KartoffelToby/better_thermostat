@@ -149,7 +149,12 @@ def _load_budget() -> dict[str, int]:
 
 
 def check() -> int:
-    """Report every file over its budget. Return an exit code."""
+    """Report the files over budget and the files with no budget at all.
+
+    Files that came in under budget are named too, with a prompt to re-record.
+    Return 1 when any file is over or unbudgeted, 0 otherwise; exit outright
+    when no budget has been recorded yet.
+    """
     counts = _measure()
     budget = _load_budget()
     if not budget:
