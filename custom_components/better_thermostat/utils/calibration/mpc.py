@@ -910,12 +910,15 @@ def _compute_predictive_percent(
 ) -> tuple[float, dict[str, Any]]:
     """Core MPC minimisation routine.
 
-    Overhauled to use a physically consistent temperature-forward model:
-    - gain and loss are treated as °C/min and converted to °C/step
-    - temperature is simulated forward (°C) rather than multiplying the error
-    - quadratic cost (sum of squared errors) is used
-    - coarse -> fine candidate search to reduce evals
-    - adaptation uses EMA but in physical units (°C/min)
+    The plant model is temperature-forward and carries physical units:
+    - gain and loss are °C/min and are converted to °C/step
+    - the room temperature is simulated forward in °C over the horizon
+    - the cost is quadratic in the tracking error, weighted extra on
+      overshoot, plus a control-effort term around the steady-state opening
+      and a slew term against the last command
+    - the valve fraction is picked by a coarse grid pass followed by a fine
+      local refinement, which keeps the number of cost evaluations small
+    - adaptation moves the gain and loss estimates by EMA, in °C/min
     """
 
     # Defensive checks

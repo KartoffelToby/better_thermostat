@@ -783,8 +783,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 _tolerance,
             )
 
-        # The three attribute lifecycles, each in its own container; the
-        # flat attribute names delegate via properties.
+        # Static configuration and live runtime values each get a container;
+        # the flat attribute names delegate into them via properties.
         self.config = BtConfig(
             device_name=name,
             model=model,
