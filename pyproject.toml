@@ -48,6 +48,7 @@ select = [
     "D",      # pydocstyle (docstrings)
     "D417",   # Require documented args to match the signature (numpy convention disables this by default)
     "C4",     # flake8-comprehensions
+    "BLE001", # flake8-blind-except: broad `except Exception` that neither re-raises nor logs the exception
     "PL",     # pylint
     "RUF100", # unused noqa directives
     "I",      # isort
@@ -72,6 +73,36 @@ convention = "numpy"
 [tool.ruff.lint.per-file-ignores]
 # Test code does not need docstrings on every function/class/method.
 "tests/**" = ["D"]
+
+# BLE001 is silenced outright in the files below: ruff reports none of their
+# blind broad exception handlers — `except Exception` that neither re-raises
+# nor logs the exception with its traceback — not even ones added later.
+# What caps those files is `.blind-except-budget.json`, a per-file count that
+# `scripts/blind_except_budget.py check` enforces: a listed file may not exceed
+# its recorded number, and a file absent from the budget may not have a single
+# finding. Only that script writes the budget.
+# Drop a line here once a file's handlers name the exceptions they expect, or
+# re-raise, or log via `_LOGGER.exception`. BLE001 does not reach
+# `contextlib.suppress(Exception)`, which stays a review concern.
+"custom_components/better_thermostat/adapters/base.py" = ["BLE001"]
+"custom_components/better_thermostat/adapters/delegate.py" = ["BLE001"]
+"custom_components/better_thermostat/adapters/mqtt.py" = ["BLE001"]
+"custom_components/better_thermostat/adapters/zwave_js.py" = ["BLE001"]
+"custom_components/better_thermostat/calibration.py" = ["BLE001"]
+"custom_components/better_thermostat/climate.py" = ["BLE001"]
+"custom_components/better_thermostat/events/temperature.py" = ["BLE001"]
+"custom_components/better_thermostat/events/trv.py" = ["BLE001"]
+"custom_components/better_thermostat/model_fixes/default.py" = ["BLE001"]
+"custom_components/better_thermostat/sensor.py" = ["BLE001"]
+"custom_components/better_thermostat/switch.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/calibration/mpc.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/calibration/mpc_v2/state.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/calibration/pid.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/controlling.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/helpers.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/migrate_v0_stores.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/state_manager.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/valve_maintenance.py" = ["BLE001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]
