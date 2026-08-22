@@ -59,8 +59,8 @@ class ModelFixHost(Protocol):
     def bt_target_temp(self) -> float | None:
         """Setpoint Better Thermostat is regulating towards.
 
-        None while no setpoint is established; the DEFAULT calibration mode
-        reaches the quirks without one.
+        Optional on the entity, and the DEFAULT calibration mode is the one
+        mode that does not demand a setpoint before calling into the quirks.
         """
         ...
 

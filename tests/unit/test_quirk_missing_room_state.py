@@ -3,9 +3,9 @@
 Four quirk modules compare ``cur_temp`` against ``bt_target_temp`` before
 they adjust the offset they were handed. Both members are optional on the
 host: the entity carries no room temperature until the startup sequence
-resolves one, and the DEFAULT calibration mode reaches these functions
-without a setpoint, because ``calculate_calibration_local`` only demands a
-setpoint for the modes whose traits declare they need it.
+resolves one, and the DEFAULT calibration mode calls these functions without
+demanding a setpoint first, because ``calculate_calibration_local`` only
+gates on a setpoint for the modes whose traits declare they need it.
 
 The comparison therefore has to survive either value being absent. Each
 module answers with the branch it takes when the room is not known to be
@@ -65,7 +65,7 @@ def test_conditional_nudge_returns_offset_when_a_reading_is_missing(
 
 
 @pytest.mark.parametrize("quirk", CONDITIONAL_NUDGE_QUIRKS)
-def test_conditional_nudge_still_adjusts_with_both_readings(quirk):
+def test_conditional_nudge_adjusts_with_both_readings(quirk):
     """A room at or above the setpoint keeps the documented +0.5 nudge."""
     bt = _thermostat(cur_temp=21.0, bt_target_temp=20.0)
 
