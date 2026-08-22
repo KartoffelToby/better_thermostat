@@ -9,14 +9,11 @@ it manages exactly one TRV.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from . import DOMAIN
-from .utils.const import CONF_HEATER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,73 +87,3 @@ async def async_unbind_trv_device(hass: HomeAssistant, bt_unique_id: str) -> boo
         bt_device.id,
     )
     return True
-
-
-@callback
-def async_get_config_entry_bindings(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> list[dict[str, Any]]:
-    """Return all TRVs bound to a single Better Thermostat config entry.
-
-    Each item in the returned list represents one TRV that the BT instance
-    discovered and controls.
-
-    Parameters
-    ----------
-    hass : HomeAssistant
-        The Home Assistant instance.
-    entry : ConfigEntry
-        A Better Thermostat config entry.
-
-    Returns
-    -------
-    list[dict[str, Any]]
-        A list of TRV binding records with keys:
-            - ``bt_entry_id`` — the config entry id of the BT instance.
-            - ``bt_name`` — the display name of the BT instance.
-            - ``trv_entity_id`` — the entity id of the bound TRV.
-            - ``integration`` — the adapter integration type
-              (generic / tado / mqtt / deconz).
-            - ``model`` — the TRV model identifier.
-            - ``calibration_mode`` — the active calibration mode.
-            - ``registry_entry`` — the entity registry entry (or ``None``
-              if unregistered).
-            - ``state`` — the current HA state of the TRV entity (or
-              ``None`` if unavailable).
-    """
-    conf = entry.data
-    heaters = conf.get(CONF_HEATER) or []
-    if not heaters:
-        _LOGGER.debug(
-            "better_thermostat %s: no TRVs in config entry %s",
-            conf.get("name", entry.title),
-            entry.entry_id,
-        )
-        return []
-
-    registry = er.async_get(hass)
-    bindings = []
-
-    for trv_conf in heaters:
-        entity_id = trv_conf.get("trv")
-        if not entity_id:
-            continue
-
-        reg_entry = registry.async_get(entity_id)
-        state = hass.states.get(entity_id)
-
-        advanced = trv_conf.get("advanced") or {}
-        bindings.append(
-            {
-                "bt_entry_id": entry.entry_id,
-                "bt_name": conf.get("name", entry.title),
-                "trv_entity_id": entity_id,
-                "integration": trv_conf.get("integration"),
-                "model": trv_conf.get("model"),
-                "calibration_mode": advanced.get("calibration_mode"),
-                "registry_entry": reg_entry,
-                "state": state,
-            }
-        )
-
-    return bindings

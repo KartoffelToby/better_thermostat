@@ -77,35 +77,6 @@ def is_entity_available(hass, entity) -> bool:
     return entity_states.state not in UNAVAILABLE_STATES
 
 
-async def check_entity(self, entity) -> bool:
-    """Check if a specific entity is present and available.
-
-    Returns True if the entity is available and known to Home Assistant,
-    otherwise raises an issue and returns False.
-    """
-    if entity is None:
-        return False
-    entity_states = self.hass.states.get(entity)
-    if entity_states is None:
-        return False
-    state = entity_states.state
-    if state in UNAVAILABLE_STATES:
-        _LOGGER.debug(
-            "better_thermostat %s: %s is unavailable. with state %s",
-            self.device_name,
-            entity,
-            state,
-        )
-        return False
-    recovered = entity in self.devices_errors
-    if recovered:
-        self.devices_errors.remove(entity)
-        self.async_write_ha_state()
-        ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-    schedule_battery_refresh(self, entity, recovered=recovered)
-    return True
-
-
 async def get_battery_status(self, entity):
     """Read a battery entity for a device and update internal state.
 
