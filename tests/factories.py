@@ -1,9 +1,10 @@
 """Shared builders for unit-test fixtures.
 
 The canonical home of the recurring mock shapes: kernel inputs
-(``make_snapshot``/``make_state``) and the entity mock (``make_bt``).
-Tests import from here instead of re-declaring the MagicMock shape per
-file.
+(``make_snapshot``/``make_state``), the entity mock for the control path
+(``make_bt``) and the one for the reported state attributes
+(``make_state_attributes_bt``). Tests import from here instead of
+re-declaring the MagicMock shape per file.
 """
 
 from __future__ import annotations
@@ -163,4 +164,52 @@ def make_bt(
     bt.real_trvs = {
         entity_id: make_trv(entity_id, **trv_fields) for entity_id in trv_ids
     }
+    return bt
+
+
+def make_state_attributes_bt(**overrides) -> MagicMock:
+    """Return the entity mock ``extra_state_attributes`` can be read from.
+
+    The property reads roughly forty attributes and JSON-encodes four of
+    them, so the collections it serialises have to be real containers
+    rather than MagicMock children.
+
+    Parameters
+    ----------
+    **overrides
+        Attribute values applied on top of the defaults.
+
+    Returns
+    -------
+    MagicMock
+        The entity mock with every attribute the property touches.
+    """
+    bt = MagicMock()
+    bt.window_open = False
+    bt.call_for_heat = True
+    bt.last_change = datetime(2026, 5, 18, tzinfo=UTC)
+    bt._saved_temperature = None
+    bt._preset_temperature = None
+    bt._current_humidity = None
+    bt.humidity_sensor_entity_id = None
+    bt.last_main_hvac_mode = HVACMode.HEAT
+    bt.off_temperature = None
+    bt.tolerance = 0.5
+    bt.bt_target_temp_step = 0.5
+    bt.heating_power = 0.1
+    bt.heat_loss_rate = 0.0
+    bt.devices_errors = []
+    bt.devices_states = {}
+    bt.cur_temp_filtered = 20.5
+    bt.degraded_mode = False
+    bt.unavailable_sensors = []
+    bt.real_trvs = {}
+    bt.heating_cycles = []
+    bt.loss_cycles = []
+    bt.last_heating_power_stats = {}
+    bt.last_heat_loss_stats = {}
+    bt.next_valve_maintenance = None
+    bt._preset_cool_temperatures = {}
+    for name, value in overrides.items():
+        setattr(bt, name, value)
     return bt

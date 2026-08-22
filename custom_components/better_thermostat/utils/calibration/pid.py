@@ -111,7 +111,7 @@ class PIDParams:
     kp: float = DEFAULT_PID_KP
     ki: float = DEFAULT_PID_KI
     kd: float = DEFAULT_PID_KD
-    # Integrator-Klammer (Anti-Windup) in %-Punkten
+    # Integrator clamp (anti-windup) in percentage points
     i_min: float = -100.0
     i_max: float = 100.0
     # Derivative on measurement

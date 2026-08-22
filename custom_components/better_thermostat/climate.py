@@ -2747,6 +2747,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except AttributeError:
                     # Queue not ready; the periodic tick will catch up.
                     pass
+                except Exception:
+                    # This is the last statement of the ``finally``: an
+                    # exception leaving here replaces the one the maintenance
+                    # run is propagating, so the kick reports and stops.
+                    _LOGGER.debug(
+                        "better_thermostat %s: control cycle request after "
+                        "maintenance failed",
+                        self.device_name,
+                        exc_info=True,
+                    )
 
     # -- Unified state persistence helpers ------------------------------------
 

@@ -242,7 +242,8 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    # Always cache hvac_action from the TRV state so it stays current
+    # Always cache the reported hvac_action and valve position so both stay
+    # current
     hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
     if hvac_action_attr is None:
         hvac_action_attr = _org_trv_state.attributes.get("action")
