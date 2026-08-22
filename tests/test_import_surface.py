@@ -25,7 +25,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "custom_components.better_thermostat"
 
-#: The integration root and every module that imports it for ``DOMAIN`` alone.
+#: The integration root and modules that import it for ``DOMAIN`` alone.
 DOMAIN_ONLY_CONSUMERS = (
     PACKAGE,
     f"{PACKAGE}.config_flow",

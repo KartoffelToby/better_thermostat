@@ -70,8 +70,7 @@ convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
 # Test code does not need docstrings on every function/class/method, and it
-# imports inside test bodies to control when a module is loaded relative to a
-# patch.
+# imports inside function bodies.
 "tests/**" = ["D", "PLC0415"]
 
 [tool.ruff.lint.isort]
