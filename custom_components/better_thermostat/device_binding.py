@@ -1,10 +1,9 @@
 """Device binding for Better Thermostat.
 
 Links a Better Thermostat device to the TRV device it controls in the Home
-Assistant device registry, and reads back the TRVs a single config entry
-manages from config-entry data, the entity registry, and current state. Each
-binding record shows the BT instance, its managed TRV, integration type,
-model, calibration mode, registry entry, and state.
+Assistant device registry, and clears that link again when it no longer
+applies. The link is single-valued, so a BT instance carries it only while
+it manages exactly one TRV.
 """
 
 from __future__ import annotations
