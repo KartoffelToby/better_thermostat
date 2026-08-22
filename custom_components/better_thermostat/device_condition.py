@@ -85,6 +85,12 @@ def async_condition_from_config(
     hass: HomeAssistant, config: ConfigType
 ) -> condition.ConditionCheckerType:
     """Create a function to test a device condition."""
+    # A stored condition may name the entity by its registry id rather than by
+    # its entity id, which the schema accepts and ``hass.states`` does not.
+    entity_id = entity_registry.async_resolve_entity_id(
+        entity_registry.async_get(hass), config[CONF_ENTITY_ID]
+    )
+
     if config[CONF_TYPE] == "is_hvac_mode":
         hvac_mode = config[ATTR_HVAC_MODE]
 
@@ -96,8 +102,9 @@ def async_condition_from_config(
             A climate entity carries its mode as the state, not as an
             attribute; ``hvac_action`` is the one that is an attribute.
             """
-            state = hass.states.get(config[CONF_ENTITY_ID])
-            return state is not None and state.state == hvac_mode
+            if entity_id is None or (state := hass.states.get(entity_id)) is None:
+                return False
+            return state.state == hvac_mode
 
         return test_is_hvac_mode
 
@@ -108,11 +115,9 @@ def async_condition_from_config(
             hass: HomeAssistant, variables: Mapping[str, object] | None
         ) -> bool:
             """Test if an HVAC action condition is met."""
-            state = hass.states.get(config[CONF_ENTITY_ID])
-            return (
-                state is not None
-                and state.attributes.get(ATTR_HVAC_ACTION) == hvac_action
-            )
+            if entity_id is None or (state := hass.states.get(entity_id)) is None:
+                return False
+            return state.attributes.get(ATTR_HVAC_ACTION) == hvac_action
 
         return test_is_hvac_action
 
