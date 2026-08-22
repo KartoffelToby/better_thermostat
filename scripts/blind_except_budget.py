@@ -12,9 +12,12 @@ the next one lands. So the budget is per file and it counts: a file may not
 exceed the number it has today, and a file that is not in the budget may not
 have a single finding.
 
-The count is taken with every in-repository suppression overridden — the
-`per-file-ignores` entries in `pyproject.toml` and `# noqa` comments alike — so
-the budget file is the one place where a blind handler is recorded.
+The count therefore does not come from `ruff check`. It comes from a scan that
+runs with ruff's own configuration ignored, with inline `noqa` directives
+overridden, and over the file list git reports rather than over a directory
+walk. No `per-file-ignores` entry, no `exclude` entry, no `noqa` comment and no
+`.gitignore` line moves the number: the budget file is the one place where a
+blind handler is recorded.
 
 Two modes:
 
@@ -34,26 +37,30 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUDGET_FILE = REPO_ROOT / ".blind-except-budget.json"
 
-# `--config` overrides `per-file-ignores` and `--ignore-noqa` overrides the
-# inline directives, so the scan sees the handlers the committed lint settings
-# hide from `ruff check`.
+RULE = "BLE001"
+
+# `--isolated` drops every lint setting the repository carries, which is the
+# point: `per-file-ignores`, `extend-per-file-ignores`, `ignore`, `exclude` and
+# `extend-exclude` each silence BLE001, and the scan has to see past every one
+# of them. `--ignore-noqa` does the same for the inline directives. The files
+# are passed explicitly, so no directory walk and no `.gitignore` line decides
+# what is looked at.
 RUFF_SCAN = (
     sys.executable,
     "-m",
     "ruff",
     "check",
+    "--isolated",
     "--select",
-    "BLE001",
+    RULE,
     "--ignore-noqa",
-    "--config",
-    "lint.per-file-ignores = {}",
     "--output-format",
     "json",
-    ".",
 )
 
 
@@ -68,10 +75,45 @@ def _normalise(name: str) -> str:
     return path.as_posix()
 
 
+def _target_version() -> str | None:
+    """Return the Python version ruff parses against, or None when unset.
+
+    An isolated scan has no `target-version`, and a grammar older than the
+    sources turns a file into a syntax error, which reports no findings at all.
+    The setting selects a grammar and cannot silence a rule, so reading this one
+    value back out of `pyproject.toml` does not reopen what `--isolated` closes.
+    """
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = config.get("tool", {}).get("ruff", {}).get("target-version")
+    return str(version) if version else None
+
+
+def _python_files() -> list[str]:
+    """Return the repository's Python files, as git records them."""
+    listing = subprocess.run(
+        ("git", "ls-files", "-z", "--", "*.py"),
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listing.returncode != 0:
+        sys.exit(f"git could not list the Python files:\n{listing.stderr.strip()}")
+    return [name for name in listing.stdout.split("\0") if name]
+
+
 def _measure() -> dict[str, int]:
     """Return the number of blind exception handlers per file."""
+    target = _target_version()
+    command = [*RUFF_SCAN]
+    if target is not None:
+        command += ["--target-version", target]
     scan = subprocess.run(
-        RUFF_SCAN, cwd=REPO_ROOT, capture_output=True, text=True, check=False
+        [*command, *_python_files()],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     # Ruff exits 1 when it found something and 2 or above when it could not
     # scan, which is the only case that says nothing about the code.
@@ -81,6 +123,16 @@ def _measure() -> dict[str, int]:
         findings = json.loads(scan.stdout)
     except json.JSONDecodeError as err:
         sys.exit(f"ruff did not report JSON: {err}\n{scan.stderr.strip()}")
+
+    # Only BLE001 was selected, so anything else is a file ruff could not parse.
+    # Such a file reports no findings, which would read as a count of zero.
+    unparsed = sorted(
+        {_normalise(f["filename"]) for f in findings if f["code"] != RULE}
+    )
+    if unparsed:
+        sys.exit(
+            "ruff could not parse, so it counted nothing in: " + ", ".join(unparsed)
+        )
 
     counts: dict[str, int] = {}
     for finding in findings:
