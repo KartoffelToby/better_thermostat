@@ -25,7 +25,7 @@ from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
 
-from . import DOMAIN  # pylint: disable=unused-import
+from . import DOMAIN
 from .adapters.delegate import load_adapter
 from .utils.const import (
     CONF_CALIBRATION,
