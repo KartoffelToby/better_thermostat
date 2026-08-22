@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -45,9 +45,52 @@ from custom_components.better_thermostat.utils.const import (
 )
 
 if TYPE_CHECKING:
+    from homeassistant.core import Event, EventStateChangedData
+
+    from custom_components.better_thermostat.climate import BetterThermostat
     from custom_components.better_thermostat.trv import Trv
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _CalibrationConfiguredTrv(Protocol):
+    """The per-TRV record a calibration-mode question reads."""
+
+    @property
+    def advanced(self) -> Mapping[str, Any] | None:
+        """Per-TRV advanced options, keyed by option name."""
+        ...
+
+
+class _CalibrationModeHost(Protocol):
+    """The instance surface a calibration-mode question reads."""
+
+    @property
+    def real_trvs(self) -> Mapping[str, _CalibrationConfiguredTrv]:
+        """The controlled TRVs, keyed by entity id."""
+        ...
+
+
+class _RegistryHost(Protocol):
+    """The instance surface an entity-registry lookup reads."""
+
+    @property
+    def hass(self) -> HomeAssistant:
+        """The Home Assistant core the lookup runs against."""
+        ...
+
+
+class _DeviceModelHost(_RegistryHost, Protocol):
+    """The instance surface model detection reads.
+
+    ``model`` is optional and only consulted as a fallback, so it is not part
+    of the required surface.
+    """
+
+    @property
+    def device_name(self) -> str:
+        """The Better Thermostat instance name, for logging context."""
+        ...
 
 
 def find_device_entity(
@@ -171,24 +214,26 @@ def is_calibration_mode(
     return False
 
 
-def entity_uses_calibration_mode(bt, entity_id: str, expected: CalibrationMode) -> bool:
+def entity_uses_calibration_mode(
+    bt: _CalibrationModeHost, entity_id: str, expected: CalibrationMode
+) -> bool:
     """Check if the given TRV has ``expected`` calibration mode configured."""
 
     try:
         _trv = bt.real_trvs.get(entity_id)
-        advanced = (_trv.advanced if _trv is not None else {}) or {}
+        advanced: Mapping[str, Any] = (_trv.advanced if _trv is not None else {}) or {}
     except AttributeError:
         return False
     mode = advanced.get("calibration_mode")
     return is_calibration_mode(mode, expected)
 
 
-def entity_uses_mpc_calibration(bt, entity_id: str) -> bool:
+def entity_uses_mpc_calibration(bt: _CalibrationModeHost, entity_id: str) -> bool:
     """Check if entity uses MPC calibration mode."""
     return entity_uses_calibration_mode(bt, entity_id, CalibrationMode.MPC_CALIBRATION)
 
 
-def get_hvac_bt_mode(self, mode: str) -> str:
+def get_hvac_bt_mode(self: BetterThermostat, mode: str) -> str:
     """Return the main HVAC mode mapping for the Better Thermostat.
 
     The function handles simple mapping from HVACMode.HEAT to configured
@@ -329,7 +374,7 @@ def _unsupported_mode_hint(trv: Trv) -> str:
 
 
 def _clamp_to_offered_mode(
-    self,
+    self: BetterThermostat,
     trv: Trv,
     entity_id: str,
     hvac_mode: str,
@@ -409,7 +454,7 @@ def _clamp_to_offered_mode(
 
 
 def mode_remap(
-    self, entity_id: str, hvac_mode: str, inbound: bool = False
+    self: BetterThermostat, entity_id: str, hvac_mode: str, inbound: bool = False
 ) -> str | None:
     """Remap HVAC mode to correct mode if nessesary.
 
@@ -504,7 +549,7 @@ def mode_remap(
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
 
-def group_all_members_off(self) -> bool:
+def group_all_members_off(self: BetterThermostat) -> bool:
     """Whether every available group member is effectively off.
 
     Gates group-wide "switch off" adoptions so a single valve entering frost
@@ -552,7 +597,7 @@ def group_all_members_off(self) -> bool:
     return saw_member
 
 
-def heating_power_valve_position(self, entity_id):
+def heating_power_valve_position(self, entity_id: str) -> float:
     """Compute an expected valve position from the heating power.
 
     Given the global `heating_power` estimate and the target/current
@@ -893,7 +938,7 @@ class InboundSetpoint(NamedTuple):
 
 
 def read_setpoint_celsius(
-    self, state: State | None, keys: tuple[str, ...], log_source: str
+    self: BetterThermostat, state: State | None, keys: tuple[str, ...], log_source: str
 ) -> float | None:
     """Read the first usable setpoint attribute from a state and return it in °C.
 
@@ -982,7 +1027,7 @@ def reported_setpoint_step_celsius(
             the reported step as a Celsius delta, or None when the state
             publishes no convertible step
     """
-    attributes = state.attributes if state is not None else {}
+    attributes: Mapping[str, Any] = state.attributes if state is not None else {}
     raw_step = attributes.get(ATTR_TARGET_TEMP_STEP)
     if raw_step is None:
         return None
@@ -996,7 +1041,9 @@ def reported_setpoint_step_celsius(
     return step
 
 
-def device_setpoint_step(self, state: State, log_source: str) -> float:
+def device_setpoint_step(
+    self: BetterThermostat, state: State, log_source: str
+) -> float:
     """Return a controlled device's setpoint step as a °C delta.
 
     The step belongs to the device that reports it and carries that device's
@@ -1049,7 +1096,7 @@ def setpoint_echo_window(step: float) -> float:
 
 
 def resolve_inbound_setpoint(
-    self,
+    self: BetterThermostat,
     state: State | None,
     *,
     keys: tuple[str, ...],
@@ -1125,7 +1172,7 @@ def resolve_inbound_setpoint(
     return InboundSetpoint(raw=raw, value=value, clamped=clamped, is_echo=is_echo)
 
 
-def cooler_send_cache(self) -> dict:
+def cooler_send_cache(self: BetterThermostat) -> dict[str, Any]:
     """Return the cooler send-cache, creating it on first use.
 
     Holds the last successfully sent command per channel as
@@ -1145,14 +1192,14 @@ def cooler_send_cache(self) -> dict:
     dict
             the cache, which the caller mutates in place
     """
-    last_sent = getattr(self, "_cooler_last_sent", None)
+    last_sent: dict[str, Any] | None = getattr(self, "_cooler_last_sent", None)
     if not isinstance(last_sent, dict):
         last_sent = {}
         self._cooler_last_sent = last_sent
     return last_sent
 
 
-def last_sent_cooler_temperature(self) -> float | None:
+def last_sent_cooler_temperature(self: BetterThermostat) -> float | None:
     """Return the cooling setpoint BT last wrote to the cooler, in °C.
 
     Parameters
@@ -1170,7 +1217,7 @@ def last_sent_cooler_temperature(self) -> float | None:
     return value if isinstance(value, (int, float)) else None
 
 
-def dual_role_entity_id(self) -> str | None:
+def dual_role_entity_id(self: BetterThermostat) -> str | None:
     """Return the entity that carries both the heating and the cooling role.
 
     A configuration may name the same climate entity as a controlled
@@ -1199,7 +1246,7 @@ def dual_role_entity_id(self) -> str | None:
     return None
 
 
-def cooling_owns_dual_role_device(self, entity_id: str) -> bool:
+def cooling_owns_dual_role_device(self: BetterThermostat, entity_id: str) -> bool:
     """Answer whether the cooling channel drives a shared device right now.
 
     The ownership question the control cycle asks before it dispatches the
@@ -1231,7 +1278,9 @@ def cooling_owns_dual_role_device(self, entity_id: str) -> bool:
     return state is not None and state.state == HVACMode.COOL
 
 
-def cooling_owns_dual_role_report(self, entity_id: str, reported_mode) -> bool:
+def cooling_owns_dual_role_report(
+    self: BetterThermostat, entity_id: str, reported_mode: HVACMode | str | None
+) -> bool:
     """Answer whether a report from a shared device names the cooling channel.
 
     A shared device publishes one setpoint for two targets, so the mode it
@@ -1287,7 +1336,7 @@ def state_says_nothing(state: State | None) -> bool:
 
 
 def resolve_state_change_event(
-    self, event, device_label: str
+    self: BetterThermostat, event: Event[EventStateChangedData], device_label: str
 ) -> tuple[State, State, str] | None:
     """Return the states of a device event worth acting on, or None.
 
@@ -1358,7 +1407,7 @@ def resolve_state_change_event(
 
 
 def attr_to_celsius(
-    self,
+    self: BetterThermostat,
     state: State | None,
     key: str,
     default: str | int | float | None = None,
@@ -1406,7 +1455,7 @@ def attr_to_celsius(
 
 
 def get_current_set_temperatures(
-    self, state: State | None, log_source: str
+    self: BetterThermostat, state: State | None, log_source: str
 ) -> set[float]:
     """Read the single-setpoint and range-low temperatures from a climate state.
 
@@ -1544,7 +1593,7 @@ def round_by_step(
     return f_rounding(value / step) * step
 
 
-def check_float(potential_float):
+def check_float(potential_float) -> bool:
     """Check if a string is a float.
 
     Parameters
@@ -1565,7 +1614,7 @@ def check_float(potential_float):
         return False
 
 
-def convert_time(time_string):
+def convert_time(time_string: str) -> datetime | None:
     """Convert a time string to a datetime object.
 
     Parameters
@@ -1593,7 +1642,9 @@ def convert_time(time_string):
         return None
 
 
-async def find_valve_entity(self, entity_id):
+async def find_valve_entity(
+    self: BetterThermostat, entity_id: str
+) -> dict[str, Any] | None:
     """Locate a per-TRV valve position helper entity, if available.
 
     Returns a mapping with the entity_id, whether it appears writable, and the
@@ -1625,7 +1676,7 @@ async def find_valve_entity(self, entity_id):
     preferred_domains = {"number", "input_number"}
     readonly_candidate: dict[str, Any] | None = None
 
-    def _device_matches(candidate) -> bool:
+    def _device_matches(candidate: er.RegistryEntry) -> bool:
         # Strong match: same device
         if getattr(candidate, "device_id", None) == getattr(
             reg_entity, "device_id", None
@@ -1656,7 +1707,7 @@ async def find_valve_entity(self, entity_id):
         "valve": "valve_position",
     }
 
-    def _classify_by_translation_key(entity) -> str | None:
+    def _classify_by_translation_key(entity: er.RegistryEntry) -> str | None:
         """Classify entity by its translation_key (stable, language-independent)."""
         tk = getattr(entity, "translation_key", None)
         if tk and tk in _VALVE_TRANSLATION_KEYS:
@@ -1762,7 +1813,9 @@ async def find_valve_entity(self, entity_id):
     return None
 
 
-async def find_battery_entity(self, entity_id, _visited=None):
+async def find_battery_entity(
+    self: BetterThermostat, entity_id: str, _visited: set[str] | None = None
+) -> str | None:
     """Find the battery entity related to the given entity's device.
 
     Returns the `entity_id` of the battery sensor attached to the same device
@@ -1801,7 +1854,9 @@ async def find_battery_entity(self, entity_id, _visited=None):
     return None
 
 
-async def _find_lowest_battery_in_group(self, member_ids, visited=None):
+async def _find_lowest_battery_in_group(
+    self: BetterThermostat, member_ids: Iterable[str], visited: set[str] | None = None
+) -> str | None:
     """Find the battery entity with the lowest level among group members.
 
     Parameters
@@ -1872,7 +1927,9 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
 _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
 
-async def find_local_calibration_entity(self, entity_id):
+async def find_local_calibration_entity(
+    self: BetterThermostat, entity_id: str
+) -> str | None:
     """Find the local calibration entity for the TRV.
 
     Uses the entity registry's ``translation_key`` and ``original_name``
@@ -1956,7 +2013,7 @@ async def find_local_calibration_entity(self, entity_id):
     return calibration_entity
 
 
-async def get_trv_intigration(self, entity_id):
+async def get_trv_intigration(self: _RegistryHost, entity_id: str) -> str:
     """Get the integration of the TRV.
 
     Parameters
@@ -1981,10 +2038,14 @@ async def get_trv_intigration(self, entity_id):
         return "generic_thermostat"
 
 
-def get_max_value(obj, value, default):
+def get_max_value(
+    obj: Mapping[str, Mapping[str, float | int | str | None]],
+    value: str,
+    default: float | int | str,
+) -> float | int | str:
     """Get the max value of an dict object."""
     try:
-        _raw = []
+        _raw: list[float | int | str] = []
         for key in obj.keys():
             _temp = obj[key].get(value, 0)
             if _temp is not None:
@@ -1994,10 +2055,14 @@ def get_max_value(obj, value, default):
         return default
 
 
-def get_min_value(obj, value, default):
+def get_min_value(
+    obj: Mapping[str, Mapping[str, float | int | str | None]],
+    value: str,
+    default: float | int | str,
+) -> float | int | str:
     """Get the min value of an dict object."""
     try:
-        _raw = []
+        _raw: list[float | int | str] = []
         for key in obj.keys():
             _temp = obj[key].get(value, 999)
             if _temp is not None:
@@ -2007,7 +2072,7 @@ def get_min_value(obj, value, default):
         return default
 
 
-async def get_device_model(self, entity_id: str) -> str:
+async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
     """Determine the device model from the Device Registry entry.
 
     Priority: model_id > model (before parens) > model > config > "generic"
@@ -2101,7 +2166,9 @@ async def get_device_model(self, entity_id: str) -> str:
     return selected
 
 
-async def async_fire_logbook_entry(self, key: str, default_msg: str) -> None:
+async def async_fire_logbook_entry(
+    self: BetterThermostat, key: str, default_msg: str
+) -> None:
     """Fire a logbook entry safely, with fallback translations."""
     from homeassistant.helpers import translation
     from homeassistant.util import slugify

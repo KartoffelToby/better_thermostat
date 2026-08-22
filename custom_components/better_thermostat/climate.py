@@ -364,6 +364,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _attr_name = None
     _enable_turn_on_off_backwards_compatibility = False
 
+    # Per-channel record of the cooler commands that succeeded.
+    # ``cooler_send_cache()`` creates it on the first cooler write, and every
+    # reader reaches it through that helper.
+    _cooler_last_sent: dict[str, Any]
+
     # ECO mode removed; set_eco_mode service and logic deleted.
 
     async def reset_heating_power(self):
