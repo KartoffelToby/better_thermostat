@@ -18,6 +18,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.better_thermostat.climate import (
@@ -45,6 +46,11 @@ WINDOW_ID = "binary_sensor.window"
 DOOR_ID = "binary_sensor.door"
 HUMIDITY_ID = "sensor.humidity"
 OUTDOOR_ID = "sensor.outdoor_temp"
+
+# The calibration code startup derives for a TRV whose offset lives on its own
+# calibration entity. Any code but 1 makes startup read the device's offset and
+# the bounds it accepts.
+LOCAL_CALIBRATION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -812,6 +818,93 @@ class TestInitializeTrvCurrentTemperature:
         bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
         await self._run(bt)
         assert bt.real_trvs[TRV_ID].current_temperature is None
+
+
+class TestInitializeTrvCalibrationFallback:
+    """A failed offset read still leaves the TRV a calibration window.
+
+    A TRV that carries its own offset reaches startup without bounds, and
+    every offset the control loop writes is clamped into them. A read that
+    outlasts its budget or fails outright therefore falls back to the window
+    a TRV configured without a device offset gets, so the first control cycle
+    clamps against a window instead of None.
+    """
+
+    def _offset_trv_bt(self, bt):
+        """Wire the thermostat to one TRV that carries its own offset."""
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=LOCAL_CALIBRATION)}
+        bt.hass.states.get.return_value = _make_trv_state()
+        # The fallback is what these tests read back off the TRV, so it runs
+        # for real while the rest of the instance stays a stand-in.
+        bt._set_trv_calibration_defaults.side_effect = lambda trv: (
+            BetterThermostat._set_trv_calibration_defaults(bt, trv)
+        )
+        return bt
+
+    async def _run(self, bt, failure):
+        """Initialize the TRV against an offset read that raises."""
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_current_offset",
+                autospec=True,
+                side_effect=failure,
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_offset_read_that_times_out_lands_the_default_window(
+        self, bt, caplog
+    ):
+        """A read that outlasts its budget leaves the default bounds."""
+        bt = self._offset_trv_bt(bt)
+        caplog.set_level(logging.WARNING)
+
+        await self._run(bt, TimeoutError())
+
+        trv = bt.real_trvs[TRV_ID]
+        assert trv.last_calibration == 0
+        assert trv.local_calibration_min == -7
+        assert trv.local_calibration_max == 7
+        assert trv.local_calibration_step == 0.5
+        assert f"Timeout getting offsets for TRV {TRV_ID}" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_offset_read_that_fails_lands_the_default_window(self, bt, caplog):
+        """A read the device refuses leaves the same bounds as a timeout."""
+        bt = self._offset_trv_bt(bt)
+        caplog.set_level(logging.WARNING)
+
+        await self._run(bt, HomeAssistantError("device did not answer"))
+
+        trv = bt.real_trvs[TRV_ID]
+        assert trv.last_calibration == 0
+        assert trv.local_calibration_min == -7
+        assert trv.local_calibration_max == 7
+        assert trv.local_calibration_step == 0.5
+        assert f"Error getting offsets for TRV {TRV_ID}: device did not answer" in (
+            caplog.text
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure", [TimeoutError(), HomeAssistantError("device did not answer")]
+    )
+    async def test_a_failed_offset_read_still_reads_the_trv_attributes(
+        self, bt, failure
+    ):
+        """The failure stays inside the offset read; startup carries on."""
+        bt = self._offset_trv_bt(bt)
+
+        await self._run(bt, failure)
+
+        assert bt.real_trvs[TRV_ID].max_temp == 30.0
+        assert bt.real_trvs[TRV_ID].current_temperature == 20.0
 
 
 # ---------------------------------------------------------------------------
