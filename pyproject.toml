@@ -63,15 +63,16 @@ ignore = [
     "PLR0912", # Too many branches
     "PLR0913", # Too many arguments
     "PLR0911", # Too many return statements
-    "PLC0415", # Import outside top level
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
-# Test code does not need docstrings on every function/class/method.
-"tests/**" = ["D"]
+# Test code does not need docstrings on every function/class/method, and it
+# imports inside test bodies to control when a module is loaded relative to a
+# patch.
+"tests/**" = ["D", "PLC0415"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]

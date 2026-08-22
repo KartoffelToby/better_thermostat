@@ -24,6 +24,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     step as control_mode_step,
     step_ladder as control_mode_step_ladder,
 )
+from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
 
 from .const import DOMAIN
 
@@ -591,10 +592,6 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
         self._degraded_warning_emitted = True
 
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
-
         await async_fire_logbook_entry(
             self,
             "degraded_mode_entered",
@@ -614,10 +611,6 @@ async def check_and_update_degraded_mode(self) -> bool:
         )
         ir.async_delete_issue(self.hass, DOMAIN, f"degraded_mode_{self.device_name}")
         self._degraded_warning_emitted = False
-
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
 
         await async_fire_logbook_entry(
             self,

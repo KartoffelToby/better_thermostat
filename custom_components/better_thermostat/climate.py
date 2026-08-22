@@ -44,7 +44,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import Context, State, callback
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import entity_platform
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_platform,
+    entity_registry as er,
+)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
@@ -66,6 +70,7 @@ from .adapters.delegate import (
     load_adapter,
     set_hvac_mode as adapter_set_hvac_mode,
     set_temperature as adapter_set_temperature,
+    set_valve as adapter_set_valve,
 )
 from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
@@ -90,7 +95,7 @@ from .core.recorder import FlightRecorder
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
-from .events.temperature import trigger_temperature_change
+from .events.temperature import _update_external_temp_ema, trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import initial_tweak, load_model_quirks
@@ -157,6 +162,7 @@ from .utils.controlling import (
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
     InboundSetpoint,
+    async_fire_logbook_entry,
     async_normalize_bt_entity_ids,
     attr_to_celsius,
     convert_to_float,
@@ -179,6 +185,7 @@ from .utils.hvac_action import (
     compute_hvac_action,
     should_heat_with_tolerance,
 )
+from .utils.migrate_v0_stores import migrate_v0_stores
 from .utils.preset_manager import PresetManager
 from .utils.restore import (
     clamp_heat_loss,
@@ -634,11 +641,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     main_trv_id = self.all_trvs
 
                 if main_trv_id:
-                    from homeassistant.helpers import (
-                        device_registry as dr,
-                        entity_registry as er,
-                    )
-
                     ent_reg = er.async_get(self.hass)
                     dev_reg = dr.async_get(self.hass)
                     trv_ent = ent_reg.async_get(main_trv_id)
@@ -1084,8 +1086,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Unified state persistence
         try:
-            from .utils.migrate_v0_stores import migrate_v0_stores
-
             self.state_mgr = StateManager(self.hass, self._config_entry_id)
             await self.state_mgr.load()
             await migrate_v0_stores(
@@ -1177,10 +1177,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
         await check_ambient_air_temperature(self)
         if self._last_call_for_heat != self.call_for_heat:
-            from custom_components.better_thermostat.utils.helpers import (
-                async_fire_logbook_entry,
-            )
-
             if not self.call_for_heat:
                 await async_fire_logbook_entry(
                     self,
@@ -1641,15 +1637,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.cur_temp is not None:
             self.last_known_external_temp = self.cur_temp
             try:
-                from .events.temperature import _update_external_temp_ema
-
                 _update_external_temp_ema(self, float(self.cur_temp))
                 _LOGGER.debug(
                     "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
                     self.device_name,
                     self.cur_temp,
                 )
-            except (ValueError, TypeError, ImportError) as e:
+            except (ValueError, TypeError) as e:
                 _LOGGER.warning(
                     "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
                     self.device_name,
@@ -2669,11 +2663,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         pass
 
             # Bind adapter callbacks to self
-            from .adapters.delegate import set_valve as _delegate_set_valve
-
             async def _set_valve(entity_id: str, pct: int) -> bool:
                 try:
-                    ok = await _delegate_set_valve(self, entity_id, int(pct))
+                    ok = await adapter_set_valve(self, entity_id, int(pct))
                     return bool(ok)
                 except Exception:
                     _LOGGER.debug(
@@ -4147,8 +4139,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Skip if startup is still running to avoid race conditions or confusing logs
         if self.startup_running:
             return
-
-        from .events.temperature import _update_external_temp_ema
 
         _LOGGER.debug(
             "better_thermostat %s: _async_update_ema_periodic triggered",

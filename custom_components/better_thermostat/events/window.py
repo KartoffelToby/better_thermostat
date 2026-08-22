@@ -18,6 +18,7 @@ from custom_components.better_thermostat.core.fsm.window import (
     WindowPhase,
     step as window_step,
 )
+from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
@@ -182,10 +183,6 @@ async def _settle_window_region(self) -> None:
 
 async def _announce_window_change(self) -> None:
     """Fire the side effects of a committed window change."""
-    from custom_components.better_thermostat.utils.helpers import (
-        async_fire_logbook_entry,
-    )
-
     if self.kernel_state.window.effective_open:
         await async_fire_logbook_entry(
             self, "window_open", "turned off because a window was opened"
