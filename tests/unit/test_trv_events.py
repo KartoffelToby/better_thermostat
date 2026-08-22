@@ -557,7 +557,7 @@ class TestHvacActionAndValvePosition:
 
     @pytest.mark.asyncio
     async def test_unreadable_valve_position_propagates(self, mock_bt):
-        """A valve reading that cannot be parsed reaches the caller."""
+        """A valve reading that cannot be rendered as text reaches the caller."""
         trv_state = _make_state(
             attributes={
                 "current_temperature": 18.0,

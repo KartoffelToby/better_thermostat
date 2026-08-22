@@ -167,7 +167,7 @@ def test_outdoor_temp_read_from_sensor_state(bt):
     assert BetterThermostat._get_outdoor_temp(bt) == 7.5
 
 
-def test_outdoor_temp_unreadable_state_object_is_logged(bt, caplog):
+def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
     """An outdoor read that hits a missing attribute yields None and a trace."""
     bt.outdoor_sensor = "sensor.outdoor"
     bt.hass = None

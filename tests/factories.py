@@ -170,9 +170,9 @@ def make_bt(
 def make_state_attributes_bt(**overrides) -> MagicMock:
     """Return the entity mock ``extra_state_attributes`` can be read from.
 
-    The property reads roughly forty attributes and JSON-encodes four of
-    them, so the collections it serialises have to be real containers
-    rather than MagicMock children.
+    The property JSON-encodes several of the values it reads, so the
+    collections it serialises have to be real containers rather than
+    MagicMock children.
 
     Parameters
     ----------
