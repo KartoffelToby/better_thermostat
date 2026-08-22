@@ -113,10 +113,10 @@ async def trigger_trv_change(self, event):
         return
 
     advanced = trv.advanced or {}
-    # Absent means unlocked. An entry written before the option existed carries
-    # no flag at all and no migration adds one, so the key is missing rather
-    # than false for those — which is the same thing the config flow normalises
-    # an unset flag to, and what the child lock switch reports for it.
+    # A missing flag counts as unlocked, and it can be missing: nothing
+    # backfills the key, so an entry that has not been through the options flow
+    # carries none. The config flow, the child lock switch and both guards
+    # below read an absent flag the same way.
     child_lock = advanced.get("child_lock")
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
