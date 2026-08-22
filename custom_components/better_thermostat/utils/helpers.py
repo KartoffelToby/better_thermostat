@@ -2041,18 +2041,15 @@ async def get_device_model(self, entity_id: str) -> str:
         except Exception:
             device = None
         # Selection exclusively via Device-Registry
-        try:
-            _LOGGER.debug(
-                "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
-                self.device_name,
-                getattr(device, "manufacturer", None),
-                getattr(device, "model", None),
-                getattr(device, "model_id", None),
-                getattr(device, "name", None),
-                list(getattr(device, "identifiers", []) or []),
-            )
-        except Exception:
-            pass
+        _LOGGER.debug(
+            "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
+            self.device_name,
+            getattr(device, "manufacturer", None),
+            getattr(device, "model", None),
+            getattr(device, "model_id", None),
+            getattr(device, "name", None),
+            list(getattr(device, "identifiers", []) or []),
+        )
 
         dev_model_id = getattr(device, "model_id", None)
         if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
@@ -2075,8 +2072,14 @@ async def get_device_model(self, entity_id: str) -> str:
                     selected = model_str.strip()
                     source = "devreg.model"
     except Exception:
-        # swallow registry access issues and continue to fallback
-        pass
+        # Registry access is best effort; the fallback chain below still
+        # yields a model name.
+        _LOGGER.debug(
+            "better_thermostat %s: device registry lookup for %s failed",
+            self.device_name,
+            entity_id,
+            exc_info=True,
+        )
 
     # Final fallback: configured model, then generic
     configured_model = getattr(self, "model", None)
@@ -2120,7 +2123,11 @@ async def async_fire_logbook_entry(self, key: str, default_msg: str) -> None:
                 f"component.{DOMAIN}.entity.sensor.logbook.state.{key}", default_msg
             )
         except Exception:
-            pass
+            _LOGGER.debug(
+                "better_thermostat: logbook translation for %s unavailable",
+                key,
+                exc_info=True,
+            )
 
         entity_id = getattr(self, "entity_id", None)
         if not entity_id:

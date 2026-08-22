@@ -338,8 +338,10 @@ def compute_pid(
                 st.ema_slope = s_in
             else:
                 st.ema_slope = 0.6 * st.ema_slope + 0.4 * s_in
-    except Exception:
-        pass
+    except TypeError:
+        _LOGGER.debug(
+            "better_thermostat PID: slope EMA update skipped for %s", key, exc_info=True
+        )
 
     # Proportional term
     p_term = float(st.pid_kp) * e
@@ -381,8 +383,12 @@ def compute_pid(
             decay = 0.8  # 20% relief
             i_term *= decay
             i_relief = True
-    except Exception:
-        pass
+    except TypeError:
+        _LOGGER.debug(
+            "better_thermostat PID: integrator relief skipped for %s",
+            key,
+            exc_info=True,
+        )
 
     # Final control output
     u = p_term + i_term + d_term  # PID
@@ -462,10 +468,7 @@ def compute_pid(
     st.pid_last_time = now
 
     # Remember the error sign for the next cycle
-    try:
-        st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
-    except Exception:
-        pass
+    st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
 
     # Optional auto-tuning (conservative)
     if params.auto_tune:

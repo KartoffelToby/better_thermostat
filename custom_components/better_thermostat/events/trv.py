@@ -243,33 +243,28 @@ async def trigger_trv_change(self, event):
         return
 
     # Always cache hvac_action from the TRV state so it stays current
-    try:
-        hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
-        if hvac_action_attr is None:
-            hvac_action_attr = _org_trv_state.attributes.get("action")
-        if hvac_action_attr is not None:
-            val = str(hvac_action_attr).strip().lower()
-            prev = trv.hvac_action
-            trv.hvac_action = val
-            if prev != val:
-                _main_change = True
-                _LOGGER.debug(
-                    "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
-                    self.device_name,
-                    entity_id,
-                    prev,
-                    val,
-                )
-
-        # valve_position aktualisieren
-        val_pos = _org_trv_state.attributes.get("valve_position")
-        if val_pos is not None:
-            trv.valve_position = convert_to_float(
-                str(val_pos), self.device_name, "trv_event"
+    hvac_action_attr = _org_trv_state.attributes.get("hvac_action")
+    if hvac_action_attr is None:
+        hvac_action_attr = _org_trv_state.attributes.get("action")
+    if hvac_action_attr is not None:
+        val = str(hvac_action_attr).strip().lower()
+        prev = trv.hvac_action
+        trv.hvac_action = val
+        if prev != val:
+            _main_change = True
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
+                self.device_name,
+                entity_id,
+                prev,
+                val,
             )
 
-    except Exception:
-        pass
+    val_pos = _org_trv_state.attributes.get("valve_position")
+    if val_pos is not None:
+        trv.valve_position = convert_to_float(
+            str(val_pos), self.device_name, "trv_event"
+        )
 
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
         if trv.hvac_mode != _org_trv_state.state and not child_lock:

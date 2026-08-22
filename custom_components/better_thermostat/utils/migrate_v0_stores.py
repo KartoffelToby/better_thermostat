@@ -145,7 +145,11 @@ async def migrate_v0_stores(
                 _import_legacy_data(state_mgr, mpc_data=entity_entries)
                 any_imported = True
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat [%s]: legacy MPC store not imported",
+            config_entry_id,
+            exc_info=True,
+        )
 
     # PID legacy
     try:
@@ -157,7 +161,11 @@ async def migrate_v0_stores(
                 _import_legacy_data(state_mgr, pid_data=entity_entries)
                 any_imported = True
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat [%s]: legacy PID store not imported",
+            config_entry_id,
+            exc_info=True,
+        )
 
     # TPI legacy
     try:
@@ -169,7 +177,11 @@ async def migrate_v0_stores(
                 _import_legacy_data(state_mgr, tpi_data=entity_entries)
                 any_imported = True
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat [%s]: legacy TPI store not imported",
+            config_entry_id,
+            exc_info=True,
+        )
 
     # Thermal legacy
     try:
@@ -181,7 +193,11 @@ async def migrate_v0_stores(
                 _import_legacy_data(state_mgr, thermal_data=thermal_entry)
                 any_imported = True
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat [%s]: legacy thermal store not imported",
+            config_entry_id,
+            exc_info=True,
+        )
 
     if any_imported:
         await state_mgr.save()

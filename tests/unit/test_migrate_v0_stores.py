@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,6 +29,8 @@ from custom_components.better_thermostat.utils.state_manager import (
     StateManager,
     ThermalStats,
 )
+
+_MIGRATE_LOGGER = "custom_components.better_thermostat.utils.migrate_v0_stores"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -619,3 +622,60 @@ class TestMigrateV0Stores:
 
         # No data imported, no save
         mgr.save.assert_not_called()
+
+
+class TestUnreadableLegacyStoreIsTraced:
+    """A legacy store that cannot be read leaves a debug trace naming it."""
+
+    @pytest.mark.asyncio
+    async def test_every_failing_store_is_named(self, caplog) -> None:
+        """All four store names and the config entry appear in the trace."""
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        failing_store = MagicMock()
+        failing_store.async_load = AsyncMock(side_effect=OSError("boom"))
+        store_iter = iter([failing_store] * 4)
+
+        with (
+            caplog.at_level(logging.DEBUG, logger=_MIGRATE_LOGGER),
+            patch(
+                "custom_components.better_thermostat.utils.migrate_v0_stores.Store",
+                side_effect=lambda _hass, _ver, _key: next(store_iter),
+            ),
+        ):
+            await migrate_v0_stores(
+                AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
+            )
+
+        for store_name in ("MPC", "PID", "TPI", "thermal"):
+            assert f"legacy {store_name} store not imported" in caplog.text
+        assert "entry1" in caplog.text
+        assert all(record.exc_info for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_readable_stores_leave_no_trace(self, caplog) -> None:
+        """Stores that read cleanly report nothing."""
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        stores = [
+            _make_mock_store({"uid1:trv_a": {"gain_est": 0.5}}),
+            _make_mock_store(None),
+            _make_mock_store(None),
+            _make_mock_store(None),
+        ]
+        store_iter = iter(stores)
+
+        with (
+            caplog.at_level(logging.DEBUG, logger=_MIGRATE_LOGGER),
+            patch(
+                "custom_components.better_thermostat.utils.migrate_v0_stores.Store",
+                side_effect=lambda _hass, _ver, _key: next(store_iter),
+            ),
+        ):
+            await migrate_v0_stores(
+                AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
+            )
+
+        assert "not imported" not in caplog.text
