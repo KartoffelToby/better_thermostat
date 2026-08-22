@@ -353,8 +353,8 @@ class DailyHistory:
       - Track all readings per day and compute the per-day mean
       - Then compute the overall mean across the kept days
 
-    Note: Attribute name `min` is kept for backward compatibility with callers,
-    but it now contains the multi-day mean (float) instead of a median of minima.
+    Note: the attribute holding the result is named `min` and carries the
+    multi-day mean as a float.
     """
 
     def __init__(self, max_length):
@@ -364,7 +364,7 @@ class DailyHistory:
         # Track per-day aggregate to compute means
         self._sum_dict = {}
         self._count_dict = {}
-        # Back-compat field: will store the resulting multi-day mean
+        # Holds the resulting multi-day mean
         self.min = None
 
     def add_measurement(self, value, timestamp=None):

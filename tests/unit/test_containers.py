@@ -66,7 +66,7 @@ class TestRuntimeAndLearnedBridges:
     """Runtime and learned bridges read and write their containers."""
 
     def test_runtime_bridge_roundtrip(self):
-        """Writing the historical attribute lands in the runtime container."""
+        """Writing the flat attribute lands in the runtime container."""
         bare = _bare_entity()
         bare.cur_temp = 21.5
         assert bare.runtime.cur_temp == 21.5

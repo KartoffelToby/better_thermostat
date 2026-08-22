@@ -509,7 +509,7 @@ def group_all_members_off(self) -> bool:
     Gates group-wide "switch off" adoptions so a single valve entering frost
     protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
     valve dropping to its minimum temperature cannot turn the whole room off.
-    Single-TRV instances always agree, preserving historical behavior.
+    With at most one TRV there is no group to disagree, so the gate is open.
 
     A member counts as off when its reported HVAC state is ``off`` or, for a
     ``no_off_system_mode`` device (which never reports ``off``), when its

@@ -2556,7 +2556,7 @@ class TestGroupedModeAdoption:
 
     @pytest.mark.asyncio
     async def test_single_trv_off_still_adopted(self):
-        """Single-TRV instances keep the historical single-valve behavior."""
+        """A single-TRV instance adopts its only valve's off report."""
         only = "climate.solo_trv"
         bt = _make_group_bt([only])
         _install_states(bt, {only: _grp_state(only, "off")})
