@@ -113,51 +113,154 @@ pythonVersion = "3.14"
 python-version = "3.14"
 project-includes = ["custom_components/better_thermostat"]
 min-severity = "error"
+errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+# Every file under project-includes is checked at the strictness declared above.
+# The entries below name the files that do not meet it yet and list exactly the
+# rules each one is exempt from; a rule not listed applies to that file too.
+# The list only ever shrinks: an entry is removed once its file is annotated,
+# and no new entry is added — a new file is strict from the start.
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/__init__.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/base.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/deconz.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/delegate.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/generic.py"
+errors = { implicit-any-parameter = false, implicit-any-empty-container = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/mqtt.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/tado.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/adapters/zwave_js.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/calibration.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/climate.py"
+errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-type-argument = false, implicit-any-empty-container = false, missing-override-decorator = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/config_flow.py"
+errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-type-argument = false, implicit-any-empty-container = false, missing-override-decorator = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/device_trigger.py"
+errors = { implicit-any-type-argument = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/diagnostics.py"
+errors = { implicit-any-type-argument = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/events/cooler.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/events/door.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/events/temperature.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/events/trv.py"
+errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/events/window.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/BTH-RM.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/BTH-RM230Z.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/SPZB0001.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/TRVZB.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/TV02-Zigbee.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/ZWA021.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/default.py"
+errors = { implicit-any-parameter = false }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/model_fixes/model_quirks.py"
+errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/number.py"
-errors = { bad-override-mutable-attribute = false }
+errors = { implicit-any-parameter = false, missing-override-decorator = false, bad-override-mutable-attribute = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/calibration/*.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/sensor.py"
+errors = { missing-override-decorator = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/types.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/switch.py"
+errors = { implicit-any-parameter = false, implicit-any-empty-container = false, missing-override-decorator = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/TS0601.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/controlling.py"
+errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/TS0601_thermostat.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/helpers.py"
+errors = { implicit-any-parameter = false, implicit-any-type-argument = false, implicit-any-empty-container = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/ME167.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/scheduler.py"
+errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/COZB0001.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/snapshot.py"
+errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/BHT-002-GCLZB.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/state_manager.py"
+errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/SEA801-Zigbee_SEA802-Zigbee.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/watcher.py"
+errors = { implicit-any-parameter = false, implicit-any-type-argument = false, implicit-any-empty-container = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/trv.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/telemetry.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/retry.py"
-errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+matches = "custom_components/better_thermostat/utils/weather.py"
+errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-empty-container = false }
