@@ -2,7 +2,12 @@
 
 These Protocols describe the minimal surface an adapter reads off the
 object it is handed, so an adapter can be typed without depending on the
-concrete Better Thermostat entity class.
+concrete Better Thermostat entity class. The members that carry a value
+onwards name that value's own type: an adapter hands ``hass`` to helpers
+declared against ``HomeAssistant`` and reads fields off the per-TRV record
+declared in :mod:`custom_components.better_thermostat.trv`, so restating
+either structurally would only let the restatement drift from the type the
+value actually has.
 """
 
 from __future__ import annotations
@@ -10,9 +15,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Protocol
 
-from homeassistant.core import Context, HomeAssistant
-
 if TYPE_CHECKING:
+    from homeassistant.core import Context, HomeAssistant
+
     from custom_components.better_thermostat.trv import Trv
 
 

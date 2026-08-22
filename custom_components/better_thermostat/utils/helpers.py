@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -1593,7 +1593,28 @@ def convert_time(time_string):
         return None
 
 
-async def find_valve_entity(self, entity_id):
+class ValveEntityInfo(TypedDict):
+    """A valve position helper entity discovered for one TRV.
+
+    Attributes
+    ----------
+    entity_id : str
+        Entity ID of the helper.
+    writable : bool
+        Whether the helper sits in a domain the integration can write to.
+    reason : str
+        Which classification matched, kept for the discovery log.
+    domain : str
+        Home Assistant domain the helper lives in.
+    """
+
+    entity_id: str
+    writable: bool
+    reason: str
+    domain: str
+
+
+async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     """Locate a per-TRV valve position helper entity, if available.
 
     Returns a mapping with the entity_id, whether it appears writable, and the
@@ -1623,7 +1644,7 @@ async def find_valve_entity(self, entity_id):
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
-    readonly_candidate: dict[str, Any] | None = None
+    readonly_candidate: ValveEntityInfo | None = None
 
     def _device_matches(candidate) -> bool:
         # Strong match: same device
@@ -1704,7 +1725,7 @@ async def find_valve_entity(self, entity_id):
         domain_score = 1 if domain in preferred_domains else 0
         return (reason_score, writable_score, domain_score)
 
-    best: dict[str, Any] | None = None
+    best: ValveEntityInfo | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
 
     for entity in entity_entries:
@@ -1724,7 +1745,7 @@ async def find_valve_entity(self, entity_id):
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
         writable = domain in preferred_domains
-        info = {
+        info: ValveEntityInfo = {
             "entity_id": entity.entity_id,
             "writable": writable,
             "reason": reason,

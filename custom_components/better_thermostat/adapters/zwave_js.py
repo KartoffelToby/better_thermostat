@@ -12,7 +12,6 @@ in their manufacturer-specific mode).
 
 import asyncio
 import logging
-from typing import cast
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -79,9 +78,7 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     try:
         valve = await find_valve_entity(self, entity_id)
         if valve is not None:
-            self.real_trvs[entity_id].valve_position_entity = cast(
-                str | None, valve.get("entity_id")
-            )
+            self.real_trvs[entity_id].valve_position_entity = valve.get("entity_id")
             self.real_trvs[entity_id].valve_position_writable = bool(
                 valve.get("writable", False)
             )
@@ -122,11 +119,10 @@ async def init(self: AdapterHost, entity_id: str) -> None:
 
 async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
-    if self.real_trvs[entity_id].local_temperature_calibration_entity is None:
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
         return 0.0
-    state = self.hass.states.get(
-        cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
-    )
+    state = self.hass.states.get(calibration_entity)
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return 0.0
     try:
@@ -142,11 +138,10 @@ async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
 
 async def get_offset_step(self: AdapterHost, entity_id: str) -> float | None:
     """Get offset step."""
-    if self.real_trvs[entity_id].local_temperature_calibration_entity is None:
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
         return None
-    state = self.hass.states.get(
-        cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
-    )
+    state = self.hass.states.get(calibration_entity)
     if state is None:
         return None
     return float(str(state.attributes.get("step", 1)))
@@ -154,11 +149,10 @@ async def get_offset_step(self: AdapterHost, entity_id: str) -> float | None:
 
 async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
-    if self.real_trvs[entity_id].local_temperature_calibration_entity is None:
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
         return -6.0
-    state = self.hass.states.get(
-        cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
-    )
+    state = self.hass.states.get(calibration_entity)
     if state is None:
         return -6.0
     return float(str(state.attributes.get("min", -10)))
@@ -166,11 +160,10 @@ async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
 
 async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
-    if self.real_trvs[entity_id].local_temperature_calibration_entity is None:
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
         return 6.0
-    state = self.hass.states.get(
-        cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
-    )
+    state = self.hass.states.get(calibration_entity)
     if state is None:
         return 6.0
     return float(str(state.attributes.get("max", 10)))
@@ -206,7 +199,8 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         True once the write went out, False when no calibration entity was
         discovered for this TRV and there is nothing to write to.
     """
-    if self.real_trvs[entity_id].local_temperature_calibration_entity is None:
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
         return False
 
     max_calibration = await get_max_offset(self, entity_id)
@@ -218,22 +212,15 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
     await self.hass.services.async_call(
         "number",
         SERVICE_SET_VALUE,
-        {
-            "entity_id": self.real_trvs[entity_id].local_temperature_calibration_entity,
-            "value": offset,
-        },
+        {"entity_id": calibration_entity, "value": offset},
         blocking=True,
         context=self.context,
     )
     self.real_trvs[entity_id].last_calibration = offset
-    if (
-        self.real_trvs[entity_id].last_hvac_mode is not None
-        and self.real_trvs[entity_id].last_hvac_mode != "off"
-    ):
+    last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
+    if last_hvac_mode is not None and last_hvac_mode != "off":
         await asyncio.sleep(3)
-        await generic_set_hvac_mode(
-            self, entity_id, cast(str, self.real_trvs[entity_id].last_hvac_mode)
-        )
+        await generic_set_hvac_mode(self, entity_id, last_hvac_mode)
     return True
 
 
