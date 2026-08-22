@@ -103,13 +103,6 @@ def _float_or_none(value: Json) -> float | None:
     return float(value)
 
 
-def _float_of(value: Json) -> float:
-    number = _float_or_none(value)
-    if number is None:
-        raise ValueError("expected a number, got None")
-    return number
-
-
 def _float_or_default(value: Json, default: float) -> float:
     """Read a required float, substituting ``default`` for null.
 

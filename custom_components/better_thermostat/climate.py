@@ -387,7 +387,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # ------------------------------------------------------------------
 
     # -- Container bridges -----------------------------------------------
-    # Historical attribute names delegating into the typed containers
+    # Flat attribute names delegating into the typed containers
     # (BtConfig is frozen: config bridges are read-only by design).
 
     @property
@@ -785,8 +785,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 _tolerance,
             )
 
-        # The three attribute lifecycles, each in its own container; the
-        # historical attribute names delegate via properties.
+        # Static configuration and live runtime values each get a container;
+        # the flat attribute names delegate into them via properties.
         self.config = BtConfig(
             device_name=name,
             model=model,
@@ -2588,7 +2588,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             trvs_to_service = []
 
-        # Sync the schedule with legacy writers, then advance the region.
+        # Adopt the schedule the entity attribute carries, then advance the
+        # region.
         region = self.kernel_state.maintenance
         schedule = self.next_valve_maintenance
         if not isinstance(schedule, datetime):
@@ -3541,9 +3542,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         the range is not a setpoint BT can hold, and that cap is where the
         separation gives way: a heating target resting on the maximum or above
         it puts the floor on that target or below it, so the value returned
-        there no longer clears it. The residual
-        :meth:`_enforce_heat_below_cool` settles that degenerate case, and it
-        does so by moving the heating target.
+        there does not clear it. The residual :meth:`_enforce_heat_below_cool`
+        settles that degenerate case, and it does so by moving the heating
+        target.
 
         The bound applies whenever a cooling channel is configured rather than
         only while the live mode is HEAT_COOL, matching
@@ -3587,11 +3588,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         raising that target. The ceiling is held at the configured minimum, and
         that bound is where the separation gives way in the same way: a cooling
         target resting on the minimum or below it puts the ceiling on that
-        target or above it, so the value returned there no longer clears it.
-        The residual :meth:`_enforce_cool_above_heat` settles that degenerate
-        case, and it does so by moving the cooling target. Like its counterpart
-        the bound keys off the configured cooling channel rather than the live
-        mode, and here that is what makes it hold at all: a valve with
+        target or above it, so the value returned there does not clear it. The
+        residual :meth:`_enforce_cool_above_heat` settles that degenerate case,
+        and it does so by moving the cooling target. Like its counterpart the
+        bound keys off the configured cooling channel rather than the live mode,
+        and here that is what makes it hold at all: a valve with
         ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
         still OFF, and the same event then resolves the mode to HEAT.
 
@@ -3977,15 +3978,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         finally:
             self.bt_update_lock = False
 
-    # Backwards compatibility: If anything external still tries to call the old
-    # (incorrect) async method name, provide a thin wrapper. This is intentionally
-    # NOT async so HA will not pick it up as the implementation again.
-    # type: ignore[override] # Backward compatibility wrapper
+    # The synchronous half of the ClimateEntity preset API. Home Assistant core
+    # calls `async_set_preset_mode`, so this entry point serves callers outside
+    # core and hands the work to the async method.
     def set_preset_mode(self, preset_mode: str) -> None:
-        """Backward compatible wrapper.
+        """Set new preset mode (HA sync API).
 
-        This wrapper schedules the new async method on the event loop. It should
-        only be hit by external/custom code; HA core will prefer async_set_preset_mode.
+        Schedules :meth:`async_set_preset_mode` on the event loop and returns
+        without waiting for it, so the state update propagates asynchronously.
         """
         if self.hass is None:
             return

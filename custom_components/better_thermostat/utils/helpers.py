@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from datetime import datetime
 import logging
 import math
 import re
@@ -30,7 +29,7 @@ from homeassistant.helpers import (
     translation,
 )
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
-from homeassistant.util import dt as dt_util, slugify
+from homeassistant.util import slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
@@ -514,7 +513,7 @@ def group_all_members_off(self) -> bool:
     Gates group-wide "switch off" adoptions so a single valve entering frost
     protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
     valve dropping to its minimum temperature cannot turn the whole room off.
-    Single-TRV instances always agree, preserving historical behavior.
+    With at most one TRV there is no group to disagree, so the gate is open.
 
     A member counts as off when its reported HVAC state is ``off`` or, for a
     ``no_off_system_mode`` device (which never reports ``off``), when its
@@ -1569,34 +1568,6 @@ def check_float(potential_float):
         return False
 
 
-def convert_time(time_string):
-    """Convert a time string to a datetime object.
-
-    Parameters
-    ----------
-    time_string :
-            a string representing a time
-
-    Returns
-    -------
-    datetime
-            the converted time as a datetime object.
-    None
-            If the time string is not a valid time.
-    """
-    try:
-        _current_time = dt_util.now()
-        _get_hours_minutes = datetime.strptime(time_string, "%H:%M")
-        return _current_time.replace(
-            hour=_get_hours_minutes.hour,
-            minute=_get_hours_minutes.minute,
-            second=0,
-            microsecond=0,
-        )
-    except ValueError:
-        return None
-
-
 async def find_valve_entity(self, entity_id):
     """Locate a per-TRV valve position helper entity, if available.
 
@@ -1983,32 +1954,6 @@ async def get_trv_intigration(self, entity_id):
         return entry.platform
     except AttributeError:
         return "generic_thermostat"
-
-
-def get_max_value(obj, value, default):
-    """Get the max value of an dict object."""
-    try:
-        _raw = []
-        for key in obj.keys():
-            _temp = obj[key].get(value, 0)
-            if _temp is not None:
-                _raw.append(_temp)
-        return max(_raw, key=float)
-    except KeyError, ValueError:
-        return default
-
-
-def get_min_value(obj, value, default):
-    """Get the min value of an dict object."""
-    try:
-        _raw = []
-        for key in obj.keys():
-            _temp = obj[key].get(value, 999)
-            if _temp is not None:
-                _raw.append(_temp)
-        return min(_raw, key=float)
-    except KeyError, ValueError:
-        return default
 
 
 async def get_device_model(self, entity_id: str) -> str:

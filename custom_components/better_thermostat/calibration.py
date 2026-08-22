@@ -352,7 +352,8 @@ def _compute_mpc_balance(self, entity_id: str):
     temperature deficit.  A cold TRV (low ``current_temperature``) receives
     *more* valve opening; a warm one receives *less*.
 
-    For a **single TRV** this behaves exactly as before (no distribution step).
+    With a **single TRV** there is no distribution step: the model is keyed
+    per entity and its valve command is applied as computed.
     """
 
     trv_state = self.real_trvs.get(entity_id)
