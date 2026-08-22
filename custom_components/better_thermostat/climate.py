@@ -375,8 +375,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # every path that spawns a task runs behind them.
     task_manager: TaskManager
 
-    # ECO mode removed; set_eco_mode service and logic deleted.
-
     async def reset_heating_power(self):
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
