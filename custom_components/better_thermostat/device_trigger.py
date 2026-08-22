@@ -24,6 +24,9 @@ from __future__ import annotations
 
 from homeassistant.components.climate.const import HVAC_MODES
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
+from homeassistant.components.device_automation.exceptions import (
+    InvalidDeviceAutomationConfig,
+)
 from homeassistant.components.homeassistant.triggers import (
     numeric_state as numeric_state_trigger,
     state as state_trigger,
@@ -78,6 +81,11 @@ TRIGGER_TYPES = _PURPOSE_TRIGGER_TYPES | _CLASSIC_TRIGGER_TYPES
 TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES),
+        # The automation editor stores the entity alongside the device, and
+        # the base schema does not carry the key, so without it every trigger
+        # this platform offers fails validation. It stays optional because the
+        # blueprints shipped with the integration pick a device only.
+        vol.Optional(CONF_ENTITY_ID): cv.entity_id_or_uuid,
         # Fields used by classic triggers
         vol.Optional(CONF_TO): vol.Any(str, [str]),
         # Fields used by numeric triggers
@@ -161,6 +169,41 @@ async def async_get_triggers(
     return triggers
 
 
+def _resolve_entity_id(hass: HomeAssistant, config: ConfigType) -> str | None:
+    """Return the thermostat entity a trigger config watches.
+
+    The automation editor stores the entity next to the device; the blueprints
+    shipped with the integration pick a device only, so the entity has to be
+    recoverable from the device alone as well.
+
+    A configured value is passed through as it stands, including a registry id:
+    every branch below hands it to a state or numeric-state trigger, and those
+    resolve a registry id to an entity id themselves.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    config : ConfigType
+        A validated trigger configuration.
+
+    Returns
+    -------
+    str or None
+        The entity or registry id to watch, or None when the device carries no
+        Better Thermostat climate entity.
+    """
+    if configured := config.get(CONF_ENTITY_ID):
+        return configured
+    registry = entity_registry.async_get(hass)
+    for entry in entity_registry.async_entries_for_device(
+        registry, config[CONF_DEVICE_ID]
+    ):
+        if is_bt_climate_entity(entry):
+            return entry.entity_id
+    return None
+
+
 async def async_attach_trigger(
     hass: HomeAssistant,
     config: ConfigType,
@@ -169,7 +212,12 @@ async def async_attach_trigger(
 ) -> CALLBACK_TYPE:
     """Attach a trigger and return an unsubscribe callback."""
     trigger_type: str = config[CONF_TYPE]
-    entity_id: str = config[CONF_ENTITY_ID]
+    entity_id = _resolve_entity_id(hass, config)
+    if entity_id is None:
+        raise InvalidDeviceAutomationConfig(
+            f"No Better Thermostat climate entity found for device "
+            f"{config[CONF_DEVICE_ID]}"
+        )
 
     # Helpers
     def _build_state(
@@ -270,7 +318,7 @@ async def async_attach_trigger(
     #   Threshold is configurable (CONF_ABOVE); default is DEFAULT_HUMIDITY_THRESHOLD.
     if trigger_type == "humidity_high":
         numeric_config = _build_numeric(
-            "{{ state.attributes.get('humidity', 0) | float(0) }}"
+            "{{ state.attributes.get('current_humidity', 0) | float(0) }}"
         )
         if CONF_ABOVE not in numeric_config:
             numeric_config[CONF_ABOVE] = DEFAULT_HUMIDITY_THRESHOLD

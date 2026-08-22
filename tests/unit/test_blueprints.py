@@ -32,6 +32,9 @@ import pytest
 import voluptuous as vol
 import yaml
 
+from custom_components.better_thermostat.device_trigger import TRIGGER_SCHEMA
+from custom_components.better_thermostat.utils.const import DOMAIN
+
 BLUEPRINTS_DIR = Path(__file__).resolve().parents[2] / "blueprints"
 BLUEPRINT_FILES = sorted(BLUEPRINTS_DIR.glob("*.yaml"))
 
@@ -518,3 +521,59 @@ def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
     )
 
     assert still_paused is True
+
+
+# ── The device triggers the bundled blueprints are built on ──────────────────
+#
+# The checks above validate service names and entity ids by hand. That says
+# nothing about whether Better Thermostat's own trigger platform accepts the
+# trigger a blueprint writes: the blueprint picks a device and a trigger type,
+# and the platform's schema is the thing that decides whether the automation
+# saves at all.
+
+
+def _bt_device_triggers(blueprint: dict) -> list[dict]:
+    """Return the Better Thermostat device triggers a blueprint declares."""
+    triggers = blueprint.get("trigger") or blueprint.get("triggers") or []
+    if isinstance(triggers, dict):
+        triggers = [triggers]
+    return [
+        trigger
+        for trigger in triggers
+        if isinstance(trigger, dict)
+        and trigger.get("platform") == "device"
+        and trigger.get("domain") == DOMAIN
+    ]
+
+
+BLUEPRINTS_WITH_DEVICE_TRIGGERS = [
+    path for path in BLUEPRINT_FILES if _bt_device_triggers(_load(path))
+]
+
+
+def test_some_blueprint_uses_a_device_trigger():
+    """Sanity check: the schema test below has blueprints to run against."""
+    assert BLUEPRINTS_WITH_DEVICE_TRIGGERS
+
+
+@pytest.mark.parametrize("path", BLUEPRINTS_WITH_DEVICE_TRIGGERS, ids=lambda p: p.name)
+def test_bundled_device_triggers_pass_the_trigger_schema(path):
+    """Every device trigger a blueprint declares validates against the platform.
+
+    A blueprint that picks a device but no entity is the shape these are all
+    written in, and it has to be a shape the trigger schema accepts — a
+    rejected trigger takes the whole automation down at save time, with the
+    blueprint itself looking perfectly fine.
+    """
+    blueprint = _load(path)
+    inputs = _resolve_inputs(blueprint)
+
+    for trigger in _bt_device_triggers(blueprint):
+        resolved = _substitute(trigger, inputs)
+        try:
+            TRIGGER_SCHEMA(resolved)
+        except vol.Invalid as err:
+            raise AssertionError(
+                f"{path.name}: trigger {resolved.get('type')} is rejected "
+                f"by the platform schema: {err}"
+            ) from err
