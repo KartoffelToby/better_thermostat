@@ -10,12 +10,7 @@ simulated device rather than on what Better Thermostat believes it sent.
 from dataclasses import replace
 from unittest.mock import patch
 
-from homeassistant.components.climate import (
-    DOMAIN as CLIMATE_DOMAIN,
-    SERVICE_SET_HVAC_MODE,
-    ClimateEntityFeature,
-    HVACMode,
-)
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -32,6 +27,7 @@ from .conftest import (
     build_devices,
     cooling_setpoint,
     make_entry,
+    mode_commands,
     profile_id,
     set_room_sensor,
     setup_entry,
@@ -44,10 +40,10 @@ from .device_profiles import (
     DUAL_ROLE,
     FAHRENHEIT_TRV,
     GENERIC_HEAT_TRV,
+    GROUP_SCENARIOS,
     HEAT_COOL_TRV,
     INTEGER_GRID_TRV,
     MQTT_OFFSET_TRV,
-    OFFSET_NUMBER_ID,
     RANGED_COOLER,
     ROLE_SCENARIOS,
     SEPARATE_COOLER,
@@ -57,9 +53,9 @@ from .device_profiles import (
     SPARE_TRV_ID,
     TADO_OFFSET_TRV,
     TRV_ID,
-    VALVE_NUMBER_ID,
     VALVE_TRV,
     DeviceProfile,
+    GroupScenario,
     RoleScenario,
 )
 
@@ -73,23 +69,6 @@ def _switched_off(profile: DeviceProfile) -> DeviceProfile:
     device can reach its heating mode.
     """
     return replace(profile, hvac_mode=HVACMode.OFF)
-
-
-def _mode_commands(events, entity_id: str) -> list[str]:
-    """The hvac modes dispatched at ``entity_id``, whatever became of them.
-
-    Read off the bus rather than off the device, because Home Assistant
-    rejects a mode the entity does not offer before the entity ever sees it:
-    a command that was never sent and one that was sent and refused are
-    indistinguishable at the device.
-    """
-    return [
-        event.data["service_data"]["hvac_mode"]
-        for event in events
-        if event.data["domain"] == CLIMATE_DOMAIN
-        and event.data["service"] == SERVICE_SET_HVAC_MODE
-        and event.data["service_data"].get("entity_id") == entity_id
-    ]
 
 
 @pytest.mark.parametrize(
@@ -210,7 +189,7 @@ async def test_device_without_an_offered_heating_mode_keeps_its_mode(
     # the mode, so by now the mode decision has been taken.
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
-    assert _mode_commands(dispatched, TRV_ID) == []
+    assert mode_commands(dispatched, TRV_ID) == []
     assert fake_trv.set_hvac_mode_calls == []
     assert hass.states.get(TRV_ID).state == HVACMode.OFF
     assert_on_device_grid(fake_trv.set_temperature_calls[-1], profile)
@@ -318,7 +297,7 @@ async def test_offset_reaches_the_calibration_number_entity(hass, fake_trv):
             and offset_number.set_value_calls[-1] == pytest.approx(expected_offset)
         ),
     ), offset_number.set_value_calls
-    assert float(hass.states.get(OFFSET_NUMBER_ID).state) == pytest.approx(
+    assert float(hass.states.get(offset_number.entity_id).state) == pytest.approx(
         expected_offset
     )
     assert bt.real_trvs[TRV_ID].last_calibration == pytest.approx(expected_offset)
@@ -358,14 +337,16 @@ async def test_an_unanswered_offset_reopens_the_calibration_gate(hass, fake_trv)
         # The command went out and the device kept the value it had.
         lost = offset_number.set_value_calls[-1]
         assert trv.last_calibration == pytest.approx(lost)
-        assert float(hass.states.get(OFFSET_NUMBER_ID).state) != pytest.approx(lost)
+        assert float(hass.states.get(offset_number.entity_id).state) != pytest.approx(
+            lost
+        )
 
         # It is abandoned rather than waited on forever.
         assert await wait_for(hass, lambda: trv.calibration_received)
 
     # Better Thermostat still holds a command the device never took, so the
     # divergence the reconciler compares against is a real one.
-    reported = float(hass.states.get(OFFSET_NUMBER_ID).state)
+    reported = float(hass.states.get(offset_number.entity_id).state)
     assert trv.last_calibration != pytest.approx(reported)
 
 
@@ -418,7 +399,7 @@ async def test_valve_percentage_reaches_the_valve_number_entity(hass, fake_trv):
 
     opened = valve_number.set_value_calls[-1]
     assert 0.0 < opened <= 100.0
-    assert float(hass.states.get(VALVE_NUMBER_ID).state) == pytest.approx(opened)
+    assert float(hass.states.get(valve_number.entity_id).state) == pytest.approx(opened)
     assert bt.real_trvs[TRV_ID].last_valve_percent == pytest.approx(opened)
 
 
@@ -514,6 +495,11 @@ def test_every_reported_shape_is_still_in_the_matrix(description, shape):
     profile from the matrix and every parametrized test quietly stops running
     against it, with nothing failing to say so.
     """
-    matrix = ROLE_SCENARIOS if isinstance(shape, RoleScenario) else SINGLE_ROLE_PROFILES
+    if isinstance(shape, GroupScenario):
+        matrix = GROUP_SCENARIOS
+    elif isinstance(shape, RoleScenario):
+        matrix = ROLE_SCENARIOS
+    else:
+        matrix = SINGLE_ROLE_PROFILES
 
     assert shape in matrix, f"{description} is no longer part of the matrix"

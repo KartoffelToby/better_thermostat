@@ -142,9 +142,9 @@ not one:
 
 1. **A regression test at the level the bug sat.** A wrong number gets a unit
    test; a write that never reached the device gets an integration test.
-2. **A row in the device matrix** — a `DeviceProfile` or `RoleScenario` in
-   `tests/integration/device_profiles.py` describing the shape the report came
-   from.
+2. **A row in the device matrix** — a `DeviceProfile`, `RoleScenario` or
+   `GroupScenario` in `tests/integration/device_profiles.py` describing the
+   shape the report came from.
 
 The first artefact proves this bug is gone. The second is what catches the
 next one: every test parametrized over the matrix runs against that shape from
@@ -157,6 +157,12 @@ registry entry — because those are inseparable in the field. A Zigbee2MQTT
 head *is* the mqtt integration plus local calibration, and pairing one with
 the other integration describes a device that does not exist. Reuse the
 profile that already matches; add a row only when the shape is genuinely new.
+
+Some reports are not about one device at all. A room fitted with several
+heads behaves in ways no single head has — they can disagree about the mode,
+and one of them can go off the air while the others heat on — so its shape is
+a `GroupScenario`, which names the heads the entry drives together rather than
+one device.
 
 `SHAPES_FROM_REPORTS` in the same file names the shapes that reached us this
 way, and a test asserts each of them is still part of the matrix the

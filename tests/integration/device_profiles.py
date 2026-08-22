@@ -8,6 +8,10 @@ that does not exist. Every profile therefore states its integration, its
 calibration strategy and whether its entity carries a device registry entry,
 so the table reads as a list of devices instead of a list of overrides.
 ``conftest.py`` turns a profile into live entities.
+
+A ``RoleScenario`` and a ``GroupScenario`` name the two ways a config entry
+reaches more than one of them: which device plays which role in a room, and
+which heads the entry drives together.
 """
 
 from dataclasses import dataclass
@@ -19,8 +23,6 @@ from homeassistant.const import UnitOfTemperature
 TRV_ID = "climate.fake_trv"
 SPARE_TRV_ID = "climate.spare_trv"
 COOLER_ID = "climate.fake_cooler"
-OFFSET_NUMBER_ID = "number.fake_trv_calibration"
-VALVE_NUMBER_ID = "number.fake_trv_valve_position"
 
 _SETPOINT_FEATURES = (
     ClimateEntityFeature.TARGET_TEMPERATURE
@@ -91,6 +93,29 @@ class DeviceProfile:
     configured_target_temp_step: str = "0.0"
     offset_channel: OffsetChannel = OffsetChannel.NONE
     valve_channel: ValveChannel = ValveChannel.NONE
+
+
+def offset_number_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the calibration number on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_calibration"
+
+
+def valve_number_id(profile: DeviceProfile) -> str:
+    """Return the entity id of the valve number on this device."""
+    return f"number.{profile.entity_id.split('.', 1)[1]}_valve_position"
+
+
+@dataclass(frozen=True)
+class GroupScenario:
+    """The heads one config entry drives as a group in a single room.
+
+    Better Thermostat holds one target temperature for the room and writes it
+    to every head in ``profiles``; which head is listed first decides nothing
+    but the order they appear in.
+    """
+
+    name: str
+    profiles: tuple[DeviceProfile, ...]
 
 
 @dataclass(frozen=True)
@@ -299,6 +324,115 @@ DUAL_ROLE_AC = DeviceProfile(
 )
 """One entity that heats and cools, wired as thermostat and as cooler."""
 
+
+def _group_member(letter: str) -> DeviceProfile:
+    """Return one plain heat head of a group, identified by ``letter``.
+
+    Identical to every other member in everything but identity. A group of
+    these answers the questions that need several heads and nothing else, so
+    any other difference between them would be a second variable.
+    """
+    return DeviceProfile(
+        name=f"group_trv_{letter}",
+        integration="generic_thermostat",
+        calibration="target_temp_based",
+        has_device_registry_entry=False,
+        entity_id=f"climate.group_trv_{letter}",
+        entity_name=f"group trv {letter}",
+        configured_target_temp_step="0.5",
+    )
+
+
+GROUP_OF_THREE = GroupScenario(
+    name="three_identical_heads",
+    profiles=tuple(_group_member(letter) for letter in ("a", "b", "c")),
+)
+"""Three interchangeable heads in one room.
+
+Three rather than two so that a majority is not yet everybody: with two
+heads, one dissenter is already half the room, and a rule that waits for all
+of them looks exactly like one that waits for most.
+"""
+
+MIXED_GRID_A = DeviceProfile(
+    name="mixed_grid_a",
+    integration="generic_thermostat",
+    calibration="target_temp_based",
+    has_device_registry_entry=False,
+    entity_id="climate.mixed_half_degree_trv",
+    entity_name="mixed half degree trv",
+    target_temperature_step=0.5,
+)
+"""The half-degree head of a room whose two heads are not the same model."""
+
+MIXED_GRID_B = DeviceProfile(
+    name="mixed_grid_b",
+    integration="generic_thermostat",
+    calibration="target_temp_based",
+    has_device_registry_entry=False,
+    entity_id="climate.mixed_whole_degree_trv",
+    entity_name="mixed whole degree trv",
+    hvac_modes=(HVACMode.HEAT_COOL, HVACMode.OFF),
+    hvac_mode=HVACMode.HEAT_COOL,
+    min_temp=7.0,
+    max_temp=28.0,
+    target_temperature_step=1.0,
+)
+"""The whole-degree head of that room, which also names its mode differently.
+
+Its range is narrower than its partner's at both ends as well, so the two do
+not even agree on which temperatures they can be asked for.
+"""
+
+MIXED_GRID_GROUP = GroupScenario(
+    name="mixed_grid_group", profiles=(MIXED_GRID_A, MIXED_GRID_B)
+)
+"""Two heads that agree on nothing but the room they heat.
+
+Neither profile configures a setpoint step, because a configured step is
+entry-wide and would flatten the very axis this scenario exists for.
+"""
+
+VALVE_GROUP_WARM = DeviceProfile(
+    name="valve_group_warm",
+    integration="mqtt",
+    calibration="direct_valve_based",
+    calibration_mode="mpc_calibration",
+    has_device_registry_entry=True,
+    entity_id="climate.valve_group_warm_trv",
+    entity_name="valve group warm trv",
+    current_temperature=21.0,
+    valve_channel=ValveChannel.NUMBER_ENTITY,
+)
+"""The head sitting in the warmer half of a room driven by its valves."""
+
+VALVE_GROUP_COLD = DeviceProfile(
+    name="valve_group_cold",
+    integration="mqtt",
+    calibration="direct_valve_based",
+    calibration_mode="mpc_calibration",
+    has_device_registry_entry=True,
+    entity_id="climate.valve_group_cold_trv",
+    entity_name="valve group cold trv",
+    current_temperature=18.0,
+    valve_channel=ValveChannel.NUMBER_ENTITY,
+)
+"""The head by the draughty window, three Kelvin colder than its partner.
+
+Same model as its partner and different only in what it measures, so the
+opening the two are commanded can differ for one reason alone.
+"""
+
+VALVE_GROUP = GroupScenario(
+    name="valve_group", profiles=(VALVE_GROUP_WARM, VALVE_GROUP_COLD)
+)
+"""A room whose two heads are driven by valve position rather than setpoint.
+
+Distributing one group-level valve command across the heads is the only
+calibration path that reads more than one head's temperature, and it runs
+under the MPC modes alone.
+"""
+
 HEAT_ONLY = RoleScenario(
     name="heat_only", trv=GENERIC_HEAT_TRV, cooler=None, cooler_entity_id=None
 )
@@ -337,11 +471,15 @@ SINGLE_ROLE_PROFILES = (
 ROLE_SCENARIOS = (HEAT_ONLY, SEPARATE_COOLER, RANGED_COOLER, DUAL_ROLE)
 """Every wiring of a room a test can drive."""
 
-SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario] = {
+GROUP_SCENARIOS = (GROUP_OF_THREE, MIXED_GRID_GROUP, VALVE_GROUP)
+"""Every group of heads a test can drive as one room."""
+
+SHAPES_FROM_REPORTS: dict[str, DeviceProfile | RoleScenario | GroupScenario] = {
     "a head that offers no heating mode at all": AUTO_COOL_AC,
     "a head whose calibration is a number entity on its device": MQTT_OFFSET_TRV,
     "one entity wired as thermostat and as cooler": DUAL_ROLE,
     "a thermostat entity with no device registry entry": GENERIC_HEAT_TRV,
+    "a room with several heads that can disagree": GROUP_OF_THREE,
 }
 """The device shapes users have reported a bug against, by what they are.
 
