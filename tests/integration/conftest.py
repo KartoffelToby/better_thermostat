@@ -6,9 +6,10 @@ the layers — entity lifecycle, queues, kernel, adapters, services — is
 exercised end to end.
 
 The simulated devices are built from the profiles in ``device_profiles``:
-``fake_trv`` and ``device_role`` are parametrized indirectly to move the
-whole harness onto another device form, and every test names the devices its
-config entry is built for, so an axis cannot be flattened by accident.
+``fake_trv``, ``device_role`` and ``trv_group`` are parametrized indirectly to
+move the whole harness onto another device form, wiring or room, and every
+test names the devices its config entry is built for, so an axis cannot be
+flattened by accident.
 """
 
 import asyncio
@@ -35,6 +36,8 @@ from homeassistant.components.climate import (
     ATTR_TARGET_TEMP_HIGH,
     ATTR_TARGET_TEMP_LOW,
     DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
+    SERVICE_SET_TEMPERATURE,
     ClimateEntity,
     HVACMode,
 )
@@ -52,13 +55,15 @@ from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
 from .device_profiles import (
     GENERIC_HEAT_TRV,
+    GROUP_OF_THREE,
     HEAT_ONLY,
-    OFFSET_NUMBER_ID,
-    VALVE_NUMBER_ID,
     DeviceProfile,
+    GroupScenario,
     OffsetChannel,
     RoleScenario,
     ValveChannel,
+    offset_number_id,
+    valve_number_id,
 )
 
 DOMAIN = "better_thermostat"
@@ -69,9 +74,8 @@ WINDOW_ID = "binary_sensor.window"
 BT_ENTITY = "climate.bt_test"
 
 # The integration the simulated devices belong to when they need a device
-# registry entry, and the device all of them share.
+# registry entry.
 DEVICE_INTEGRATION = "test"
-DEVICE_IDENTIFIERS = {(DEVICE_INTEGRATION, "fake_device")}
 
 # Production pacing constants a test patches to run a control cycle without
 # waiting out wall-clock time. They live here because a rename in production
@@ -171,7 +175,9 @@ class SimulatedClimate(ClimateEntity):
             self._attr_precision = profile.precision
         if profile.has_device_registry_entry:
             self._attr_unique_id = f"{_object_id(profile.entity_id)}_climate"
-            self._attr_device_info = DeviceInfo(identifiers=DEVICE_IDENTIFIERS)
+            self._attr_device_info = DeviceInfo(
+                identifiers=_device_identifiers(profile)
+            )
         if profile.offset_channel is OffsetChannel.ECOSYSTEM_SERVICE:
             # The ecosystem adapter reads the current offset off the climate
             # entity itself instead of a separate calibration entity.
@@ -247,7 +253,7 @@ class _SimulatedNumber(NumberEntity):
     def __init__(self, profile: DeviceProfile, suffix: str):
         """Attach the entity to the profile's device."""
         self._attr_unique_id = f"{_object_id(profile.entity_id)}_{suffix}"
-        self._attr_device_info = DeviceInfo(identifiers=DEVICE_IDENTIFIERS)
+        self._attr_device_info = DeviceInfo(identifiers=_device_identifiers(profile))
         self.set_value_calls: list[float] = []
         self.drop_next_write = False
 
@@ -309,9 +315,32 @@ class WiredRoom:
         return self.entities[-1]
 
 
+@dataclass(frozen=True)
+class WiredGroup:
+    """The heads one group scenario wired, and the scenario that named them."""
+
+    scenario: GroupScenario
+    entities: list[SimulatedClimate]
+
+    def __getitem__(self, index: int) -> SimulatedClimate:
+        """Return the head the scenario lists at ``index``."""
+        return self.entities[index]
+
+
 def _object_id(entity_id: str) -> str:
     """Return the object id half of ``entity_id``."""
     return entity_id.split(".", 1)[1]
+
+
+def _device_identifiers(profile: DeviceProfile) -> set[tuple[str, str]]:
+    """Return the device registry identifiers of this profile's device.
+
+    One device per profile, never one device for the room: the calibration
+    and valve channels are discovered by walking the entity registry from the
+    device the climate entity belongs to, so heads that shared a device would
+    each find the other's channels.
+    """
+    return {(DEVICE_INTEGRATION, _object_id(profile.entity_id))}
 
 
 async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate]:
@@ -321,19 +350,20 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     registration routes are mutually exclusive. They must agree on
     ``temperature_unit`` too, because the unit is a property of the
     Home Assistant instance the devices share, not of one device.
+
+    They must not share an ``entity_id``: each profile becomes its own device,
+    and the number channels are named after it.
     """
     if not profiles:
         raise ValueError("build_devices needs at least one profile")
+    if len({p.entity_id for p in profiles}) != len(profiles):
+        raise ValueError("profiles must have distinct entity ids")
     with_device = profiles[0].has_device_registry_entry
     if any(p.has_device_registry_entry is not with_device for p in profiles):
         raise ValueError("profiles must agree on has_device_registry_entry")
     unit = profiles[0].temperature_unit
     if any(p.temperature_unit is not unit for p in profiles):
         raise ValueError("profiles must agree on temperature_unit")
-    if sum(p.offset_channel is OffsetChannel.NUMBER_ENTITY for p in profiles) > 1:
-        raise ValueError("only one device may carry a calibration number entity")
-    if sum(p.valve_channel is ValveChannel.NUMBER_ENTITY for p in profiles) > 1:
-        raise ValueError("only one device may carry a valve number entity")
     # A number entity is discovered through the device registry entry and is
     # registered along the config-entry route only, so the combination below
     # would build a device whose channel is silently absent.
@@ -360,12 +390,12 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         entity.entity_id = profile.entity_id
         if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
             offset = SimulatedOffsetNumber(profile)
-            offset.entity_id = OFFSET_NUMBER_ID
+            offset.entity_id = offset_number_id(profile)
             entity.offset_number = offset
             numbers.append(offset)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
-            valve.entity_id = VALVE_NUMBER_ID
+            valve.entity_id = valve_number_id(profile)
             entity.valve_number = valve
             numbers.append(valve)
         entities.append(entity)
@@ -450,8 +480,20 @@ async def device_role(hass, request) -> WiredRoom:
     return WiredRoom(scenario, await build_devices(hass, *profiles))
 
 
+@pytest.fixture
+async def trv_group(hass, request) -> WiredGroup:
+    """Register every head of a group scenario.
+
+    Parametrize indirectly with a ``GroupScenario``. The heads come back in
+    the order the scenario lists them, which is the order the config entry
+    built from it names them in.
+    """
+    scenario: GroupScenario = getattr(request, "param", GROUP_OF_THREE)
+    return WiredGroup(scenario, await build_devices(hass, *scenario.profiles))
+
+
 def make_entry(
-    devices: DeviceProfile | RoleScenario,
+    devices: DeviceProfile | RoleScenario | GroupScenario,
     *,
     with_window: bool = False,
     name: str = "BT Test",
@@ -459,13 +501,22 @@ def make_entry(
 ) -> MockConfigEntry:
     """Build a config entry for ``devices``, matching the current entry schema.
 
-    ``devices`` is the profile of the single device the entry controls, or
-    the role scenario that says which devices it wires to which channel.
+    ``devices`` is the profile of the single device the entry controls, the
+    role scenario that says which devices it wires to which channel, or the
+    group scenario naming the heads it drives together.
+
+    The heads of a group must agree on ``configured_target_temp_step``: the
+    entry carries one, and it overrides every head's own grid.
     """
-    if isinstance(devices, RoleScenario):
-        profile, cooler = devices.trv, devices.cooler_entity_id
+    if isinstance(devices, GroupScenario):
+        profiles, cooler = list(devices.profiles), None
+    elif isinstance(devices, RoleScenario):
+        profiles, cooler = [devices.trv], devices.cooler_entity_id
     else:
-        profile, cooler = devices, None
+        profiles, cooler = [devices], None
+    steps = {p.configured_target_temp_step for p in profiles}
+    if len(steps) > 1:
+        raise ValueError(f"one entry cannot carry the steps {sorted(steps)}")
     data = {
         "name": name,
         "thermostat": [
@@ -476,14 +527,25 @@ def make_entry(
                 "advanced": {
                     "calibration": profile.calibration,
                     "calibration_mode": profile.calibration_mode,
+                    # Every flag the config flow normalises is spelled out,
+                    # with the value it normalises an unset one to. A flag
+                    # left out reaches production as ``None``, and the code
+                    # that asks ``is False`` then takes neither branch — so
+                    # an incomplete entry does not weaken a test, it removes
+                    # the path from the run.
+                    "protect_overheating": False,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": heat_auto_swapped,
+                    "valve_maintenance": False,
+                    "child_lock": False,
+                    "homematicip": False,
                 },
             }
+            for profile in profiles
         ],
         "temperature_sensor": SENSOR_ID,
         "model": "Generic",
-        "target_temp_step": profile.configured_target_temp_step,
+        "target_temp_step": profiles[0].configured_target_temp_step,
         "tolerance": 0.3,
         "off_temperature": 5,
     }
@@ -538,6 +600,40 @@ def profile_id(spec) -> str:
 def set_room_sensor(hass, value, unit=UnitOfTemperature.CELSIUS) -> None:
     """Publish an external room temperature reading in ``unit``."""
     hass.states.async_set(SENSOR_ID, str(value), {"unit_of_measurement": unit})
+
+
+def mode_commands(events, entity_id: str) -> list[str]:
+    """The hvac modes dispatched at ``entity_id``, whatever became of them.
+
+    Read off the bus rather than off the device, because Home Assistant
+    rejects a mode the entity does not offer before the entity ever sees it:
+    a command that was never sent and one that was sent and refused are
+    indistinguishable at the device.
+    """
+    return [
+        event.data["service_data"]["hvac_mode"]
+        for event in events
+        if event.data["domain"] == CLIMATE_DOMAIN
+        and event.data["service"] == SERVICE_SET_HVAC_MODE
+        and event.data["service_data"].get("entity_id") == entity_id
+    ]
+
+
+def setpoint_commands(events, entity_id: str) -> list[dict]:
+    """The setpoint payloads dispatched at ``entity_id``, whatever became of them.
+
+    Read off the bus for the same reason as ``mode_commands``, and for one
+    more: Home Assistant throws a service call at an unavailable entity away
+    before the entity sees it, so at the device a command that was never sent
+    and one that was sent into an outage look exactly alike.
+    """
+    return [
+        event.data["service_data"]
+        for event in events
+        if event.data["domain"] == CLIMATE_DOMAIN
+        and event.data["service"] == SERVICE_SET_TEMPERATURE
+        and event.data["service_data"].get("entity_id") == entity_id
+    ]
 
 
 def cooling_setpoint(call: float | dict[str, float]) -> float:
