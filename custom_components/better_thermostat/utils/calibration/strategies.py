@@ -177,7 +177,7 @@ class BalanceStrategy:
         """
         # Runtime import: calibration.py builds the strategy registry from
         # this module, so a module-level import would be circular.
-        from ...calibration import effective_room_temp
+        from ...calibration import effective_room_temp  # noqa: PLC0415
 
         trv = bt.real_trvs.get(entity_id)
         healthy = (

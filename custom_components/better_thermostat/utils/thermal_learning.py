@@ -1,8 +1,7 @@
 """Thermal learning: heating-power and heat-loss state machines.
 
-Typed, pure-Python tracker dataclasses that are free of Home Assistant imports
-at runtime.  All HA-specific side-effects are communicated back to the caller
-via frozen *Result* dataclasses.
+Typed tracker dataclasses that perform no Home Assistant side effects.  Everything
+the caller has to act on is handed back in frozen *Result* dataclasses.
 """
 
 from __future__ import annotations
@@ -12,10 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
 import math
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
-if TYPE_CHECKING:
-    from homeassistant.components.climate.const import HVACAction
+from homeassistant.components.climate.const import HVACAction
 
 from .const import MAX_HEAT_LOSS, MAX_HEATING_POWER, MIN_HEAT_LOSS, MIN_HEATING_POWER
 
@@ -199,12 +197,13 @@ class HeatingPowerTracker:
         outdoor_temp: float | None = None,
     ) -> HeatingPowerUpdate:
         """Process one temperature reading and return what changed."""
-        from homeassistant.components.climate.const import HVACAction as _HA
-
         action_changed = current_action != self._prev_action
 
         # --- Transition: heating starts ---
-        if current_action == _HA.HEATING and self._prev_action != _HA.HEATING:
+        if (
+            current_action == HVACAction.HEATING
+            and self._prev_action != HVACAction.HEATING
+        ):
             self.start_temp = cur_temp
             self.start_ts = now
             self.end_temp = None
@@ -212,8 +211,8 @@ class HeatingPowerTracker:
 
         # --- Transition: heating stops (candidate end) ---
         elif (
-            current_action != _HA.HEATING
-            and self._prev_action == _HA.HEATING
+            current_action != HVACAction.HEATING
+            and self._prev_action == HVACAction.HEATING
             and self.start_temp is not None
             and self.end_temp is None
         ):
@@ -222,7 +221,7 @@ class HeatingPowerTracker:
 
         # --- Peak tracking: temp still rising after heating stopped ---
         elif (
-            current_action != _HA.HEATING
+            current_action != HVACAction.HEATING
             and self.start_temp is not None
             and self.end_temp is not None
             and cur_temp > self.end_temp
@@ -422,8 +421,6 @@ class HeatLossTracker:
         window_open: bool = False,
     ) -> HeatLossUpdate:
         """Process one temperature reading and return what changed."""
-        from homeassistant.components.climate.const import HVACAction as _HA
-
         # Window open → reset tracking
         if window_open:
             self.start_temp = None
@@ -434,7 +431,7 @@ class HeatLossTracker:
             return HeatLossUpdate()
 
         # Track idle cooling
-        if current_action != _HA.HEATING:
+        if current_action != HVACAction.HEATING:
             if self.start_temp is None:
                 self.start_temp = cur_temp
                 self.start_ts = now
@@ -446,7 +443,7 @@ class HeatLossTracker:
 
         # Finalize when heating restarts
         cycle_result: CycleResult | None = None
-        if current_action == _HA.HEATING and self.start_temp is not None:
+        if current_action == HVACAction.HEATING and self.start_temp is not None:
             cycle_result = self._finalize()
 
         self._prev_action = current_action

@@ -205,6 +205,7 @@ Common tasks:
 uv run pytest tests          # run the test suite
 uv run ruff check            # lint
 uv run ruff format           # format
+uv run yamllint --strict .   # lint YAML
 ```
 
 CI runs these with `uv run --locked` (and `uv sync --locked`) to fail on any

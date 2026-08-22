@@ -142,7 +142,7 @@ async def test_startup_arms_grace_before_the_first_degraded_check(caplog):
         # the warning and the repair issue fire.
         bt.clock.advance(STARTUP_DEGRADED_GRACE_PERIOD.total_seconds() + 1)
         with patch(
-            "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry",
+            "custom_components.better_thermostat.utils.watcher.async_fire_logbook_entry",
             AsyncMock(),
         ):
             await check_and_update_degraded_mode(bt)
@@ -249,7 +249,7 @@ async def test_degraded_sensor_stays_silent_during_grace_and_warns_after(caplog)
 
         bt.clock.advance(STARTUP_DEGRADED_GRACE_PERIOD.total_seconds() + 1)
         with patch(
-            "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry",
+            "custom_components.better_thermostat.utils.watcher.async_fire_logbook_entry",
             AsyncMock(),
         ):
             await check_and_update_degraded_mode(bt)

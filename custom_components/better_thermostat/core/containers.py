@@ -1,18 +1,18 @@
 """Typed containers for the three attribute lifecycles of the entity.
 
-The entity used to mix three lifecycles in one attribute bag:
+The entity's attributes split into three lifecycles:
 
 * :class:`BtConfig` — static configuration, set once at setup and frozen.
 * :class:`BtRuntime` — live operating values, changing with every
   observation or control cycle, rebuilt from scratch on restart.
-* learned values — these already have owned homes: the heating-power
+* learned values — these have owned homes elsewhere: the heating-power
   and heat-loss trackers on the entity, and the StateManager for
   everything that persists across restarts. No third container is
   duplicated here.
 
-The entity exposes the historical attribute names as properties that
-delegate into these containers, so call sites keep reading
-``self.cur_temp`` while each value lives in exactly one container.
+The entity exposes the flat attribute names as properties that delegate
+into these containers, so call sites read ``self.cur_temp`` while each
+value lives in exactly one container.
 """
 
 from __future__ import annotations

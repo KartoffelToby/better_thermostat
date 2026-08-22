@@ -287,11 +287,19 @@ async def restore_one(
         try:
             await set_temperature_fn(info.entity_id, info.cur_temp)
         except Exception:
-            pass
+            _LOGGER.debug(
+                "better_thermostat: restoring the setpoint of %s failed",
+                info.entity_id,
+                exc_info=True,
+            )
     try:
         await set_hvac_mode_fn(info.entity_id, info.cur_mode)
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat: restoring the HVAC mode of %s failed",
+            info.entity_id,
+            exc_info=True,
+        )
 
 
 # Main orchestrator

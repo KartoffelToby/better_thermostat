@@ -5,6 +5,9 @@ on:
     branches: [develop, master]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -21,8 +24,15 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           enable-cache: true
-      # --only-group dev skips Home Assistant; ruff is all lint needs.
+      # --only-group dev installs the lint tools without Home Assistant;
+      # every lint tool lives in that group, pinned by uv.lock.
       - name: ruff check
         run: uv run --locked --only-group dev ruff check
       - name: ruff format --check
         run: uv run --locked --only-group dev ruff format --check
+      # BLE001 is silenced per file in pyproject.toml, so `ruff check` above
+      # says nothing about those files. This is what caps them.
+      - name: Check the blind exception handler budget
+        run: uv run --locked --only-group dev python scripts/blind_except_budget.py check
+      - name: yamllint
+        run: uv run --locked --only-group dev yamllint --strict .
