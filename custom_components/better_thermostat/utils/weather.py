@@ -18,9 +18,6 @@ from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 from homeassistant.helpers.recorder import get_instance
 import homeassistant.util.dt as dt_util
 
-# from datetime import datetime, timedelta
-# import homeassistant.util.dt as dt_util
-# from homeassistant.components.recorder.history import state_changes_during_period
 from .helpers import async_fire_logbook_entry, convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
