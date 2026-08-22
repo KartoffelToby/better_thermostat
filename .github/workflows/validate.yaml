@@ -16,8 +16,8 @@ jobs:
     runs-on: "ubuntu-latest"
     timeout-minutes: 5
     steps:
-      - uses: "actions/checkout@v6"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: HACS validation
-        uses: "hacs/action@22.5.0"
+        uses: hacs/action@d556e736723344f83838d08488c983a15381059a  # 22.5.0
         with:
           category: "integration"
