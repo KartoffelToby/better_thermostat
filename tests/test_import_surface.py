@@ -1,6 +1,6 @@
 """Guards on what the integration root drags into a Home Assistant process.
 
-``config_flow`` and the four device-automation modules import the package
+``config_flow`` and the three device-automation modules import the package
 only for ``DOMAIN``. Home Assistant loads them whenever a user opens the
 add-integration dialog or the automation editor, on installs that may have
 no Better Thermostat entry at all. Anything reachable from the package's
@@ -25,7 +25,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "custom_components.better_thermostat"
 
-#: Modules a user reaches without ever setting up an entry.
+#: The integration root and every module that imports it for ``DOMAIN`` alone.
 DOMAIN_ONLY_CONSUMERS = (
     PACKAGE,
     f"{PACKAGE}.config_flow",
