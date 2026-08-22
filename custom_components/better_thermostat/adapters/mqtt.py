@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import cast
 
 from homeassistant.components.climate.const import PRESET_NONE
 from homeassistant.components.number.const import SERVICE_SET_VALUE
@@ -19,6 +20,7 @@ from .generic import (
     set_hvac_mode as generic_set_hvac_mode,
     set_temperature as generic_set_temperature,
 )
+from .types import AdapterHost, AdapterProbeHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True)
 
 
-async def get_info(self, entity_id):
+async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     """Get info from TRV."""
     support_offset = False
     support_valve = False
@@ -39,7 +41,7 @@ async def get_info(self, entity_id):
     return {"support_offset": support_offset, "support_valve": support_valve}
 
 
-async def init(self, entity_id):
+async def init(self: AdapterHost, entity_id: str) -> None:
     """Initialize the MQTT adapter for a TRV entity.
 
     Performs early discovery of the valve position and the local
@@ -51,7 +53,9 @@ async def init(self, entity_id):
 
         valve = await _find_valve(self, entity_id)
         if valve is not None:
-            self.real_trvs[entity_id].valve_position_entity = valve.get("entity_id")
+            self.real_trvs[entity_id].valve_position_entity = cast(
+                str | None, valve.get("entity_id")
+            )
             self.real_trvs[entity_id].valve_position_writable = bool(
                 valve.get("writable", False)
             )
@@ -106,21 +110,23 @@ async def init(self, entity_id):
             )
 
 
-async def set_temperature(self, entity_id, temperature):
+async def set_temperature(
+    self: AdapterHost, entity_id: str, temperature: float
+) -> None:
     """Set new target temperature."""
     return await generic_set_temperature(self, entity_id, temperature)
 
 
-async def set_hvac_mode(self, entity_id, hvac_mode):
+async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
     """Set new target hvac mode."""
     await generic_set_hvac_mode(self, entity_id, hvac_mode)
     await asyncio.sleep(3)
 
 
-async def get_current_offset(self, entity_id):
+async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
+        self.real_trvs[entity_id].local_temperature_calibration_entity  # type: ignore[bad-argument-type]
     )
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return 0.0
@@ -135,43 +141,43 @@ async def get_current_offset(self, entity_id):
         return 0.0
 
 
-async def get_offset_step(self, entity_id):
+async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
     """Get offset step."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
+        self.real_trvs[entity_id].local_temperature_calibration_entity  # type: ignore[bad-argument-type]
     )
     if state is None:
         return 1.0
     return float(str(state.attributes.get("step", 1)))
 
 
-async def get_min_offset(self, entity_id):
+async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
+        self.real_trvs[entity_id].local_temperature_calibration_entity  # type: ignore[bad-argument-type]
     )
     if state is None:
         return -10.0
     return float(str(state.attributes.get("min", -10)))
 
 
-async def get_max_offset(self, entity_id):
+async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
     state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
+        self.real_trvs[entity_id].local_temperature_calibration_entity  # type: ignore[bad-argument-type]
     )
     if state is None:
         return 10.0
     return float(str(state.attributes.get("max", 10)))
 
 
-async def set_offset(self, entity_id, offset) -> bool:
+async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
     """Write a calibration offset to the discovered calibration entity.
 
     Parameters
     ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
+    self : AdapterHost
+        Host providing Home Assistant access and the per-TRV records.
     entity_id : str
         Entity ID of the TRV to write to
     offset : float
@@ -209,12 +215,12 @@ async def set_offset(self, entity_id, offset) -> bool:
     ):
         await asyncio.sleep(3)
         await generic_set_hvac_mode(
-            self, entity_id, self.real_trvs[entity_id].last_hvac_mode
+            self, entity_id, cast(str, self.real_trvs[entity_id].last_hvac_mode)
         )
     return True
 
 
-async def set_valve(self, entity_id, valve):
+async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> None:
     """Set new target valve."""
     _LOGGER.debug(
         "better_thermostat %s: TO TRV %s set_valve: %s",

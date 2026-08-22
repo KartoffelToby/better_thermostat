@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import cast
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -18,6 +19,7 @@ from ..utils.helpers import (
     normalize_hvac_mode,
 )
 from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
+from .types import AdapterHost, AdapterProbeHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=False)
 
 
-def _option_to_offset(option) -> float | None:
+def _option_to_offset(option: str) -> float | None:
     """Read the offset an option of a select-backed calibration entity carries.
 
     Parameters
@@ -46,7 +48,7 @@ def _option_to_offset(option) -> float | None:
         return None
 
 
-async def get_info(self, entity_id):
+async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     """Get info from TRV."""
     support_offset = False
 
@@ -56,7 +58,7 @@ async def get_info(self, entity_id):
     return {"support_offset": support_offset, "support_valve": False}
 
 
-async def init(self, entity_id):
+async def init(self: AdapterHost, entity_id: str) -> None:
     """Initialize generic adapter for an entity.
 
     Finds and registers a local calibration entity (if configured) and waits
@@ -90,11 +92,11 @@ async def init(self, entity_id):
             )
 
 
-async def get_current_offset(self, entity_id):
+async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
     if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id].local_temperature_calibration_entity
+            cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
         )
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return 0.0
@@ -113,11 +115,11 @@ async def get_current_offset(self, entity_id):
         return 0.0
 
 
-async def get_offset_step(self, entity_id):
+async def get_offset_step(self: AdapterHost, entity_id: str) -> float | None:
     """Get offset step."""
     if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id].local_temperature_calibration_entity
+            cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
         )
         if state is None:
             return None
@@ -126,11 +128,11 @@ async def get_offset_step(self, entity_id):
         return None
 
 
-async def get_min_offset(self, entity_id):
+async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
     if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id].local_temperature_calibration_entity
+            cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
         )
         if state is None:
             return -6.0
@@ -153,11 +155,11 @@ async def get_min_offset(self, entity_id):
         return -6
 
 
-async def get_max_offset(self, entity_id):
+async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
     if self.real_trvs[entity_id].local_temperature_calibration_entity is not None:
         state = self.hass.states.get(
-            self.real_trvs[entity_id].local_temperature_calibration_entity
+            cast(str, self.real_trvs[entity_id].local_temperature_calibration_entity)
         )
         if state is None:
             return 6.0
@@ -180,7 +182,9 @@ async def get_max_offset(self, entity_id):
         return 6
 
 
-async def set_temperature(self, entity_id, temperature):
+async def set_temperature(
+    self: AdapterHost, entity_id: str, temperature: float
+) -> None:
     """Set new target temperature."""
     temperature = celsius_to_system_temperature(self.hass, temperature)
     await self.hass.services.async_call(
@@ -192,7 +196,7 @@ async def set_temperature(self, entity_id, temperature):
     )
 
 
-async def set_hvac_mode(self, entity_id, hvac_mode):
+async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
     """Set new target hvac mode."""
 
     hvac_mode_norm = normalize_hvac_mode(hvac_mode)
@@ -226,13 +230,13 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
         )
 
 
-async def set_offset(self, entity_id, offset) -> bool:
+async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
     """Write a calibration offset to the discovered calibration entity.
 
     Parameters
     ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
+    self : AdapterHost
+        Host providing Home Assistant access and the per-TRV records.
     entity_id : str
         Entity ID of the TRV to write to
     offset : float
@@ -251,9 +255,9 @@ async def set_offset(self, entity_id, offset) -> bool:
         offset = min(max_calibration, offset)
         offset = max(min_calibration, offset)
 
-        calibration_entity = self.real_trvs[
-            entity_id
-        ].local_temperature_calibration_entity
+        calibration_entity = cast(
+            str, self.real_trvs[entity_id].local_temperature_calibration_entity
+        )
         entity_state = self.hass.states.get(calibration_entity)
 
         # Derive domain safely - from entity_state if available, otherwise from entity_id
@@ -267,7 +271,7 @@ async def set_offset(self, entity_id, offset) -> bool:
             option_value = f"{offset:.1f}k"
 
             # Get available options (handle None entity_state gracefully)
-            options = []
+            options: list[str] = []
             if entity_state:
                 options = entity_state.attributes.get("options", [])
 
@@ -321,7 +325,7 @@ async def set_offset(self, entity_id, offset) -> bool:
         ):
             await asyncio.sleep(3)
             await set_hvac_mode(
-                self, entity_id, self.real_trvs[entity_id].last_hvac_mode
+                self, entity_id, cast(str, self.real_trvs[entity_id].last_hvac_mode)
             )
 
         return True
@@ -329,6 +333,6 @@ async def set_offset(self, entity_id, offset) -> bool:
         return False
 
 
-async def set_valve(self, entity_id, valve):
+async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> None:
     """Set new target valve."""
     return  # Not supported

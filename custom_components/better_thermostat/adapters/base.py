@@ -9,6 +9,8 @@ import logging
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
+from .types import AdapterHost
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -45,19 +47,22 @@ class AdapterCapabilities:
     valve_needs_entity: bool = True
 
 
-async def wait_for_calibration_entity_or_timeout(self, entity_id, calibration_entity):
+async def wait_for_calibration_entity_or_timeout(
+    self: AdapterHost, entity_id: str, calibration_entity: str | None
+) -> None:
     """Wait for calibration entity to become available with timeout.
 
     If the entity is not available after timeout, force set calibration to 0.
 
     Parameters
     ----------
-    self :
-        self instance of better_thermostat
+    self : AdapterHost
+        Host providing Home Assistant access and the per-TRV records.
     entity_id : str
         The TRV entity ID
-    calibration_entity : str
-        The local temperature calibration entity ID
+    calibration_entity : str or None
+        The local temperature calibration entity ID, or None when the TRV
+        has no calibration entity to wait for
 
     Returns
     -------
