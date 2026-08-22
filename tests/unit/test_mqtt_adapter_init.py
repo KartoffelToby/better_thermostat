@@ -18,7 +18,7 @@ from custom_components.better_thermostat.trv import Trv
 
 ENTITY_ID = "climate.test_trv"
 _MQTT_LOGGER = "custom_components.better_thermostat.adapters.mqtt"
-_FIND_VALVE = "custom_components.better_thermostat.utils.helpers.find_valve_entity"
+_FIND_VALVE = "custom_components.better_thermostat.adapters.mqtt.find_valve_entity"
 
 
 def _bt() -> MagicMock:
