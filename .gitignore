@@ -89,6 +89,7 @@ node_modules
 .mcp.json
 .memory/
 .opencode/
+.playwright-mcp/
 AGENTS.md
 CLAUDE.md
 STACK.md
