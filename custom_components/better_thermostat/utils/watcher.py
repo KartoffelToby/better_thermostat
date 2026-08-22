@@ -156,35 +156,6 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
         )
 
 
-async def check_all_entities(self) -> bool:
-    """Verify all configured entities and report missing ones as issues.
-
-    Returns True if all entities are available.
-    """
-    entities = self.all_entities
-    for entity in entities:
-        if not await check_entity(self, entity):
-            name = entity
-            self.devices_errors.append(name)
-            self.async_write_ha_state()
-            ir.async_create_issue(
-                hass=self.hass,
-                domain=DOMAIN,
-                issue_id=f"missing_entity_{name}",
-                is_fixable=True,
-                is_persistent=False,
-                learn_more_url="https://better-thermostat.org/faq/missing-entity",
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="missing_entity",
-                translation_placeholders={
-                    "entity": str(name),
-                    "name": str(self.device_name),
-                },
-            )
-            return False
-    return True
-
-
 def get_optional_sensors(self) -> list:
     """Return list of optional sensor entity IDs.
 

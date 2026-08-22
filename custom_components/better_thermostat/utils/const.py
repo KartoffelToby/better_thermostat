@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 import json
 import logging
 import os
@@ -108,13 +108,6 @@ BETTERTHERMOSTAT_RESET_PID_SCHEMA: Final = make_entity_service_schema(
         vol.Optional("defaults_kd"): vol.Coerce(float),
     }
 )
-
-
-class BetterThermostatEntityFeature(IntEnum):
-    """Supported features of the climate entity."""
-
-    TARGET_TEMPERATURE = 1
-    TARGET_TEMPERATURE_RANGE = 2
 
 
 class CalibrationType(StrEnum):

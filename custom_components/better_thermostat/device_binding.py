@@ -1,9 +1,10 @@
 """Device binding for Better Thermostat.
 
-Provides functions to discover all Better Thermostat instances and their
-connected TRV devices by reading config-entry data, the entity registry, and
-current state. Each binding record shows the BT instance, its managed TRV,
-integration type, model, calibration mode, registry entry, and state.
+Links a Better Thermostat device to the TRV device it controls in the Home
+Assistant device registry, and reads back the TRVs a single config entry
+manages from config-entry data, the entity registry, and current state. Each
+binding record shows the BT instance, its managed TRV, integration type,
+model, calibration mode, registry entry, and state.
 """
 
 from __future__ import annotations
@@ -160,35 +161,3 @@ def async_get_config_entry_bindings(
         )
 
     return bindings
-
-
-@callback
-def async_get_all_bindings(hass: HomeAssistant) -> list[dict[str, Any]]:
-    """Return all TRVs bound to every Better Thermostat instance.
-
-    Iterates every Better Thermostat config entry currently loaded and
-    collects the device binding records. This is the entry point for
-    diagnostics, services, or API handlers that need a full inventory
-    of BT-managed devices.
-
-    Parameters
-    ----------
-    hass : HomeAssistant
-        The Home Assistant instance.
-
-    Returns
-    -------
-    list[dict[str, Any]]
-        Concatenated binding records from every active BT config entry.
-    """
-    all_bindings = []
-
-    for entry_id, entry_data in hass.data.get(DOMAIN, {}).items():
-        if "climate" not in entry_data:
-            continue
-        entry = hass.config_entries.async_get_entry(entry_id)
-        if entry is None:
-            continue
-        all_bindings.extend(async_get_config_entry_bindings(hass, entry))
-
-    return all_bindings
