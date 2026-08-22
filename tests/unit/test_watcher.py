@@ -371,6 +371,8 @@ class TestCheckCriticalEntities:
         """
         from datetime import timedelta
 
+        from homeassistant.util import dt as dt_util
+
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
@@ -378,9 +380,7 @@ class TestCheckCriticalEntities:
         mock_state = MagicMock()
         mock_state.state = "unavailable"
         mock_bt_instance.hass.states.get.return_value = mock_state
-        mock_bt_instance._critical_grace_until = (
-            mock_bt_instance.clock.now() - timedelta(minutes=1)
-        )
+        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             with caplog.at_level("WARNING"):
