@@ -33,8 +33,9 @@ async def check_operation_mode(
 
     Finds the ``select`` entity carrying the TRV mode on the same device as
     ``entity_id`` and selects ``goal`` when it reads anything else. Returns
-    True once the mode is known to sit on ``goal``, and False when the
-    registry entry, the mode select or its state is missing.
+    True once the mode reads ``goal`` or the switch to it has been requested,
+    and False when the registry entry, the mode select or its state is
+    missing.
     """
 
     entity_registry = er.async_get(self.hass)
