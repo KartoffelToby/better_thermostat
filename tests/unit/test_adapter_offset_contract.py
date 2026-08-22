@@ -197,3 +197,59 @@ class TestNoOffsetChannelReportsFalse:
         assert result is False
         mock_self.hass.services.async_call.assert_not_awaited()
         assert mock_self.real_trvs[ENTITY_ID].last_calibration is None
+
+
+def _reject_anything_but_an_entity_id(requested):
+    """Stand in for ``StateMachine.get``, which lower-cases what it is given.
+
+    Parameters
+    ----------
+    requested : object
+        Whatever the adapter passed as the entity id.
+
+    Returns
+    -------
+    None
+        No state, for any entity id.
+
+    Raises
+    ------
+    AttributeError
+        When the adapter passed something other than an entity id, exactly as
+        Home Assistant's own state machine does.
+    """
+    if not isinstance(requested, str):
+        raise AttributeError(
+            f"'{type(requested).__name__}' object has no attribute 'lower'"
+        )
+
+
+class TestNoOffsetChannelIsNeverLookedUp:
+    """A TRV without a calibration entity is not looked up in the state machine.
+
+    Discovery leaves the entity id at None when it finds no calibration
+    helper, and the state machine takes an entity id. An adapter that hands
+    it that None raises instead of answering, and the raise reaches the
+    startup read that fills the calibration bounds.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        "getter",
+        ["get_current_offset", "get_offset_step", "get_min_offset", "get_max_offset"],
+    )
+    @pytest.mark.asyncio
+    async def test_getter_answers_its_no_channel_default(self, adapter, getter):
+        """The answer is the one the adapter gives for an entity without state.
+
+        Both cases mean the same thing to the caller: this TRV offers no
+        offset reading, so fall back to the adapter's declared bounds.
+        """
+        undiscovered = _mock_self(calibration_entity=None)
+        undiscovered.hass.states.get = _reject_anything_but_an_entity_id
+        stateless = _mock_self()
+        stateless.hass.states.get = lambda requested: None
+
+        assert await getattr(adapter, getter)(undiscovered, ENTITY_ID) == await getattr(
+            adapter, getter
+        )(stateless, ENTITY_ID)

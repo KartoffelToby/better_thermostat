@@ -157,31 +157,7 @@ matches = "custom_components/better_thermostat/__init__.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/base.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/deconz.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/adapters/delegate.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/generic.py"
-errors = { implicit-any-parameter = false, implicit-any-empty-container = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/mqtt.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/tado.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/zwave_js.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
