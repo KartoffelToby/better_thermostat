@@ -161,3 +161,18 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/utils/retry.py"
 errors = { implicit-any-parameter = true, implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+# The three shell modules carry every strict flag but implicit-any-parameter:
+# a handful of their module-level functions read the instance in ways the
+# entity's own declarations contradict, so those parameters stay untyped.
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/utils/helpers.py"
+errors = { implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/calibration.py"
+errors = { implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
+
+[[tool.pyrefly.sub-config]]
+matches = "custom_components/better_thermostat/utils/controlling.py"
+errors = { implicit-any-attribute = true, implicit-any-type-argument = true, implicit-any-empty-container = true, missing-override-decorator = true }
