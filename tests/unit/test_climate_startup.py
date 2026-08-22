@@ -823,11 +823,12 @@ class TestInitializeTrvCurrentTemperature:
 class TestInitializeTrvCalibrationFallback:
     """A failed offset read still leaves the TRV a calibration window.
 
-    A TRV that carries its own offset reaches startup without bounds, and
-    every offset the control loop writes is clamped into them. A read that
-    outlasts its budget or fails outright therefore falls back to the window
-    a TRV configured without a device offset gets, so the first control cycle
-    clamps against a window instead of None.
+    A TRV that carries its own offset has startup read that offset and the
+    bounds the device accepts, and every offset the control loop writes is
+    clamped into those bounds. A read that outlasts its budget or fails
+    outright leaves the offset at 0 and the bounds at the values the TRV
+    declares, so the first control cycle still has a window to clamp against
+    and startup carries on to the rest of the TRV's attributes.
     """
 
     def _offset_trv_bt(self, bt):

@@ -1603,7 +1603,8 @@ class ValveEntityInfo(TypedDict):
     writable : bool
         Whether the helper sits in a domain the integration can write to.
     reason : str
-        Which classification matched, kept for the discovery log.
+        Which classification matched; the primary key candidates are ranked
+        by, and logged with the pick.
     domain : str
         Home Assistant domain the helper lives in.
     """
