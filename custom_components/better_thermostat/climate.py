@@ -2940,7 +2940,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if self.kernel_state.control_mode.degraded_since is not None
                 else None
             ),
-            # ECO mode attribute removed: eco preset supported via PRESET_ECO
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
             ),
