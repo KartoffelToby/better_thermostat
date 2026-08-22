@@ -113,6 +113,10 @@ async def trigger_trv_change(self, event):
         return
 
     advanced = trv.advanced or {}
+    # Absent means unlocked. An entry written before the option existed carries
+    # no flag at all and no migration adds one, so the key is missing rather
+    # than false for those — which is the same thing the config flow normalises
+    # an unset flag to, and what the child lock switch reports for it.
     child_lock = advanced.get("child_lock")
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
@@ -281,7 +285,7 @@ async def trigger_trv_change(self, event):
             trv.hvac_mode = _org_trv_state.state
             _main_change = True
             if (
-                child_lock is False
+                not child_lock
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))
