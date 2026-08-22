@@ -181,7 +181,6 @@ async def _load_adapter_info(
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
-                # type: ignore[attr-defined]
                 info = await adapter.get_info(flow, trv_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
@@ -703,8 +702,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
-    # Added to satisfy abstract base in newer HA versions
-    # type: ignore[override]
     def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
         """Return True if this flow matches an existing config flow (reconfigure)."""
         if (

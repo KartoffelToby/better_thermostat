@@ -943,14 +943,14 @@ def _compute_predictive_percent(
 
     use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
 
-    # delta_t is kept for API/backward compatibility (pre-u0 versions used it)
+    # delta_t is part of the call signature but not an input to this solver.
     _ = delta_t
 
     if state.last_learn_time is None:
         state.last_learn_time = now
         state.last_learn_temp = current_temp_cost_C
 
-    # Convert constants & params (use existing param names for backward compatibility)
+    # Convert constants & params
     step_s = float(getattr(params, "mpc_step_s", MPC_STEP_SECONDS))
     step_minutes = step_s / 60.0
     horizon = int(getattr(params, "mpc_horizon_steps", MPC_HORIZON_STEPS))
