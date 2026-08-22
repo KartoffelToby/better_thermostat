@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
     supports_temperature_range,
@@ -16,7 +17,7 @@ from custom_components.better_thermostat.utils.helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return corrected local calibration offset for BTH-RM230Z.
 
     Currently a passthrough, but provided for future adjustments.
@@ -24,7 +25,9 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return corrected target temperature for BTH-RM230Z.
 
     Currently a passthrough, but provided for future adjustments.
@@ -32,12 +35,16 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """No special HVAC mode override for BTH-RM230Z."""
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Handle BTH-RM230Z set_temperature quirk.
 
     This device exposes both a single 'temperature' setpoint and a
@@ -53,8 +60,8 @@ async def override_set_temperature(self, entity_id, temperature):
 
     Parameters
     ----------
-    self :
-            self instance of better_thermostat
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
     entity_id : str
             entity_id of the TRV
     temperature : float

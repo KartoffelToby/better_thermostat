@@ -12,6 +12,8 @@ from homeassistant.components.lock import LockState
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+
 from ..utils.helpers import find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,37 +21,43 @@ _LOGGER = logging.getLogger(__name__)
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return the given local calibration offset unchanged."""
     return offset
 
 
-def fix_valve_calibration(self, entity_id, valve):
+def fix_valve_calibration(self: ModelFixHost, entity_id: str, valve: float) -> float:
     """Return the given valve calibration unchanged."""
     return valve
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return the given target temperature unchanged."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Do not override HVAC mode by default."""
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Do not override set temperature by default."""
     return False
 
 
-async def override_set_valve(self, entity_id, percent: int):
+async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
     """Do not override valve by default."""
     return False
 
 
-async def initial_tweak(self, entity_id):
+async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
     entity_registry = er.async_get(self.hass)
     reg_entity = entity_registry.async_get(entity_id)
@@ -57,7 +65,7 @@ async def initial_tweak(self, entity_id):
     if reg_entity is not None and reg_entity.device_id is not None:
         device_id = reg_entity.device_id
 
-        def find_entity(domains, keywords):
+        def find_entity(domains: list[str], keywords: list[str]) -> str | None:
             return find_device_entity(entity_registry, device_id, domains, keywords)
 
         # 1. Local calibration -> 0

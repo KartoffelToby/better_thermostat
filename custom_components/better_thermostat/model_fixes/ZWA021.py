@@ -8,9 +8,13 @@ mode the module is inert and the device is driven through the standard
 ``climate`` services, exactly like an unquirked TRV.
 """
 
+from collections.abc import Mapping
 import logging
+from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
+
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 from ..utils.const import CalibrationType
 
@@ -38,28 +42,32 @@ _MULTILEVEL_SWITCH_COMMAND_CLASS = 38
 _VALVE_MAX = 99
 
 
-def _is_direct_valve(self, entity_id):
+def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
     """Return True when this TRV is configured for direct valve control."""
-    adv = self.real_trvs[entity_id].advanced or {}
+    adv: Mapping[str, Any] = self.real_trvs[entity_id].advanced or {}
     return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return the given local calibration offset unchanged."""
     return offset
 
 
-def fix_valve_calibration(self, entity_id, valve):
+def fix_valve_calibration(self: ModelFixHost, entity_id: str, valve: float) -> float:
     """Return the given valve calibration unchanged."""
     return valve
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return the given target temperature unchanged."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Engage the manufacturer-specific mode for direct valve control.
 
     Only active when the TRV is configured for direct valve control and the
@@ -93,12 +101,14 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     return True
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Do not override set temperature."""
     return False
 
 
-async def override_set_valve(self, entity_id, percent):
+async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
     """Drive the valve directly via the Multilevel Switch command class.
 
     Active only in direct valve control; otherwise returns ``False`` so the
