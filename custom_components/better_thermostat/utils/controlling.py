@@ -378,7 +378,7 @@ def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
     return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
-def _calibration_match_tolerance(self: BetterThermostat, entity_id) -> float:
+def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> float:
     """Per-device tolerance for the commanded-vs-reported offset comparison.
 
     Devices snap a written offset onto their own step grid; a snapped
@@ -1904,7 +1904,7 @@ async def control_trv(
             self.real_trvs[heater_entity_id].ignore_trv_states = False
 
 
-async def check_system_mode(self, heater_entity_id=None) -> bool:
+async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bool:
     """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
 
     Polls the TRV's live entity state every second until it matches
@@ -1917,7 +1917,7 @@ async def check_system_mode(self, heater_entity_id=None) -> bool:
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str, optional
+    heater_entity_id : str
         Entity ID of the TRV to check
 
     Returns
@@ -1958,7 +1958,9 @@ async def check_system_mode(self, heater_entity_id=None) -> bool:
     return True
 
 
-async def check_target_temperature(self, heater_entity_id=None) -> bool:
+async def check_target_temperature(
+    self: BetterThermostat, heater_entity_id: str
+) -> bool:
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
@@ -1970,7 +1972,7 @@ async def check_target_temperature(self, heater_entity_id=None) -> bool:
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str, optional
+    heater_entity_id : str
         Entity ID of the TRV to check
 
     Returns
@@ -2030,7 +2032,9 @@ async def check_target_temperature(self, heater_entity_id=None) -> bool:
     return True
 
 
-async def check_calibration(self, heater_entity_id=None, generation: int = 0) -> bool:
+async def check_calibration(
+    self: BetterThermostat, heater_entity_id: str, generation: int = 0
+) -> bool:
     """Wait for TRV to confirm a calibration offset write, timeout after 6 minutes.
 
     Polls the device's reported offset every second until it is within
@@ -2062,7 +2066,7 @@ async def check_calibration(self, heater_entity_id=None, generation: int = 0) ->
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str, optional
+    heater_entity_id : str
         Entity ID of the TRV to check
     generation : int, optional
         Identity of the offset command this watchdog was armed for

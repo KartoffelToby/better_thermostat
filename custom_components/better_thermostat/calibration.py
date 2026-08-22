@@ -556,7 +556,7 @@ def _record_mpc_v2_reid_sample(
     self,
     reid_key: str,
     *,
-    applied_valve_pct,
+    applied_valve_pct: float | None,
     trv_temp: float | None,
     outdoor_temp: float | None,
 ) -> None:
@@ -583,12 +583,11 @@ def _record_mpc_v2_reid_sample(
         t_room = float(self.cur_temp)
     except TypeError, ValueError:
         return
-    try:
-        u_frac = float(applied_valve_pct) / 100.0
-    except TypeError, ValueError:
+    if applied_valve_pct is None:
         # A current MPC proposal is not evidence of a physical valve input:
         # the write can still be deferred, clamped, or fail.
         return
+    u_frac = applied_valve_pct / 100.0
     if not math.isfinite(u_frac):
         return
     u_frac = max(0.0, min(1.0, u_frac))
