@@ -30,5 +30,9 @@ jobs:
         run: uv run --locked --only-group dev ruff check
       - name: ruff format --check
         run: uv run --locked --only-group dev ruff format --check
+      # BLE001 is silenced per file in pyproject.toml, so `ruff check` above
+      # says nothing about those files. This is what caps them.
+      - name: Check the blind exception handler budget
+        run: uv run --locked --only-group dev python scripts/blind_except_budget.py check
       - name: yamllint
         run: uv run --locked --only-group dev yamllint --strict .
