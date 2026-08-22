@@ -528,11 +528,12 @@ def make_entry(
                     "calibration": profile.calibration,
                     "calibration_mode": profile.calibration_mode,
                     # Every flag the config flow normalises is spelled out,
-                    # with the value it normalises an unset one to. A flag
-                    # left out reaches production as ``None``, and the code
-                    # that asks ``is False`` then takes neither branch — so
-                    # an incomplete entry does not weaken a test, it removes
-                    # the path from the run.
+                    # with the value it normalises an unset one to. An entry
+                    # that omits one is not a weaker fixture but a different
+                    # one: the flag reaches production as ``None``, and a
+                    # guard that tells ``None`` from ``False`` then takes
+                    # neither branch, which removes the path from the run
+                    # rather than testing it loosely.
                     "protect_overheating": False,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": heat_auto_swapped,
