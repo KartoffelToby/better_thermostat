@@ -2737,9 +2737,19 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if control_needed or self.bt_hvac_mode != HVACMode.OFF:
                 try:
                     request_control_cycle(self)
-                except Exception:
+                except AttributeError:
                     # Queue not ready; the periodic tick will catch up.
                     pass
+                except Exception:
+                    # This is the last statement of the ``finally``: an
+                    # exception leaving here replaces the one the maintenance
+                    # run is propagating, so the kick reports and stops.
+                    _LOGGER.debug(
+                        "better_thermostat %s: control cycle request after "
+                        "maintenance failed",
+                        self.device_name,
+                        exc_info=True,
+                    )
 
     # -- Unified state persistence helpers ------------------------------------
 
@@ -2861,8 +2871,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "unit_of_measurement"
                     ),
                 )
-        except Exception:
-            pass
+        except AttributeError:
+            _LOGGER.debug(
+                "better_thermostat %s: outdoor sensor %s could not be read",
+                self.device_name,
+                self.outdoor_sensor,
+                exc_info=True,
+            )
         return None
 
     @property
@@ -2918,35 +2933,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if self.kernel_state.control_mode.degraded_since is not None
                 else None
             ),
-            # ECO mode attribute removed: eco preset supported via PRESET_ECO
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
             ),
         }
 
         # Optional: next scheduled valve maintenance (ISO8601)
-        try:
-            if (
-                hasattr(self, "next_valve_maintenance")
-                and self.next_valve_maintenance is not None
-            ):
-                dev_specific["next_valve_maintenance"] = (
-                    self.next_valve_maintenance.isoformat()
-                )
-        except Exception:
-            pass
+        if self.next_valve_maintenance is not None:
+            dev_specific["next_valve_maintenance"] = (
+                self.next_valve_maintenance.isoformat()
+            )
 
         # Optional: summarize last valve method per TRV (adapter vs override)
-        try:
-            methods = {}
-            for trv_id, info in (self.real_trvs or {}).items():
-                m = info.last_valve_method
-                if m:
-                    methods[trv_id] = m
-            if methods:
-                dev_specific["valve_method"] = methods
-        except Exception:
-            pass
+        methods = {
+            trv_id: info.last_valve_method
+            for trv_id, info in self.real_trvs.items()
+            if info.last_valve_method
+        }
+        if methods:
+            dev_specific["valve_method"] = methods
 
         dev_specific.update(collect_cycle_telemetry(self))
         dev_specific.update(collect_balance_attrs(self))
@@ -3118,10 +3123,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         str(action_raw).lower() if action_raw is not None else ""
                     )
                     if action_str:
-                        try:
-                            info.hvac_action = action_str
-                        except Exception:
-                            pass
+                        info.hvac_action = action_str
                 except Exception:
                     action_str = ""
 

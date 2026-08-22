@@ -54,7 +54,12 @@ async def init(self, entity_id):
                 valve.get("writable", False)
             )
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat %s: valve entity discovery for %s failed",
+            self.device_name,
+            entity_id,
+            exc_info=True,
+        )
 
     if (
         self.real_trvs[entity_id].local_temperature_calibration_entity is None

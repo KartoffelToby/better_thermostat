@@ -545,8 +545,58 @@ class TestInternalTemperatureChange:
 # ---------------------------------------------------------------------------
 
 
+class _UnprintableValvePosition:
+    """A valve reading that cannot be rendered as text."""
+
+    def __str__(self):
+        raise RuntimeError("boom")
+
+
 class TestHvacActionAndValvePosition:
     """Tests for hvac_action / valve_position cache updates."""
+
+    @pytest.mark.asyncio
+    async def test_unreadable_valve_position_propagates(self, mock_bt):
+        """A valve reading that cannot be rendered as text reaches the caller."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "valve_position": _UnprintableValvePosition(),
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+    @pytest.mark.asyncio
+    async def test_valve_position_cached_from_attribute(self, mock_bt):
+        """A numeric valve reading is cached on the TRV."""
+        trv_state = _make_state(
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "valve_position": "42",
+            }
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].valve_position == 42.0
 
     @pytest.mark.asyncio
     async def test_hvac_action_updated_from_attribute(self, mock_bt):
