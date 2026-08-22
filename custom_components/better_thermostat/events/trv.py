@@ -101,6 +101,10 @@ async def trigger_trv_change(self, event):
         return
 
     advanced = trv.advanced or {}
+    # A missing flag counts as unlocked, and it can be missing: nothing
+    # backfills the key, so an entry that has not been through the options flow
+    # carries none. The config flow, the child lock switch and both guards
+    # below read an absent flag the same way.
     child_lock = advanced.get("child_lock")
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
@@ -257,7 +261,7 @@ async def trigger_trv_change(self, event):
             trv.hvac_mode = _org_trv_state.state
             _main_change = True
             if (
-                child_lock is False
+                not child_lock
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))
