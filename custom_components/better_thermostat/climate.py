@@ -148,6 +148,7 @@ from .utils.const import (
     CalibrationType,
 )
 from .utils.controlling import (
+    TaskManager,
     compute_control_cycle,
     control_queue,
     control_trv,
@@ -368,6 +369,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     # ``cooler_send_cache()`` creates it on the first cooler write, and every
     # reader reaches it through that helper.
     _cooler_last_sent: dict[str, Any]
+
+    # Owner of the background tasks the control loop spawns. ``control_queue``
+    # and ``control_trv`` each create one before they schedule anything, so
+    # every path that spawns a task runs behind them.
+    task_manager: TaskManager
 
     # ECO mode removed; set_eco_mode service and logic deleted.
 

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 from dataclasses import replace
+from datetime import datetime
 import logging
 import math
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.core import HomeAssistant, State
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -22,6 +26,7 @@ from custom_components.better_thermostat.core.decide import decide, is_boost_hea
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.core.safety import clamp as safety_clamp
+from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
@@ -57,6 +62,10 @@ from custom_components.better_thermostat.utils.hvac_action import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.climate import BetterThermostat
+    from custom_components.better_thermostat.trv import Trv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,7 +160,7 @@ _BUDGET_STAMPS = {
 
 
 def _consume_budget(
-    self, entity_id: str, channel: str, *, bypass: bool = False
+    self: BetterThermostat, entity_id: str, channel: str, *, bypass: bool = False
 ) -> bool:
     """Occupy one channel's write-budget slot, or defer the write.
 
@@ -177,7 +186,7 @@ def _consume_budget(
     return True
 
 
-def _budget_remaining(self, entity_id: str, channel: str) -> float:
+def _budget_remaining(self: BetterThermostat, entity_id: str, channel: str) -> float:
     """Seconds until a channel's write-budget slot reopens."""
     trv = self.real_trvs[entity_id]
     last = getattr(trv, _BUDGET_STAMPS[channel])
@@ -189,7 +198,7 @@ def _budget_remaining(self, entity_id: str, channel: str) -> float:
     return MIN_WRITE_INTERVAL_S - (self.clock.monotonic() - last)
 
 
-def _no_off_system_mode(trv) -> bool:
+def _no_off_system_mode(trv: Trv) -> bool:
     """Whether this TRV cannot be switched off.
 
     Such devices receive their min temp in place of OFF and keep
@@ -199,7 +208,9 @@ def _no_off_system_mode(trv) -> bool:
     return not trv.capabilities().supports_off_mode
 
 
-def _schedule_budget_retry(self, entity_id: str, retry_in_s: float) -> None:
+def _schedule_budget_retry(
+    self: BetterThermostat, entity_id: str, retry_in_s: float
+) -> None:
     """Queue one control cycle for when the write budget reopens.
 
     A deferred setpoint write needs this follow-up: the reconciler
@@ -222,7 +233,7 @@ def _schedule_budget_retry(self, entity_id: str, retry_in_s: float) -> None:
     self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
 
 
-def _schedule_reachability_retry(self, entity_id: str) -> None:
+def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
     """Queue one control cycle for an offline TRV's next retry window.
 
     Consumes the reachability region's ``retry_at``: the cycle re-probes
@@ -249,7 +260,7 @@ def _schedule_reachability_retry(self, entity_id: str) -> None:
     self.task_manager.create_task(_retry(), name=f"bt_reachability_retry_{entity_id}")
 
 
-def _stamp_heartbeat(self) -> None:
+def _stamp_heartbeat(self: BetterThermostat) -> None:
     """Record that a control cycle ran to a deliberate decision.
 
     Skipping an unavailable TRV or deferring a write to the budget is
@@ -262,8 +273,12 @@ def _stamp_heartbeat(self) -> None:
 
 
 def _get_valve_control(
-    self, snapshot, heater_entity_id: str, calibration_mode, calibration_type
-) -> tuple[dict | None, str | None]:
+    self: BetterThermostat,
+    snapshot: WorldSnapshot,
+    heater_entity_id: str,
+    calibration_mode: CalibrationMode | str,
+    calibration_type: CalibrationType | str,
+) -> tuple[dict[str, Any] | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
     Returns a tuple of (valve_settings_dict, source_name).
@@ -295,7 +310,7 @@ def _get_valve_control(
         and cal_bal.get("apply_valve")
         and cal_bal.get("valve_percent") is not None
     ):
-        source_map = {
+        source_map: dict[CalibrationMode | str, str] = {
             CalibrationMode.MPC_CALIBRATION: "mpc_calibration",
             CalibrationMode.MPC_V2_CALIBRATION: "mpc_v2_calibration",
             CalibrationMode.TPI_CALIBRATION: "tpi_calibration",
@@ -318,7 +333,9 @@ def _get_valve_control(
     return None, None
 
 
-def compute_control_cycle(self, *, record: bool = True, commit: bool = True):
+def compute_control_cycle(
+    self: BetterThermostat, *, record: bool = True, commit: bool = True
+) -> tuple[WorldSnapshot, DesiredState]:
     """Build one consistent observation and decision for a control cycle.
 
     Records the (snapshot, pre-decide state, desired) tuple in the
@@ -339,7 +356,7 @@ def compute_control_cycle(self, *, record: bool = True, commit: bool = True):
     return snapshot, desired
 
 
-def _reconcile_tolerance(self, state) -> float:
+def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
     """Per-device tolerance for the commanded-vs-reported comparison.
 
     Devices snap a written setpoint onto their own reported grid; a
@@ -361,7 +378,7 @@ def _reconcile_tolerance(self, state) -> float:
     return max(RECONCILE_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
-def _calibration_match_tolerance(self, entity_id) -> float:
+def _calibration_match_tolerance(self: BetterThermostat, entity_id) -> float:
     """Per-device tolerance for the commanded-vs-reported offset comparison.
 
     Devices snap a written offset onto their own step grid; a snapped
@@ -393,7 +410,7 @@ def _calibration_match_tolerance(self, entity_id) -> float:
     return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
 
 
-def _offset_diverges(self, trv) -> bool:
+def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
     """Whether the device's calibration offset left the commanded value.
 
     Compared only once the device has confirmed the last write — an
@@ -420,7 +437,7 @@ def _offset_diverges(self, trv) -> bool:
     )
 
 
-def _valve_diverges(self, trv) -> bool:
+def _valve_diverges(self: BetterThermostat, trv: Trv) -> bool:
     """Whether the valve-position entity left the commanded percentage.
 
     Only the adapter-written number entity is verifiable; quirk-driven
@@ -442,7 +459,7 @@ def _valve_diverges(self, trv) -> bool:
     return abs(float(trv.last_valve_percent) - reported) > RECONCILE_VALVE_TOLERANCE_PCT
 
 
-def _valve_at_target(self, entity_id: str, target_pct: float) -> bool:
+def _valve_at_target(self: BetterThermostat, entity_id: str, target_pct: float) -> bool:
     """Whether the valve channel already matches the intent.
 
     True when the last commanded percentage equals the (int-rounded)
@@ -457,7 +474,9 @@ def _valve_at_target(self, entity_id: str, target_pct: float) -> bool:
     return not _valve_diverges(self, trv)
 
 
-def desired_diverges(self, snapshot, desired) -> bool:
+def desired_diverges(
+    self: BetterThermostat, snapshot: WorldSnapshot, desired: DesiredState
+) -> bool:
     """Whether any TRV's reported state diverges from the clamped intent.
 
     Compares the commanded setpoint with the device-reported target and
@@ -510,7 +529,7 @@ def desired_diverges(self, snapshot, desired) -> bool:
     return False
 
 
-async def reconcile_tick(self, now=None):
+async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) -> None:
     """Periodic reconciliation: re-converge devices onto the intent.
 
     Builds a snapshot, asks the kernel for the desired state, and
@@ -550,11 +569,11 @@ async def reconcile_tick(self, now=None):
 
 
 def _through_safety_hull(
-    snapshot,
+    snapshot: WorldSnapshot,
     entity_id: str,
     *,
     setpoint: float | None = None,
-    valve_percent=None,
+    valve_percent: float | None = None,
     offset: float | None = None,
 ) -> TrvDesired:
     """Run one intent through the safety hull at the command boundary."""
@@ -577,12 +596,14 @@ class TaskManager:
     Tracks created tasks and automatically removes them from the set when they complete.
     """
 
-    def __init__(self, hass=None):
+    def __init__(self, hass: HomeAssistant | None = None) -> None:
         """Initialize the task manager with an empty task set."""
-        self.tasks = set()
+        self.tasks: set[asyncio.Task[Any]] = set()
         self.hass = hass
 
-    def create_task(self, coro, name=None):
+    def create_task(
+        self, coro: Coroutine[Any, Any, Any], name: str | None = None
+    ) -> asyncio.Task[Any]:
         """Create and track an asyncio task with automatic cleanup on completion.
 
         Parameters
@@ -608,7 +629,7 @@ class TaskManager:
         return task
 
 
-def advance_hvac_action(self) -> None:
+def advance_hvac_action(self: BetterThermostat) -> None:
     """Recompute the heating action and commit its hysteresis state.
 
     The heating action and the hysteresis band behind it advance once per
@@ -640,7 +661,7 @@ def advance_hvac_action(self) -> None:
         )
 
 
-async def control_queue(self):
+async def control_queue(self: BetterThermostat) -> None:
     """Process control commands from the queue and coordinate TRV control.
 
     This async task runs continuously, processing control requests from the
@@ -801,6 +822,13 @@ async def control_queue(self):
             self.ignore_states = False
 
 
+# The command one cooler channel attempted, as the failure backoff compares
+# it: the wanted mode on the mode channel, and the (high, low) bound pair on
+# the setpoint channel, where the lower bound is absent for a single-setpoint
+# write.
+_CoolerCommand = HVACMode | tuple[float, float | None] | None
+
+
 def cooler_low_bound(high: float, target_temp: float | None) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
@@ -815,7 +843,10 @@ def cooler_low_bound(high: float, target_temp: float | None) -> float:
 
 
 def _cooler_retry_deferred(
-    last_sent: dict, channel: str, wanted, now_monotonic: float
+    last_sent: dict[str, Any],
+    channel: str,
+    wanted: _CoolerCommand,
+    now_monotonic: float,
 ) -> bool:
     """Whether a channel's backoff still holds a command back.
 
@@ -848,7 +879,10 @@ def _cooler_retry_deferred(
 
 
 def _record_cooler_failure(
-    last_sent: dict, channel: str, wanted, now_monotonic: float
+    last_sent: dict[str, Any],
+    channel: str,
+    wanted: _CoolerCommand,
+    now_monotonic: float,
 ) -> None:
     """Extend a channel's run of consecutive failures of one command.
 
@@ -867,7 +901,7 @@ def _record_cooler_failure(
     )
 
 
-async def control_cooler(self, snapshot=None):
+async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     """Control the cooler entity based on current temperature and cooling setpoint.
 
     Activates cooling when the current temperature reaches the cooling target
@@ -1362,7 +1396,11 @@ async def control_cooler(self, snapshot=None):
             last_sent.pop("hvac_mode_failed", None)
 
 
-async def control_trv(self, heater_entity_id=None, cycle=None):
+async def control_trv(
+    self: BetterThermostat,
+    heater_entity_id: str | None = None,
+    cycle: tuple[WorldSnapshot, DesiredState] | None = None,
+) -> bool:
     """Control a single TRV by setting temperature, HVAC mode, calibration, and valve position.
 
     All operations are executed within self._temp_lock to ensure atomic execution when
@@ -1866,7 +1904,7 @@ async def control_trv(self, heater_entity_id=None, cycle=None):
             self.real_trvs[heater_entity_id].ignore_trv_states = False
 
 
-async def check_system_mode(self, heater_entity_id=None):
+async def check_system_mode(self, heater_entity_id=None) -> bool:
     """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
 
     Polls the TRV's live entity state every second until it matches
@@ -1920,7 +1958,7 @@ async def check_system_mode(self, heater_entity_id=None):
     return True
 
 
-async def check_target_temperature(self, heater_entity_id=None):
+async def check_target_temperature(self, heater_entity_id=None) -> bool:
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
@@ -1992,7 +2030,7 @@ async def check_target_temperature(self, heater_entity_id=None):
     return True
 
 
-async def check_calibration(self, heater_entity_id=None, generation=0):
+async def check_calibration(self, heater_entity_id=None, generation: int = 0) -> bool:
     """Wait for TRV to confirm a calibration offset write, timeout after 6 minutes.
 
     Polls the device's reported offset every second until it is within
