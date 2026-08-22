@@ -74,15 +74,15 @@ convention = "numpy"
 # Test code does not need docstrings on every function/class/method.
 "tests/**" = ["D"]
 
-# BLE001 ratchet: these files hold the remaining blind broad exception
-# handlers — `except Exception` that neither re-raises nor logs the exception
-# with its traceback. Modules whose broad handlers all log that way are absent
-# from this list and are gated like every other module, so the list is not an
-# inventory of `except Exception` in the package.
-# Entries are only ever removed — once a file's handlers name the exceptions
-# they expect (or re-raise, or log via `_LOGGER.exception`), drop its line.
-# Never add a file: every other module is gated, so a new blind `except
-# Exception` fails the lint. BLE001 does not reach
+# BLE001 is silenced outright in the files below: ruff reports none of their
+# blind broad exception handlers — `except Exception` that neither re-raises
+# nor logs the exception with its traceback — not even ones added later.
+# What caps those files is `.blind-except-budget.json`, a per-file count that
+# `scripts/blind_except_budget.py check` enforces: a listed file may not exceed
+# its recorded number, and a file absent from the budget may not have a single
+# finding. Only that script writes the budget.
+# Drop a line here once a file's handlers name the exceptions they expect, or
+# re-raise, or log via `_LOGGER.exception`. BLE001 does not reach
 # `contextlib.suppress(Exception)`, which stays a review concern.
 "custom_components/better_thermostat/adapters/base.py" = ["BLE001"]
 "custom_components/better_thermostat/adapters/delegate.py" = ["BLE001"]
