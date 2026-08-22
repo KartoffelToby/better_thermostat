@@ -365,9 +365,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _attr_name = None
     _enable_turn_on_off_backwards_compatibility = False
 
-    # Per-channel record of the cooler commands that succeeded.
-    # ``cooler_send_cache()`` creates it on the first cooler write, and every
-    # reader reaches it through that helper.
+    # Per-channel cooler send bookkeeping: the last successfully sent command,
+    # the settled reading of each written channel, the mode the last cycle
+    # decided on, and each channel's run of consecutive send failures.
+    # ``cooler_send_cache()`` creates it on first use, and every reader reaches
+    # it through that helper.
     _cooler_last_sent: dict[str, Any]
 
     # Owner of the background tasks the control loop spawns. ``control_queue``
