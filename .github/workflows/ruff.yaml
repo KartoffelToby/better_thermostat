@@ -24,7 +24,8 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           enable-cache: true
-      # Every lint tool lives in the dev group, pinned by uv.lock.
+      # --only-group dev installs the lint tools without Home Assistant;
+      # every lint tool lives in that group, pinned by uv.lock.
       - name: ruff check
         run: uv run --locked --only-group dev ruff check
       - name: ruff format --check

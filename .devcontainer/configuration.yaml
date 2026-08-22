@@ -3,7 +3,6 @@ default_config:
 lovelace:
   mode: yaml
   resources:
-    # Alternative: /hacsfiles/better-thermostat-ui-card/better-thermostat-ui-card.js
     - url: http://0.0.0.0:4000/better-thermostat-ui-card.js
       type: module
 #    - url: http://bs-local.com:5000/better-thermostat-ui-card.js
@@ -108,6 +107,6 @@ template:
         state: '{{ states.input_number.outside_sensor.state | round(1, default=18) }}'
 
 
-# If you need to debug uncomment the line below
-# (doc: https://www.home-assistant.io/integrations/debugpy/)
+# Enables the debugpy remote debugger.
+# Doc: https://www.home-assistant.io/integrations/debugpy/
 debugpy:
