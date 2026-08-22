@@ -10,9 +10,10 @@ Three ways of widening it leave a reviewer nothing to see. An entry whose file
 is gone still matches a file created at that path later, which would start out
 exempt. A wildcard covers files nobody measured, including files that are
 strict today. A sub-config that sets a rule to ``true`` makes the list an
-enumeration of the clean files instead of the backlog, which puts every file
-outside the list back to lax. The fourth way — appending an entry — is visible
-in the diff but still has to raise the recorded ceiling.
+enumeration of the clean files instead of the backlog, and settles strictness
+per entry rather than on ``[tool.pyrefly]``, where one declaration reaches
+every file. The fourth way — appending an entry — is visible in the diff but
+still has to raise the recorded ceiling.
 """
 
 from pathlib import Path
