@@ -3550,9 +3550,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         the range is not a setpoint BT can hold, and that cap is where the
         separation gives way: a heating target resting on the maximum or above
         it puts the floor on that target or below it, so the value returned
-        there is not guaranteed to clear it. The residual
-        :meth:`_enforce_heat_below_cool` settles that degenerate case, and it
-        does so by moving the heating target.
+        there does not clear it. The residual :meth:`_enforce_heat_below_cool`
+        settles that degenerate case, and it does so by moving the heating
+        target.
 
         The bound applies whenever a cooling channel is configured rather than
         only while the live mode is HEAT_COOL, matching
@@ -3596,13 +3596,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         raising that target. The ceiling is held at the configured minimum, and
         that bound is where the separation gives way in the same way: a cooling
         target resting on the minimum or below it puts the ceiling on that
-        target or above it, so the value returned there is not guaranteed to
-        clear it. The residual :meth:`_enforce_cool_above_heat` settles that
-        degenerate case, and it does so by moving the cooling target. Like its
-        counterpart the bound keys off the configured cooling channel rather
-        than the live mode, and here that is what makes it hold at all: a valve
-        with ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode``
-        is still OFF, and the same event then resolves the mode to HEAT.
+        target or above it, so the value returned there does not clear it. The
+        residual :meth:`_enforce_cool_above_heat` settles that degenerate case,
+        and it does so by moving the cooling target. Like its counterpart the
+        bound keys off the configured cooling channel rather than the live mode,
+        and here that is what makes it hold at all: a valve with
+        ``no_off_system_mode`` reports its knob turn while ``bt_hvac_mode`` is
+        still OFF, and the same event then resolves the mode to HEAT.
 
         The one step of separation comes from :func:`normalize_step` for the
         same reason as in the counterpart: a step a child reports as negative or

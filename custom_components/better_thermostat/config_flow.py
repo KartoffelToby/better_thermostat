@@ -702,6 +702,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
+    # Home Assistant's ConfigFlow raises NotImplementedError from this hook and
+    # calls it from `async_has_matching_flow`, so the override exists for HA
+    # rather than for any caller inside this integration. The parameter widens
+    # the base's `Self` because the flow HA hands over is any in-progress flow
+    # for the domain.
     def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
         """Return True if this flow matches an existing config flow (reconfigure)."""
         if (
