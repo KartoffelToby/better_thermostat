@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 import logging
 import math
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
@@ -16,6 +19,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 )
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
+    MpcOutput,
     MpcParams,
     build_mpc_group_key,
     build_mpc_key,
@@ -25,8 +29,10 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
+    MpcV2Output,
     MpcV2Params,
     PlantParams,
+    ReidOutcome,
     ReidSample,
     compute_mpc_v2,
     make_plant_prior,
@@ -45,6 +51,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
     BalanceCalibrator,
+    BalanceStrategy,
     ChannelAdjustment,
     ModeTraits,
     annunciate_health,
@@ -52,6 +59,7 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
+    TpiOutput,
     TpiParams,
     build_tpi_key,
     compute_tpi,
@@ -76,6 +84,10 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
 
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.climate import BetterThermostat
+    from custom_components.better_thermostat.trv import Trv
+
 _LOGGER = logging.getLogger(__name__)
 
 # Offline re-identification cadence: at most one fit attempt per key in this
@@ -91,7 +103,7 @@ _IDLE_OR_COOLING = (HVACAction.IDLE, HVACAction.COOLING)
 
 
 def _compute_zero_open_offset(
-    self,
+    self: BetterThermostat,
     entity_id: str,
     _cur_trv_temp: float,
     _cur_external_temp: float,
@@ -115,7 +127,7 @@ def _compute_zero_open_offset(
     return _offset
 
 
-def effective_room_temp(self) -> float | None:
+def effective_room_temp(self: BetterThermostat) -> float | None:
     """Room temperature for the control law, honoring the fail-soft ladder.
 
     Under SENSOR_FALLBACK the mean of the available TRV-internal
@@ -146,7 +158,7 @@ def effective_room_temp(self) -> float | None:
     return self.cur_temp
 
 
-def _get_current_outdoor_temp(self) -> float | None:
+def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
     """Get current outdoor temperature from outdoor sensor or weather entity."""
     if self.outdoor_sensor is not None:
         state = self.hass.states.get(self.outdoor_sensor)
@@ -171,7 +183,7 @@ def _get_current_outdoor_temp(self) -> float | None:
     return None
 
 
-def _get_solar_context(self) -> tuple[bool, float]:
+def _get_solar_context(self: BetterThermostat) -> tuple[bool, float]:
     """Daylight flag plus current solar intensity (0.0 below the horizon)."""
     is_day = True
     if self.hass is not None:
@@ -181,7 +193,7 @@ def _get_solar_context(self) -> tuple[bool, float]:
     return is_day, (_get_current_solar_intensity(self) if is_day else 0.0)
 
 
-def _get_current_solar_intensity(self) -> float:
+def _get_current_solar_intensity(self: BetterThermostat) -> float:
     """Estimate solar intensity (0.0 to 1.0) based on weather entity data."""
     if self.weather_entity is None:
         return 0.0
@@ -190,7 +202,7 @@ def _get_current_solar_intensity(self) -> float:
     if not state or not state.attributes:
         return 0.0
 
-    def _get_val(data, key):
+    def _get_val(data: object, key: str) -> float | int | str | None:
         if not isinstance(data, dict):
             return None
         return data.get(key)
@@ -243,7 +255,7 @@ def _get_current_solar_intensity(self) -> float:
     return 0.1  # Default low for rain/snow/fog etc
 
 
-def _supports_direct_valve_control(self, entity_id: str) -> bool:
+def _supports_direct_valve_control(self: BetterThermostat, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
 
     _calibration_type = self.real_trvs[entity_id].advanced.get(
@@ -258,7 +270,7 @@ def _supports_direct_valve_control(self, entity_id: str) -> bool:
     return trv_data.capabilities().supports_valve_write
 
 
-def _get_trv_max_opening(self, entity_id: str) -> float | None:
+def _get_trv_max_opening(self: BetterThermostat, entity_id: str) -> float | None:
     """Return the user-defined max opening percent for a TRV, if any."""
 
     trv_state = self.real_trvs.get(entity_id)
@@ -269,7 +281,12 @@ def _get_trv_max_opening(self, entity_id: str) -> float | None:
 
 
 def _heating_power_adjustment(
-    self, entity_id: str, current_value: float, *, hold_value: float, legacy_fallback
+    self: BetterThermostat,
+    entity_id: str,
+    current_value: float,
+    *,
+    hold_value: float,
+    legacy_fallback: Callable[[float], float],
 ) -> tuple[float, bool]:
     """Shared HEATING_POWER machinery for both calibration channels.
 
@@ -316,7 +333,7 @@ def _heating_power_adjustment(
 
 
 def _collect_trv_temps_and_warmest(
-    real_trvs, fallback_id: str
+    real_trvs: Mapping[str, Trv], fallback_id: str
 ) -> tuple[dict[str, float | None], str]:
     """Return per-TRV temperatures and the id of the warmest TRV.
 
@@ -343,7 +360,9 @@ def _collect_trv_temps_and_warmest(
     return trv_temps, warmest_trv_id
 
 
-def _compute_mpc_balance(self, entity_id: str):
+def _compute_mpc_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[MpcOutput | None, bool]:
     """Run the MPC balance algorithm for calibration purposes.
 
     When the BT instance controls **multiple TRVs**, a single shared MPC model
@@ -498,7 +517,7 @@ def _compute_mpc_balance(self, entity_id: str):
     return trv_output, supports_valve
 
 
-def _build_mpc_v2_reid_key(self) -> str:
+def _build_mpc_v2_reid_key(self: BetterThermostat) -> str:
     """Return the target-independent re-identification key for this BT.
 
     The plant prior describes the room, not an operating point, so the
@@ -509,7 +528,7 @@ def _build_mpc_v2_reid_key(self) -> str:
     return f"{uid}:reid"
 
 
-def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str):
+def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str) -> MpcV2ReidData | None:
     """Return the adopted re-ID result, preferring the shared key.
 
     Results persisted under per-target-bucket keys (``uid:entity:tX.X`` or
@@ -532,7 +551,12 @@ def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str):
 
 
 def _record_mpc_v2_reid_sample(
-    self, reid_key: str, *, applied_valve_pct, trv_temp, outdoor_temp
+    self,
+    reid_key: str,
+    *,
+    applied_valve_pct: float | None,
+    trv_temp: float | None,
+    outdoor_temp: float | None,
 ) -> None:
     """Append one observation to the re-identification buffer for a key.
 
@@ -557,12 +581,11 @@ def _record_mpc_v2_reid_sample(
         t_room = float(self.cur_temp)
     except TypeError, ValueError:
         return
-    try:
-        u_frac = float(applied_valve_pct) / 100.0
-    except TypeError, ValueError:
+    if applied_valve_pct is None:
         # A current MPC proposal is not evidence of a physical valve input:
         # the write can still be deferred, clamped, or fail.
         return
+    u_frac = applied_valve_pct / 100.0
     if not math.isfinite(u_frac):
         return
     u_frac = max(0.0, min(1.0, u_frac))
@@ -579,7 +602,7 @@ def _record_mpc_v2_reid_sample(
     )
 
 
-def _confirmed_valve_pct(trv_state) -> float | None:
+def _confirmed_valve_pct(trv_state: Trv | None) -> float | None:
     """Return the best known prior valve input for model feedback.
 
     A device-reported position wins when available.  Otherwise the adapter's
@@ -637,7 +660,7 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
     device_name = self.device_name
     schedule_save = getattr(self, "schedule_save_state", None)
 
-    def _on_fit_done(future) -> None:
+    def _on_fit_done(future: asyncio.Future[ReidOutcome]) -> None:
         runtime.fit_inflight = False
         try:
             outcome = future.result()
@@ -707,7 +730,7 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
     future.add_done_callback(_on_fit_done)
 
 
-def _compute_mpc_v2_balance(self, entity_id: str):
+def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, bool]:
     """Run the MPC v2 (QP + Kalman) balance algorithm.
 
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
@@ -874,7 +897,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     return trv_output, supports_valve
 
 
-def _compute_tpi_balance(self, entity_id: str):
+def _compute_tpi_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[TpiOutput | None, bool]:
     """Run the TPI balance algorithm for calibration purposes."""
 
     trv_state = self.real_trvs.get(entity_id)
@@ -952,7 +977,9 @@ def _compute_tpi_balance(self, entity_id: str):
     return tpi_output, supports_valve
 
 
-def _compute_pid_balance(self, entity_id: str):
+def _compute_pid_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[float | None, bool]:
     """Run the PID balance algorithm for calibration purposes."""
 
     trv_state = self.real_trvs.get(entity_id)
@@ -1093,7 +1120,13 @@ BALANCE_STRATEGIES = build_strategy_registry(
 )
 
 
-def _aggressive_adjust(self, entity_id, value, skip_post, ctx):
+def _aggressive_adjust(
+    self: BetterThermostat,
+    entity_id: str,
+    value: float,
+    skip_post: bool,
+    ctx: ChannelAdjustment,
+) -> tuple[float, bool]:
     """Boost the heating-promoting direction while actively heating.
 
     The boost only tops the value up to 2.5 past the channel's neutral
@@ -1105,7 +1138,13 @@ def _aggressive_adjust(self, entity_id, value, skip_post, ctx):
     return value, skip_post
 
 
-def _heating_power_adjust(self, entity_id, value, skip_post, ctx):
+def _heating_power_adjust(
+    self: BetterThermostat,
+    entity_id: str,
+    value: float,
+    skip_post: bool,
+    ctx: ChannelAdjustment,
+) -> tuple[float, bool]:
     """Derive the channel value from the learned heating power."""
     return _heating_power_adjustment(
         self,
@@ -1168,7 +1207,9 @@ def _traits_for(mode: CalibrationMode | str) -> ModeTraits:
     return MODE_TRAITS.get(mode, _PASSIVE_TRAITS)
 
 
-def _balance_calibrator(self, entity_id: str, strategy) -> BalanceCalibrator:
+def _balance_calibrator(
+    self: BetterThermostat, entity_id: str, strategy: BalanceStrategy
+) -> BalanceCalibrator:
     """Return the TRV's calibrator, rebuilding it when the mode changed.
 
     The calibrator is the live protocol seam: the dispatch calls
@@ -1183,7 +1224,7 @@ def _balance_calibrator(self, entity_id: str, strategy) -> BalanceCalibrator:
     return calibrator
 
 
-def calculate_calibration_local(self, entity_id) -> float | None:
+def calculate_calibration_local(self, entity_id: str) -> float | None:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
     This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
@@ -1203,7 +1244,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_local()"
 
-    def _convert_to_float(value):
+    def _convert_to_float(value: str | int | float | None) -> float | None:
         return convert_to_float(value, self.name, _context)
 
     _calibration_mode = normalize_calibration_mode(
@@ -1318,7 +1359,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
 
     if traits.adjust is not None:
 
-        def _legacy_offset(valve_position):
+        def _legacy_offset(valve_position: float) -> float:
             return _current_trv_calibration - (
                 (self.real_trvs[entity_id].local_calibration_min + _cur_trv_temp_f)
                 * valve_position
@@ -1415,7 +1456,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     return _new_trv_calibration
 
 
-def calculate_calibration_setpoint(self, entity_id) -> float | None:
+def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
     """Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
 
     This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
@@ -1435,7 +1476,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_setpoint()"
 
-    def _convert_to_float(value):
+    def _convert_to_float(value: str | int | float | None) -> float | None:
         return convert_to_float(value, self.name, _context)
 
     _calibration_mode = normalize_calibration_mode(
@@ -1516,7 +1557,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     if traits.adjust is not None:
 
-        def _legacy_setpoint(valve_position):
+        def _legacy_setpoint(valve_position: float) -> float:
             max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
             if max_temp is None:
                 return _calibrated_setpoint

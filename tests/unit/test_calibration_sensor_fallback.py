@@ -271,3 +271,23 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     assert len(samples) == 1
     assert samples[0].window_open is True
     assert samples[0].T_room_C == 20.5
+
+
+def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None:
+    """A cycle whose valve position was never confirmed leaves the buffer empty.
+
+    The re-identification fit reads ``u_frac`` as the valve input the room
+    actually saw. A group pass and an unconfirmed write both leave the
+    confirmed position at ``None``, and the proposal that was computed for
+    that cycle is not evidence the valve reached it.
+    """
+    state_mgr = _StateStub()
+    bt = _make_bt(state_mgr, trv_temp=21.0)
+    bt.kernel_state.control_mode.mode = ControlMode.OPTIMAL
+    bt.cur_temp = 20.5
+
+    _record_mpc_v2_reid_sample(
+        bt, "key", applied_valve_pct=None, trv_temp=21.0, outdoor_temp=5.0
+    )
+
+    assert state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples == []

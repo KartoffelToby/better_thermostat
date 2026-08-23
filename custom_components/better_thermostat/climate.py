@@ -153,6 +153,7 @@ from .utils.const import (
     CalibrationType,
 )
 from .utils.controlling import (
+    TaskManager,
     compute_control_cycle,
     control_queue,
     control_trv,
@@ -371,7 +372,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _attr_name = None
     _enable_turn_on_off_backwards_compatibility = False
 
-    # ECO mode removed; set_eco_mode service and logic deleted.
+    # Per-channel cooler send bookkeeping: the last successfully sent command,
+    # the settled reading of each written channel, the mode the last cycle
+    # decided on, and each channel's run of consecutive send failures.
+    # ``cooler_send_cache()`` creates it on first use, and every reader reaches
+    # it through that helper.
+    _cooler_last_sent: dict[str, Any]
+
+    # Owner of the background tasks the control loop spawns. ``control_queue``
+    # and ``control_trv`` each create one before they schedule anything, so
+    # every path that spawns a task runs behind them.
+    task_manager: TaskManager
 
     async def reset_heating_power(self):
         """Reset heating power to default value."""
