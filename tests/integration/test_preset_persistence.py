@@ -1,0 +1,194 @@
+"""Preset temperatures across a restart, driven through a real config entry.
+
+A preset's temperature is edited on its number entity, but the target that
+temperature produces is chosen by the climate entity — and the two platforms
+come up in that order. Every test here spans that gap: it configures a preset,
+takes the entry down, and asks what the thermostat runs at when it comes back.
+"""
+
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.core import State
+import pytest
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
+
+from custom_components.better_thermostat.utils.const import (
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
+)
+
+from .conftest import (
+    BT_ENTITY,
+    DOMAIN,
+    make_entry,
+    set_room_sensor,
+    setup_entry,
+    wait_for_startup,
+)
+from .device_profiles import GENERIC_HEAT_TRV
+
+COMFORT_NUMBER = "number.bt_test_comfort"
+
+# The built-in comfort temperature, and one the user would have to have set.
+COMFORT_DEFAULT = 21.0
+COMFORT_CONFIGURED = 22.5
+
+
+def _entry(hass, presets=("comfort", "eco")):
+    """Build an entry offering ``presets``, without setting it up yet."""
+    set_room_sensor(hass, 18.0)
+    data = dict(make_entry(GENERIC_HEAT_TRV).data)
+    data["presets"] = list(presets)
+    return MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
+
+
+async def _set_preset_temperature(hass, entity_id, value):
+    """Edit a preset's temperature the way the number entity exposes it."""
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {ATTR_ENTITY_ID: entity_id, "value": value},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+async def _activate(hass, preset):
+    """Switch the thermostat to ``preset``."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_preset_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, "preset_mode": preset},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+def _target(hass):
+    """Return the temperature the thermostat is currently driving to."""
+    return hass.states.get(BT_ENTITY).attributes.get("temperature")
+
+
+@pytest.mark.asyncio
+async def test_active_preset_keeps_its_temperature_across_a_reload(hass, fake_trv):
+    """A reload leaves the thermostat on the preset temperature it was given.
+
+    The climate platform is set up before the number platform that owns the
+    preset temperatures, so the preset target is chosen while only the built-in
+    defaults are loaded. A reload that does not carry the configured value over
+    silently drops the thermostat onto the default.
+    """
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
+    await _activate(hass, "comfort")
+    assert _target(hass) == COMFORT_CONFIGURED
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert hass.states.get(COMFORT_NUMBER).state == str(COMFORT_CONFIGURED)
+    assert _target(hass) == COMFORT_CONFIGURED
+
+
+@pytest.mark.asyncio
+async def test_active_preset_keeps_its_temperature_on_a_cold_start(hass, fake_trv):
+    """A restart brings the thermostat back on the configured preset target.
+
+    The state the entry comes up from is the one Home Assistant persisted
+    before it went down, which is the only place the configured temperature
+    exists at the moment the climate entity picks its target.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "temperature": COMFORT_CONFIGURED,
+                    "preset_mode": "comfort",
+                    "current_temperature": 18.0,
+                    ATTR_STATE_PRESET_HEAT_TEMPERATURES: (
+                        '{"comfort": 22.5, "eco": 19.0}'
+                    ),
+                },
+            ),
+            State(
+                COMFORT_NUMBER, str(COMFORT_CONFIGURED), {"unit_of_measurement": "°C"}
+            ),
+        ),
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert _target(hass) == COMFORT_CONFIGURED
+
+
+@pytest.mark.asyncio
+async def test_active_preset_survives_a_state_without_the_preset_map(hass, fake_trv):
+    """A state predating the persisted preset map still restores the target.
+
+    An entry coming up from a state that carries no preset map has the
+    configured temperature only in the number entity, which is restored after
+    the climate entity has already chosen its target.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "temperature": COMFORT_CONFIGURED,
+                    "preset_mode": "comfort",
+                    "current_temperature": 18.0,
+                },
+            ),
+            State(
+                COMFORT_NUMBER, str(COMFORT_CONFIGURED), {"unit_of_measurement": "°C"}
+            ),
+        ),
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert _target(hass) == COMFORT_CONFIGURED
+
+
+@pytest.mark.asyncio
+async def test_preset_temperatures_are_carried_in_the_climate_state(hass, fake_trv):
+    """The thermostat state carries the preset temperatures it runs on.
+
+    The map is what a restart restores from, so an edit that does not reach the
+    state is an edit the next start cannot see.
+    """
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
+
+    carried = hass.states.get(BT_ENTITY).attributes[ATTR_STATE_PRESET_HEAT_TEMPERATURES]
+
+    assert '"comfort": 22.5' in carried
+
+
+@pytest.mark.asyncio
+async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
+    """A preset nobody edited comes up on the built-in temperature."""
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await _activate(hass, "comfort")
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert _target(hass) == COMFORT_DEFAULT
