@@ -13,7 +13,7 @@ import json
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import State
-import pytest
+from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache,
@@ -28,7 +28,14 @@ from custom_components.better_thermostat.utils.preset_manager import (
     DEFAULT_ENABLED_PRESETS,
 )
 
-from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
+from .conftest import (
+    DOMAIN,
+    SENSOR_ID,
+    counting_reloads,
+    make_entry,
+    setup_entry,
+    wait_for_startup,
+)
 
 BT_ENTITY = "climate.bt_test"
 COMFORT_NUMBER = "number.bt_test_comfort"
@@ -122,12 +129,14 @@ async def _click_through_the_options(hass, entry):
         )
     else:
         raise AssertionError(f"options flow did not finish: {result}")
+    # A step that aborts also leaves the loop, and the caller would then read
+    # the state the entry had before the flow ran.
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
     await hass.async_block_till_done()
     await wait_for_startup(hass, entry)
     return forms
 
 
-@pytest.mark.asyncio
 async def test_active_preset_keeps_its_temperature_across_a_reload(hass, fake_trv):
     """A reload leaves the thermostat on the preset temperature it was given.
 
@@ -151,7 +160,6 @@ async def test_active_preset_keeps_its_temperature_across_a_reload(hass, fake_tr
     assert _target(hass) == COMFORT_CONFIGURED
 
 
-@pytest.mark.asyncio
 async def test_active_preset_keeps_its_temperature_on_a_cold_start(hass, fake_trv):
     """A restart brings the thermostat back on the configured preset target.
 
@@ -186,7 +194,6 @@ async def test_active_preset_keeps_its_temperature_on_a_cold_start(hass, fake_tr
     assert _target(hass) == COMFORT_CONFIGURED
 
 
-@pytest.mark.asyncio
 async def test_active_preset_survives_a_state_without_the_preset_map(hass, fake_trv):
     """A state predating the persisted preset map still restores the target.
 
@@ -218,7 +225,6 @@ async def test_active_preset_survives_a_state_without_the_preset_map(hass, fake_
     assert _target(hass) == COMFORT_CONFIGURED
 
 
-@pytest.mark.asyncio
 async def test_a_preset_value_outside_the_range_keeps_the_preset_active(hass, fake_trv):
     """A stored preset the current range cannot hold is bounded, not abandoned.
 
@@ -250,7 +256,6 @@ async def test_a_preset_value_outside_the_range_keeps_the_preset_active(hass, fa
     assert hass.states.get(COMFORT_NUMBER).state == "35.0"
 
 
-@pytest.mark.asyncio
 async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
     """An entry whose options were written by an earlier version reloads once.
 
@@ -267,14 +272,15 @@ async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
     await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
     await _activate(hass, "comfort")
 
-    await _click_through_the_options(hass, entry)
+    async with counting_reloads(hass, entry) as reloads:
+        await _click_through_the_options(hass, entry)
 
+    assert reloads == [entry.entry_id]
     assert entry.options == {}
     assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
     assert _target(hass) == COMFORT_CONFIGURED
 
 
-@pytest.mark.asyncio
 async def test_preset_temperatures_are_carried_in_the_climate_state(hass, fake_trv):
     """The thermostat state carries the preset temperatures it runs on.
 
@@ -291,7 +297,6 @@ async def test_preset_temperatures_are_carried_in_the_climate_state(hass, fake_t
     assert json.loads(carried)["comfort"] == COMFORT_CONFIGURED
 
 
-@pytest.mark.asyncio
 async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
     """A preset nobody edited comes up on the built-in temperature."""
     entry = _entry(hass)
@@ -306,7 +311,6 @@ async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
     assert _target(hass) == COMFORT_DEFAULT
 
 
-@pytest.mark.asyncio
 async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(
     hass, fake_trv
 ):
@@ -328,7 +332,6 @@ async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(
     assert set(hass.states.get(BT_ENTITY).attributes["preset_modes"]) == running_on
 
 
-@pytest.mark.asyncio
 async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fake_trv):
     """Passing through the options leaves the running preset alone.
 
