@@ -290,9 +290,9 @@ def test_a_name_bound_without_being_read_is_counted(checker, alias, position):
 def test_every_python_source_root_is_scanned():
     """A new file under any tracked source root starts at a budget of zero.
 
-    The roots come from git rather than from a directory walk: a walk inside a
-    worktree also sees `.venv` and the checkout's siblings, and filtering those
-    out by path component makes the set empty and the assertion vacuous.
+    The roots come from `git ls-files`. A directory walk inside a worktree also
+    reaches `.venv` and the checkout's siblings, and filtering those out by path
+    component empties the set and leaves the assertion vacuous.
     """
     script = _load_script()
     tracked = subprocess.run(
