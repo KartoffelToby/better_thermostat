@@ -383,9 +383,12 @@ async def test_one_thermostat_reload_does_not_wait_on_another(hass):
     await wait_for_startup(hass, holding)
     await wait_for_startup(hass, waiting)
 
-    # Reloading is what creates the lock, so drive one options change through
-    # before taking the first entry's reload lock and holding it.
-    await _run_options_flow(hass, holding, _user_step_input(trv.entity_id))
+    # Reloading is what creates the lock, and only a submission that changes
+    # something reloads, so the priming pass renames the first entry before its
+    # reload lock is taken and held.
+    await _run_options_flow(
+        hass, holding, _user_step_input(trv.entity_id, name="Primed Room")
+    )
     before = hass.data[DOMAIN][waiting.entry_id]["climate"]
     async with hass.data[RELOAD_LOCKS][holding.entry_id]:
         async with asyncio.timeout(RELOAD_TIMEOUT_S):

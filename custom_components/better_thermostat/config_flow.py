@@ -980,9 +980,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self._config_entry, data=self.updated_config
             )
             self._active_trv_config = None
-            return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
-            )
+            # The whole configuration lives in the entry's data, written above.
+            # Publishing the same payload as options as well updates the entry a
+            # second time and so reloads it a second time, and that reload lands
+            # in the middle of the first one's startup — before it has restored
+            # the preset and target it came up with.
+            return self.async_create_entry(title=self.updated_config["name"], data={})
 
         user_input = user_input or {}
         info = ctx.get("info", {})

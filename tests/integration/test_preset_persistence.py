@@ -1,9 +1,10 @@
-"""Preset temperatures across a restart, driven through a real config entry.
+"""Preset configuration across a restart and an options round trip.
 
 A preset's temperature is edited on its number entity, but the target that
 temperature produces is chosen by the climate entity — and the two platforms
 come up in that order. Every test here spans that gap: it configures a preset,
-takes the entry down, and asks what the thermostat runs at when it comes back.
+takes the entry through a restart or the options form, and asks what the
+thermostat runs on when it comes back.
 """
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
@@ -14,6 +15,7 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache,
 )
+import voluptuous as vol
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
@@ -192,3 +194,47 @@ async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
     await wait_for_startup(hass, entry)
 
     assert _target(hass) == COMFORT_DEFAULT
+
+
+async def _click_through_the_options(hass, entry):
+    """Accept every pre-filled value on every step of the options flow."""
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    while result["type"] == "form":
+        submission = {}
+        for marker in result["data_schema"].schema:
+            description = getattr(marker, "description", None)
+            if isinstance(description, dict) and "suggested_value" in description:
+                submission[str(marker.schema)] = description["suggested_value"]
+                continue
+            default = getattr(marker, "default", None)
+            if default is None or default is vol.UNDEFINED:
+                continue
+            value = default()
+            if value is not vol.UNDEFINED:
+                submission[str(marker.schema)] = value
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], submission
+        )
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fake_trv):
+    """Passing through the options leaves the running preset alone.
+
+    Writing the entry is what reloads it, so a flow that writes the same
+    configuration twice reloads twice, and the second reload lands before the
+    first has restored the preset it came up with.
+    """
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
+    await _activate(hass, "comfort")
+
+    await _click_through_the_options(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
+    assert hass.states.get(COMFORT_NUMBER).state == str(COMFORT_CONFIGURED)
+    assert _target(hass) == COMFORT_CONFIGURED
