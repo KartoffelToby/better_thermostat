@@ -25,6 +25,7 @@ reviews:
     # ("auto reviews disabled on non-default branch").
     base_branches:
       - "develop"
+      - "1.9"
 
     # PRs are opened as draft by default and marked ready later, so review them
     # while still draft — except genuine work-in-progress (see keywords below).
@@ -46,10 +47,17 @@ reviews:
   path_instructions:
     - path: "tests/**"
       instructions: >-
-        Tests run with `uv run pytest -p no:homeassistant`. Every test function
-        and class needs a docstring (ruff pydocstyle "D" rules are enforced).
+        Tests run with `uv run pytest tests/`. Do not suggest
+        `-p no:homeassistant`: that flag removes the plugin providing the
+        `hass` fixture and makes the whole integration suite error.
+        `asyncio_mode = "auto"` is set, so async tests need no marker at all —
+        do not ask for `@pytest.mark.asyncio` to be added, and where a marker
+        is present, match the one the surrounding class already uses.
+        Ruff's pydocstyle "D" rules are switched off for `tests/**` via
+        `per-file-ignores`, so NumPy `Parameters` sections are not required
+        here; what a docstring has to say is what the test pins and why.
         Follow the existing patterns: MagicMock + real dicts for `real_trvs`,
-        `State()` for HA states, `@pytest.mark.asyncio` / `AsyncMock` for async.
+        `State()` for HA states, `AsyncMock` for async collaborators.
     - path: "custom_components/better_thermostat/**"
       instructions: >-
         Home Assistant custom integration. Comments must describe the current

@@ -101,6 +101,7 @@ from .utils.const import (
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
@@ -671,7 +672,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._config_entry_id = self._unique_id
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
-        self.last_window_state = None
         self._last_call_for_heat = None
         self._available = False
         self.context = None
@@ -1195,6 +1195,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
+                # This loop waits for as long as it takes, and nothing
+                # downstream of it runs while it does, so without this call a
+                # TRV that never comes back is never reported at all — while
+                # one that disappears after startup is. The critical check
+                # owns the rule for when waiting turns into reporting and
+                # stays quiet for the length of the grace window.
+                await check_critical_entities(self)
                 await asyncio.sleep(20)
                 if self.is_removed:
                     return
@@ -1572,6 +1579,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                             if cool_temp is not None:
                                 self._preset_cool_temperatures[preset] = cool_temp
+            # The per-preset heating map is owned by the preset number
+            # entities, whose platform is set up after climate, so it comes
+            # back from the thermostat's own state here. The block below reads
+            # it to pick the target for a restored preset.
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
+                is not None
+            ):
+                try:
+                    restored_heat_temperatures = json.loads(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_HEAT_TEMPERATURES, "{}"
+                            )
+                        )
+                    )
+                except TypeError, json.JSONDecodeError:
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not restore preset heat temperatures",
+                        self.device_name,
+                    )
+                else:
+                    if isinstance(restored_heat_temperatures, dict):
+                        for preset, temp in restored_heat_temperatures.items():
+                            if preset not in self.preset_mgr.temperatures:
+                                continue
+                            heat_temp = convert_to_float(
+                                str(temp), self.device_name, "startup()"
+                            )
+                            if heat_temp is not None:
+                                self.preset_mgr.temperatures[preset] = heat_temp
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
@@ -1745,7 +1783,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         else:
             self._current_humidity = 0.0
 
-        self.last_window_state = self.window_open
         if self.bt_hvac_mode not in (HVACMode.OFF, HVACMode.HEAT_COOL, HVACMode.HEAT):
             self.bt_hvac_mode = HVACMode.HEAT
 
@@ -2584,6 +2621,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
+            ),
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                self.preset_mgr.temperatures
             ),
         }
 

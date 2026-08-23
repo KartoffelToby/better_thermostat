@@ -10,8 +10,8 @@ from homeassistant.components.climate.const import (
 import pytest
 
 from custom_components.better_thermostat.utils.preset_manager import (
-    _DEFAULT_ENABLED_PRESETS,
     _DEFAULT_TEMPERATURES,
+    DEFAULT_ENABLED_PRESETS,
     PresetManager,
 )
 
@@ -47,7 +47,7 @@ class TestAvailableModes:
         """Defaults expose PRESET_NONE plus the standard enabled set."""
         modes = mgr.available_modes
         assert modes[0] == PRESET_NONE
-        assert set(modes[1:]) == set(_DEFAULT_ENABLED_PRESETS)
+        assert set(modes[1:]) == set(DEFAULT_ENABLED_PRESETS)
 
     def test_custom_presets(self, custom_mgr: PresetManager):
         """Custom enabled_presets are exposed in the configured order."""

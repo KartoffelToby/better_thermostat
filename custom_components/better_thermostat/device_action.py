@@ -30,12 +30,30 @@ from .utils.helpers import is_bt_climate_entity
 
 ACTION_TYPES = {"set_hvac_mode", "set_temperature"}
 
-_ACTION_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
+# One schema per action type, because each type carries its own fields and
+# ``async_call_action_from_config`` reads the hvac mode back without a
+# fallback. Home Assistant looks the schema up by this exact name.
+SET_HVAC_MODE_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
     {
-        vol.Required(CONF_TYPE): vol.In(ACTION_TYPES),
+        vol.Required(CONF_TYPE): "set_hvac_mode",
         vol.Required(CONF_ENTITY_ID): cv.entity_domain(CLIMATE_DOMAIN),
+        vol.Required(ATTR_HVAC_MODE): vol.In(
+            [HVACMode.HEAT, HVACMode.OFF, HVACMode.HEAT_COOL]
+        ),
     }
 )
+
+SET_TEMPERATURE_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
+    {
+        vol.Required(CONF_TYPE): "set_temperature",
+        vol.Required(CONF_ENTITY_ID): cv.entity_domain(CLIMATE_DOMAIN),
+        vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
+        vol.Optional(ATTR_TARGET_TEMP_HIGH): vol.Coerce(float),
+        vol.Optional(ATTR_TARGET_TEMP_LOW): vol.Coerce(float),
+    }
+)
+
+ACTION_SCHEMA = vol.Any(SET_HVAC_MODE_SCHEMA, SET_TEMPERATURE_SCHEMA)
 
 
 async def async_get_actions(

@@ -31,7 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
-config_entry_update_listener_lock = Lock()
+RELOAD_LOCKS = f"{DOMAIN}_reload_locks"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -61,9 +61,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _reload_lock(hass: HomeAssistant, entry: ConfigEntry) -> Lock:
+    """Return the lock one entry serializes its own reloads on.
+
+    The lock lives on the Home Assistant instance and is keyed by entry, so
+    two thermostats reload independently and a lock never outlives the
+    instance it was created for. It has to survive the reload it guards,
+    which is why it does not live in the per-entry data the unload clears.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry about to reload.
+
+    Returns
+    -------
+    Lock
+        The lock for this entry, created on first use.
+    """
+    return hass.data.setdefault(RELOAD_LOCKS, {}).setdefault(entry.entry_id, Lock())
+
+
 async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
-    async with config_entry_update_listener_lock:
+    async with _reload_lock(hass, entry):
         await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -82,6 +105,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     persist in HA's issue registry until explicitly deleted, so they have to
     be cleaned up here to avoid stale warnings after a config entry is gone.
     """
+    hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
+
     device_name = entry.data.get(CONF_NAME, entry.title)
 
     for issue_id in (
