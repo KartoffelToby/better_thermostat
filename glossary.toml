@@ -52,9 +52,16 @@ definition = "Room sensor reading after smoothing."
 rejected = ["cur_temp_filtered"]
 
 [[term]]
+name = "setpoint"
+zone = "A"
+definition = "A target temperature on the device side: the value written to a TRV, or the value one reports back."
+rejected = []
+note = "What BT itself holds is `target_temp`. `setpoint` stays the device-facing word, which is how the ~250 sites already using it read."
+
+[[term]]
 name = "trv.setpoint"
 zone = "A"
-definition = "Target temperature as the TRV reports it."
+definition = "Target temperature as one TRV reports it."
 rejected = ["last_temperature"]
 
 [[term]]
@@ -72,9 +79,10 @@ rejected = []
 
 [[term]]
 name = "off_temperature"
-zone = "B"
+zone = "C"
 definition = "Outdoor threshold above which BT switches the TRV off."
 rejected = ["off_temp"]
+note = "Spelled out because a persisted key and a published state attribute both carry that spelling; the other temperatures follow the dominant `_temp` form."
 
 [[term]]
 name = "delta_kelvin"
@@ -125,6 +133,7 @@ name = "real_trvs"
 zone = "A"
 definition = "The `dict[str, Trv]` of configured TRVs, keyed by entity id."
 rejected = []
+note = "`real` says nothing and the mapping does not name its key, so the name is weak on both counts. It sits at 930 sites, which is more than the clarity is worth."
 
 # ---------------------------------------------------------------------------
 # Time, state, calibration
@@ -160,8 +169,9 @@ rejected = ["door_delay_after"]
 [[term]]
 name = "valve_percent"
 zone = "A"
-definition = "Valve opening, 0–100."
+definition = "The valve opening BT computes, 0–100."
 rejected = ["valve_pos", "valve_pct"]
+note = "`valve_position` is what the device reports and `valve_max_opening` is the per-TRV cap. Neither is a spelling of this one."
 
 [[term]]
 name = "offset"
