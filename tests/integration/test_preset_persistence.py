@@ -165,6 +165,41 @@ async def test_active_preset_survives_a_state_without_the_preset_map(hass, fake_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "carried",
+    ["not json at all", '{"nosuchpreset": 17.0}'],
+    ids=["unreadable", "unknown_preset"],
+)
+async def test_an_unusable_preset_map_falls_back_to_the_defaults(
+    hass, fake_trv, carried
+):
+    """A map that cannot be read, or names a preset that does not exist.
+
+    The state comes from the previous run and is not validated on the way in,
+    so the restore has to survive both without taking the startup with it.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "preset_mode": "comfort",
+                    "current_temperature": 18.0,
+                    ATTR_STATE_PRESET_HEAT_TEMPERATURES: carried,
+                },
+            ),
+        ),
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert _target(hass) == COMFORT_DEFAULT
+
+
+@pytest.mark.asyncio
 async def test_preset_temperatures_are_carried_in_the_climate_state(hass, fake_trv):
     """The thermostat state carries the preset temperatures it runs on.
 
