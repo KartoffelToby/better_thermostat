@@ -1812,10 +1812,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                             if cool_temp is not None:
                                 self._preset_cool_temperatures[preset] = cool_temp
-            # Restore the persisted per-preset heating map before applying it
-            # below. The map is owned by the preset number entities, whose
-            # platform is set up after climate, so without this the block below
-            # reads the built-in default rather than the configured temperature.
+            # The per-preset heating map is owned by the preset number
+            # entities, whose platform is set up after climate, so it comes
+            # back from the thermostat's own state here. The block below reads
+            # it to pick the target for a restored preset.
             if (
                 old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
                 is not None

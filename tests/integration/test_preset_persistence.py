@@ -7,6 +7,8 @@ takes the entry through a restart or the options form, and asks what the
 thermostat runs on when it comes back.
 """
 
+import json
+
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import State
@@ -36,6 +38,9 @@ COMFORT_NUMBER = "number.bt_test_comfort"
 # The built-in comfort temperature, and one the user would have to have set.
 COMFORT_DEFAULT = 21.0
 COMFORT_CONFIGURED = 22.5
+
+# Enough steps for any entry this suite builds; a flow that wants more is stuck.
+_MAX_FLOW_STEPS = 10
 
 
 def _entry(hass, presets=("comfort", "eco")):
@@ -200,6 +205,62 @@ async def test_an_unusable_preset_map_falls_back_to_the_defaults(
 
 
 @pytest.mark.asyncio
+async def test_a_preset_value_outside_the_range_keeps_the_preset_active(hass, fake_trv):
+    """A stored preset the current range cannot hold is bounded, not abandoned.
+
+    The stored value belongs to the user and stays as configured; only the
+    target it produces is bounded. Reading that bound as a manual override
+    would switch off the very preset that asked for it.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "temperature": 20.0,
+                    "preset_mode": "comfort",
+                    "current_temperature": 18.0,
+                },
+            ),
+            State(COMFORT_NUMBER, "35.0", {"unit_of_measurement": "\u00b0C"}),
+        ),
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
+    assert _target(hass) == bt.max_temp
+    assert hass.states.get(COMFORT_NUMBER).state == "35.0"
+
+
+@pytest.mark.asyncio
+async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
+    """An entry whose options were written by an earlier version reloads once.
+
+    Every update of the entry reloads it, so clearing stale options in a second
+    update costs a second reload — and the second one lands in the first one's
+    startup, before it has restored what the thermostat was running on.
+    """
+    entry = _entry(hass)
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=dict(entry.data))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
+    await _activate(hass, "comfort")
+
+    await _click_through_the_options(hass, entry)
+
+    assert entry.options == {}
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
+    assert _target(hass) == COMFORT_CONFIGURED
+
+
+@pytest.mark.asyncio
 async def test_preset_temperatures_are_carried_in_the_climate_state(hass, fake_trv):
     """The thermostat state carries the preset temperatures it runs on.
 
@@ -213,7 +274,7 @@ async def test_preset_temperatures_are_carried_in_the_climate_state(hass, fake_t
 
     carried = hass.states.get(BT_ENTITY).attributes[ATTR_STATE_PRESET_HEAT_TEMPERATURES]
 
-    assert '"comfort": 22.5' in carried
+    assert json.loads(carried)["comfort"] == COMFORT_CONFIGURED
 
 
 @pytest.mark.asyncio
@@ -234,7 +295,12 @@ async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
 async def _click_through_the_options(hass, entry):
     """Accept every pre-filled value on every step of the options flow."""
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    while result["type"] == "form":
+    # A flow that keeps handing back the same step would otherwise hang the
+    # suite instead of failing it. No step of this flow repeats, so the bound
+    # is generous.
+    for _ in range(_MAX_FLOW_STEPS):
+        if result["type"] != "form":
+            break
         submission = {}
         for marker in result["data_schema"].schema:
             description = getattr(marker, "description", None)
@@ -250,6 +316,8 @@ async def _click_through_the_options(hass, entry):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], submission
         )
+    else:
+        raise AssertionError(f"options flow did not finish: {result}")
     await hass.async_block_till_done()
     await wait_for_startup(hass, entry)
 
@@ -258,9 +326,9 @@ async def _click_through_the_options(hass, entry):
 async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fake_trv):
     """Passing through the options leaves the running preset alone.
 
-    Writing the entry is what reloads it, so a flow that writes the same
-    configuration twice reloads twice, and the second reload lands before the
-    first has restored the preset it came up with.
+    Writing the entry is what reloads it, and a reload that lands while the
+    previous one is still starting up arrives before the preset has been
+    restored. So the number of writes one pass costs is part of what this pins.
     """
     entry = _entry(hass)
     await setup_entry(hass, entry)
