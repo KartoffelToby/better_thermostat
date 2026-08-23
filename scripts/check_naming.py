@@ -115,8 +115,9 @@ def _identifiers(tree: ast.AST) -> list[tuple[str, int]]:
     """Return every identifier the code defines or reads, with its line.
 
     Bindings count wherever they are made, not only where a name is read: an
-    import alias, an `except ... as` clause and a match capture all introduce a
-    name that a rename has to reach.
+    import alias, an `except ... as` clause, a match capture, a `global` or
+    `nonlocal` declaration and a type parameter all introduce a name that a
+    rename has to reach.
     """
     found: list[tuple[str, int]] = []
     for node in ast.walk(tree):
@@ -139,6 +140,10 @@ def _identifiers(tree: ast.AST) -> list[tuple[str, int]]:
                 found.append((node.name, node.lineno))
             case ast.MatchMapping() if node.rest is not None:
                 found.append((node.rest, node.lineno))
+            case ast.Global() | ast.Nonlocal():
+                found.extend((name, node.lineno) for name in node.names)
+            case ast.TypeVar() | ast.ParamSpec() | ast.TypeVarTuple():
+                found.append((node.name, node.lineno))
     return found
 
 
@@ -164,11 +169,19 @@ def _scan(path: Path, glossary: Glossary) -> list[Finding]:
 
 
 def _sources(paths: list[Path] | None) -> list[Path]:
-    """Return the Python files to scan, defaulting to the whole project."""
+    """Return the Python files to scan, defaulting to the whole project.
+
+    Roots may overlap, so a file named by two of them is returned once: a
+    second copy would double its count and report it over a budget it meets.
+    """
     roots = paths or [REPO_ROOT / name for name in SCANNED]
     files: list[Path] = []
+    seen: set[Path] = set()
     for root in roots:
-        files.extend(sorted(root.rglob("*.py")) if root.is_dir() else [root])
+        for path in sorted(root.rglob("*.py")) if root.is_dir() else [root]:
+            if path not in seen:
+                seen.add(path)
+                files.append(path)
     return files
 
 

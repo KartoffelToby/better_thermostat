@@ -312,3 +312,38 @@ def test_the_scan_refuses_a_file_it_could_not_parse(checker):
     _write(checker, "custom_components/broken.py", "def load(cfg:\n")
     with pytest.raises(SystemExit, match="broken.py"):
         checker._findings(None, checker._load_glossary())
+
+
+DECLARATIONS = textwrap.dedent(
+    '''
+    """A module that declares rejected spellings without binding a value."""
+
+
+    def outer():
+        """Declare a rejected spelling that lives at module scope."""
+        global cfg
+
+
+    def load[val]():
+        """Take a rejected spelling as a type parameter."""
+    '''
+)
+
+
+@pytest.mark.parametrize(
+    ("alias", "position"),
+    [("cfg", "a global declaration"), ("val", "a type parameter")],
+)
+def test_a_name_only_declared_is_counted(checker, alias, position):
+    """A declaration is a rename site even where no value is bound."""
+    _write(checker, "custom_components/declarer.py", DECLARATIONS)
+    found = {f.alias for f in checker._findings(None, checker._load_glossary())}
+    assert alias in found, f"{alias} in {position} was not counted"
+
+
+def test_overlapping_roots_scan_each_file_once(checker):
+    """A file two roots both name is one file, or its count doubles."""
+    _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    root = checker.REPO_ROOT / "custom_components"
+    overlapping = [root, root / "loader.py"]
+    assert len(checker._findings(overlapping, checker._load_glossary())) == 2
