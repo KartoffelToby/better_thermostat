@@ -14,6 +14,7 @@ and counting it would make the budget demand edits that must not happen.
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import textwrap
 
@@ -28,7 +29,13 @@ GLOSSARY = textwrap.dedent(
     name = "config"
     zone = "A"
     definition = "A configuration mapping."
-    rejected = ["cfg"]
+    rejected = ["cfg", "conf"]
+
+    [[term]]
+    name = "value"
+    zone = "A"
+    definition = "A generic value."
+    rejected = ["val"]
 
     [[term]]
     name = "trv.current_temp"
@@ -237,3 +244,62 @@ def test_check_reports_a_budget_that_has_gone_slack(checker, capsys):
     _budget(checker, **{"custom_components/loader.py": 5})
     assert checker.check(None) == 0
     assert "1 file(s) below budget" in capsys.readouterr().out
+
+
+BINDINGS = textwrap.dedent(
+    '''
+    """A module that binds rejected spellings without ever reading one."""
+
+    from package import item as cfg
+    import package.cfg
+
+
+    def handle(subject):
+        """Bind rejected spellings in every position that is not a read."""
+        try:
+            pass
+        except ValueError as val:
+            pass
+        match subject:
+            case {"item": item, **conf}:
+                pass
+            case [*current_temperature]:
+                pass
+    '''
+)
+
+
+@pytest.mark.parametrize(
+    ("alias", "position"),
+    [
+        ("cfg", "an import alias"),
+        ("val", "an except clause"),
+        ("conf", "a match mapping rest"),
+        ("current_temperature", "a match star"),
+    ],
+)
+def test_a_name_bound_without_being_read_is_counted(checker, alias, position):
+    """A binding is a rename site even where the name is never read."""
+    _write(checker, "custom_components/binder.py", BINDINGS)
+    found = {f.alias for f in checker._findings(None, checker._load_glossary())}
+    assert alias in found, f"{alias} bound by {position} was not counted"
+
+
+def test_every_python_source_root_is_scanned():
+    """A new file under any tracked source root starts at a budget of zero.
+
+    The roots come from git rather than from a directory walk: a walk inside a
+    worktree also sees `.venv` and the checkout's siblings, and filtering those
+    out by path component makes the set empty and the assertion vacuous.
+    """
+    script = _load_script()
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert tracked, "git reported no Python files"
+    roots = {Path(name).parts[0] for name in tracked}
+    assert roots <= set(script.SCANNED), sorted(roots - set(script.SCANNED))

@@ -47,7 +47,7 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GLOSSARY_FILE = REPO_ROOT / "glossary.toml"
 BUDGET_FILE = REPO_ROOT / ".naming-budget.json"
-SCANNED = ("custom_components", "tests")
+SCANNED = ("custom_components", "tests", "scripts")
 
 
 @dataclass(frozen=True)
@@ -109,7 +109,12 @@ def _load_glossary() -> Glossary:
 
 
 def _identifiers(tree: ast.AST) -> list[tuple[str, int]]:
-    """Return every identifier the code defines or reads, with its line."""
+    """Return every identifier the code defines or reads, with its line.
+
+    Bindings count wherever they are made, not only where a name is read: an
+    import alias, an `except ... as` clause and a match capture all introduce a
+    name that a rename has to reach.
+    """
     found: list[tuple[str, int]] = []
     for node in ast.walk(tree):
         match node:
@@ -123,6 +128,14 @@ def _identifiers(tree: ast.AST) -> list[tuple[str, int]]:
                 found.append((node.arg, node.lineno))
             case ast.FunctionDef() | ast.AsyncFunctionDef() | ast.ClassDef():
                 found.append((node.name, node.lineno))
+            case ast.alias():
+                found.append((node.asname or node.name.split(".")[0], node.lineno))
+            case ast.ExceptHandler() if node.name is not None:
+                found.append((node.name, node.lineno))
+            case ast.MatchAs() | ast.MatchStar() if node.name is not None:
+                found.append((node.name, node.lineno))
+            case ast.MatchMapping() if node.rest is not None:
+                found.append((node.rest, node.lineno))
     return found
 
 
