@@ -258,3 +258,24 @@ async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(
 
     assert set(_field_default(user_step, CONF_PRESETS)) == set(DEFAULT_ENABLED_PRESETS)
     assert set(hass.states.get(BT_ENTITY).attributes["preset_modes"]) == running_on
+
+
+@pytest.mark.asyncio
+async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fake_trv):
+    """Passing through the options leaves the running preset alone.
+
+    Writing the entry is what reloads it, so a flow that writes the same
+    configuration twice reloads twice, and the second reload lands before the
+    first has restored the preset it came up with.
+    """
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
+    await _activate(hass, "comfort")
+
+    await _click_through_the_options(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
+    assert hass.states.get(COMFORT_NUMBER).state == str(COMFORT_CONFIGURED)
+    assert _target(hass) == COMFORT_CONFIGURED

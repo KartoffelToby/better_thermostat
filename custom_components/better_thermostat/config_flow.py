@@ -1020,9 +1020,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # second time and so reloads it a second time, and that reload lands
             # in the middle of the first one's startup — before it has restored
             # the preset and target it came up with.
-            return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
-            )
+            return self.async_create_entry(title=self.updated_config["name"], data={})
 
         user_input = user_input or {}
         info = ctx.get("info", {})
