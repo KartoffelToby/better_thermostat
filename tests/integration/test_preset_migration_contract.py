@@ -16,6 +16,10 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
 )
 
+from custom_components.better_thermostat.utils.const import (
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
+)
+
 from .conftest import (
     BT_ENTITY,
     DOMAIN,
@@ -189,6 +193,12 @@ async def test_a_preset_that_is_not_enabled_is_rejected_by_the_service_call(
 
 @pytest.mark.asyncio
 async def test_the_restore_point_survives_a_restart(hass, fake_trv):
+    """The target a preset was entered from is still there after a restart.
+
+    The restored preset runs at 17.5 °C rather than the 18.0 °C the sleep
+    preset defaults to, so a thermostat that came back on the built-in value is
+    told apart from one that restored what the user configured.
+    """
     mock_restore_cache(
         hass,
         (
@@ -196,10 +206,11 @@ async def test_the_restore_point_survives_a_restart(hass, fake_trv):
                 BT_ENTITY,
                 "heat",
                 {
-                    "temperature": 18.0,
+                    "temperature": 17.5,
                     "preset_mode": "sleep",
                     "preset_temperature": 21.5,
                     "unit_of_measurement": "°C",
+                    ATTR_STATE_PRESET_HEAT_TEMPERATURES: '{"sleep": 17.5}',
                 },
             ),
         ),
@@ -207,6 +218,7 @@ async def test_the_restore_point_survives_a_restart(hass, fake_trv):
     await _setup(hass)
 
     assert _preset(hass) == "sleep"
+    assert _target(hass) == 17.5
     assert _restore_point(hass) == 21.5
 
     await _set_preset(hass, "none")

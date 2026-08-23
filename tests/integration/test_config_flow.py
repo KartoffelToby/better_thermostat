@@ -44,6 +44,9 @@ from .conftest import (
     WINDOW_ID,
     assert_profile_adopted,
     build_devices,
+    click_through_the_options,
+    counting_reloads,
+    form_default,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -76,13 +79,6 @@ def _marker(form, key: str) -> vol.Marker:
         if marker == key:
             return marker
     raise AssertionError(f"step {form['step_id']} publishes no field {key!r}")
-
-
-def _field_default(form, key: str):
-    """Return the value a step's form pre-fills ``key`` with."""
-    marker = _marker(form, key)
-    assert marker.default is not vol.UNDEFINED, f"{key} carries no default"
-    return marker.default()
 
 
 def _field_options(form, key: str) -> list[str]:
@@ -209,7 +205,7 @@ async def test_create_flow_offers_the_calibration_the_device_can_take(hass, fake
     assert _field_options(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration_options(profile)
     )
-    assert _field_default(advanced_form, CONF_CALIBRATION) == (
+    assert form_default(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration(profile)
     )
 
@@ -307,7 +303,7 @@ async def test_options_flow_keeps_the_settings_of_a_thermostat_left_alone(hass):
         hass, entry, _user_step_input(trv.entity_id, name="Renamed Room")
     )
 
-    assert _field_default(advanced_form, CONF_CHILD_LOCK) is True
+    assert form_default(advanced_form, CONF_CHILD_LOCK) is True
     assert _stored_trv(entry)["advanced"][CONF_CHILD_LOCK] is True
     assert entry.data["name"] == "Renamed Room"
 
@@ -422,7 +418,7 @@ async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(hass):
     running_on = set(hass.states.get(BT_ENTITY).attributes["preset_modes"])
 
     form = await hass.config_entries.options.async_init(entry.entry_id)
-    offered = _field_default(form, CONF_PRESETS)
+    offered = form_default(form, CONF_PRESETS)
     hass.config_entries.options.async_abort(form["flow_id"])
     await _run_options_flow(
         hass, entry, _user_step_input(trv.entity_id, **{CONF_PRESETS: offered})
@@ -431,3 +427,48 @@ async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(hass):
 
     assert set(offered) == set(DEFAULT_ENABLED_PRESETS)
     assert set(hass.states.get(BT_ENTITY).attributes["preset_modes"]) == running_on
+
+
+async def test_one_options_change_reloads_the_entry_once(hass, fake_trv):
+    """What the user changes once costs one restart of the thermostat.
+
+    Writing the entry is what reloads it, so a flow that writes the same
+    configuration to more than one place reloads more than once — and the
+    second reload arrives while the first one's startup is still running,
+    before it has restored what the thermostat was running on.
+    """
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    async with counting_reloads(hass, entry) as reloads:
+        await click_through_the_options(hass, entry, name="Renamed Room")
+    await wait_for_startup(hass, entry)
+
+    assert entry.data["name"] == "Renamed Room"
+    assert len(reloads) == 1
+
+
+async def test_a_settled_options_pass_that_changes_nothing_leaves_the_entry_alone(
+    hass, fake_trv
+):
+    """Opening the settings and closing them again does not restart anything.
+
+    The first pass is not necessarily a no-op: it settles keys the stored entry
+    never carried, and that is a real change. Once it has, a pass that accepts
+    every offered value writes nothing — and an entry that is not written to is
+    not taken down.
+    """
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    await click_through_the_options(hass, entry)
+    before = await wait_for_startup(hass, entry)
+
+    async with counting_reloads(hass, entry) as reloads:
+        await click_through_the_options(hass, entry)
+
+    assert reloads == []
+    assert hass.data[DOMAIN][entry.entry_id]["climate"] is before
