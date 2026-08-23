@@ -25,31 +25,36 @@
 # Absolute temperatures are °C throughout and carry no unit suffix; conversion
 # happens at the adapter seam only. Where a BT quantity sits next to the
 # same-named TRV quantity, the owner prefix `trv.` separates them.
+#
+# The word is `temperature`, never `temp`. Naming each target after its channel
+# is what makes that possible: `heat_target_temperature` clears the entity's
+# `target_temperature` property, so the long form costs no `bt_` prefix.
 # ---------------------------------------------------------------------------
 
 [[term]]
-name = "target_temp"
+name = "heat_target_temperature"
 zone = "A"
-definition = "Target temperature BT holds while heating."
-rejected = ["bt_target_temp"]
+definition = "The target BT holds on the heating channel, and the only target in heat mode."
+rejected = ["bt_target_temp", "target_temp"]
+note = "Named for its channel because the cooling one exists alongside it in every mode; `heat` and `cool` are the pair the code already uses."
 
 [[term]]
-name = "target_cool_temp"
+name = "cool_target_temperature"
 zone = "A"
-definition = "Target temperature BT holds while cooling."
+definition = "The target BT holds on the cooling channel."
 rejected = ["bt_target_cooltemp", "cool_target"]
 
 [[term]]
-name = "room_temp"
+name = "room_temperature"
 zone = "A"
 definition = "Room sensor reading as measured, unsmoothed."
-rejected = ["cur_temp"]
+rejected = ["cur_temp", "room_temp"]
 
 [[term]]
-name = "room_temp_filtered"
+name = "room_temperature_filtered"
 zone = "A"
 definition = "Room sensor reading after smoothing."
-rejected = ["cur_temp_filtered"]
+rejected = ["cur_temp_filtered", "room_temp_filtered"]
 
 [[term]]
 name = "setpoint"
@@ -65,24 +70,24 @@ definition = "Target temperature as one TRV reports it."
 rejected = ["last_temperature"]
 
 [[term]]
-name = "trv.current_temp"
+name = "trv.current_temperature"
 zone = "A"
-definition = "Room temperature as the TRV reports it."
-rejected = ["current_temperature"]
-note = "Rejected on `Trv` only. `ClimateEntity.current_temperature` is the HA property."
+definition = "Room temperature as one TRV reports it."
+rejected = ["current_temp"]
+note = "The owner prefix carries the distinction from `ClimateEntity.current_temperature`, which BT implements on the entity."
 
 [[term]]
-name = "outdoor_temp"
+name = "outdoor_temperature"
 zone = "A"
 definition = "Outdoor temperature from the weather entity or outdoor sensor."
-rejected = []
+rejected = ["outdoor_temp"]
 
 [[term]]
 name = "off_temperature"
 zone = "C"
 definition = "Outdoor threshold above which BT switches the TRV off."
 rejected = ["off_temp"]
-note = "Spelled out because a persisted key and a published state attribute both carry that spelling; the other temperatures follow the dominant `_temp` form."
+note = "Published through `ATTR_STATE_OFF_TEMPERATURE`, so a rename costs users their automations rather than a migration step."
 
 [[term]]
 name = "delta_kelvin"
@@ -174,11 +179,11 @@ rejected = ["valve_pos", "valve_pct"]
 note = "`valve_position` is what the device reports and `valve_max_opening` is the per-TRV cap. Neither is a spelling of this one."
 
 [[term]]
-name = "offset"
+name = "calibration_offset"
 zone = "A"
-definition = "The calibration offset value written to the device."
-rejected = []
-note = "Bare `calibration` says too little. It stands for the value, the method and the entity."
+definition = "The offset value written to a device that calibrates by offset."
+rejected = ["offset"]
+note = "It pairs with `calibration_mode`; naming the value `offset` alone leaves the pair unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter methods (`set_offset`, `get_current_offset`, …) carry the same concept and follow when that contract is next opened."
 
 [[term]]
 name = "calibration_mode"
@@ -265,4 +270,29 @@ reason = "Field definition; it moves together with all its readers, not before t
 [[exception]]
 alias = "bt_target_temp"
 paths = ["custom_components/better_thermostat/core/containers.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "target_temp"
+paths = ["custom_components/better_thermostat/core/snapshot.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "room_temp"
+paths = ["custom_components/better_thermostat/core/snapshot.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "room_temp_filtered"
+paths = ["custom_components/better_thermostat/core/snapshot.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "current_temp"
+paths = ["custom_components/better_thermostat/core/snapshot.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "outdoor_temp"
+paths = ["custom_components/better_thermostat/core/snapshot.py"]
 reason = "Field definition; it moves together with all its readers, not before them."

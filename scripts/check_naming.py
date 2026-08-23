@@ -27,7 +27,10 @@ Three modes:
 ``update``
     Rewrite the budget from today's counts. Run this after a rename, so the
     lower number is the one that has to be held. It refuses to record a count
-    that grew, because a name this file rejects has no legitimate way back in.
+    that grew unless `--allow-raise` says so, which is for the two ways a count
+    rises without anyone writing a rejected name: a file moved and took its
+    backlog along, or the glossary gained a term and the tree already spelled
+    it the old way.
 
 ``list``
     Print the findings themselves, for one path or for the whole tree.
@@ -237,7 +240,7 @@ def update(*, allow_raise: bool) -> int:
     if raised and not allow_raise:
         print(
             f"\nrefusing to record {len(raised)} raised count(s). Fix the names, or "
-            "pass --allow-raise when a file moved and its backlog moved with it."
+            "pass --allow-raise after a file move or a new glossary term."
         )
         return 1
 
@@ -280,7 +283,7 @@ def main() -> int:
     parser.add_argument(
         "--allow-raise",
         action="store_true",
-        help="update mode: record a count that grew, for a file that moved",
+        help="update mode: record a count that grew, after a move or a new term",
     )
     args = parser.parse_args()
 

@@ -193,6 +193,9 @@ Three conventions carry the naming here, and none of them is ours:
   information glued onto a name) and *"descriptiveness should be proportional to
   the name's scope of visibility"*. Only that section: the rest of that guide
   prescribes Google-style docstrings and we use numpy ones (below).
+  Abbreviations are therefore spelled out: it is `temperature`, not `temp`. The
+  exceptions are the words Home Assistant itself is built from, `config` and
+  `entity_id`, which are neither ambiguous nor unfamiliar.
 - **Domain terms:** `glossary.toml`. One term per concept, the same term in the
   code, in the documentation and in issues.
 
@@ -236,15 +239,16 @@ only where a Home Assistant property of the same name lives on the entity class:
 | `bt_target_cooltemp` | `target_temperature_high` | no |
 
 Where a BT quantity sits next to the same-named TRV quantity, the owner prefix
-`trv.` separates them: `target_temp` versus `trv.setpoint`.
+`trv.` separates them: `heat_target_temperature` versus `trv.setpoint`.
 
 **A loop over keys and a loop over values must not share a variable name.**
 `for trv in self.real_trvs` binds a `str`, `for trv in self.real_trvs.values()`
 binds a `Trv`. The key is `entity_id`, the value is `trv`.
 
 **Units are spelled out, in lowercase, and only where they are not the norm.**
-Absolute temperatures are °C throughout and carry no suffix: `room_temp`,
-`target_temp`. Conversion happens at the adapter seam, and only there may a
+Absolute temperatures are °C throughout and carry no suffix:
+`room_temperature`, `heat_target_temperature`. Conversion happens at the adapter
+seam, and only there may a
 `_fahrenheit` name appear. Everything else spells its unit out: `_kelvin` for
 temperature differences, `_kelvin_per_min` for rates, `_seconds` or `_minutes` for
 durations, `_percent` for percentages. Never `_C`, `_K`, `_k`, `_s`, `_pct`,
