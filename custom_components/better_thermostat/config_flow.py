@@ -530,10 +530,9 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
-    # An entry that carries no preset list at all runs on the PresetManager
-    # default, so that is the set the update form has to offer: pre-filling the
-    # create-time suggestion instead would turn an unchanged pass through the
-    # form into a submission that disables every other preset.
+    # An entry that carries no preset list runs on the PresetManager default
+    # set, so that is the set the update form offers. The create form suggests a
+    # single preset instead: a new entry has no enabled presets to preserve.
     add_field(
         CONF_PRESETS,
         PRESET_SELECTOR,
@@ -1011,15 +1010,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # Check for calibration mode changes to trigger entity cleanup
             await self._check_calibration_changes()
 
+            # The whole configuration lives in the entry's data. Options are
+            # emptied in the same update, so an entry that still carries them
+            # from an earlier version is written — and so reloaded — once.
             self.hass.config_entries.async_update_entry(
-                self._config_entry, data=self.updated_config
+                self._config_entry, data=self.updated_config, options={}
             )
             self._active_trv_config = None
-            # The whole configuration lives in the entry's data, written above.
-            # Publishing the same payload as options as well updates the entry a
-            # second time and so reloads it a second time, and that reload lands
-            # in the middle of the first one's startup — before it has restored
-            # the preset and target it came up with.
+            # The entry is written above and nothing reads its options.
             return self.async_create_entry(title=self.updated_config["name"], data={})
 
         user_input = user_input or {}
