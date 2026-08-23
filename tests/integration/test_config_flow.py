@@ -17,6 +17,7 @@ import asyncio
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
 from custom_components.better_thermostat import RELOAD_LOCKS
@@ -27,9 +28,13 @@ from custom_components.better_thermostat.utils.const import (
     CONF_HEATER,
     CONF_MODEL,
     CONF_OUTDOOR_SENSOR,
+    CONF_PRESETS,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
     CalibrationType,
+)
+from custom_components.better_thermostat.utils.preset_manager import (
+    DEFAULT_ENABLED_PRESETS,
 )
 
 from .conftest import (
@@ -39,8 +44,10 @@ from .conftest import (
     WINDOW_ID,
     assert_profile_adopted,
     build_devices,
+    make_entry,
     profile_id,
     set_room_sensor,
+    setup_entry,
     wait_for_startup,
 )
 from .device_profiles import (
@@ -376,9 +383,12 @@ async def test_one_thermostat_reload_does_not_wait_on_another(hass):
     await wait_for_startup(hass, holding)
     await wait_for_startup(hass, waiting)
 
-    # Reloading is what creates the lock, so drive one options change through
-    # before taking the first entry's reload lock and holding it.
-    await _run_options_flow(hass, holding, _user_step_input(trv.entity_id))
+    # Reloading is what creates the lock, and only a submission that changes
+    # something reloads, so the priming pass renames the first entry before its
+    # reload lock is taken and held.
+    await _run_options_flow(
+        hass, holding, _user_step_input(trv.entity_id, name="Primed Room")
+    )
     before = hass.data[DOMAIN][waiting.entry_id]["climate"]
     async with hass.data[RELOAD_LOCKS][holding.entry_id]:
         async with asyncio.timeout(RELOAD_TIMEOUT_S):
@@ -392,3 +402,32 @@ async def test_one_thermostat_reload_does_not_wait_on_another(hass):
 
     assert after is not before
     assert waiting.data["name"] == "Renamed Room"
+
+
+async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(hass):
+    """An entry carrying no preset list keeps its presets through the form.
+
+    A preset list that was never written is not an empty one: the thermostat
+    comes up on the full default set. So that is the set the update form has to
+    pre-fill, or a pass through the form that changes nothing submits a
+    narrower list and takes every other preset away.
+    """
+    set_room_sensor(hass, 19.0)
+    (trv,) = await build_devices(hass, GENERIC_HEAT_TRV)
+    data = dict(make_entry(GENERIC_HEAT_TRV).data)
+    data.pop(CONF_PRESETS, None)
+    entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    running_on = set(hass.states.get(BT_ENTITY).attributes["preset_modes"])
+
+    form = await hass.config_entries.options.async_init(entry.entry_id)
+    offered = _field_default(form, CONF_PRESETS)
+    hass.config_entries.options.async_abort(form["flow_id"])
+    await _run_options_flow(
+        hass, entry, _user_step_input(trv.entity_id, **{CONF_PRESETS: offered})
+    )
+    await wait_for_startup(hass, entry)
+
+    assert set(offered) == set(DEFAULT_ENABLED_PRESETS)
+    assert set(hass.states.get(BT_ENTITY).attributes["preset_modes"]) == running_on

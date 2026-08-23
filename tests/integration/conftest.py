@@ -13,6 +13,7 @@ flattened by accident.
 """
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from unittest.mock import patch
 
@@ -591,6 +592,26 @@ async def wait_for_startup(hass, entry):
         lambda: not bt.startup_running and bt._async_unsub_state_changed is not None,
     )
     return bt
+
+
+@contextlib.asynccontextmanager
+async def counting_reloads(hass, entry):
+    """Count the reloads of ``entry`` that happen inside the block.
+
+    A reload restarts the thermostat, and one that lands while the previous one
+    is still starting up arrives before the state has been restored. How many
+    reloads a user action costs is therefore a behaviour, not a detail.
+    """
+    reloads = []
+    original = hass.config_entries.async_reload
+
+    async def counting(entry_id, **kwargs):
+        if entry_id == entry.entry_id:
+            reloads.append(entry_id)
+        return await original(entry_id, **kwargs)
+
+    with patch.object(hass.config_entries, "async_reload", counting):
+        yield reloads
 
 
 def profile_id(spec) -> str:

@@ -119,6 +119,7 @@ from .utils.const import (
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
@@ -1811,6 +1812,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                             if cool_temp is not None:
                                 self._preset_cool_temperatures[preset] = cool_temp
+            # The per-preset heating map is owned by the preset number
+            # entities, whose platform is set up after climate, so it comes
+            # back from the thermostat's own state here. The block below reads
+            # it to pick the target for a restored preset.
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
+                is not None
+            ):
+                try:
+                    restored_heat_temperatures = json.loads(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_HEAT_TEMPERATURES, "{}"
+                            )
+                        )
+                    )
+                except TypeError, json.JSONDecodeError:
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not restore preset heat temperatures",
+                        self.device_name,
+                    )
+                else:
+                    if isinstance(restored_heat_temperatures, dict):
+                        for preset, temp in restored_heat_temperatures.items():
+                            if preset not in self.preset_mgr.temperatures:
+                                continue
+                            heat_temp = convert_to_float(
+                                str(temp), self.device_name, "startup()"
+                            )
+                            if heat_temp is not None:
+                                self.preset_mgr.temperatures[preset] = heat_temp
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
@@ -2946,6 +2978,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ),
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
+            ),
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                self.preset_mgr.temperatures
             ),
         }
 

@@ -60,6 +60,7 @@ from .utils.const import (
     MpcV2PlantPreset,
 )
 from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
+from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -510,8 +511,15 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
+    # An entry that carries no preset list runs on the PresetManager default
+    # set, so that is the set the update form offers. The create form suggests a
+    # single preset instead: a new entry has no enabled presets to preserve.
     add_field(
-        CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, [PRESET_ECO])
+        CONF_PRESETS,
+        PRESET_SELECTOR,
+        default=resolve(
+            CONF_PRESETS, [PRESET_ECO] if is_create else list(DEFAULT_ENABLED_PRESETS)
+        ),
     )
 
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
@@ -967,13 +975,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # Check for calibration mode changes to trigger entity cleanup
             await self._check_calibration_changes()
 
+            # The whole configuration lives in the entry's data. Options are
+            # emptied in the same update, so an entry that still carries them
+            # is written — and so reloaded — once rather than twice.
             self.hass.config_entries.async_update_entry(
-                self._config_entry, data=self.updated_config
+                self._config_entry, data=self.updated_config, options={}
             )
             self._active_trv_config = None
-            return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
-            )
+            # The entry is written above and nothing reads its options.
+            return self.async_create_entry(title=self.updated_config["name"], data={})
 
         user_input = user_input or {}
         info = ctx.get("info", {})
