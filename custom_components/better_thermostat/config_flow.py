@@ -977,7 +977,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             # The whole configuration lives in the entry's data. Options are
             # emptied in the same update, so an entry that still carries them
-            # from an earlier version is written — and so reloaded — once.
+            # is written — and so reloaded — once rather than twice.
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config, options={}
             )
