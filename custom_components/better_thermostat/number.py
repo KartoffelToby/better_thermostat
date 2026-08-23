@@ -217,6 +217,14 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
             val_celsius,
             saved_unit,
         )
+        # The climate entity picks the active preset's target while this
+        # platform is still being set up, so a value restored here for the
+        # active preset has to be pushed onto the target it already chose.
+        if (
+            self._bt_climate.preset_mode == self._preset_mode
+            and self._bt_climate.bt_target_temp != val_celsius
+        ):
+            await self._bt_climate.async_set_temperature(temperature=val_celsius)
 
     @property
     def device_info(self):
