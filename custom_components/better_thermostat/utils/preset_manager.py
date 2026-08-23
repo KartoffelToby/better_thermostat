@@ -15,7 +15,7 @@ from homeassistant.components.climate.const import (
     PRESET_SLEEP,
 )
 
-_DEFAULT_ENABLED_PRESETS: list[str] = [
+DEFAULT_ENABLED_PRESETS: list[str] = [
     PRESET_AWAY,
     PRESET_BOOST,
     PRESET_SLEEP,
@@ -43,7 +43,7 @@ class PresetManager:
 
     mode: str = PRESET_NONE
     temperatures: dict[str, float] = field(default_factory=_DEFAULT_TEMPERATURES.copy)
-    enabled_presets: list[str] = field(default_factory=_DEFAULT_ENABLED_PRESETS.copy)
+    enabled_presets: list[str] = field(default_factory=DEFAULT_ENABLED_PRESETS.copy)
     saved_temperature: float | None = None
 
     @property

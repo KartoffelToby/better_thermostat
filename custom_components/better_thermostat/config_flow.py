@@ -60,6 +60,7 @@ from .utils.const import (
     MpcV2PlantPreset,
 )
 from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
+from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -510,8 +511,16 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
+    # An entry that carries no preset list at all runs on the PresetManager
+    # default, so that is the set the update form has to offer: pre-filling the
+    # create-time suggestion instead would turn an unchanged pass through the
+    # form into a submission that disables every other preset.
     add_field(
-        CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, [PRESET_ECO])
+        CONF_PRESETS,
+        PRESET_SELECTOR,
+        default=resolve(
+            CONF_PRESETS, [PRESET_ECO] if is_create else list(DEFAULT_ENABLED_PRESETS)
+        ),
     )
 
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
