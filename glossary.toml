@@ -19,9 +19,6 @@
 # `.naming-budget.json` is what a rename delivers; raising one needs a reason.
 # The convention these terms live under is in CONTRIBUTING.md → Naming.
 
-[meta]
-version = 1
-
 # ---------------------------------------------------------------------------
 # Temperatures
 #

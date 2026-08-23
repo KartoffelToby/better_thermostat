@@ -227,6 +227,8 @@ def test_an_exception_without_a_reason_is_refused(checker):
 def test_the_recorded_budget_names_files_that_exist():
     """A moved or deleted file must not keep a budget nobody can spend."""
     script = _load_script()
+    if not script.BUDGET_FILE.exists():
+        pytest.skip("the backlog is gone and the budget with it")
     budget = json.loads(script.BUDGET_FILE.read_text(encoding="utf-8"))
     missing = [name for name in budget if not (REPO_ROOT / name).exists()]
     assert missing == []
@@ -303,3 +305,10 @@ def test_every_python_source_root_is_scanned():
     assert tracked, "git reported no Python files"
     roots = {Path(name).parts[0] for name in tracked}
     assert roots <= set(script.SCANNED), sorted(roots - set(script.SCANNED))
+
+
+def test_the_scan_refuses_a_file_it_could_not_parse(checker):
+    """A file the parser cannot read is a stop, not a count of zero."""
+    _write(checker, "custom_components/broken.py", "def load(cfg:\n")
+    with pytest.raises(SystemExit, match="broken.py"):
+        checker._findings(None, checker._load_glossary())
