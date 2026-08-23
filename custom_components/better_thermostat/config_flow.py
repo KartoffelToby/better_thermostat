@@ -25,7 +25,7 @@ from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
 
-from . import DOMAIN  # pylint: disable=unused-import
+from . import DOMAIN
 from .adapters.delegate import load_adapter
 from .utils.const import (
     CONF_CALIBRATION,
@@ -181,7 +181,6 @@ async def _load_adapter_info(
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
-                # type: ignore[attr-defined]
                 info = await adapter.get_info(flow, trv_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
@@ -703,8 +702,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
-    # Added to satisfy abstract base in newer HA versions
-    # type: ignore[override]
+    # Home Assistant's ConfigFlow raises NotImplementedError from this hook and
+    # calls it from `async_has_matching_flow`, so the override exists for HA
+    # rather than for any caller inside this integration. The parameter widens
+    # the base's `Self` because the flow HA hands over is any in-progress flow
+    # for the domain.
     def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
         """Return True if this flow matches an existing config flow (reconfigure)."""
         if (

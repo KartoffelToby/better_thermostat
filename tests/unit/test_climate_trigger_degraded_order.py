@@ -56,10 +56,7 @@ async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=False)),
         patch(f"{_CLIMATE}.check_ambient_air_temperature", AsyncMock()) as ambient,
         patch(f"{_WATCHER}.ir.async_create_issue"),
-        patch(
-            "custom_components.better_thermostat.utils.helpers.async_fire_logbook_entry",
-            AsyncMock(),
-        ),
+        patch(f"{_WATCHER}.async_fire_logbook_entry", AsyncMock()),
     ):
         await BetterThermostat._trigger_time(bt, None)
         assert bt.kernel_state.control_mode.degraded is True

@@ -31,8 +31,10 @@ class TestTypedAccess:
         trv = _make()
         trv.current_temperature = 21.5
         trv.ignore_trv_states = True
+        trv.hvac_action = "heating"
         assert trv.current_temperature == 21.5
         assert trv.ignore_trv_states is True
+        assert trv.hvac_action == "heating"
 
 
 class TestExtraScratchpad:

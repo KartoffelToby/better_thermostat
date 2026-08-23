@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
+import math
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import (
@@ -766,9 +768,6 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
 
     def _update_ema(self, new_value: float) -> None:
         """Update the 1h EMA with a new value."""
-        import math
-        from time import monotonic
-
         now = monotonic()
         prev_ts = self._last_update_ts
         prev_ema = self._ema_value

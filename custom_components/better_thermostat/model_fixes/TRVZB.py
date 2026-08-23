@@ -11,6 +11,11 @@ import logging
 
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelFixTrv,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 84
@@ -27,7 +32,7 @@ _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT = 10
 _TRVZB_CLOSE_BUMP_DELAY_S = 5.0
 
 
-def _cancel_pending_valve_bump(trv_state) -> bool:
+def _cancel_pending_valve_bump(trv_state: ModelFixTrv) -> bool:
     """Cancel a scheduled valve write and report whether one was still due.
 
     A task that has already run is not a pending write; it is only the
@@ -35,7 +40,7 @@ def _cancel_pending_valve_bump(trv_state) -> bool:
 
     Parameters
     ----------
-    trv_state :
+    trv_state : ModelFixTrv
         Domain object of the TRV whose pending write is to be dropped.
 
     Returns
@@ -56,23 +61,27 @@ def _cancel_pending_valve_bump(trv_state) -> bool:
     return True
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return unchanged local calibration for TRVZB by default."""
     return offset
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return unchanged setpoint temperature for TRVZB by default."""
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """No special HVAC mode handling for TRVZB; the generic adapter performs the write.
 
     Parameters
     ----------
-    self :
-            self instance of better_thermostat
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
     entity_id : str
             entity_id of the TRV
     hvac_mode : str
@@ -87,13 +96,15 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """No special setpoint handling for TRVZB; the generic adapter performs the write.
 
     Parameters
     ----------
-    self :
-            self instance of better_thermostat
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
     entity_id : str
             entity_id of the TRV
     temperature : float
@@ -109,7 +120,9 @@ async def override_set_temperature(self, entity_id, temperature):
     return False
 
 
-async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
+async def maybe_set_sonoff_valve_percent(
+    self: ModelFixHost, entity_id: str, percent: int
+) -> bool:
     """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
 
     Scans the device of the given climate entity for a `number.*` entity that
@@ -141,9 +154,9 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             )
             return False
         device_id = reg_entity.device_id
-        opening_candidates = []
-        closing_candidates = []
-        generic_candidates = []
+        opening_candidates: list[str] = []
+        closing_candidates: list[str] = []
+        generic_candidates: list[str] = []
 
         # Known translation_key values for Sonoff TRVZB valve entities.
         # These are stable, language-independent identifiers set by the integration.
@@ -294,7 +307,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         return False
 
 
-async def override_set_valve(self, entity_id, percent: int):
+async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
     """Override valve setting for TRVZB via number.* entity.
 
     Returns True if handled (write attempted), False to let adapter fallback run.
@@ -339,7 +352,7 @@ async def override_set_valve(self, entity_id, percent: int):
             seq = int(trv_state.extra.get("_trvzb_valve_bump_seq", 0)) + 1
             trv_state.extra["_trvzb_valve_bump_seq"] = seq
 
-            async def _delayed_set():
+            async def _delayed_set() -> None:
                 try:
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
                     cur_state = self.real_trvs.get(entity_id)
@@ -374,7 +387,9 @@ async def override_set_valve(self, entity_id, percent: int):
         return False
 
 
-async def maybe_set_external_temperature(self, entity_id, temperature: float) -> bool:
+async def maybe_set_external_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
     Looks for number.* entity matching external_temperature_input and writes the
@@ -402,7 +417,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
             )
             return False
         device_id = reg_entity.device_id
-        target_entities = []
+        target_entities: list[str] = []
 
         # Known translation_key values for Sonoff TRVZB external temperature input.
         _TK_EXTERNAL_TEMP = {"external_temperature_input", "external_temperature"}

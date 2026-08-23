@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -35,6 +36,8 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     run_valve_maintenance,
     wake_step,
 )
+
+_MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenance"
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -381,6 +384,30 @@ class TestRestoreOne:
         info = _info(cur_temp=20.0, cur_mode="heat")
         await restore_one(info, set_temperature_fn=temp_fn, set_hvac_mode_fn=mode_fn)
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
+
+    @pytest.mark.asyncio
+    async def test_failed_restores_are_traced(self, caplog):
+        """Both restore writes report the TRV they could not reach."""
+        temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
+        mode_fn = AsyncMock(side_effect=HomeAssistantError("fail"))
+        info = _info(cur_temp=20.0, cur_mode="heat")
+        with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
+            await restore_one(
+                info, set_temperature_fn=temp_fn, set_hvac_mode_fn=mode_fn
+            )
+        assert "restoring the setpoint of climate.trv1 failed" in caplog.text
+        assert "restoring the HVAC mode of climate.trv1 failed" in caplog.text
+        assert all(record.exc_info for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_successful_restore_is_not_traced(self, caplog):
+        """A restore that lands reports nothing."""
+        info = _info(cur_temp=20.0, cur_mode="heat")
+        with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
+            await restore_one(
+                info, set_temperature_fn=AsyncMock(), set_hvac_mode_fn=AsyncMock()
+            )
+        assert "failed" not in caplog.text
 
 
 # ═══════════════════════════════════════════════════════════════════════════

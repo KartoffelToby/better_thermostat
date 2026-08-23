@@ -12,9 +12,7 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 
 _CLIMATE = "custom_components.better_thermostat.climate"
-_EMA = (
-    "custom_components.better_thermostat.events.temperature._update_external_temp_ema"
-)
+_EMA = f"{_CLIMATE}._update_external_temp_ema"
 
 
 @pytest.fixture

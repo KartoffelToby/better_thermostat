@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from datetime import datetime
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -24,9 +23,13 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    translation,
+)
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
-from homeassistant.util import dt as dt_util, slugify
+from homeassistant.util import slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
@@ -555,7 +558,7 @@ def group_all_members_off(self: BetterThermostat) -> bool:
     Gates group-wide "switch off" adoptions so a single valve entering frost
     protection (reported as ``off`` in HA) or a single ``no_off_system_mode``
     valve dropping to its minimum temperature cannot turn the whole room off.
-    Single-TRV instances always agree, preserving historical behavior.
+    With at most one TRV there is no group to disagree, so the gate is open.
 
     A member counts as off when its reported HVAC state is ``off`` or, for a
     ``no_off_system_mode`` device (which never reports ``off``), when its
@@ -1614,37 +1617,29 @@ def check_float(potential_float) -> bool:
         return False
 
 
-def convert_time(time_string: str) -> datetime | None:
-    """Convert a time string to a datetime object.
+class ValveEntityInfo(TypedDict):
+    """A valve position helper entity discovered for one TRV.
 
-    Parameters
+    Attributes
     ----------
-    time_string :
-            a string representing a time
-
-    Returns
-    -------
-    datetime
-            the converted time as a datetime object.
-    None
-            If the time string is not a valid time.
+    entity_id : str
+        Entity ID of the helper.
+    writable : bool
+        Whether the helper sits in a domain the integration can write to.
+    reason : str
+        Which classification matched; the primary key candidates are ranked
+        by, and logged with the pick.
+    domain : str
+        Home Assistant domain the helper lives in.
     """
-    try:
-        _current_time = dt_util.now()
-        _get_hours_minutes = datetime.strptime(time_string, "%H:%M")
-        return _current_time.replace(
-            hour=_get_hours_minutes.hour,
-            minute=_get_hours_minutes.minute,
-            second=0,
-            microsecond=0,
-        )
-    except ValueError:
-        return None
+
+    entity_id: str
+    writable: bool
+    reason: str
+    domain: str
 
 
-async def find_valve_entity(
-    self: BetterThermostat, entity_id: str
-) -> dict[str, Any] | None:
+async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     """Locate a per-TRV valve position helper entity, if available.
 
     Returns a mapping with the entity_id, whether it appears writable, and the
@@ -1674,7 +1669,7 @@ async def find_valve_entity(
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     preferred_domains = {"number", "input_number"}
-    readonly_candidate: dict[str, Any] | None = None
+    readonly_candidate: ValveEntityInfo | None = None
 
     def _device_matches(candidate: er.RegistryEntry) -> bool:
         # Strong match: same device
@@ -1755,7 +1750,7 @@ async def find_valve_entity(
         domain_score = 1 if domain in preferred_domains else 0
         return (reason_score, writable_score, domain_score)
 
-    best: dict[str, Any] | None = None
+    best: ValveEntityInfo | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
 
     for entity in entity_entries:
@@ -1775,7 +1770,7 @@ async def find_valve_entity(
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
         writable = domain in preferred_domains
-        info = {
+        info: ValveEntityInfo = {
             "entity_id": entity.entity_id,
             "writable": writable,
             "reason": reason,
@@ -1927,9 +1922,7 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
 _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
 
-async def find_local_calibration_entity(
-    self: BetterThermostat, entity_id: str
-) -> str | None:
+async def find_local_calibration_entity(self, entity_id) -> str | None:
     """Find the local calibration entity for the TRV.
 
     Uses the entity registry's ``translation_key`` and ``original_name``
@@ -2038,40 +2031,6 @@ async def get_trv_intigration(self: _RegistryHost, entity_id: str) -> str:
         return "generic_thermostat"
 
 
-def get_max_value(
-    obj: Mapping[str, Mapping[str, float | int | str | None]],
-    value: str,
-    default: float | int | str,
-) -> float | int | str:
-    """Get the max value of an dict object."""
-    try:
-        _raw: list[float | int | str] = []
-        for key in obj.keys():
-            _temp = obj[key].get(value, 0)
-            if _temp is not None:
-                _raw.append(_temp)
-        return max(_raw, key=float)
-    except KeyError, ValueError:
-        return default
-
-
-def get_min_value(
-    obj: Mapping[str, Mapping[str, float | int | str | None]],
-    value: str,
-    default: float | int | str,
-) -> float | int | str:
-    """Get the min value of an dict object."""
-    try:
-        _raw: list[float | int | str] = []
-        for key in obj.keys():
-            _temp = obj[key].get(value, 999)
-            if _temp is not None:
-                _raw.append(_temp)
-        return min(_raw, key=float)
-    except KeyError, ValueError:
-        return default
-
-
 async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
     """Determine the device model from the Device Registry entry.
 
@@ -2106,18 +2065,15 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         except Exception:
             device = None
         # Selection exclusively via Device-Registry
-        try:
-            _LOGGER.debug(
-                "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
-                self.device_name,
-                getattr(device, "manufacturer", None),
-                getattr(device, "model", None),
-                getattr(device, "model_id", None),
-                getattr(device, "name", None),
-                list(getattr(device, "identifiers", []) or []),
-            )
-        except Exception:
-            pass
+        _LOGGER.debug(
+            "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
+            self.device_name,
+            getattr(device, "manufacturer", None),
+            getattr(device, "model", None),
+            getattr(device, "model_id", None),
+            getattr(device, "name", None),
+            list(getattr(device, "identifiers", []) or []),
+        )
 
         dev_model_id = getattr(device, "model_id", None)
         if isinstance(dev_model_id, str) and len(dev_model_id.strip()) >= 2:
@@ -2140,8 +2096,14 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
                     selected = model_str.strip()
                     source = "devreg.model"
     except Exception:
-        # swallow registry access issues and continue to fallback
-        pass
+        # Registry access is best effort; the fallback chain below still
+        # yields a model name.
+        _LOGGER.debug(
+            "better_thermostat %s: device registry lookup for %s failed",
+            self.device_name,
+            entity_id,
+            exc_info=True,
+        )
 
     # Final fallback: configured model, then generic
     configured_model = getattr(self, "model", None)
@@ -2170,11 +2132,6 @@ async def async_fire_logbook_entry(
     self: BetterThermostat, key: str, default_msg: str
 ) -> None:
     """Fire a logbook entry safely, with fallback translations."""
-    from homeassistant.helpers import translation
-    from homeassistant.util import slugify
-
-    from custom_components.better_thermostat.utils.const import DOMAIN
-
     hass_obj = getattr(self, "hass", None)
     log_msg = default_msg
     if hass_obj is not None:
@@ -2187,7 +2144,11 @@ async def async_fire_logbook_entry(
                 f"component.{DOMAIN}.entity.sensor.logbook.state.{key}", default_msg
             )
         except Exception:
-            pass
+            _LOGGER.debug(
+                "better_thermostat: logbook translation for %s unavailable",
+                key,
+                exc_info=True,
+            )
 
         entity_id = getattr(self, "entity_id", None)
         if not entity_id:
