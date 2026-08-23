@@ -1,0 +1,261 @@
+# Better Thermostat: domain vocabulary.
+#
+# One term per concept, together with the spellings that term replaces. This
+# file is the vocabulary: look a concept up here before inventing a name for
+# it. `scripts/check_naming.py` reads the same file and reports every rejected
+# spelling that is still used as an identifier.
+#
+#     uv run python scripts/check_naming.py list <path>   # what a file carries
+#     uv run python scripts/check_naming.py check         # what CI runs
+#     uv run python scripts/check_naming.py update        # record a drop
+#
+# `zone` says who owns the name and therefore what a rename costs:
+#
+#     A  internal identifier. Renaming is pure refactoring.
+#     B  persisted key. Renaming needs a migration.
+#     C  user-facing contract. Renaming breaks automations.
+#
+# Adding a term is a normal pull request. Lowering a budget in
+# `.naming-budget.json` is what a rename delivers; raising one needs a reason.
+# The convention these terms live under is in CONTRIBUTING.md → Naming.
+
+[meta]
+version = 1
+
+# ---------------------------------------------------------------------------
+# Temperatures
+#
+# Absolute temperatures are °C throughout and carry no unit suffix; conversion
+# happens at the adapter seam only. Where a BT quantity sits next to the
+# same-named TRV quantity, the owner prefix `trv.` separates them.
+# ---------------------------------------------------------------------------
+
+[[term]]
+name = "target_temp"
+zone = "A"
+definition = "Target temperature BT holds while heating."
+rejected = ["bt_target_temp"]
+
+[[term]]
+name = "target_cool_temp"
+zone = "A"
+definition = "Target temperature BT holds while cooling."
+rejected = ["bt_target_cooltemp", "cool_target"]
+
+[[term]]
+name = "room_temp"
+zone = "A"
+definition = "Room sensor reading as measured, unsmoothed."
+rejected = ["cur_temp"]
+
+[[term]]
+name = "room_temp_filtered"
+zone = "A"
+definition = "Room sensor reading after smoothing."
+rejected = ["cur_temp_filtered"]
+
+[[term]]
+name = "trv.setpoint"
+zone = "A"
+definition = "Target temperature as the TRV reports it."
+rejected = ["last_temperature"]
+
+[[term]]
+name = "trv.current_temp"
+zone = "A"
+definition = "Room temperature as the TRV reports it."
+rejected = ["current_temperature"]
+note = "Rejected on `Trv` only. `ClimateEntity.current_temperature` is the HA property."
+
+[[term]]
+name = "outdoor_temp"
+zone = "A"
+definition = "Outdoor temperature from the weather entity or outdoor sensor."
+rejected = []
+
+[[term]]
+name = "off_temperature"
+zone = "B"
+definition = "Outdoor threshold above which BT switches the TRV off."
+rejected = ["off_temp"]
+
+[[term]]
+name = "delta_kelvin"
+zone = "A"
+definition = "A temperature difference. Differences are kelvin, never °C."
+rejected = ["delta_t", "delta_T", "dT"]
+
+# ---------------------------------------------------------------------------
+# Devices and identity
+#
+# In modules that handle exactly one kind of entity the key is `entity_id`; in
+# modules that handle several kinds it is `trv_entity_id`.
+# ---------------------------------------------------------------------------
+
+[[term]]
+name = "entity_id"
+zone = "A"
+definition = "Entity id of a TRV, in a module that handles TRVs only."
+rejected = ["heater_entity_id", "ent_id", "trv_id"]
+
+[[term]]
+name = "trv_entity_id"
+zone = "A"
+definition = "Entity id of a TRV, alongside other kinds of entity id."
+rejected = []
+
+[[term]]
+name = "trv"
+zone = "A"
+definition = "The `Trv` object."
+rejected = ["trv_data", "trv_info", "_real_trv", "trv_entry"]
+
+[[term]]
+name = "trv_config"
+zone = "A"
+definition = "One entry of the `CONF_HEATER` list. A dict, not an id."
+rejected = ["trv_conf", "trv_cfg"]
+note = "`trv_id` is rejected for this too; which sites become `entity_id` and which become `trv_config` has to be decided per site."
+
+[[term]]
+name = "trv_state"
+zone = "A"
+definition = "The HA `State` object of a TRV entity."
+rejected = []
+
+[[term]]
+name = "real_trvs"
+zone = "A"
+definition = "The `dict[str, Trv]` of configured TRVs, keyed by entity id."
+rejected = []
+
+# ---------------------------------------------------------------------------
+# Time, state, calibration
+#
+# Durations always carry `_seconds` or `_minutes`. The unit is never implied,
+# because the persisted configuration mixes both.
+# ---------------------------------------------------------------------------
+
+[[term]]
+name = "window_open_delay_seconds"
+zone = "B"
+definition = "Delay before BT reacts to a window opening."
+rejected = ["window_delay", "open_delay_s", "window_off_delay"]
+
+[[term]]
+name = "window_close_delay_seconds"
+zone = "B"
+definition = "Delay before BT reacts to a window closing."
+rejected = ["window_delay_after"]
+
+[[term]]
+name = "door_open_delay_seconds"
+zone = "B"
+definition = "Delay before BT reacts to a door opening."
+rejected = ["door_delay"]
+
+[[term]]
+name = "door_close_delay_seconds"
+zone = "B"
+definition = "Delay before BT reacts to a door closing."
+rejected = ["door_delay_after"]
+
+[[term]]
+name = "valve_percent"
+zone = "A"
+definition = "Valve opening, 0–100."
+rejected = ["valve_pos", "valve_pct"]
+
+[[term]]
+name = "offset"
+zone = "A"
+definition = "The calibration offset value written to the device."
+rejected = []
+note = "Bare `calibration` says too little. It stands for the value, the method and the entity."
+
+[[term]]
+name = "calibration_mode"
+zone = "A"
+definition = "The calibration method (target temperature based, offset based, …)."
+rejected = ["calibration_type"]
+
+# ---------------------------------------------------------------------------
+# General
+# ---------------------------------------------------------------------------
+
+[[term]]
+name = "config"
+zone = "A"
+definition = "A configuration mapping."
+rejected = ["cfg", "conf"]
+
+[[term]]
+name = "value"
+zone = "A"
+definition = "A generic value, where nothing more specific fits."
+rejected = ["val"]
+
+# ---------------------------------------------------------------------------
+# Modifiers: prefixes and suffixes with a fixed meaning.
+# ---------------------------------------------------------------------------
+
+[[modifier]]
+name = "last_"
+definition = "The value BT wrote to the device most recently. Not \"current\", not \"previously read\"."
+
+[[modifier]]
+name = "_filtered"
+definition = "Smoothed by the input filter; the unsuffixed name is the raw reading."
+
+[[modifier]]
+name = "_monotonic"
+definition = "A timestamp from the monotonic clock, not from the wall clock."
+
+[[modifier]]
+name = "_seconds, _minutes"
+definition = "Duration, with the unit spelled out. Never `_s`, `_sec`, `_min`."
+
+[[modifier]]
+name = "_kelvin"
+definition = "A temperature difference. Absolute temperatures are °C and carry no suffix."
+
+[[modifier]]
+name = "_percent"
+definition = "A percentage, 0–100. Never `_pct`."
+
+[[modifier]]
+name = "_entity_id"
+definition = "An HA entity id. Never `_id`, `_entity`, or a bare noun."
+
+# ---------------------------------------------------------------------------
+# Exceptions: where a rejected spelling is the correct name after all. Each one
+# needs a reason. Without it the checker's findings stop being trustworthy.
+# ---------------------------------------------------------------------------
+
+[[exception]]
+alias = "current_temperature"
+paths = [
+  "custom_components/better_thermostat/climate.py",
+  "custom_components/better_thermostat/trv.py",
+]
+reason = "The HA property BT implements, and the `Trv` field it is read from."
+
+[[exception]]
+alias = "last_temperature"
+paths = ["custom_components/better_thermostat/trv.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "cur_temp"
+paths = ["custom_components/better_thermostat/core/containers.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "cur_temp_filtered"
+paths = ["custom_components/better_thermostat/core/containers.py"]
+reason = "Field definition; it moves together with all its readers, not before them."
+
+[[exception]]
+alias = "bt_target_temp"
+paths = ["custom_components/better_thermostat/core/containers.py"]
+reason = "Field definition; it moves together with all its readers, not before them."

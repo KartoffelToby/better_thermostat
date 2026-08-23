@@ -175,6 +175,114 @@ happens while entities are still coming up, belongs in
 `tests/integration/test_startup_scenarios.py` instead; those drive
 configurations and timelines rather than devices.
 
+## Naming
+
+Three conventions carry the naming here, and none of them is ours:
+
+- **Spelling:** [PEP 8](https://peps.python.org/pep-0008/) and
+  [PEP 257](https://peps.python.org/pep-0257/), the same sources Home Assistant's
+  development guidelines defer to. They cover casing, underscores,
+  `CAPS_WITH_UNDER` for constants, `CapWords` for classes, and a leading
+  underscore for internals.
+- **Word choice:** [§3.16 of the Google Python Style
+  Guide](https://google.github.io/styleguide/pyguide.html#316-naming): *"Avoid
+  abbreviation. In particular, do not use abbreviations that are ambiguous or
+  unfamiliar to readers outside your project, and do not abbreviate by deleting
+  letters within a word."* Plus its *Names to Avoid* list (no single-character
+  names outside counters, exception identifiers and file handles; no type
+  information glued onto a name) and *"descriptiveness should be proportional to
+  the name's scope of visibility"*. Only that section: the rest of that guide
+  prescribes Google-style docstrings and we use numpy ones (below).
+- **Domain terms:** `glossary.toml`. One term per concept, the same term in the
+  code, in the documentation and in issues.
+
+Two areas deviate from PEP 8 deliberately, under its own clause *"when applying the
+guideline would make the code less readable"*: `utils/calibration/` carries the
+notation of the control theory it implements (`A`, `B`, `T_room`, `kalman_P`), and
+the modules under `model_fixes/` are named after the device model string they are
+matched against, not after an identifier anyone chose.
+
+### Zones
+
+Before renaming anything, ask who owns the name. Every glossary term records it.
+
+- **Zone A, free:** locals, arguments, attributes, dataclass fields, private
+  functions. Nobody outside the code sees them, so renaming is pure refactoring.
+- **Zone B, migratable:** persisted keys in `config_entry.data` and in the `Store`.
+  Renameable, but each rename needs a migration step and a test that starts from a
+  real old entry.
+- **Zone C, contract:** what users write in automations and templates. The keys
+  from `extra_state_attributes`, the trigger, condition and action types from
+  `device_trigger.py` and its siblings, and everything named verbatim in `docs/`.
+  Renaming one costs users their automations, so it is a release decision, not a
+  refactoring.
+
+### What the guides leave open
+
+Six rules, because no external guide covers them.
+
+**Entity ids end in `_entity_id`.** Not `*_id`, not `*_entity`, not a bare noun.
+The one exception is the key name `entity_id` itself.
+
+**The `bt_` prefix is collision avoidance, not part of the name.** It is permitted
+only where a Home Assistant property of the same name lives on the entity class:
+
+| Field | Colliding HA property | Prefix required? |
+|---|---|---|
+| `bt_hvac_mode` | `hvac_mode` | **yes** |
+| `bt_min_temp` | `min_temp` | **yes** |
+| `bt_max_temp` | `max_temp` | **yes** |
+| `bt_target_temp` | `target_temperature` | no |
+| `bt_target_cooltemp` | `target_temperature_high` | no |
+
+Where a BT quantity sits next to the same-named TRV quantity, the owner prefix
+`trv.` separates them: `target_temp` versus `trv.setpoint`.
+
+**A loop over keys and a loop over values must not share a variable name.**
+`for trv in self.real_trvs` binds a `str`, `for trv in self.real_trvs.values()`
+binds a `Trv`. The key is `entity_id`, the value is `trv`.
+
+**Units are spelled out, in lowercase, and only where they are not the norm.**
+Absolute temperatures are °C throughout and carry no suffix: `room_temp`,
+`target_temp`. Conversion happens at the adapter seam, and only there may a
+`_fahrenheit` name appear. Everything else spells its unit out: `_kelvin` for
+temperature differences, `_kelvin_per_min` for rates, `_seconds` or `_minutes` for
+durations, `_percent` for percentages. Never `_C`, `_K`, `_k`, `_s`, `_pct`,
+`delta_T`, `dT`. Durations carry their unit even though seconds are the norm,
+because the persisted configuration mixes seconds and minutes.
+
+**A `CONF_*` constant and its string agree.** `CONF_HEATER = "thermostat"` and
+`CONF_WINDOW_TIMEOUT = "window_off_delay"` are the shape to avoid. The constant
+follows the string, not the other way round: the string is zone B, the constant is
+zone A, so only one of the two is free to move.
+
+**Verb prefixes have fixed meanings.** `get_` is a pure read that does no IO and
+cannot fail; `read_` and `fetch_` perform IO; `compute_` is calculation without
+state; `build_` constructs an object; `resolve_` picks from several sources by a
+precedence rule; `is_`, `has_`, `should_` and `supports_` return `bool`.
+
+### The vocabulary
+
+`glossary.toml` holds one term per concept, its zone, and the spellings it replaces.
+Look a concept up there before inventing a name for it, and add a term by pull
+request when a concept has none. Two names for one thing is a defect. The codebase
+has carried a duplicated field name long enough that a unit test reimplemented a
+production predicate from the wrong half of it, and the test still passes.
+
+Sometimes a rejected spelling is the correct name anyway: `current_temperature` is
+the Home Assistant property this integration implements. `glossary.toml` records
+each such exception together with its reason.
+
+New and touched code follows the convention. The spellings the codebase still
+carries come out in their own pull requests, so a rename you did not sign up for
+never lands in yours. `scripts/check_naming.py` tells you where you stand, and CI
+runs it:
+
+```bash
+uv run python scripts/check_naming.py list <path>    # what a file still carries
+uv run python scripts/check_naming.py check          # what CI runs
+```
+
 ## Docstring type
 
 We use numpy type docstrings. Documentation can be found here:
