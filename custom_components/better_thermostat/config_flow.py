@@ -61,6 +61,7 @@ from .utils.const import (
     MpcV2PlantPreset,
 )
 from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
+from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -529,8 +530,16 @@ def _build_user_fields(
         off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
+    # An entry that carries no preset list at all runs on the PresetManager
+    # default, so that is the set the update form has to offer: pre-filling the
+    # create-time suggestion instead would turn an unchanged pass through the
+    # form into a submission that disables every other preset.
     add_field(
-        CONF_PRESETS, PRESET_SELECTOR, default=resolve(CONF_PRESETS, [PRESET_ECO])
+        CONF_PRESETS,
+        PRESET_SELECTOR,
+        default=resolve(
+            CONF_PRESETS, [PRESET_ECO] if is_create else list(DEFAULT_ENABLED_PRESETS)
+        ),
     )
 
     tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
@@ -1006,6 +1015,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self._config_entry, data=self.updated_config
             )
             self._active_trv_config = None
+            # The whole configuration lives in the entry's data, written above.
+            # Publishing the same payload as options as well updates the entry a
+            # second time and so reloads it a second time, and that reload lands
+            # in the middle of the first one's startup — before it has restored
+            # the preset and target it came up with.
             return self.async_create_entry(
                 title=self.updated_config["name"], data=self.updated_config
             )

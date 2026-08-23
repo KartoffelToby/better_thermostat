@@ -16,10 +16,14 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache,
 )
+import voluptuous as vol
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     CONF_PRESETS,
+)
+from custom_components.better_thermostat.utils.preset_manager import (
+    DEFAULT_ENABLED_PRESETS,
 )
 
 from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
@@ -68,6 +72,47 @@ async def _activate(hass, preset):
 def _target(hass):
     """Return the temperature the thermostat is currently driving to."""
     return hass.states.get(BT_ENTITY).attributes.get("temperature")
+
+
+def _field_default(form, key):
+    """Return the value a step's form pre-fills ``key`` with."""
+    for marker in form["data_schema"].schema:
+        if marker == key:
+            assert marker.default is not vol.UNDEFINED, f"{key} carries no default"
+            return marker.default()
+    raise AssertionError(f"step {form['step_id']} publishes no field {key!r}")
+
+
+def _submission(form, **overrides):
+    """Return the submission a user accepting every pre-filled value sends."""
+    out = {}
+    for marker in form["data_schema"].schema:
+        name = str(marker.schema)
+        description = getattr(marker, "description", None)
+        if isinstance(description, dict) and "suggested_value" in description:
+            out[name] = description["suggested_value"]
+            continue
+        default = getattr(marker, "default", None)
+        if default is None or default is vol.UNDEFINED:
+            continue
+        value = default()
+        if value is not vol.UNDEFINED:
+            out[name] = value
+    return out | overrides
+
+
+async def _click_through_the_options(hass, entry):
+    """Accept every pre-filled value on every step of the options flow."""
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    forms = []
+    while result["type"] == "form":
+        forms.append(result)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], _submission(result)
+        )
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    return forms
 
 
 @pytest.mark.asyncio
@@ -191,3 +236,25 @@ async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
     await wait_for_startup(hass, entry)
 
     assert _target(hass) == COMFORT_DEFAULT
+
+
+@pytest.mark.asyncio
+async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(
+    hass, fake_trv
+):
+    """An entry carrying no preset list keeps its presets through the form.
+
+    A preset list that was never written is not an empty one: the thermostat
+    comes up on the full default set. So that is the set the update form has to
+    pre-fill, or a pass through the form that changes nothing submits a
+    narrower list and takes every other preset away.
+    """
+    entry = _entry(hass, presets=None)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    running_on = set(hass.states.get(BT_ENTITY).attributes["preset_modes"])
+
+    (user_step, _advanced) = await _click_through_the_options(hass, entry)
+
+    assert set(_field_default(user_step, CONF_PRESETS)) == set(DEFAULT_ENABLED_PRESETS)
+    assert set(hass.states.get(BT_ENTITY).attributes["preset_modes"]) == running_on
