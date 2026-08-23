@@ -22,6 +22,7 @@ from custom_components.better_thermostat.events.trv import convert_outbound_stat
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
@@ -814,10 +815,17 @@ async def control_trv(self, heater_entity_id=None):
         try:
             advance_hvac_action(self)
             _trv = self.hass.states.get(heater_entity_id)
-
+            state_unknown_as_available = trv_state_unknown_as_available(
+                self, heater_entity_id
+            )
             # Check if TRV is available before attempting to control it
             if _trv is None or (
-                _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                (
+                    _trv.state == STATE_UNAVAILABLE
+                    or (
+                        (not state_unknown_as_available) and _trv.state == STATE_UNKNOWN
+                    )
+                )
                 and not _is_boost_heating_active(self)
             ):
                 _LOGGER.debug(
@@ -1159,16 +1167,23 @@ async def check_system_mode(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or ((not state_unknown_as_available) and _trv_state.state == STATE_UNKNOWN)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_system_mode",
                 self.device_name,
                 heater_entity_id,
             )
             break
-        if _trv_state.state == _real_trv.last_hvac_mode:
+        if (
+            _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
+        ) or _trv_state.state == _real_trv.last_hvac_mode:
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
@@ -1212,9 +1227,14 @@ async def check_target_temperature(self, heater_entity_id=None):
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or ((not state_unknown_as_available) and _trv_state.state == STATE_UNKNOWN)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_target_temperature",
                 self.device_name,

@@ -19,6 +19,27 @@ _LOGGER = logging.getLogger(__name__)
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 
 
+def trv_state_unknown_as_available(self, entity_id):
+    """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
+
+    This default implementation always returns ``False`` without delegating
+    to another model quirks implementation.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        Better Thermostat instance. It is unused by the default policy.
+    entity_id : str
+        TRV entity identifier. It is unused by the default policy.
+
+    Returns
+    -------
+    bool
+        Always ``False``.
+    """
+    return False
+
+
 def fix_local_calibration(self, entity_id, offset):
     """Return the given local calibration offset unchanged."""
     return offset

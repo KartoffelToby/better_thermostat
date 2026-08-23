@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 # class while in manufacturer-specific mode) rather than a writable number
 # helper. For these, valve support is reported even though no valve number
 # entity is exposed, so the config flow offers direct valve control.
-_QUIRK_VALVE_MODELS = {"ZWA021"}
+_QUIRK_VALVE_MODELS = {"Spirit", "ZWA021"}
 
 
 async def get_info(self, entity_id):

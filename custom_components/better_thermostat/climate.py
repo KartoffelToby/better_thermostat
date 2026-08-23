@@ -76,7 +76,11 @@ from .events.door import door_queue, trigger_door_change
 from .events.temperature import trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import initial_tweak, load_model_quirks
+from .model_fixes.model_quirks import (
+    initial_tweak,
+    load_model_quirks,
+    trv_state_unknown_as_available,
+)
 from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
@@ -97,6 +101,7 @@ from .utils.const import (
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
@@ -114,6 +119,8 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_WEATHER,
@@ -272,6 +279,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_OUTDOOR_SENSOR, None),
         entry.data.get(CONF_OFF_TEMPERATURE, None),
         entry.data.get(CONF_TOLERANCE, 0.0),
+        entry.data.get(CONF_TARGET_TEMP_MIN, None),
+        entry.data.get(CONF_TARGET_TEMP_MAX, None),
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
@@ -460,6 +469,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         tolerance,
+        target_temp_min,
+        target_temp_max,
         target_temp_step,
         model,
         cooler_entity_id,
@@ -502,6 +513,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             Outdoor temperature above which heating is switched off.
         tolerance : float
             Temperature hysteresis in degrees.
+        target_temp_min : str | float | None
+            Minimum target temperature.
+        target_temp_max : str | float | None
+            Maximum target temperature.
         target_temp_step : str | float | None
             Step size for target temperature adjustments.
         model : str
@@ -609,6 +624,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._current_humidity: float | None = 0.0
         self.window_open = None
         self.door_open = None
+        self.bt_target_temp_min = (
+            float(target_temp_min)
+            if target_temp_min not in (None, "", "-1.0", -1.0)
+            else None
+        )
+        self.bt_target_temp_max = (
+            float(target_temp_max)
+            if target_temp_max not in (None, "", "-1.0", -1.0)
+            else None
+        )
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
@@ -1190,6 +1215,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             sensor_state = self.hass.states.get(self.sensor_entity_id)
             if not self._check_entities_ready(sensor_state):
+                # This loop waits for as long as it takes, and nothing
+                # downstream of it runs while it does, so without this call a
+                # TRV that never comes back is never reported at all — while
+                # one that disappears after startup is. The critical check
+                # owns the rule for when waiting turns into reporting and
+                # stays quiet for the length of the grace window.
+                await check_critical_entities(self)
                 await asyncio.sleep(20)
                 if self.is_removed:
                     return
@@ -1232,17 +1264,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return False
 
-        for trv in self.real_trvs:
-            trv_state = self.hass.states.get(trv)
-            if trv_state is None or trv_state.state in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
+        for trv_id in self.real_trvs.keys():
+            trv_state = self.hass.states.get(trv_id)
+            state_unknown_as_available = trv_state_unknown_as_available(self, trv_id)
+            if (
+                trv_state is None
+                or trv_state.state in (STATE_UNAVAILABLE, None)
+                or (
+                    (not state_unknown_as_available)
+                    and trv_state.state == STATE_UNKNOWN
+                )
             ):
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
-                    trv,
+                    trv_id,
                 )
                 return False
         return True
@@ -1304,8 +1340,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if _sf is not None:
                 steps.append(_sf)
-        self.bt_min_temp = max(min_temps) if min_temps else None
-        self.bt_max_temp = min(max_temps) if max_temps else None
+
+        if self.bt_target_temp_min is None:
+            self.bt_min_temp = max(min_temps) if min_temps else None
+        else:
+            self.bt_min_temp = self.bt_target_temp_min
+        if self.bt_target_temp_max is None:
+            self.bt_max_temp = min(max_temps) if max_temps else None
+        else:
+            self.bt_max_temp = self.bt_target_temp_max
 
         if (
             self.bt_min_temp is not None
@@ -1563,6 +1606,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                             if cool_temp is not None:
                                 self._preset_cool_temperatures[preset] = cool_temp
+            # The per-preset heating map is owned by the preset number
+            # entities, whose platform is set up after climate, so it comes
+            # back from the thermostat's own state here. The block below reads
+            # it to pick the target for a restored preset.
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
+                is not None
+            ):
+                try:
+                    restored_heat_temperatures = json.loads(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_HEAT_TEMPERATURES, "{}"
+                            )
+                        )
+                    )
+                except TypeError, json.JSONDecodeError:
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not restore preset heat temperatures",
+                        self.device_name,
+                    )
+                else:
+                    if isinstance(restored_heat_temperatures, dict):
+                        for preset, temp in restored_heat_temperatures.items():
+                            if preset not in self.preset_mgr.temperatures:
+                                continue
+                            heat_temp = convert_to_float(
+                                str(temp), self.device_name, "startup()"
+                            )
+                            if heat_temp is not None:
+                                self.preset_mgr.temperatures[preset] = heat_temp
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
@@ -2574,6 +2648,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # ECO mode attribute removed: eco preset supported via PRESET_ECO
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
+            ),
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                self.preset_mgr.temperatures
             ),
         }
 

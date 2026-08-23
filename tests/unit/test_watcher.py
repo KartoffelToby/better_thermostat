@@ -262,8 +262,69 @@ class TestGetCriticalEntities:
         assert "climate.trv_2" in result
         assert len(result) == 2
 
-    def test_returns_empty_list_when_no_trvs(self, mock_bt_instance):
-        """Test that empty list is returned when no TRVs configured."""
+    def test_default_policy_excludes_unknown_state_while_zwa021_includes_it(
+        self, mock_bt_instance, mock_hass
+    ):
+        """The default policy rejects STATE_UNKNOWN, while direct-valve ZWA021 allows it."""
+        from homeassistant.const import STATE_UNKNOWN
+        from homeassistant.core import State
+
+        import custom_components.better_thermostat.model_fixes.default as default_quirks
+        import custom_components.better_thermostat.model_fixes.ZWA021 as zwa021_quirks
+        from custom_components.better_thermostat.utils.const import CalibrationType
+        from custom_components.better_thermostat.utils.watcher import (
+            get_critical_entities,
+            is_entity_available,
+        )
+
+        class Trv:
+            """Represent a TRV fixture with model-specific policy configuration."""
+
+            def __init__(self, *, model_quirks, calibration=None):
+                """Initialize the TRV fixture.
+
+                Parameters
+                ----------
+                model_quirks
+                    Model quirks module used by the watcher policy.
+                calibration
+                    Optional calibration mode.
+                """
+                self.model_quirks = model_quirks
+                self.advanced = (
+                    {"calibration": calibration} if calibration is not None else {}
+                )
+
+        mock_bt_instance.real_trvs = {
+            "climate.trv_default": Trv(model_quirks=default_quirks),
+            "climate.trv_direct": Trv(
+                model_quirks=zwa021_quirks,
+                calibration=CalibrationType.DIRECT_VALVE_BASED,
+            ),
+        }
+
+        result = get_critical_entities(mock_bt_instance)
+
+        assert result == {"climate.trv_default": False, "climate.trv_direct": True}
+
+        mock_hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, STATE_UNKNOWN
+        )
+        assert (
+            is_entity_available(
+                mock_hass, "climate.trv_default", result["climate.trv_default"]
+            )
+            is False
+        )
+        assert (
+            is_entity_available(
+                mock_hass, "climate.trv_direct", result["climate.trv_direct"]
+            )
+            is True
+        )
+
+    def test_returns_empty_dict_when_no_trvs(self, mock_bt_instance):
+        """Test that an empty dictionary is returned when no TRVs are configured."""
         from custom_components.better_thermostat.utils.watcher import (
             get_critical_entities,
         )
@@ -272,7 +333,7 @@ class TestGetCriticalEntities:
 
         result = get_critical_entities(mock_bt_instance)
 
-        assert result == []
+        assert result == {}
 
 
 class TestCheckCriticalEntities:
@@ -357,6 +418,45 @@ class TestCheckCriticalEntities:
         assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
         assert mock_ir.async_create_issue.called
+
+    @pytest.mark.anyio
+    async def test_warns_once_while_a_trv_stays_unavailable(
+        self, mock_bt_instance, caplog
+    ):
+        """A continuing outage is announced when it starts, not while it lasts.
+
+        The check runs on every trigger and on every pass of the startup wait
+        loop, so an entity that stays away is seen over and over. The repair
+        issue is raised once; the log line has to follow the same transition
+        or it repeats for as long as the device is gone.
+        """
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance._critical_grace_until = dt_util.now() - timedelta(minutes=1)
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            with caplog.at_level("WARNING"):
+                await check_critical_entities(mock_bt_instance)
+                await check_critical_entities(mock_bt_instance)
+                await check_critical_entities(mock_bt_instance)
+
+        announced = [
+            r.getMessage() for r in caplog.records if "is unavailable" in r.message
+        ]
+        # Three passes over the fixture's devices: one line per device that is
+        # gone, not one per pass.
+        trv_count = len(mock_bt_instance.real_trvs)
+        assert len(announced) == len(set(announced)) == trv_count
+        assert mock_ir.async_create_issue.call_count == trv_count
 
     @pytest.mark.anyio
     async def test_auto_clear_issue_on_recovery(self, mock_bt_instance):

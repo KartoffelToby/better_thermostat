@@ -868,8 +868,16 @@ class TestHvacModeUpdate:
         assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
 
     @pytest.mark.asyncio
-    async def test_child_lock_none_blocks_mode_propagation(self, mock_bt):
-        """Mode cache updates but bt_hvac_mode does not propagate when child_lock is None."""
+    async def test_a_missing_child_lock_flag_counts_as_unlocked(self, mock_bt):
+        """A TRV whose config carries no child lock flag is not locked.
+
+        A config entry written before the option existed has no flag at all,
+        and no migration adds one, so ``advanced`` is missing the key rather
+        than holding ``False``. Everything else that reads the flag — the
+        mode cache in this same handler, the setpoint adoption below it, the
+        child lock switch — takes that as unlocked, so a dial turned on such
+        a device has to reach Better Thermostat like on any other.
+        """
         mock_bt.real_trvs[ENTITY_ID].advanced.pop("child_lock", None)
         trv_state = _make_state(
             state_str="off",
@@ -891,7 +899,44 @@ class TestHvacModeUpdate:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "off"
-        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_a_missing_and_a_false_child_lock_flag_behave_alike(self, mock_bt):
+        """The two ways of not being locked are one behaviour, not two.
+
+        The guard is asked three times in this handler, and a flag that is
+        absent rather than ``False`` used to answer one of them differently:
+        the device's new mode was recorded but never adopted, while a
+        setpoint turned on the same device was. What that looks like from
+        the outside is a dial that works for temperature and not for mode.
+        """
+        outcomes = []
+        for flag in ({}, {"child_lock": False}):
+            trv = mock_bt.real_trvs[ENTITY_ID]
+            trv.advanced.pop("child_lock", None)
+            trv.advanced.update(flag)
+            trv.hvac_mode = "heat"
+            trv.system_mode_received = True
+            trv.last_hvac_mode = "heat"
+            mock_bt.bt_hvac_mode = HVACMode.HEAT
+            trv_state = _make_state(
+                state_str="off",
+                attributes={"current_temperature": 18.0, "temperature": 19.0},
+            )
+            mock_bt.hass.states.get.return_value = trv_state
+
+            event = _make_event(
+                mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+            )
+            with patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.OFF,
+            ):
+                await trigger_trv_change(mock_bt, event)
+            outcomes.append((trv.hvac_mode, mock_bt.bt_hvac_mode))
+
+        assert outcomes[0] == outcomes[1]
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
@@ -83,7 +84,10 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
+    if _org_trv_state.state == STATE_UNAVAILABLE or (
+        (not state_unknown_as_available) and _org_trv_state.state == STATE_UNKNOWN
+    ):
         # The device is gone; its last internal temperature must not
         # keep feeding the calibration as if it were live.
         if trv.current_temperature is not None:
@@ -101,6 +105,10 @@ async def trigger_trv_change(self, event):
         return
 
     advanced = trv.advanced or {}
+    # A missing flag counts as unlocked, and it can be missing: nothing
+    # backfills the key, so an entry that has not been through the options flow
+    # carries none. The config flow, the child lock switch and both guards
+    # below read an absent flag the same way.
     child_lock = advanced.get("child_lock")
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
@@ -257,7 +265,7 @@ async def trigger_trv_change(self, event):
             trv.hvac_mode = _org_trv_state.state
             _main_change = True
             if (
-                child_lock is False
+                not child_lock
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))

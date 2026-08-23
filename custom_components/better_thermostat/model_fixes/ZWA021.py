@@ -44,6 +44,30 @@ def _is_direct_valve(self, entity_id):
     return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
 
 
+# When Thermostat Mode is set to command class (0x40) with the manufacturer-specific mode
+# TRV Climate entity state is reported as STATE_UNKNOWN, but the device is actually available and controllable.
+# This flag allows the Better Thermostat to treat STATE_UNKNOWN as available for this model.
+# This is a model-specific quirk, so it is set here in the model quirks
+def trv_state_unknown_as_available(self, entity_id):
+    """Return whether this TRV uses direct valve control.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity identifier of the TRV to check.
+
+    Returns
+    -------
+    bool
+        ``True`` when this TRV uses direct valve-based calibration and should
+        be treated as available while its Climate entity state is unknown;
+        otherwise, ``False``.
+    """
+    return _is_direct_valve(self, entity_id)
+
+
 def fix_local_calibration(self, entity_id, offset):
     """Return the given local calibration offset unchanged."""
     return offset
@@ -74,7 +98,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
         return False
 
     _LOGGER.debug(
-        "better_thermostat %s: TRV %s ZWA021 manufacturer-specific valve mode",
+        "better_thermostat %s: TRV %s Spirit/ZWA021 manufacturer-specific valve mode",
         self.device_name,
         entity_id,
     )
@@ -114,7 +138,7 @@ async def override_set_valve(self, entity_id, percent):
         return False
 
     _LOGGER.debug(
-        "better_thermostat %s: TRV %s ZWA021 set valve %s%% -> %s/%s",
+        "better_thermostat %s: TRV %s Spirit/ZWA021 set valve %s%% -> %s/%s",
         self.device_name,
         entity_id,
         percent,
