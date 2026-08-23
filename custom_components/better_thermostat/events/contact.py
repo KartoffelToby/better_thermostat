@@ -67,6 +67,7 @@ DOOR = ContactRole(
     delay_after_attr="door_delay_after",
     queue_attr="door_queue_task",
     issue_translation_key="invalid_door_state",
+    learn_more_url="https://better-thermostat.org/faq/door-sensor",
 )
 
 

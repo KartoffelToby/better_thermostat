@@ -7,6 +7,7 @@ exercised end to end.
 """
 
 import asyncio
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -68,6 +69,26 @@ def _compressed_sleeps():
 
     with patch("asyncio.sleep", new=fast):
         yield
+
+
+@contextlib.asynccontextmanager
+async def counting_reloads(hass, entry):
+    """Count the reloads of ``entry`` that happen inside the block.
+
+    A reload restarts the thermostat, and one that lands while the previous one
+    is still starting up arrives before the state has been restored. How many
+    reloads a user action costs is therefore a behaviour, not a detail.
+    """
+    reloads = []
+    original = hass.config_entries.async_reload
+
+    async def counting(entry_id, **kwargs):
+        if entry_id == entry.entry_id:
+            reloads.append(entry_id)
+        return await original(entry_id, **kwargs)
+
+    with patch.object(hass.config_entries, "async_reload", counting):
+        yield reloads
 
 
 class FakeTrvEntity(ClimateEntity):

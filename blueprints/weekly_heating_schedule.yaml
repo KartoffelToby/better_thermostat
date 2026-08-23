@@ -597,10 +597,12 @@ variables:
     {% endif %}
 
   # ── Preset that should currently be active (for startup / resume) ─────────
+  # `active_slot` arrives here as an integer: Home Assistant runs `literal_eval`
+  # over a rendered variable, so the bare digit becomes a number.
   current_schedule_preset: >
-    {% if active_slot == '1' %}{{ preset_slot1 }}
-    {% elif active_slot == '2' %}{{ preset_slot2 }}
-    {% elif active_slot == '3' %}{{ preset_slot3 }}
+    {% if active_slot | int == 1 %}{{ preset_slot1 }}
+    {% elif active_slot | int == 2 %}{{ preset_slot2 }}
+    {% elif active_slot | int == 3 %}{{ preset_slot3 }}
     {% else %}{{ preset_slot4 }}
     {% endif %}
 

@@ -85,7 +85,6 @@ def bt():
     mock._current_humidity = None
     mock.window_open = None
     mock.contact_open = None
-    mock.last_window_state = None
     mock.last_main_hvac_mode = None
     mock.call_for_heat = None
     mock._saved_temperature = None
@@ -155,10 +154,19 @@ class TestStartupUnloadBailout:
         async def fake_sleep(_seconds):
             bt.is_removed = True
 
-        with patch(
-            "custom_components.better_thermostat.climate.asyncio.sleep",
-            side_effect=fake_sleep,
-        ) as mock_sleep:
+        with (
+            # Each pass of the wait branch reports on the critical entities;
+            # against a mocked thermostat that check has nothing to read, and
+            # this test is about the bail-out, not about the reporting.
+            patch(
+                "custom_components.better_thermostat.climate.check_critical_entities",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.asyncio.sleep",
+                side_effect=fake_sleep,
+            ) as mock_sleep,
+        ):
             await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
 
         mock_sleep.assert_awaited_once()
@@ -1568,16 +1576,6 @@ class TestValidateHvacMode:
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.last_main_hvac_mode == HVACMode.HEAT
-
-    def test_last_window_state_set(self, bt):
-        """Test Last window state set."""
-        bt.bt_hvac_mode = HVACMode.HEAT
-        bt.window_open = True
-        bt.contact_open = True
-        bt.humidity_sensor_entity_id = None
-        states = [_make_trv_state()]
-        BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt.last_window_state is True
 
     def test_humidity_sensor_re_read(self, bt):
         """Test Humidity sensor re read."""

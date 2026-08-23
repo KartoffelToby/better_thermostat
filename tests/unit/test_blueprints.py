@@ -19,6 +19,7 @@ instance.
 """
 
 from ast import literal_eval
+from datetime import datetime
 from pathlib import Path
 
 from homeassistant.components.automation import config as automation_config
@@ -30,6 +31,9 @@ import jinja2
 import pytest
 import voluptuous as vol
 import yaml
+
+from custom_components.better_thermostat.device_trigger import TRIGGER_SCHEMA
+from custom_components.better_thermostat.utils.const import DOMAIN
 
 BLUEPRINTS_DIR = Path(__file__).resolve().parents[2] / "blueprints"
 BLUEPRINT_FILES = sorted(BLUEPRINTS_DIR.glob("*.yaml"))
@@ -276,16 +280,17 @@ async def test_weekly_schedule_rejects_an_empty_string_input(hass):
 def _render(template_text: str, context: dict, states: dict):
     """Render a blueprint variable the way Home Assistant would.
 
-    Home Assistant renders a `variables:` entry and then runs `literal_eval`
-    over the result (`homeassistant.helpers.template._parse_result`), keeping
-    the raw string when that fails. A branch rendering the bare word `false`
-    therefore yields the *string* `"false"`, which is truthy -- so the value a
-    template produces has to be a Python literal, not just look like one.
+    Home Assistant strips a rendered `variables:` entry and then runs
+    `literal_eval` over the result (`homeassistant.helpers.template.
+    _parse_result`), keeping the raw string when that fails. A branch
+    rendering the bare word `false` therefore yields the *string* `"false"`,
+    which is truthy -- so the value a template produces has to be a Python
+    literal, not just look like one.
     """
     env = jinja2.Environment()
     env.globals["states"] = lambda entity: states.get(entity, "unknown")
     env.globals["is_state"] = lambda entity, value: states.get(entity) == value
-    rendered = env.from_string(template_text).render(**context)
+    rendered = env.from_string(template_text).render(**context).strip()
     try:
         return literal_eval(rendered)
     except ValueError, TypeError, SyntaxError, MemoryError:
@@ -414,6 +419,53 @@ def test_disabled_branches_render_real_booleans(
     assert result is expected
 
 
+_SLOT_TIMES = {
+    "slot1_time": "06:30:00",
+    "slot2_time": "08:30:00",
+    "slot3_time": "17:00:00",
+    "slot4_time": "22:30:00",
+}
+
+
+@pytest.mark.parametrize(
+    ("clock", "expected_slot"),
+    [
+        pytest.param("06:30:00", 1, id="start-of-slot1"),
+        pytest.param("07:15:00", 1, id="inside-slot1"),
+        pytest.param("09:00:00", 2, id="inside-slot2"),
+        pytest.param("18:00:00", 3, id="inside-slot3"),
+        pytest.param("23:00:00", 4, id="inside-slot4"),
+        pytest.param("03:00:00", 4, id="before-slot1-belongs-to-the-night-slot"),
+    ],
+)
+def test_current_schedule_preset_follows_the_active_slot(
+    schedule_variables, clock, expected_slot
+):
+    """Startup recovery, pause resume and arrival apply the current slot's preset.
+
+    `active_slot` renders a bare digit, so `literal_eval` hands it on as an
+    integer. A comparison against the strings `'1'`/`'2'`/`'3'` matches
+    nothing and sends all three paths to the slot 4 preset.
+    """
+    active_slot = _render(
+        schedule_variables["active_slot"],
+        {"now": lambda: datetime.strptime(clock, "%H:%M:%S"), **_SLOT_TIMES},
+        {},
+    )
+
+    assert active_slot == expected_slot
+    assert isinstance(active_slot, int)
+
+    preset = _render(
+        schedule_variables["current_schedule_preset"],
+        {"active_slot": active_slot}
+        | {f"preset_slot{i}": f"preset{i}" for i in range(1, 5)},
+        {},
+    )
+
+    assert preset == f"preset{expected_slot}"
+
+
 def _branch_for_trigger(node, trigger_id):
     """Find the `choose` branch guarded by a given trigger id, at any depth."""
     if isinstance(node, dict):
@@ -469,3 +521,59 @@ def test_pause_off_does_not_resume_while_another_switch_holds_the_pause(
     )
 
     assert still_paused is True
+
+
+# ── The device triggers the bundled blueprints are built on ──────────────────
+#
+# The checks above validate service names and entity ids by hand. That says
+# nothing about whether Better Thermostat's own trigger platform accepts the
+# trigger a blueprint writes: the blueprint picks a device and a trigger type,
+# and the platform's schema is the thing that decides whether the automation
+# saves at all.
+
+
+def _bt_device_triggers(blueprint: dict) -> list[dict]:
+    """Return the Better Thermostat device triggers a blueprint declares."""
+    triggers = blueprint.get("trigger") or blueprint.get("triggers") or []
+    if isinstance(triggers, dict):
+        triggers = [triggers]
+    return [
+        trigger
+        for trigger in triggers
+        if isinstance(trigger, dict)
+        and trigger.get("platform") == "device"
+        and trigger.get("domain") == DOMAIN
+    ]
+
+
+BLUEPRINTS_WITH_DEVICE_TRIGGERS = [
+    path for path in BLUEPRINT_FILES if _bt_device_triggers(_load(path))
+]
+
+
+def test_some_blueprint_uses_a_device_trigger():
+    """Sanity check: the schema test below has blueprints to run against."""
+    assert BLUEPRINTS_WITH_DEVICE_TRIGGERS
+
+
+@pytest.mark.parametrize("path", BLUEPRINTS_WITH_DEVICE_TRIGGERS, ids=lambda p: p.name)
+def test_bundled_device_triggers_pass_the_trigger_schema(path):
+    """Every device trigger a blueprint declares validates against the platform.
+
+    A blueprint that picks a device but no entity is the shape these are all
+    written in, and it has to be a shape the trigger schema accepts — a
+    rejected trigger takes the whole automation down at save time, with the
+    blueprint itself looking perfectly fine.
+    """
+    blueprint = _load(path)
+    inputs = _resolve_inputs(blueprint)
+
+    for trigger in _bt_device_triggers(blueprint):
+        resolved = _substitute(trigger, inputs)
+        try:
+            TRIGGER_SCHEMA(resolved)
+        except vol.Invalid as err:
+            raise AssertionError(
+                f"{path.name}: trigger {resolved.get('type')} is rejected "
+                f"by the platform schema: {err}"
+            ) from err

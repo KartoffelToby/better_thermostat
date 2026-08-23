@@ -64,6 +64,10 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         tolerance=0.0,
         temp_slope=None,
         window_open=False,
+        door_open=False,
+        # The real entity derives this from both contacts; the dispatcher
+        # reads the combined flag, so the stand-in has to carry it too.
+        contact_open=False,
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
