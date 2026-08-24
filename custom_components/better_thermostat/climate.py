@@ -2731,6 +2731,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 set_valve_fn=_set_valve,
                 set_temperature_fn=_set_temp,
                 set_hvac_mode_fn=_set_mode,
+                get_state=self.hass.states.get,
                 device_name=self.device_name,
             )
 

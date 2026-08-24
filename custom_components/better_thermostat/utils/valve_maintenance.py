@@ -92,6 +92,34 @@ def pick_wake_mode(
     return None
 
 
+def mode_needs_restoring(
+    info: MaintenanceTrvInfo, get_state: Callable[[str], State | None]
+) -> bool:
+    """Whether the TRV's HVAC mode has to be written back after the run.
+
+    Parameters
+    ----------
+    info : MaintenanceTrvInfo
+        The snapshot the run started from, carrying the mode to restore and
+        the wake mode the run switched into, if any.
+    get_state : Callable[[str], State | None]
+        ``hass.states.get``. A TRV that reports no state is taken to need
+        the restore: nothing then says the mode is where it belongs.
+
+    Returns
+    -------
+    bool
+        True when the run woke the TRV, or when the mode it reports is no
+        longer the one the snapshot was taken in.
+    """
+    if info.wake_mode is not None:
+        return True
+    state = get_state(info.entity_id)
+    if state is None:
+        return True
+    return state.state != info.cur_mode
+
+
 def _get_advanced(info: Trv) -> dict[str, object]:
     """Safely extract the ``advanced`` dict from a Trv entry."""
     adv = info.advanced
@@ -281,8 +309,23 @@ async def restore_one(
     *,
     set_temperature_fn: SetTemperatureFn,
     set_hvac_mode_fn: SetHvacModeFn,
+    get_state: Callable[[str], State | None],
 ) -> None:
-    """Restore a TRV to its pre-maintenance state."""
+    """Restore a TRV to its pre-maintenance state.
+
+    The setpoint is always written back; the mode only when it moved.
+    A device that reports a single mode implements no setter for it, so
+    writing the mode it is already in raises ``NotImplementedError`` inside
+    Home Assistant's climate component and buys nothing in exchange.
+
+    Two things move a mode here, and the guard answers to both. The run
+    itself moves one only through ``wake_step``, which is gated on
+    ``wake_mode``, so that alone says a mode was written and has to go back
+    regardless of what the device has published since. Anything else that
+    moved it, a valve write a device answers by switching itself on among
+    them, shows up as a reported mode that is no longer the one the snapshot
+    was taken in.
+    """
     if info.cur_temp is not None:
         try:
             await set_temperature_fn(info.entity_id, info.cur_temp)
@@ -292,6 +335,13 @@ async def restore_one(
                 info.entity_id,
                 exc_info=True,
             )
+    if not mode_needs_restoring(info, get_state):
+        _LOGGER.debug(
+            "better_thermostat: %s is still in mode %s, leaving it alone",
+            info.entity_id,
+            info.cur_mode,
+        )
+        return
     try:
         await set_hvac_mode_fn(info.entity_id, info.cur_mode)
     except Exception:
@@ -311,6 +361,7 @@ async def run_valve_maintenance(
     set_valve_fn: SetValveFn,
     set_temperature_fn: SetTemperatureFn,
     set_hvac_mode_fn: SetHvacModeFn,
+    get_state: Callable[[str], State | None],
     device_name: str,
     cycle_sleep: float = 30,
 ) -> None:
@@ -402,6 +453,7 @@ async def run_valve_maintenance(
                 info,
                 set_temperature_fn=set_temperature_fn,
                 set_hvac_mode_fn=set_hvac_mode_fn,
+                get_state=get_state,
             )
             for info in infos
         ),
