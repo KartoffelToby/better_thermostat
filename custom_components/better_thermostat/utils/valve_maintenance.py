@@ -329,6 +329,18 @@ async def restore_one(
     moved it, a valve write a device answers by switching itself on among
     them, shows up as a reported mode that is no longer the one the snapshot
     was taken in.
+
+    Parameters
+    ----------
+    info : MaintenanceTrvInfo
+        The snapshot the run started from, carrying the setpoint and mode
+        to restore.
+    set_temperature_fn : SetTemperatureFn
+        Writes the setpoint back.
+    set_hvac_mode_fn : SetHvacModeFn
+        Writes the mode back, when it moved.
+    get_state : Callable[[str], State | None]
+        ``hass.states.get``, supplying the mode the TRV reports now.
     """
     if info.cur_temp is not None:
         try:
@@ -366,6 +378,26 @@ async def run_valve_maintenance(
     This is the pure async orchestrator.  State mutations on
     ``self`` (ignore_states, in_maintenance, control_queue) stay in
     ``climate.py``'s wrapper.
+
+    Parameters
+    ----------
+    infos : list[MaintenanceTrvInfo]
+        The snapshot of each TRV the run drives, taken before it starts.
+    set_valve_fn : SetValveFn
+        Writes a valve percentage; used for the valve-driven TRVs.
+    set_temperature_fn : SetTemperatureFn
+        Writes a setpoint; drives the cycle on the other TRVs and restores
+        the setpoint on all of them.
+    set_hvac_mode_fn : SetHvacModeFn
+        Writes an HVAC mode; wakes a TRV that is off and puts a moved mode
+        back.
+    get_state : Callable[[str], State | None]
+        ``hass.states.get``, read at the restore to tell a mode that moved
+        from one that never did.
+    device_name : str
+        The Better Thermostat instance name, for logging context.
+    cycle_sleep : float
+        Seconds to hold each valve position, so the motor reaches it.
     """
     _LOGGER.info(
         "better_thermostat %s: starting valve maintenance for %d TRV(s)",
