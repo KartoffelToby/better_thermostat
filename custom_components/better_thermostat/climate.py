@@ -230,6 +230,13 @@ from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
 
+# How often the room temperature is re-sent to TRVs that mirror it into an
+# input of their own. Such a device falls back to its own sensor after a fixed
+# silence, two hours on a Sonoff TRVZB, and BT's own writes are driven by
+# sensor changes, which a room holding its temperature does not produce. The
+# interval sits well inside the shortest fallback window rather than near it.
+EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL = timedelta(minutes=30)
+
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
@@ -2562,7 +2569,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
                 )
             )
-        # Send an immediate initial keepalive so TRVs don't have to wait for the first 30min tick
+        # One keepalive right away, so a TRV that mirrors the room temperature
+        # has it before the first interval elapses.
         try:
             _LOGGER.debug(
                 "better_thermostat %s: creating keepalive task...", self.device_name
@@ -2577,6 +2585,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 exc,
             )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._external_temperature_keepalive,
+                EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
+            )
+        )
         # Start periodic EMA update (every minute)
         _LOGGER.debug("better_thermostat %s: starting EMA timer...", self.device_name)
         self.async_on_remove(

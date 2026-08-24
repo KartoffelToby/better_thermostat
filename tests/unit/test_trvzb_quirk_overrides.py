@@ -197,3 +197,170 @@ class TestOverrideSetValve:
         assert handled is True
         assert writes == [30]
         assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+
+def _registry_entry(entity_id, *, domain, translation_key=None, device_id="dev1"):
+    """A registry entry stand-in with the fields the lookup reads."""
+    entry = MagicMock()
+    entry.entity_id = entity_id
+    entry.domain = domain
+    entry.device_id = device_id
+    entry.unique_id = entity_id
+    entry.translation_key = translation_key
+    entry.original_name = None
+    return entry
+
+
+def _make_selector_self(state, options=("internal", "external"), *, entries=None):
+    """A BT stand-in whose TRV device carries a sensor selector.
+
+    ``state`` is what the selector currently reports; ``None`` stands for a
+    selector that publishes no state.
+    """
+    mock_self = _make_self()
+    trv = _registry_entry("climate.trv1", domain="climate")
+    selector = _registry_entry(
+        "select.trv1_temperature_sensor_select",
+        domain="select",
+        translation_key="temperature_sensor_select",
+    )
+    registry = MagicMock()
+    registry.async_get.return_value = trv
+    registry.entities.values.return_value = (
+        entries if entries is not None else [trv, selector]
+    )
+    mock_self._registry = registry
+
+    selector_state = None
+    if state is not None:
+        selector_state = MagicMock()
+        selector_state.state = state
+        selector_state.attributes = {"options": list(options)}
+    mock_self.hass.states.get.return_value = selector_state
+    return mock_self
+
+
+def _selector_calls(mock_self):
+    """The select_option payloads the quirk dispatched."""
+    return [
+        call.args[2]
+        for call in mock_self.hass.services.async_call.await_args_list
+        if call.args[:2] == ("select", "select_option")
+    ]
+
+
+class TestMaybeSelectExternalSensor:
+    """Which sensor the TRV regulates on while BT writes into its input.
+
+    Writing the room temperature into the external input achieves nothing
+    while the device regulates on its own sensor, and it lands there on its
+    own: a TRVZB that is re-paired comes back on the internal sensor.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_trv_on_its_internal_sensor_is_switched_over(self, monkeypatch):
+        """The selector is moved onto the option BT writes for."""
+        mock_self = _make_selector_self("internal")
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": "external"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_trv_already_on_an_external_option_is_left_alone(self, monkeypatch):
+        """Which external option it is stays its owner's choice.
+
+        Devices offer more than one option naming an external sensor, and
+        rewriting the plain one would take that choice back on every write.
+        """
+        mock_self = _make_selector_self(
+            "external_ignore_internal",
+            options=("internal", "external", "external_ignore_internal"),
+        )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_selector_without_the_option_is_not_written(self, monkeypatch):
+        """A device that names no external option keeps its selection."""
+        mock_self = _make_selector_self("internal", options=("internal",))
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_device_without_a_selector_is_not_written(self, monkeypatch):
+        """Nothing on the device answers for the sensor choice."""
+        trv = _registry_entry("climate.trv1", domain="climate")
+        mock_self = _make_selector_self("internal", entries=[trv])
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+
+class TestExternalTemperatureWriteSelectsTheSensor:
+    """The write and the sensor choice belong to the same intent."""
+
+    @pytest.mark.asyncio
+    async def test_writing_the_input_also_points_the_selector_at_it(self, monkeypatch):
+        """A value written into an input the device ignores changes nothing.
+
+        This pins the wiring rather than either half: the selector check
+        has to happen on the path that writes the value, because that is
+        the only path that knows a value was written.
+        """
+        trv = _registry_entry("climate.trv1", domain="climate")
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
+            domain="number",
+            translation_key="external_temperature_input",
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            domain="select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self("internal", entries=[trv, number, selector])
+        mock_self.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+        }
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_set_external_temperature(
+            mock_self, "climate.trv1", 21.42
+        )
+
+        payloads = [
+            call.args[2] for call in mock_self.hass.services.async_call.await_args_list
+        ]
+        assert payloads == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": 21.4},
+            {
+                "entity_id": "select.trv1_temperature_sensor_select",
+                "option": "external",
+            },
+        ]
