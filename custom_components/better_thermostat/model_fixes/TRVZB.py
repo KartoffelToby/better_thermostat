@@ -511,8 +511,25 @@ async def maybe_set_external_temperature(
     """Set Sonoff TRVZB external temperature input via a number entity on the same device.
 
     Looks for number.* entity matching external_temperature_input and writes the
-    given temperature (clamped to 0..99.9, rounded to one decimal).
-    Returns True on success, False otherwise.
+    given temperature (clamped to 0..99.9, rounded to one decimal). The sensor
+    selector is pointed at that input alongside the write, because a device
+    regulating on its own sensor never reads it.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        The Better Thermostat instance, supplying ``hass``, the TRV registry
+        and the context the service calls are made under.
+    entity_id : str
+        The TRV whose device carries the input.
+    temperature : float
+        The room temperature to mirror into the device, in degrees Celsius.
+
+    Returns
+    -------
+    bool
+        True when the input was written, False when the device is not a
+        TRVZB, names no such input, or the value is not a number.
     """
     try:
         model = str(self.real_trvs[entity_id].model or "")
