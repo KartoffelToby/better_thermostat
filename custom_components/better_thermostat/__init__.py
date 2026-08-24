@@ -100,11 +100,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove repair-registry issues created by this Better Thermostat instance.
+    """Clean up everything this Better Thermostat instance left behind.
 
-    Issues are scoped by ``device_name`` or by individual ``entity_id`` and
-    persist in HA's issue registry until explicitly deleted, so they have to
-    be cleaned up here to avoid stale warnings after a config entry is gone.
+    Repair-registry issues are scoped by ``device_name`` or by individual
+    ``entity_id`` and persist in HA's issue registry until explicitly
+    deleted, so they have to be cleaned up here to avoid stale warnings
+    after a config entry is gone. The reload lock and the recorded
+    entity-id names outlive the entry's unload by design, so removal is
+    where they are dropped.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry being removed.
     """
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
     hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
