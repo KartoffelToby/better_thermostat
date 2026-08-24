@@ -20,6 +20,11 @@ DOMAIN: Final = "better_thermostat"
 
 DEFAULT_NAME: Final = "Better Thermostat"
 
+# ``hass.data`` key holding, per entry and platform, the thermostat name the
+# entity ids were last built from. It outlives the reload it describes and is
+# dropped when the entry is removed.
+NORMALIZED_ID_NAMES: Final = f"{DOMAIN}_normalized_id_names"
+
 
 class _Manifest(TypedDict):
     version: str

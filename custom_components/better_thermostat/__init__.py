@@ -23,6 +23,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
+    NORMALIZED_ID_NAMES,
     CalibrationMode,
 )
 from .utils.helpers import get_device_model
@@ -119,6 +120,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     from .utils.state_manager import StateManager  # noqa: PLC0415
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
+    hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
 
     try:
         await StateManager.async_remove_store(hass, entry.entry_id)
