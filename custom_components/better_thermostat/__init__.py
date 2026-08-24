@@ -100,11 +100,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Clean up everything this Better Thermostat instance persisted.
+    """Clean up everything this Better Thermostat instance left behind.
 
     Repair-registry issues are scoped by ``device_name`` or by individual
     ``entity_id`` and persist until explicitly deleted; the unified state
-    store is a per-entry file that would otherwise be orphaned.
+    store is a per-entry file that would otherwise be orphaned. The reload
+    lock and the recorded entity-id names outlive the entry's unload by
+    design, so removal is where they are dropped.
 
     Parameters
     ----------

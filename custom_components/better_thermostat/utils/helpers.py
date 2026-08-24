@@ -139,7 +139,7 @@ _NO_RECORDED_NAME: Final = object()
 def async_normalize_bt_entity_ids(
     hass: HomeAssistant, entry: ConfigEntry, domain: str
 ) -> None:
-    """Rename BT registry entries after the thermostat itself was renamed.
+    """Rename BT registry entries to follow a change of the thermostat name.
 
     HA's entity registry reuses the existing entry on reload (unique id ==
     config entry id), so the entity_id is frozen at first creation while only
@@ -160,6 +160,17 @@ def async_normalize_bt_entity_ids(
     setup, so the desired id is derived directly from the configured name.
     For the auxiliary platforms the device already exists (climate set it up
     first), so HA's own ``async_regenerate_entity_id`` is used.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance, supplying the entity registry
+        and the runtime data the recorded names live in.
+    entry : ConfigEntry
+        The config entry whose entities are named after it.
+    domain : str
+        The entity platform being set up; only its registry entries are
+        considered, and each platform carries its own recorded name.
     """
     name = entry.data.get(CONF_NAME)
     normalized = hass.data.setdefault(NORMALIZED_ID_NAMES, {}).setdefault(
