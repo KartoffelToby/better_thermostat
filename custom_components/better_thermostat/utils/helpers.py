@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
@@ -36,6 +36,7 @@ from custom_components.better_thermostat.utils.const import (
     MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
     MIN_REASONABLE_TEMPERATURE,
+    NORMALIZED_ID_NAMES,
     VALVE_MIN_BASE,
     VALVE_MIN_OPENING_LARGE_DIFF,
     VALVE_MIN_PROPORTIONAL_SLOPE,
@@ -83,11 +84,16 @@ def find_device_entity(
     return None
 
 
+# Sentinel for "this platform has not been set up in this process yet".
+# ``None`` is a name an entry can genuinely carry, so it cannot say this.
+_NO_RECORDED_NAME: Final = object()
+
+
 @callback
 def async_normalize_bt_entity_ids(
     hass: HomeAssistant, entry: ConfigEntry, domain: str
 ) -> None:
-    """Rename stale BT registry entries so their entity_id tracks the name.
+    """Rename BT registry entries after the thermostat itself was renamed.
 
     HA's entity registry reuses the existing entry on reload (unique id ==
     config entry id), so the entity_id is frozen at first creation while only
@@ -96,11 +102,31 @@ def async_normalize_bt_entity_ids(
     would generate from the current name, before the platform re-adds the
     entities (which reuse the now-correct id).
 
+    A rename reaches this function as an in-process reload and nothing else
+    does, which is what separates it from a restart. The name the ids were
+    last built from is held per entry and platform for as long as the Home
+    Assistant instance lives, so a setup that finds no such name is a restart.
+    The ids in the registry are then whoever's they are, the user's included,
+    and an entity_id its owner chose is theirs to keep. Only a name that
+    differs from the recorded one is a rename, and only that renames anything.
+
     For the climate entity the device does not exist yet at this point in
     setup, so the desired id is derived directly from the configured name.
     For the auxiliary platforms the device already exists (climate set it up
     first), so HA's own ``async_regenerate_entity_id`` is used.
     """
+    name = entry.data.get(CONF_NAME)
+    normalized = hass.data.setdefault(NORMALIZED_ID_NAMES, {}).setdefault(
+        entry.entry_id, {}
+    )
+    # Recorded per platform: the four calls run in one setup pass, so a single
+    # record per entry would let the first of them mark the name as handled
+    # and leave the other three looking at a rename that already happened.
+    previous = normalized.get(domain, _NO_RECORDED_NAME)
+    normalized[domain] = name
+    if previous is _NO_RECORDED_NAME or previous == name:
+        return
+
     registry = er.async_get(hass)
     # The registry is populated lazily on first load; with a mocked hass
     # (unit tests) it is an unloaded shell without ``.entities``, so there is
@@ -124,7 +150,7 @@ def async_normalize_bt_entity_ids(
         except ValueError as err:
             _LOGGER.warning(
                 "better_thermostat %s: could not rename %s to %s: %s",
-                entry.data.get(CONF_NAME),
+                name,
                 reg_entry.entity_id,
                 desired,
                 err,

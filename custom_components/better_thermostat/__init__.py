@@ -23,6 +23,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
+    NORMALIZED_ID_NAMES,
     CalibrationMode,
 )
 from .utils.helpers import get_device_model
@@ -106,6 +107,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     be cleaned up here to avoid stale warnings after a config entry is gone.
     """
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
+    hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
 
     device_name = entry.data.get(CONF_NAME, entry.title)
 
