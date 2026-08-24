@@ -68,6 +68,16 @@ def _trv(
     )
 
 
+def _state(entity_id: str, mode: str) -> State:
+    """A ``State`` for ``entity_id``, which is a bare name in this module.
+
+    ``State`` splits the id into a domain and an object id and rejects one
+    without a domain, so a bare name is given the climate domain it stands
+    for. Only the reported mode is read back.
+    """
+    return State(entity_id if "." in entity_id else f"climate.{entity_id}", mode)
+
+
 def _reports(mode: str | None):
     """A ``hass.states.get`` stand-in reporting every TRV in ``mode``.
 
@@ -75,9 +85,7 @@ def _reports(mode: str | None):
     """
 
     def get_state(entity_id: str) -> State | None:
-        # SimpleNamespace, not State: the ids in this module are bare
-        # names and State rejects anything without a domain.
-        return None if mode is None else SimpleNamespace(state=mode)
+        return None if mode is None else _state(entity_id, mode)
 
     return get_state
 
@@ -95,7 +103,7 @@ def _reports_a_moved_mode(infos: list[MaintenanceTrvInfo]):
     }
 
     def get_state(entity_id: str) -> State | None:
-        return SimpleNamespace(state=moved.get(entity_id, HVACMode.OFF))
+        return _state(entity_id, moved.get(entity_id, HVACMode.OFF))
 
     return get_state
 
@@ -975,12 +983,12 @@ class TestModeNeedsRestoring:
         mode it was woken into.
         """
         info = _info(cur_mode=HVACMode.OFF, wake_mode="heat")
-        assert mode_needs_restoring(info, _reports(HVACMode.OFF)) is True
+        assert mode_needs_restoring(info, _reports(HVACMode.OFF), woken=True) is True
 
     def test_a_trv_still_in_its_own_mode_is_left_alone(self):
         """Nothing moved the mode, so writing it back buys nothing."""
         info = _info(cur_mode="heat", wake_mode=None)
-        assert mode_needs_restoring(info, _reports("heat")) is False
+        assert mode_needs_restoring(info, _reports("heat"), woken=False) is False
 
     def test_a_mode_that_moved_without_the_wake_step_is_restored(self):
         """A device that switched itself on is put back.
@@ -989,12 +997,22 @@ class TestModeNeedsRestoring:
         valve write by leaving ``off`` moved a mode the run has to undo.
         """
         info = _info(cur_mode=HVACMode.OFF, use_direct_valve=True, wake_mode=None)
-        assert mode_needs_restoring(info, _reports("heat")) is True
+        assert mode_needs_restoring(info, _reports("heat"), woken=False) is True
+
+    def test_a_wake_that_never_landed_decides_nothing(self):
+        """A selected wake mode is an intention, not a write that happened.
+
+        ``wake_step`` can raise, and the orchestrator already drops such a
+        TRV from the cycle. Its mode is then still the one the snapshot was
+        taken in, so repeating the write that just failed buys nothing.
+        """
+        info = _info(cur_mode=HVACMode.OFF, wake_mode="heat")
+        assert mode_needs_restoring(info, _reports(HVACMode.OFF), woken=False) is False
 
     def test_a_trv_without_a_state_is_restored(self):
         """No reading is no evidence that the mode is where it belongs."""
         info = _info(cur_mode="heat", wake_mode=None)
-        assert mode_needs_restoring(info, _reports(None)) is True
+        assert mode_needs_restoring(info, _reports(None), woken=False) is True
 
 
 class TestRestoreLeavesAnUnmovedModeAlone:
