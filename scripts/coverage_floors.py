@@ -7,6 +7,10 @@ sparsely covered edge instead. So the floor is per module: each one keeps at
 least the coverage it has today, and no amount of work elsewhere pays for a
 drop here.
 
+The measured number is branch coverage, so a guard whose condition is only
+ever met one way costs percentage even though both of its lines ran. That is
+the shape most of the missed edges have had.
+
 Two modes:
 
 ``check``
