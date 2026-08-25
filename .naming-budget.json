@@ -38,7 +38,7 @@
   "custom_components/better_thermostat/model_fixes/default.py": 2,
   "custom_components/better_thermostat/model_fixes/model_quirks.py": 4,
   "custom_components/better_thermostat/model_fixes/types.py": 2,
-  "custom_components/better_thermostat/number.py": 20,
+  "custom_components/better_thermostat/number.py": 22,
   "custom_components/better_thermostat/sensor.py": 36,
   "custom_components/better_thermostat/switch.py": 2,
   "custom_components/better_thermostat/trv.py": 3,
@@ -109,6 +109,7 @@
   "tests/unit/test_delegate_set_offset.py": 2,
   "tests/unit/test_diagnostics.py": 3,
   "tests/unit/test_door_events.py": 3,
+  "tests/unit/test_external_temperature_keepalive.py": 2,
   "tests/unit/test_fail_soft_behavior.py": 5,
   "tests/unit/test_flight_recorder.py": 6,
   "tests/unit/test_fsm_sweeps.py": 3,
@@ -132,7 +133,7 @@
   "tests/unit/test_thermal_learning.py": 11,
   "tests/unit/test_trv_events.py": 114,
   "tests/unit/test_trv_ignore_states.py": 34,
-  "tests/unit/test_valve_maintenance.py": 16,
+  "tests/unit/test_valve_maintenance.py": 17,
   "tests/unit/test_window_events.py": 3,
   "tests/unit/test_world_snapshot.py": 14
 }
