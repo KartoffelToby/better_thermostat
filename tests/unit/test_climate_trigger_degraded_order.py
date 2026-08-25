@@ -25,8 +25,10 @@ _HELPERS = "custom_components.better_thermostat.utils.helpers"
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
 
-# Every recurring handler that guards on the critical entities, with the
-# arguments it takes beyond the entity itself.
+# Every handler that guards on the critical entities, with the arguments it
+# takes beyond the entity itself. ``_trigger_window_change`` and
+# ``_trigger_door_change`` delegate to ``_trigger_contact_change``, which is
+# where the guard sits and which therefore stands in for both.
 HANDLERS = [
     ("_trigger_time", (None,)),
     ("_trigger_check_weather", (None,)),
@@ -35,6 +37,8 @@ HANDLERS = [
     ("_trigger_trv_change", (MagicMock(),)),
     ("_trigger_cooler_change", (MagicMock(),)),
     ("_trigger_outdoor_change", (MagicMock(),)),
+    ("_trigger_contact_change", (MagicMock(), None, MagicMock(), "window")),
+    ("_maintenance_tick", (None,)),
 ]
 
 
