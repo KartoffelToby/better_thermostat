@@ -86,11 +86,11 @@ async def test_the_default_calibration_mode_gets_one_too():
     ],
 )
 async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, expected):
-    """The gate still decides which of the two handlers runs.
+    """The gate decides which of the two handlers runs.
 
     A mode that does not recompute must not start queueing a control cycle
     every five minutes: that is radio traffic to a battery device, and it is
-    the reason the tick was gated in the first place.
+    what the gate exists to prevent.
     """
     bt = _startup_bt(advanced={"calibration_mode": mode})
 

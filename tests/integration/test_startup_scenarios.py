@@ -308,10 +308,11 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
     passed. A room that has settled publishes no state change to supply one,
     so the evaluation has to come from the periodic tick.
 
-    Both calibration modes are driven, because the tick was once registered
-    only for the modes that also recompute: on the others the entity stayed
-    on the degraded rung until the hourly weather tick, regulating on the
-    fallback for up to an hour after the sensor was healthy again.
+    Both calibration modes are driven, because the mode decides which of the
+    two handlers carries the tick. A mode whose registration depended on the
+    recompute would leave the entity on the degraded rung until the hourly
+    weather tick, regulating on the fallback for up to an hour after the
+    sensor was healthy again.
     """
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
