@@ -3,16 +3,22 @@
 The question here is a round trip: does what the user configured survive being
 taken down and brought back up? The three events a setting has to come through
 are a reload, a cold start, and a pass through the options form that changes
-nothing — all three restart the thermostat, and each restores from a different
+nothing. All three restart the thermostat, and each restores from a different
 place.
 
 Each setting is configured to a value that is *not* the production default, so
 a thermostat that falls back to the default is distinguishable from one that
 restored correctly. A fixture on the default value cannot tell the two apart.
+
+Two of the settings are not a user's direct choice and are here anyway. The
+learned heating power is the thermostat's own accumulated knowledge, and a
+restart that drops it costs a day of relearning. The window state is read back
+off the sensor rather than persisted, and a thermostat that comes up believing
+a standing-open window is shut heats into it until the sensor next changes.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
@@ -23,15 +29,21 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from .conftest import (
     BT_ENTITY,
     DOMAIN,
+    WINDOW_ID,
     click_through_the_options,
     make_entry,
     set_room_sensor,
     setup_entry,
+    wait_for,
     wait_for_startup,
 )
 from .device_profiles import GENERIC_HEAT_TRV
 
 PRESETS = ["comfort", "eco"]
+
+# A learned power far enough from the 0.01 the tracker starts on that a
+# thermostat falling back cannot be mistaken for one that restored.
+LEARNED_HEATING_POWER = 0.042
 
 
 async def _call(hass, service, data):
@@ -42,19 +54,46 @@ async def _call(hass, service, data):
     await hass.async_block_till_done()
 
 
-async def _configure_target(hass):
+async def _configure_target(hass, bt):
     """Set a target that is neither the default nor any preset temperature."""
     await _call(hass, "set_temperature", {"temperature": 23.5})
 
 
-async def _configure_hvac_mode(hass):
+async def _configure_hvac_mode(hass, bt):
     """Turn the thermostat off, which is not the mode it starts in."""
     await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.OFF})
 
 
-async def _configure_preset(hass):
+async def _configure_preset(hass, bt):
     """Put the thermostat on a preset, which it does not start on."""
     await _call(hass, "set_preset_mode", {"preset_mode": "comfort"})
+
+
+async def _configure_heating_power(hass, bt):
+    """Give the thermostat a learned heating power and persist it.
+
+    The learning itself is unit-tested; what the round trip asks is whether
+    a value the tracker arrived at is still there after a restart. The
+    entity's own setter and its own save are used, so the value travels the
+    path a learned one travels.
+    """
+    bt.heating_power = LEARNED_HEATING_POWER
+    bt.schedule_save_state(delay_s=0)
+    bt.async_write_ha_state()
+    await hass.async_block_till_done()
+
+
+async def _configure_window_open(hass, bt):
+    """Open the window and wait for the thermostat to commit to it."""
+    hass.states.async_set(WINDOW_ID, "on")
+    assert await wait_for(
+        hass, lambda: hass.states.get(BT_ENTITY).attributes.get("window_open") is True
+    )
+
+
+def _close_the_window(hass):
+    """Publish the closed window the entry is configured to watch."""
+    hass.states.async_set(WINDOW_ID, "off")
 
 
 def _read(attribute):
@@ -80,6 +119,13 @@ class Setting:
         The value the thermostat comes up on when nobody configured the
         setting. Measured against a real entry below, so this cannot drift into
         fiction, and held apart from ``expected`` so a case cannot go blind.
+    entry_options
+        Keyword arguments for ``make_entry``, for a setting that needs a device
+        wired to the entry before it can be set at all.
+    entry_data
+        Entry data written on top of what ``make_entry`` builds.
+    prepare
+        Callable publishing world state the entry needs before it is set up.
     """
 
     name: str
@@ -87,6 +133,9 @@ class Setting:
     read: Callable
     expected: Any
     default: Any
+    entry_options: dict[str, Any] = field(default_factory=dict)
+    entry_data: dict[str, Any] = field(default_factory=dict)
+    prepare: Callable | None = None
 
 
 SETTINGS = [
@@ -110,6 +159,23 @@ SETTINGS = [
         read=_read("preset_mode"),
         expected="comfort",
         default="none",
+        entry_data={"presets": list(PRESETS)},
+    ),
+    Setting(
+        name="learned_heating_power",
+        configure=_configure_heating_power,
+        read=_read("heating_power"),
+        expected=LEARNED_HEATING_POWER,
+        default=0.01,
+    ),
+    Setting(
+        name="window_open",
+        configure=_configure_window_open,
+        read=_read("window_open"),
+        expected=True,
+        default=False,
+        entry_options={"with_window": True},
+        prepare=_close_the_window,
     ),
 ]
 
@@ -119,15 +185,22 @@ def setting_id(setting: Setting) -> str:
     return setting.name
 
 
-async def _thermostat_on(hass, setting: Setting):
-    """Bring an entry up and put ``setting`` on its configured value."""
+async def _entry_up(hass, setting: Setting):
+    """Bring up an entry wired for ``setting`` and return it with its entity."""
     set_room_sensor(hass, 18.0)
-    data = dict(make_entry(GENERIC_HEAT_TRV).data)
-    data["presets"] = list(PRESETS)
+    if setting.prepare is not None:
+        setting.prepare(hass)
+    data = dict(make_entry(GENERIC_HEAT_TRV, **setting.entry_options).data)
+    data.update(setting.entry_data)
     entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
     await setup_entry(hass, entry)
-    await wait_for_startup(hass, entry)
-    await setting.configure(hass)
+    return entry, await wait_for_startup(hass, entry)
+
+
+async def _thermostat_on(hass, setting: Setting):
+    """Bring an entry up and put ``setting`` on its configured value."""
+    entry, bt = await _entry_up(hass, setting)
+    await setting.configure(hass, bt)
     assert setting.read(hass) == setting.expected
     return entry
 
@@ -140,16 +213,11 @@ async def test_the_case_can_tell_a_restore_from_a_default(
 
     This is the guard behind every other test in the file. A round-trip test
     whose fixture uses the value the thermostat would have come up on anyway
-    cannot tell "restored correctly" from "fell back to the default" — it goes
+    cannot tell "restored correctly" from "fell back to the default": it goes
     blind without failing. So the default is read off a thermostat nobody
     configured, rather than written down here and left to age.
     """
-    set_room_sensor(hass, 18.0)
-    data = dict(make_entry(GENERIC_HEAT_TRV).data)
-    data["presets"] = list(PRESETS)
-    entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
-    await setup_entry(hass, entry)
-    await wait_for_startup(hass, entry)
+    await _entry_up(hass, setting)
 
     assert setting.read(hass) == setting.default
     assert setting.expected != setting.default
