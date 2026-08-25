@@ -175,6 +175,24 @@ happens while entities are still coming up, belongs in
 `tests/integration/test_startup_scenarios.py` instead; those drive
 configurations and timelines rather than devices.
 
+## Fixtures never use the value they are meant to rule out
+
+A test that restores a setting and asserts it came back has to configure it to
+a value the thermostat would *not* have arrived at on its own. A fixture on the
+production default cannot tell "restored what the user configured" from "fell
+back to the built-in value" — it passes either way, and it keeps passing after
+the restore breaks.
+
+`tests/integration/test_setting_round_trips.py` holds that rule for the
+settings it covers: each case names the default it has to differ from, and a
+guard reads that default off a thermostat nobody configured, so a case cannot
+go blind without a test failing. When a new setting joins the matrix, give it a
+configured value and a default, not just a configured value.
+
+The same applies to the entry a test starts from. A `make_entry()` that omits a
+key the config flow always writes does not weaken a test — it takes the branch
+behind that key out of the run entirely, and every assertion downstream of it
+passes for the wrong reason.
 ## Naming
 
 Three conventions carry the naming here, and none of them is ours:
@@ -340,6 +358,16 @@ The floors are per module rather than one number for the project because a
 single project-wide threshold is bought back by adding tests where they are
 easiest to write, and every user-visible bug this project has had came from a
 sparsely covered edge instead.
+
+The measured number is branch coverage (`branch = true` under
+`[tool.coverage.run]`). A guard whose condition is only ever met one way costs
+percentage even though both of its lines ran, so the direction a test never
+takes is visible in the number rather than only in the code. `coverage report
+--show-missing` marks such a guard with an arrow (`123->exit`, `123->130`) at
+the line the untaken branch leaves from.
+
+`scripts/uncovered_guards.py` turns the same report into a work list: one line
+per untaken direction, with the source of the deciding line.
 
 Raising coverage does not update the file — record the new level explicitly, so
 that the level being held is a decision someone made:

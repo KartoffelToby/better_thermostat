@@ -12,13 +12,11 @@ import json
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import State
-from homeassistant.data_entry_flow import FlowResultType
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache,
 )
-import voluptuous as vol
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
@@ -27,6 +25,7 @@ from custom_components.better_thermostat.utils.const import (
 from .conftest import (
     BT_ENTITY,
     DOMAIN,
+    click_through_the_options,
     counting_reloads,
     make_entry,
     set_room_sensor,
@@ -40,9 +39,6 @@ COMFORT_NUMBER = "number.bt_test_comfort"
 # The built-in comfort temperature, and one the user would have to have set.
 COMFORT_DEFAULT = 21.0
 COMFORT_CONFIGURED = 22.5
-
-# Enough steps for any entry this suite builds; a flow that wants more is stuck.
-_MAX_FLOW_STEPS = 10
 
 
 def _entry(hass, presets=("comfort", "eco")):
@@ -250,7 +246,8 @@ async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
     await _activate(hass, "comfort")
 
     async with counting_reloads(hass, entry) as reloads:
-        await _click_through_the_options(hass, entry)
+        await click_through_the_options(hass, entry)
+    await wait_for_startup(hass, entry)
 
     assert reloads == [entry.entry_id]
     assert entry.options == {}
@@ -288,39 +285,7 @@ async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
     assert _target(hass) == COMFORT_DEFAULT
 
 
-async def _click_through_the_options(hass, entry):
-    """Accept every pre-filled value on every step of the options flow."""
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    # A flow that keeps handing back the same step would otherwise hang the
-    # suite instead of failing it. No step of this flow repeats, so the bound
-    # is generous.
-    for _ in range(_MAX_FLOW_STEPS):
-        if result["type"] != "form":
-            break
-        submission = {}
-        for marker in result["data_schema"].schema:
-            description = getattr(marker, "description", None)
-            if isinstance(description, dict) and "suggested_value" in description:
-                submission[str(marker.schema)] = description["suggested_value"]
-                continue
-            default = getattr(marker, "default", None)
-            if default is None or default is vol.UNDEFINED:
-                continue
-            value = default()
-            if value is not vol.UNDEFINED:
-                submission[str(marker.schema)] = value
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], submission
-        )
-    else:
-        raise AssertionError(f"options flow did not finish: {result}")
-    # A step that aborts also leaves the loop, and the caller would then read
-    # the state the entry had before the flow ran.
-    assert result["type"] is FlowResultType.CREATE_ENTRY, result
-    await hass.async_block_till_done()
-    await wait_for_startup(hass, entry)
-
-
+@pytest.mark.asyncio
 async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fake_trv):
     """Passing through the options leaves the running preset alone.
 
@@ -334,7 +299,8 @@ async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fa
     await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
     await _activate(hass, "comfort")
 
-    await _click_through_the_options(hass, entry)
+    await click_through_the_options(hass, entry)
+    await wait_for_startup(hass, entry)
 
     assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
     assert hass.states.get(COMFORT_NUMBER).state == str(COMFORT_CONFIGURED)

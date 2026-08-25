@@ -119,6 +119,16 @@ filterwarnings = [
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
 ]
 
+[tool.coverage.run]
+# Branch coverage names the guards that only ever run one way: a condition
+# whose true and false side are not both reached shows up as a partial
+# branch, and that missing side is the test the suite does not have.
+branch = true
+source = ["custom_components/better_thermostat"]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "@overload", "raise NotImplementedError"]
+
 [tool.pyright]
 # Don't use include - it changes the root! Instead, exclude everything except custom_components
 exclude = [

@@ -3,8 +3,8 @@
 _maintenance_tick decides, on each periodic tick, whether to run valve
 maintenance now, postpone it, or schedule it far out.  These tests pin every
 decision branch so the scheduling contract is locked down.  A second section
-covers the tick registration in _finalize_startup, which must not depend on
-the configured balance/calibration mode.
+covers the via_device binding _finalize_startup writes, which depends on how
+many valves the setup has.
 """
 
 from dataclasses import replace
@@ -205,7 +205,7 @@ async def test_due_and_enabled_dispatches_maintenance(bt):
 
 
 # ---------------------------------------------------------------------------
-# _finalize_startup: maintenance tick registration
+# _finalize_startup: via_device binding
 # ---------------------------------------------------------------------------
 
 
@@ -239,62 +239,18 @@ def _startup_bt(advanced):
 
 
 async def _run_finalize_startup(bt):
-    """Run _finalize_startup with all external hooks patched; return the tick registry."""
-    track_interval = MagicMock()
+    """Run _finalize_startup with all external hooks patched."""
     with (
         patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.async_track_time_interval", track_interval),
+        patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
         patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
         patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
         patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
     ):
         await BetterThermostat._finalize_startup(bt)
-    return track_interval
-
-
-def _registered_callbacks(track_interval):
-    """Extract the callbacks passed to async_track_time_interval."""
-    return [call.args[1] for call in track_interval.call_args_list]
-
-
-@pytest.mark.asyncio
-async def test_finalize_startup_registers_maintenance_tick_with_calibration_mode():
-    """Maintenance is orthogonal to calibration: the tick is registered even
-    when a balance/calibration mode enables the periodic control tick."""
-    bt = _startup_bt({"calibration_mode": "mpc_calibration", "valve_maintenance": True})
-    track_interval = await _run_finalize_startup(bt)
-    callbacks = _registered_callbacks(track_interval)
-    assert bt._trigger_time in callbacks
-    assert bt._maintenance_tick in callbacks
-    assert isinstance(bt.next_valve_maintenance, datetime)
-
-
-@pytest.mark.asyncio
-async def test_finalize_startup_registers_maintenance_tick_without_calibration_mode():
-    """Without any balance/calibration mode the maintenance tick is still registered."""
-    bt = _startup_bt({"valve_maintenance": True})
-    track_interval = await _run_finalize_startup(bt)
-    callbacks = _registered_callbacks(track_interval)
-    assert bt._trigger_time not in callbacks
-    assert bt._maintenance_tick in callbacks
-
-
-@pytest.mark.asyncio
-async def test_finalize_startup_skips_maintenance_tick_when_disabled():
-    """No TRV with valve maintenance enabled: the maintenance tick stays off."""
-    bt = _startup_bt({"calibration_mode": "pid_calibration"})
-    track_interval = await _run_finalize_startup(bt)
-    callbacks = _registered_callbacks(track_interval)
-    assert bt._trigger_time in callbacks
-    assert bt._maintenance_tick not in callbacks
-
-
-# ---------------------------------------------------------------------------
-# _finalize_startup: via_device binding
-# ---------------------------------------------------------------------------
 
 
 def _binding_bt(trv_confs):
