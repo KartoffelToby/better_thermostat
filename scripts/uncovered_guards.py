@@ -56,7 +56,7 @@ def _read_report(path: Path) -> dict[str, list[list[int]]]:
     return {
         name: entry["missing_branches"]
         for name, entry in files.items()
-        if entry["missing_branches"]
+        if entry.get("missing_branches")
     }
 
 
