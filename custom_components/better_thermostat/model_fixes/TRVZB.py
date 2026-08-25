@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
@@ -400,7 +401,31 @@ def _find_device_entity(
     The translation key is the stable, language-independent handle and is
     tried first; the id fragment is the fallback for a registry entry that
     carries none.
+
+    Parameters
+    ----------
+    entity_registry : er.EntityRegistry
+        The registry to search.
+    device_id : str | None
+        The device the sibling has to belong to. ``None`` is no device and
+        matches nothing: every entity that belongs to no device would
+        otherwise be a candidate.
+    domain : str
+        The entity domain to search, ``number`` or ``select`` here.
+    translation_keys : frozenset[str]
+        The translation keys that name the wanted entity.
+    id_fragment : str
+        Matched against the entity id, unique id and original name of a
+        registry entry that carries no translation key.
+
+    Returns
+    -------
+    str | None
+        The entity id of the first match, or ``None`` when the device has
+        no such entity.
     """
+    if device_id is None:
+        return None
     for ent in entity_registry.entities.values():
         if ent.device_id != device_id or ent.domain != domain:
             continue
@@ -460,7 +485,9 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
         )
         return False
     state = self.hass.states.get(target)
-    if state is None:
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        # A selector that is not reporting names no option, and the device
+        # behind it is in no state to take one either.
         return False
     if str(state.state).startswith(_EXTERNAL_SENSOR_OPTION):
         return True
