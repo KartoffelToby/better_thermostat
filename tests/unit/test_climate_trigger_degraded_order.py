@@ -98,7 +98,7 @@ async def test_a_lost_room_sensor_is_reported_while_a_trv_is_offline(bt, handler
 
 @pytest.mark.asyncio
 async def test_the_critical_check_still_stops_the_rest_of_the_handler(bt):
-    """Moving the annunciation up does not remove the early return.
+    """The annunciation running first does not remove the early return.
 
     The handler's own work stays behind the critical-entity check: there is
     nothing to compute against a valve that cannot be reached.
@@ -117,7 +117,7 @@ async def test_the_critical_check_still_stops_the_rest_of_the_handler(bt):
 
 @pytest.mark.asyncio
 async def test_a_reachable_trv_reports_the_lost_sensor_too(bt):
-    """The counter-direction: the annunciation did already work here.
+    """The counter-direction: a reachable valve reports the sensor too.
 
     Without it the test above would pass for a thermostat that reports
     degraded mode in no case at all.
