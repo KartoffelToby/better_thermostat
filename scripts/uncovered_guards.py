@@ -40,10 +40,15 @@ def _read_report(path: Path) -> dict[str, list[list[int]]]:
     if "files" not in report:
         sys.exit(f"{path} is not a coverage JSON report: no 'files' key")
     files = report["files"]
+    # A report that measured nothing has no branches for the same reason it
+    # has no lines, so it gets its own message rather than the one about
+    # branch coverage.
+    if not files:
+        sys.exit(f"{path} measured no files; check what --cov the run targeted")
     # Only a branch-enabled report carries ``missing_branches`` at all. Under
     # full branch coverage the key is there and empty, which is a result worth
     # printing rather than a run to reject.
-    if files and not any("missing_branches" in entry for entry in files.values()):
+    if not any("missing_branches" in entry for entry in files.values()):
         sys.exit(
             f"{path} records no branches; the report was produced without "
             "branch coverage; check 'branch = true' under [tool.coverage.run]"
