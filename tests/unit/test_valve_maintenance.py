@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
@@ -29,6 +30,7 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     collect_maintenance_trvs,
     compute_initial_maintenance,
     compute_next_maintenance,
+    mode_needs_restoring,
     open_step,
     pick_wake_mode,
     restore_one,
@@ -59,6 +61,46 @@ def _trv(
             "valve_position_entity": valve_entity,
         },
     )
+
+
+def _state(entity_id: str, mode: str) -> State:
+    """A ``State`` for ``entity_id``, which is a bare name in this module.
+
+    ``State`` splits the id into a domain and an object id and rejects one
+    without a domain, so a bare name is given the climate domain it stands
+    for. Only the reported mode is read back.
+    """
+    return State(entity_id if "." in entity_id else f"climate.{entity_id}", mode)
+
+
+def _reports(mode: str | None):
+    """A ``hass.states.get`` stand-in reporting every TRV in ``mode``.
+
+    ``None`` stands for a TRV that publishes no state at all.
+    """
+
+    def get_state(entity_id: str) -> State | None:
+        return None if mode is None else _state(entity_id, mode)
+
+    return get_state
+
+
+def _reports_a_moved_mode(infos: list[MaintenanceTrvInfo]):
+    """A state reader answering with a mode no TRV here was started in.
+
+    The restore writes the mode back only when it moved, so this is the
+    reading the tests below assume: they are about what the run does with
+    a TRV whose mode has to go back, not about the guard itself.
+    """
+    moved = {
+        info.entity_id: HVACMode.OFF if info.cur_mode != HVACMode.OFF else "heat"
+        for info in infos
+    }
+
+    def get_state(entity_id: str) -> State | None:
+        return _state(entity_id, moved.get(entity_id, HVACMode.OFF))
+
+    return get_state
 
 
 def _info(
@@ -357,7 +399,12 @@ class TestRestoreOne:
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
         info = _info(cur_temp=22.5, cur_mode="heat")
-        await restore_one(info, set_temperature_fn=temp_fn, set_hvac_mode_fn=mode_fn)
+        await restore_one(
+            info,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode([info]),
+        )
         temp_fn.assert_awaited_once_with("climate.trv1", 22.5)
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
 
@@ -367,7 +414,12 @@ class TestRestoreOne:
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
         info = _info(cur_temp=None)
-        await restore_one(info, set_temperature_fn=temp_fn, set_hvac_mode_fn=mode_fn)
+        await restore_one(
+            info,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode([info]),
+        )
         temp_fn.assert_not_awaited()
         mode_fn.assert_awaited_once()
 
@@ -377,7 +429,12 @@ class TestRestoreOne:
         temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
         mode_fn = AsyncMock()
         info = _info(cur_temp=20.0, cur_mode="heat")
-        await restore_one(info, set_temperature_fn=temp_fn, set_hvac_mode_fn=mode_fn)
+        await restore_one(
+            info,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode([info]),
+        )
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
 
 
@@ -402,6 +459,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -427,6 +485,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -449,6 +508,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -474,6 +534,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -494,6 +555,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode([]),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -523,6 +585,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -554,6 +617,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -609,6 +673,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_mock,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -657,6 +722,7 @@ class TestRunValveMaintenance:
             set_valve_fn=AsyncMock(),
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_mock,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=30,
         )
@@ -692,6 +758,7 @@ class TestRunValveMaintenance:
             set_valve_fn=AsyncMock(),
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=30,
         )
@@ -716,6 +783,7 @@ class TestRunValveMaintenance:
             set_valve_fn=AsyncMock(),
             set_temperature_fn=AsyncMock(),
             set_hvac_mode_fn=AsyncMock(),
+            get_state=_reports_a_moved_mode([]),
             device_name="Test",
             cycle_sleep=30,
         )
@@ -743,6 +811,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -764,6 +833,7 @@ class TestRunValveMaintenance:
             set_valve_fn=valve_fn,
             set_temperature_fn=temp_fn,
             set_hvac_mode_fn=mode_fn,
+            get_state=_reports_a_moved_mode(infos),
             device_name="Test",
             cycle_sleep=0,
         )
@@ -851,5 +921,99 @@ class TestWakeStep:
         mode_fn = AsyncMock()
         await wake_step(
             _info(entity_id="trv1", wake_mode=None), set_hvac_mode_fn=mode_fn
+        )
+        mode_fn.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# mode_needs_restoring
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestModeNeedsRestoring:
+    """Which TRVs get their HVAC mode written back after a run.
+
+    A device that reports a single HVAC mode implements no setter for it,
+    so Home Assistant's climate component raises ``NotImplementedError`` on
+    a write of the mode the device is already in. The run has no reason to
+    make that write: it never moved the mode of such a device.
+    """
+
+    def test_a_woken_trv_is_restored_whatever_it_reports(self):
+        """The wake mode alone decides; a stale reading cannot undo it.
+
+        ``wake_step`` wrote the mode, so it has to go back. The device may
+        not have published the change yet, and a reading that still shows
+        the mode the run started from would otherwise leave the TRV in the
+        mode it was woken into.
+        """
+        info = _info(cur_mode=HVACMode.OFF, wake_mode="heat")
+        assert mode_needs_restoring(info, _reports(HVACMode.OFF), woken=True) is True
+
+    def test_a_trv_still_in_its_own_mode_is_left_alone(self):
+        """Nothing moved the mode, so writing it back buys nothing."""
+        info = _info(cur_mode="heat", wake_mode=None)
+        assert mode_needs_restoring(info, _reports("heat"), woken=False) is False
+
+    def test_a_mode_that_moved_without_the_wake_step_is_restored(self):
+        """A device that switched itself on is put back.
+
+        A valve-driven TRV is never woken, and a device that answers a
+        valve write by leaving ``off`` moved a mode the run has to undo.
+        """
+        info = _info(cur_mode=HVACMode.OFF, use_direct_valve=True, wake_mode=None)
+        assert mode_needs_restoring(info, _reports("heat"), woken=False) is True
+
+    def test_a_wake_that_never_landed_decides_nothing(self):
+        """A selected wake mode is an intention, not a write that happened.
+
+        ``wake_step`` can raise, and the orchestrator already drops such a
+        TRV from the cycle. Its mode is then still the one the snapshot was
+        taken in, so repeating the write that just failed buys nothing.
+        """
+        info = _info(cur_mode=HVACMode.OFF, wake_mode="heat")
+        assert mode_needs_restoring(info, _reports(HVACMode.OFF), woken=False) is False
+
+    def test_a_trv_without_a_state_is_restored(self):
+        """No reading is no evidence that the mode is where it belongs."""
+        info = _info(cur_mode="heat", wake_mode=None)
+        assert mode_needs_restoring(info, _reports(None), woken=False) is True
+
+
+class TestRestoreLeavesAnUnmovedModeAlone:
+    """The guard as the restore applies it, setpoint included."""
+
+    @pytest.mark.asyncio
+    async def test_setpoint_is_restored_and_the_mode_is_not_written(self):
+        """A single-mode TRV gets its setpoint back and no mode write."""
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+        info = _info(cur_temp=21.5, cur_mode="heat", wake_mode=None)
+        await restore_one(
+            info,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+        )
+        temp_fn.assert_awaited_once_with("climate.trv1", 21.5)
+        mode_fn.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_full_run_writes_no_mode_to_a_trv_that_kept_it(self):
+        """End to end: the run leaves such a TRV's mode untouched.
+
+        The valve cycle drives the TRV through a number entity, so nothing
+        in the run asks its mode to move.
+        """
+        mode_fn = AsyncMock()
+        infos = [_info(entity_id="trv1", cur_mode="heat", use_direct_valve=True)]
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=AsyncMock(),
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
         )
         mode_fn.assert_not_awaited()

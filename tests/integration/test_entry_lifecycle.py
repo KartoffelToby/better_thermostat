@@ -151,3 +151,51 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, fake_trv
         == "sensor.bt_livingroom_temperature_ema"
     )
     assert hass.states.get("climate.bt_livingroom") is not None
+
+
+async def test_entity_ids_the_user_chose_survive_a_restart(hass, fake_trv):
+    """A restart leaves the ids in the registry alone, whoever wrote them.
+
+    An entity_id is the user's to set, and the ones seeded here are the
+    form somebody who named BT's entities themselves holds. Setting the
+    entry up finds them already in the registry, which is what a restart
+    looks like from the integration's side.
+
+    Both platforms are seeded: the climate entity derives its id from the
+    entry, the auxiliary ones from the device, and those are two different
+    code paths.
+    """
+    _room_sensor(hass)
+    entry = make_entry(name="Livingroom")
+    entry.add_to_hass(hass)
+
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "climate",
+        DOMAIN,
+        entry.entry_id,
+        config_entry=entry,
+        suggested_object_id="livingroom_thermostat",
+    )
+    registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        entry.entry_id + "_external_temp_ema",
+        config_entry=entry,
+        suggested_object_id="livingroom_thermostat_ema",
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert (
+        registry.async_get_entity_id("climate", DOMAIN, entry.entry_id)
+        == "climate.livingroom_thermostat"
+    )
+    assert (
+        registry.async_get_entity_id(
+            "sensor", DOMAIN, entry.entry_id + "_external_temp_ema"
+        )
+        == "sensor.livingroom_thermostat_ema"
+    )
