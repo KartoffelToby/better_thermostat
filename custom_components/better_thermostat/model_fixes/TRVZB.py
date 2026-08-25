@@ -421,16 +421,26 @@ def _find_device_entity(
     Returns
     -------
     str | None
-        The entity id of the first match, or ``None`` when the device has
-        no such entity.
+        The entity id of the translation key match, the first id fragment
+        match when no entry carries one of the keys, or ``None`` when the
+        device has no such entity.
     """
     if device_id is None:
         return None
-    for ent in entity_registry.entities.values():
-        if ent.device_id != device_id or ent.domain != domain:
-            continue
+    siblings = [
+        ent
+        for ent in entity_registry.entities.values()
+        if ent.device_id == device_id and ent.domain == domain
+    ]
+    for ent in siblings:
         if getattr(ent, "translation_key", None) in translation_keys:
             return ent.entity_id
+    # Only now, and only for entries that name themselves nothing: the
+    # registry hands its entities out in insertion order, so a fragment match
+    # tried per entry would beat the canonical key of an entry behind it.
+    for ent in siblings:
+        if getattr(ent, "translation_key", None) is not None:
+            continue
         haystacks = (
             (ent.entity_id or "").lower(),
             (ent.unique_id or "").lower(),
