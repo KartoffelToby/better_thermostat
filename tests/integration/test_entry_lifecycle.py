@@ -10,6 +10,11 @@ indirectly over the profiles in ``device_profiles`` and every expectation
 that depends on the device is derived from the profile it was built from.
 """
 
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import timedelta
+from unittest.mock import patch
+
 from homeassistant.components.climate import HVACMode
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION
 from homeassistant.const import ATTR_TEMPERATURE
@@ -17,6 +22,8 @@ from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+from custom_components.better_thermostat.utils.const import CalibrationMode
 
 from .conftest import (
     BT_ENTITY,
@@ -235,30 +242,83 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, device_r
     assert hass.states.get("climate.bt_livingroom") is not None
 
 
+@contextmanager
+def _recording_intervals(registered):
+    """Record name and interval for every handler startup puts on a timer."""
+    from custom_components.better_thermostat import climate as climate_module
+
+    real = climate_module.async_track_time_interval
+
+    def _record(hass, action, interval, *args, **kwargs):
+        registered.append((getattr(action, "__name__", repr(action)), interval))
+        return real(hass, action, interval, *args, **kwargs)
+
+    with patch.object(climate_module, "async_track_time_interval", _record):
+        yield
+
+
+def _on_the_five_minute_tick(registered):
+    """The handlers startup put on a five-minute interval, in order."""
+    return [name for name, interval in registered if interval == timedelta(minutes=5)]
+
+
+def _without_the_control_tick(profile):
+    """The same device, on a calibration mode that registers no control tick.
+
+    The five-minute control tick re-sends on its own whenever it fires,
+    so a device configured for one heals a lost write whether or not the
+    reconciler runs. Only a calibration mode outside that tick's gate
+    leaves the reconciler as the sole periodic path.
+    """
+    return replace(
+        profile,
+        name=f"{profile.name}_no_control_tick",
+        calibration_mode=CalibrationMode.HEATING_POWER_CALIBRATION.value,
+    )
+
+
 @pytest.mark.parametrize(
-    "fake_trv", [GENERIC_HEAT_TRV, INTEGER_GRID_TRV], indirect=True, ids=profile_id
+    "fake_trv",
+    [
+        _without_the_control_tick(GENERIC_HEAT_TRV),
+        _without_the_control_tick(INTEGER_GRID_TRV),
+    ],
+    indirect=True,
+    ids=profile_id,
 )
 async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
-    """A write the radio swallowed converges through the periodic tick.
+    """A write the radio swallowed converges through the reconcile tick.
 
-    This pins the wiring: the five-minute interval is registered, the
-    tick detects the commanded-vs-reported divergence, and the queued
+    The tick detects the commanded-vs-reported divergence and the queued
     control cycle re-sends through the real service. The divergence is
     measured against a tolerance of half a step, so the setpoint grid is
-    an axis of the detection itself. The write budget is unit-tested
-    elsewhere and zeroed here so the test does not have to wait out real
-    wall-clock spacing.
-    """
-    from datetime import timedelta
-    from unittest.mock import patch
+    an axis of the detection itself. That the interval is registered at
+    all is pinned as a set in ``test_climate_startup_registration``. The
+    write budget is unit-tested elsewhere and zeroed here so the test
+    does not have to wait out real wall-clock spacing.
 
+    A dropped write leaves the entity waiting for a confirmation that
+    never comes, and the reconciler stands down while a write is in
+    flight. The healing tick is therefore the one after that wait ends,
+    not the first one to fire, and the loop below is what carries the
+    scenario across it.
+    """
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
-    await setup_entry(hass, entry)
-    bt = await wait_for_startup(hass, entry)
+    registered = []
+    with _recording_intervals(registered):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    # The premise of the parametrization, read off this very startup: the
+    # reconciler is the only five-minute handler here, so a re-send can come
+    # from nowhere else. Claimed as the whole set, because any other handler
+    # on that interval would be an equally good suspect.
+    assert _on_the_five_minute_tick(registered) == ["_reconcile_tick"]
+
     assert_profile_adopted(bt, fake_trv.profile)
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
@@ -279,12 +339,16 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         assert lost != fake_trv._attr_target_temperature  # really lost
         assert_on_device_grid(lost, fake_trv.profile)
 
-        # The next reconcile tick detects the divergence and re-sends.
+        # The first tick lands inside the confirmation wait and stands
+        # down; the one after it finds the divergence and re-sends.
         resend_baseline = len(fake_trv.set_temperature_calls)
-        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=6))
-        assert await wait_for(
-            hass, lambda: len(fake_trv.set_temperature_calls) > resend_baseline
-        )
+        for minutes in (6, 12):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=minutes))
+            if await wait_for(
+                hass, lambda: len(fake_trv.set_temperature_calls) > resend_baseline
+            ):
+                break
+        assert len(fake_trv.set_temperature_calls) > resend_baseline
 
     assert fake_trv.set_temperature_calls[-1] == lost
     assert fake_trv._attr_target_temperature == lost

@@ -229,6 +229,16 @@ single project-wide threshold is bought back by adding tests where they are
 easiest to write, and every user-visible bug this project has had came from a
 sparsely covered edge instead.
 
+The measured number is branch coverage (`branch = true` under
+`[tool.coverage.run]`). A guard whose condition is only ever met one way costs
+percentage even though both of its lines ran, so the direction a test never
+takes is visible in the number rather than only in the code. `coverage report
+--show-missing` marks such a guard with an arrow (`123->exit`, `123->130`) at
+the line the untaken branch leaves from.
+
+`scripts/uncovered_guards.py` turns the same report into a work list: one line
+per untaken direction, with the source of the deciding line.
+
 Raising coverage does not update the file — record the new level explicitly, so
 that the level being held is a decision someone made:
 
