@@ -58,7 +58,20 @@ def bt():
     mock.hass = MagicMock()
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID
-    mock.real_trvs = {TRV_ID: {"calibration": 1}}
+    # Production holds Trv objects here, not raw dicts: a fixture that maps to
+    # a dict passes attribute reads straight through MagicMock and hides
+    # whatever the code under test asks of a member.
+    mock.real_trvs = {
+        TRV_ID: Trv(
+            entity_id=TRV_ID,
+            calibration=1,
+            integration="generic_thermostat",
+            adapter=None,
+            model_quirks=None,
+            model="SomeModel",
+            advanced={},
+        )
+    }
     mock.cooler_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
@@ -118,6 +131,24 @@ def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
     if attrs:
         default_attrs.update(attrs)
     return State(entity_id, state, attributes=default_attrs)
+
+
+def _make_no_off_trv(entity_id):
+    """Build a Trv for a device that never reports "off".
+
+    ``min_temp`` is left empty on purpose: ``_initialize_trvs`` fills it only
+    after the startup mode is decided, so this is the shape the startup path
+    actually sees.
+    """
+    return Trv(
+        entity_id=entity_id,
+        calibration=None,
+        integration="generic_thermostat",
+        adapter=None,
+        model_quirks=None,
+        model="SomeModel",
+        advanced={"no_off_system_mode": True, "child_lock": False},
+    )
 
 
 def _make_sensor_state(temp="21.5", state_val=None):
@@ -1549,13 +1580,67 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.OFF
 
-    def test_none_mode_most_heat_sets_heat(self, bt):
-        """Test None mode most heat sets heat."""
+    def test_none_mode_every_head_heating_sets_heat(self, bt):
+        """A room whose heads all heat comes up heating."""
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
         states = [
             _make_trv_state(TRV_ID, state="heat"),
             _make_trv_state(TRV_ID_2, state="heat"),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    def test_none_mode_one_head_heating_sets_heat(self, bt):
+        """One head still heating is enough to bring the room up heating.
+
+        The counterpart of the runtime rule: the room follows its heads off
+        only once all of them are off, so a single one that is not carries it.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        states = [
+            _make_trv_state(TRV_ID, state="off"),
+            _make_trv_state(TRV_ID_2, state="heat"),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    def test_none_mode_heads_parked_at_their_minimum_set_off(self, bt):
+        """Heads that never report "off" are off at their own minimum.
+
+        A ``no_off_system_mode`` valve expresses "off" as its minimum setpoint,
+        so a room of them parked there is off — the reading the runtime path
+        has always used, and which the startup path used to miss because it
+        judged the reported state alone.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        parked = {"temperature": 5.0, "min_temp": 5.0}
+        bt.real_trvs = {
+            trv_id: _make_no_off_trv(trv_id) for trv_id in (TRV_ID, TRV_ID_2)
+        }
+        states = [
+            _make_trv_state(TRV_ID, state="heat", attrs=parked),
+            _make_trv_state(TRV_ID_2, state="heat", attrs=parked),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+    def test_none_mode_one_head_above_its_minimum_sets_heat(self, bt):
+        """One head lifted off its minimum brings the whole room up heating."""
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.real_trvs = {
+            trv_id: _make_no_off_trv(trv_id) for trv_id in (TRV_ID, TRV_ID_2)
+        }
+        states = [
+            _make_trv_state(
+                TRV_ID, state="heat", attrs={"temperature": 5.0, "min_temp": 5.0}
+            ),
+            _make_trv_state(
+                TRV_ID_2, state="heat", attrs={"temperature": 21.0, "min_temp": 5.0}
+            ),
         ]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.HEAT
