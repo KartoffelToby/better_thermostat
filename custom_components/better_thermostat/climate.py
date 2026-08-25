@@ -1946,16 +1946,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     "startup()",
                 )
-            # Restore preset mode
-            if old_state.attributes.get("preset_mode", None) is not None:
-                restored_preset: str = str(old_state.attributes["preset_mode"])
-                if restored_preset in self.preset_modes:
-                    self.preset_mgr.mode = restored_preset
-                    _LOGGER.debug(
-                        "better_thermostat %s: Restored preset mode: %s",
-                        self.device_name,
-                        restored_preset,
-                    )
             _LOGGER.debug(
                 "better_thermostat %s: state restoration completed", self.device_name
             )
