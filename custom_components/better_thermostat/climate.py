@@ -119,6 +119,7 @@ from .utils.const import (
     ATTR_STATE_OFF_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURE,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
@@ -228,6 +229,13 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
+
+# How often the room temperature is re-sent to TRVs that mirror it into an
+# input of their own. Such a device falls back to its own sensor after a fixed
+# silence, two hours on a Sonoff TRVZB, and BT's own writes are driven by
+# sensor changes, which a room holding its temperature does not produce. The
+# interval sits well inside the shortest fallback window rather than near it.
+EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL = timedelta(minutes=30)
 
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
@@ -1811,6 +1819,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                             if cool_temp is not None:
                                 self._preset_cool_temperatures[preset] = cool_temp
+            # The per-preset heating map is owned by the preset number
+            # entities, whose platform is set up after climate, so it comes
+            # back from the thermostat's own state here. The block below reads
+            # it to pick the target for a restored preset.
+            if (
+                old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
+                is not None
+            ):
+                try:
+                    restored_heat_temperatures = json.loads(
+                        str(
+                            old_state.attributes.get(
+                                ATTR_STATE_PRESET_HEAT_TEMPERATURES, "{}"
+                            )
+                        )
+                    )
+                except TypeError, json.JSONDecodeError:
+                    _LOGGER.debug(
+                        "better_thermostat %s: could not restore preset heat temperatures",
+                        self.device_name,
+                    )
+                else:
+                    if isinstance(restored_heat_temperatures, dict):
+                        for preset, temp in restored_heat_temperatures.items():
+                            if preset not in self.preset_mgr.temperatures:
+                                continue
+                            heat_temp = convert_to_float(
+                                str(temp), self.device_name, "startup()"
+                            )
+                            if heat_temp is not None:
+                                self.preset_mgr.temperatures[preset] = heat_temp
             # If we restored a preset (not NONE) and we have a stored temperature for it,
             # ensure target temp matches (unless the restored target was already equal).
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
@@ -2530,7 +2569,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
                 )
             )
-        # Send an immediate initial keepalive so TRVs don't have to wait for the first 30min tick
+        # One keepalive right away, so a TRV that mirrors the room temperature
+        # has it before the first interval elapses.
         try:
             _LOGGER.debug(
                 "better_thermostat %s: creating keepalive task...", self.device_name
@@ -2545,6 +2585,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 exc,
             )
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._external_temperature_keepalive,
+                EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
+            )
+        )
         # Start periodic EMA update (every minute)
         _LOGGER.debug("better_thermostat %s: starting EMA timer...", self.device_name)
         self.async_on_remove(
@@ -2699,6 +2746,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 set_valve_fn=_set_valve,
                 set_temperature_fn=_set_temp,
                 set_hvac_mode_fn=_set_mode,
+                get_state=self.hass.states.get,
                 device_name=self.device_name,
             )
 
@@ -2946,6 +2994,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ),
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps(
                 self._preset_cool_temperatures
+            ),
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                self.preset_mgr.temperatures
             ),
         }
 

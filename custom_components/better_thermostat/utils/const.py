@@ -20,6 +20,11 @@ DOMAIN: Final = "better_thermostat"
 
 DEFAULT_NAME: Final = "Better Thermostat"
 
+# ``hass.data`` key holding, per entry and platform, the thermostat name the
+# entity ids were last built from. It outlives the reload it describes and is
+# dropped when the entry is removed.
+NORMALIZED_ID_NAMES: Final = f"{DOMAIN}_normalized_id_names"
+
 
 class _Manifest(TypedDict):
     version: str
@@ -82,6 +87,7 @@ ATTR_STATE_SAVED_TEMPERATURE: Final = "saved_temperature"
 ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "bt_preset_cool_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "bt_preset_cool_temperatures"
+ATTR_STATE_PRESET_HEAT_TEMPERATURES: Final = "bt_preset_heat_temperatures"
 ATTR_VALVE_POSITION: Final = "valve_position"
 ATTR_STATE_HUMIDIY: Final = "humidity"
 ATTR_STATE_MAIN_MODE: Final = "main_mode"

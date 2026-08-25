@@ -210,6 +210,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.last_heat_loss_stats = {}
     bt.next_valve_maintenance = None
     bt._preset_cool_temperatures = {}
+    bt.preset_mgr.temperatures = {}
     for name, value in overrides.items():
         setattr(bt, name, value)
     return bt

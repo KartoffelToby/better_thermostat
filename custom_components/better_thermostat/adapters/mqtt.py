@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Final
 
-from homeassistant.components.climate.const import PRESET_NONE
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
@@ -25,6 +25,42 @@ _LOGGER = logging.getLogger(__name__)
 
 # Zigbee2MQTT: offset and valve position via discovered number entities.
 CAPABILITIES = AdapterCapabilities(offset_write=True, valve_write=True)
+
+# The preset a device offers for "the setpoint is whatever was written to me",
+# tried in order. Home Assistant's MQTT climate entity inserts ``none`` into
+# ``preset_modes`` itself and rejects a discovery config that lists it, so
+# every device reached through this adapter offers ``none`` and none of them
+# implements it: publishing it leaves the device on its schedule and the
+# broker rejects the command.
+MANUAL_PRESET_PREFERENCE: Final = ("manual",)
+
+
+def manual_preset(preset_modes: object) -> str | None:
+    """Return the preset that hands the setpoint to BT, or ``None``.
+
+    Parameters
+    ----------
+    preset_modes : object
+        The presets the device reports, as read from its state attributes.
+        Anything that is not a sequence of presets means the device names
+        none, which is the same answer as a sequence holding nothing usable.
+
+    Returns
+    -------
+    str | None
+        The device's own spelling of the first preset in
+        ``MANUAL_PRESET_PREFERENCE`` it offers, or ``None`` when it offers
+        no preset that hands the setpoint over.
+    """
+    if isinstance(preset_modes, str) or not isinstance(
+        preset_modes, (list, tuple, set)
+    ):
+        return None
+    offered = {str(mode).casefold(): str(mode) for mode in preset_modes}
+    for candidate in MANUAL_PRESET_PREFERENCE:
+        if candidate in offered:
+            return offered[candidate]
+    return None
 
 
 async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
@@ -83,30 +119,34 @@ async def init(self: AdapterHost, entity_id: str) -> None:
         )
 
         state = self.hass.states.get(entity_id)
-        _preset_modes = (
-            state.attributes.get("preset_modes") if state is not None else None
-        )
-        # Only reset the device preset when "none" is actually a supported mode.
-        # Some TRVs (e.g. proportional Tuya models) expose ``preset_modes`` but
-        # do not accept arbitrary values, so calling the service with an
-        # unsupported mode raises ``ServiceValidationError`` and trips the
-        # startup retry loop.
-        if _preset_modes and PRESET_NONE in _preset_modes:
-            await self.hass.services.async_call(
-                "climate",
-                "set_preset_mode",
-                {"entity_id": entity_id, "preset_mode": PRESET_NONE},
-                blocking=True,
-                context=self.context,
-            )
-        elif _preset_modes:
+        attributes = state.attributes if state is not None else {}
+        _preset_modes = attributes.get("preset_modes")
+        # BT owns the setpoint, so a device running its own schedule has to be
+        # taken off it. The device's manual preset is what does that, and it is
+        # the only value here the device is known to accept.
+        _manual = manual_preset(_preset_modes)
+        if _manual is None:
             _LOGGER.debug(
-                "better_thermostat %s: TRV %s supports presets %s but not '%s'; "
-                "skipping preset reset",
+                "better_thermostat %s: TRV %s offers no manual preset among %s, "
+                "leaving its preset alone",
                 self.device_name,
                 entity_id,
                 _preset_modes,
-                PRESET_NONE,
+            )
+        elif attributes.get("preset_mode") == _manual:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s already runs preset '%s'",
+                self.device_name,
+                entity_id,
+                _manual,
+            )
+        else:
+            await self.hass.services.async_call(
+                "climate",
+                "set_preset_mode",
+                {"entity_id": entity_id, "preset_mode": _manual},
+                blocking=True,
+                context=self.context,
             )
 
 
