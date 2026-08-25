@@ -12,17 +12,31 @@ must be named, because the thermostat that depends on it is doing nothing and
 the only other symptom is silence.
 """
 
+from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
+from homeassistant.util import dt as dt_util
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    LadderParams,
+)
+from custom_components.better_thermostat.utils.const import (
+    DEFAULT_CALIBRATION_MODE,
+    CalibrationMode,
+)
 
 from .conftest import (
     BT_ENTITY,
     CRITICAL_GRACE,
     DEGRADED_GRACE,
     DOMAIN,
+    SENSOR_ID,
     WINDOW_ID,
     assert_profile_adopted,
     make_entry,
@@ -268,3 +282,67 @@ async def test_a_taken_id_does_not_cost_the_thermostat_its_entity(hass, fake_trv
     )
     assert hass.states.get(bt.entity_id).state == "heat"
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+
+
+def _on_calibration_mode(profile, mode):
+    """The same device, configured for one calibration mode."""
+    return replace(profile, name=f"{profile.name}_{mode}", calibration_mode=mode)
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        _on_calibration_mode(GENERIC_HEAT_TRV, CalibrationMode.PID_CALIBRATION.value),
+        _on_calibration_mode(GENERIC_HEAT_TRV, DEFAULT_CALIBRATION_MODE.value),
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
+    hass, fake_trv
+):
+    """A sensor that comes back is believed at the next periodic evaluation.
+
+    The ladder commits an upgrade only after the reading has been stable for
+    ``up_stability_s``, which takes a second evaluation once that window has
+    passed. A room that has settled publishes no state change to supply one,
+    so the evaluation has to come from the periodic tick.
+
+    Both calibration modes are driven, because the tick was once registered
+    only for the modes that also recompute: on the others the entity stayed
+    on the degraded rung until the hourly weather tick, regulating on the
+    fallback for up to an hour after the sensor was healthy again.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert_profile_adopted(bt, fake_trv.profile)
+
+    # The ladder reads its own clock, so the test drives that rather than
+    # waiting out the debounce windows.
+    clock = FakeClock()
+    bt.clock = clock
+    clock.advance(10_000)
+    stability_s = LadderParams().up_stability_s
+
+    async def let_a_tick_fire(seconds):
+        """Advance both clocks by ``seconds`` and run what falls due."""
+        clock.advance(seconds)
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=seconds + 1))
+        await hass.async_block_till_done()
+
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    await hass.async_block_till_done()
+    await let_a_tick_fire(stability_s)
+    assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
+
+    # One reading, then silence: the room is settled and the sensor has
+    # nothing new to publish.
+    set_room_sensor(hass, 18.0)
+    await hass.async_block_till_done()
+    assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
+
+    await let_a_tick_fire(stability_s + 60)
+
+    assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
