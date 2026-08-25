@@ -42,18 +42,19 @@ def _registry(entries):
     return registry
 
 
-def _rename(hass, entry, registry, domain=Platform.SENSOR):
-    """Run a rename of ``entry`` against ``registry`` and return the calls.
+def _rename(hass, entry, registry, new_name, domain=Platform.SENSOR):
+    """Rename ``entry`` to ``new_name`` against ``registry``; return the calls.
 
-    The first call records the name, so it is the second one -- the entry
-    now carrying a different name -- that is the rename under test.
+    The first call records the name the entry arrives with, so it is the
+    second one -- the entry now carrying ``new_name`` -- that is the rename
+    under test.
     """
     with patch(
         "custom_components.better_thermostat.utils.helpers.er.async_get",
         return_value=registry,
     ):
         async_normalize_bt_entity_ids(hass, entry, domain)
-        entry.data = {**entry.data, "name": entry.data["name"] + " renamed"}
+        entry.data = {**entry.data, "name": new_name}
         async_normalize_bt_entity_ids(hass, entry, domain)
     return registry.async_update_entity.call_args_list
 
@@ -70,7 +71,7 @@ def test_a_registry_without_entities_is_left_alone():
     # A shell carrying everything but the ``entities`` it has not loaded yet.
     registry = MagicMock(spec=["async_update_entity", "async_regenerate_entity_id"])
 
-    calls = _rename(hass, _entry("Livingroom"), registry)
+    calls = _rename(hass, _entry("Livingroom"), registry, "Bedroom")
 
     assert calls == []
 
@@ -88,7 +89,7 @@ def test_an_id_that_already_matches_is_not_rewritten():
     registry = _registry([reg_entry])
     registry.async_regenerate_entity_id.return_value = reg_entry.entity_id
 
-    calls = _rename(hass, _entry("Livingroom"), registry)
+    calls = _rename(hass, _entry("Livingroom"), registry, "livingroom")
 
     assert calls == []
 
@@ -114,7 +115,7 @@ def test_a_rejected_rename_is_reported_and_the_others_still_run(caplog):
         None,
     ]
 
-    calls = _rename(hass, _entry("Livingroom"), registry)
+    calls = _rename(hass, _entry("Livingroom"), registry, "Bedroom")
 
     assert [call.args[0] for call in calls] == [blocked.entity_id, following.entity_id]
     assert "could not rename sensor.livingroom_temperature_ema" in caplog.text
@@ -133,6 +134,8 @@ def test_an_entity_of_another_platform_is_skipped():
     registry = _registry([other])
     registry.async_regenerate_entity_id.return_value = "switch.bedroom_child_lock"
 
-    calls = _rename(hass, _entry("Livingroom"), registry, domain=Platform.SENSOR)
+    calls = _rename(
+        hass, _entry("Livingroom"), registry, "Bedroom", domain=Platform.SENSOR
+    )
 
     assert calls == []
