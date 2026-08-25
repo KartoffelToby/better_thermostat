@@ -211,14 +211,19 @@ def _registry_entry(entity_id, *, domain, translation_key=None, device_id="dev1"
     return entry
 
 
-def _make_selector_self(state, options=("internal", "external"), *, entries=None):
+def _make_selector_self(
+    state, options=("internal", "external"), *, entries=None, trv=None
+):
     """A BT stand-in whose TRV device carries a sensor selector.
 
     ``state`` is what the selector currently reports; ``None`` stands for a
-    selector that publishes no state.
+    selector that publishes no state. ``trv`` is the registry entry the
+    lookup starts from, so a test can hand it one that belongs to no
+    device; it is the first of ``entries`` unless given separately.
     """
     mock_self = _make_self()
-    trv = _registry_entry("climate.trv1", domain="climate")
+    if trv is None:
+        trv = _registry_entry("climate.trv1", domain="climate")
     selector = _registry_entry(
         "select.trv1_temperature_sensor_select",
         domain="select",
@@ -294,6 +299,55 @@ class TestMaybeSelectExternalSensor:
     async def test_a_selector_without_the_option_is_not_written(self, monkeypatch):
         """A device that names no external option keeps its selection."""
         mock_self = _make_selector_self("internal", options=("internal",))
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_trv_that_belongs_to_no_device_is_not_written(self, monkeypatch):
+        """No device is no sibling, not "every entity without a device".
+
+        A registry entry carrying no ``device_id`` would otherwise match
+        every other entity that carries none, and the first one answering
+        to the selector's translation key or id fragment would be written
+        as if it sat on this TRV.
+        """
+        trv = _registry_entry("climate.trv1", domain="climate", device_id=None)
+        stray = _registry_entry(
+            "select.somewhere_else_temperature_sensor_select",
+            domain="select",
+            translation_key="temperature_sensor_select",
+            device_id=None,
+        )
+        mock_self = _make_selector_self("internal", entries=[trv, stray], trv=trv)
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.parametrize("reported", ["unavailable", "unknown"])
+    @pytest.mark.asyncio
+    async def test_a_selector_that_is_not_reporting_is_not_written(
+        self, monkeypatch, reported
+    ):
+        """A selector naming no option is in no state to be given one.
+
+        The device behind an unavailable or unknown selector is out of
+        reach, so the write would fail; the options the entity still lists
+        are the ones it had when it was last reachable.
+        """
+        mock_self = _make_selector_self(reported)
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
         )
