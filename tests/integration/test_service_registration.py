@@ -4,8 +4,8 @@ Setting an entry up registers Better Thermostat's own services on the
 integration's domain. Each of them has three parts that have to agree:
 the name registered with Home Assistant, the entity method it calls, and
 the entry in ``services.yaml`` the UI builds its form from. None of the
-three tells you about the other two. A service registered under a
-name ``services.yaml`` does not carry has no UI; one documented but not
+three tells you about the other two. A service registered under a name
+that ``services.yaml`` does not carry has no UI; one documented but not
 registered is a dead button; one whose method is gone raises only once a
 user presses it.
 

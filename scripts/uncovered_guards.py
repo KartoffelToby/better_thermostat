@@ -39,17 +39,20 @@ def _read_report(path: Path) -> dict[str, list[list[int]]]:
         sys.exit(f"{path} is not a coverage JSON report: {err}")
     if "files" not in report:
         sys.exit(f"{path} is not a coverage JSON report: no 'files' key")
-    missing = {
-        name: entry["missing_branches"]
-        for name, entry in report["files"].items()
-        if entry.get("missing_branches")
-    }
-    if not missing and report["files"]:
+    files = report["files"]
+    # Only a branch-enabled report carries ``missing_branches`` at all. Under
+    # full branch coverage the key is there and empty, which is a result worth
+    # printing rather than a run to reject.
+    if files and not any("missing_branches" in entry for entry in files.values()):
         sys.exit(
             f"{path} records no branches; the report was produced without "
             "branch coverage; check 'branch = true' under [tool.coverage.run]"
         )
-    return missing
+    return {
+        name: entry["missing_branches"]
+        for name, entry in files.items()
+        if entry["missing_branches"]
+    }
 
 
 def _source_lines(name: str) -> list[str]:
