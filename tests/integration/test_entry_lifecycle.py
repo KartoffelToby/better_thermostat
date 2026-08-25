@@ -314,10 +314,16 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         bt = await wait_for_startup(hass, entry)
 
     # The premise of the parametrization, read off this very startup: the
-    # reconciler is the only five-minute handler here, so a re-send can come
-    # from nowhere else. Claimed as the whole set, because any other handler
-    # on that interval would be an equally good suspect.
-    assert _on_the_five_minute_tick(registered) == ["_reconcile_tick"]
+    # reconciler is the only five-minute handler that can re-send, so a
+    # re-send comes from nowhere else. Claimed as the whole set, because any
+    # other handler on that interval would be an equally good suspect. The
+    # availability tick shares the interval but only advances the degradation
+    # ladder and re-reads the critical entities, queueing no control cycle,
+    # so it heals nothing.
+    assert sorted(_on_the_five_minute_tick(registered)) == [
+        "_availability_tick",
+        "_reconcile_tick",
+    ]
 
     assert_profile_adopted(bt, fake_trv.profile)
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
