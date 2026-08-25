@@ -12,6 +12,7 @@ that depends on the device is derived from the profile it was built from.
 
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import timedelta
 from unittest.mock import patch
 
 from homeassistant.components.climate import HVACMode
@@ -243,17 +244,22 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, device_r
 
 @contextmanager
 def _recording_intervals(registered):
-    """Record the name of every handler startup puts on an interval."""
+    """Record name and interval for every handler startup puts on a timer."""
     from custom_components.better_thermostat import climate as climate_module
 
     real = climate_module.async_track_time_interval
 
     def _record(hass, action, interval, *args, **kwargs):
-        registered.append(getattr(action, "__name__", repr(action)))
+        registered.append((getattr(action, "__name__", repr(action)), interval))
         return real(hass, action, interval, *args, **kwargs)
 
     with patch.object(climate_module, "async_track_time_interval", _record):
         yield
+
+
+def _on_the_five_minute_tick(registered):
+    """The handlers startup put on a five-minute interval, in order."""
+    return [name for name, interval in registered if interval == timedelta(minutes=5)]
 
 
 def _without_the_control_tick(profile):
@@ -297,8 +303,6 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     not the first one to fire, and the loop below is what carries the
     scenario across it.
     """
-    from datetime import timedelta
-
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
@@ -310,10 +314,10 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         bt = await wait_for_startup(hass, entry)
 
     # The premise of the parametrization, read off this very startup: the
-    # reconciler is the only five-minute handler here, so a re-send can
-    # come from nowhere else.
-    assert "_reconcile_tick" in registered
-    assert "_trigger_time" not in registered
+    # reconciler is the only five-minute handler here, so a re-send can come
+    # from nowhere else. Claimed as the whole set, because any other handler
+    # on that interval would be an equally good suspect.
+    assert _on_the_five_minute_tick(registered) == ["_reconcile_tick"]
 
     assert_profile_adopted(bt, fake_trv.profile)
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
