@@ -34,5 +34,10 @@ jobs:
       # says nothing about those files. This is what caps them.
       - name: Check the blind exception handler budget
         run: uv run --locked --only-group dev python scripts/blind_except_budget.py check
+      # The glossary in glossary.toml replaces spellings the tree still
+      # carries. This caps them per file, so no new one arrives while the
+      # existing ones are worked off.
+      - name: Check the rejected name budget
+        run: uv run --locked --only-group dev python scripts/check_naming.py check
       - name: yamllint
         run: uv run --locked --only-group dev yamllint --strict .
