@@ -10,7 +10,9 @@ indirectly over the profiles in ``device_profiles`` and every expectation
 that depends on the device is derived from the profile it was built from.
 """
 
+from contextlib import contextmanager
 from dataclasses import replace
+from unittest.mock import patch
 
 from homeassistant.components.climate import HVACMode
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION
@@ -239,6 +241,21 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, device_r
     assert hass.states.get("climate.bt_livingroom") is not None
 
 
+@contextmanager
+def _recording_intervals(registered):
+    """Record the name of every handler startup puts on an interval."""
+    from custom_components.better_thermostat import climate as climate_module
+
+    real = climate_module.async_track_time_interval
+
+    def _record(hass, action, interval, *args, **kwargs):
+        registered.append(getattr(action, "__name__", repr(action)))
+        return real(hass, action, interval, *args, **kwargs)
+
+    with patch.object(climate_module, "async_track_time_interval", _record):
+        yield
+
+
 def _without_the_control_tick(profile):
     """The same device, on a calibration mode that registers no control tick.
 
@@ -281,15 +298,23 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     scenario across it.
     """
     from datetime import timedelta
-    from unittest.mock import patch
 
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
     set_room_sensor(hass, 18.0)
     entry = make_entry(fake_trv.profile)
-    await setup_entry(hass, entry)
-    bt = await wait_for_startup(hass, entry)
+    registered = []
+    with _recording_intervals(registered):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    # The premise of the parametrization, read off this very startup: the
+    # reconciler is the only five-minute handler here, so a re-send can
+    # come from nowhere else.
+    assert "_reconcile_tick" in registered
+    assert "_trigger_time" not in registered
+
     assert_profile_adopted(bt, fake_trv.profile)
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
