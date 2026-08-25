@@ -23,6 +23,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
+    NORMALIZED_ID_NAMES,
     CalibrationMode,
 )
 from .utils.helpers import get_device_model
@@ -99,11 +100,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Clean up everything this Better Thermostat instance persisted.
+    """Clean up everything this Better Thermostat instance left behind.
 
     Repair-registry issues are scoped by ``device_name`` or by individual
     ``entity_id`` and persist until explicitly deleted; the unified state
-    store is a per-entry file that would otherwise be orphaned.
+    store is a per-entry file that would otherwise be orphaned. The reload
+    lock and the recorded entity-id names outlive the entry's unload by
+    design, so removal is where they are dropped.
 
     Parameters
     ----------
@@ -119,6 +122,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     from .utils.state_manager import StateManager  # noqa: PLC0415
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
+    hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
 
     try:
         await StateManager.async_remove_store(hass, entry.entry_id)
