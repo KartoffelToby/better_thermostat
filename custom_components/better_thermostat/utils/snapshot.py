@@ -11,6 +11,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..calibration import _get_current_outdoor_temp, _get_solar_context
 from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
+from ..model_fixes.model_quirks import trv_state_unknown_as_available
 from .helpers import convert_to_float
 
 
@@ -28,10 +29,14 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
     available = False
     if self.hass is not None:
         state = self.hass.states.get(entity_id)
-        available = state is not None and state.state not in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-        )
+        if state is not None:
+            # Addressing drops an unavailable TRV, so a model that reports
+            # ``unknown`` while it is being driven has to be read as
+            # present here or it would never be written to again.
+            available = state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN) or (
+                state.state == STATE_UNKNOWN
+                and trv_state_unknown_as_available(self, entity_id)
+            )
     return TrvReported(
         entity_id=entity_id,
         available=available,

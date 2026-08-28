@@ -279,6 +279,36 @@ class TestCheckEntitiesReady:
         result = BetterThermostat._check_entities_ready(bt, sensor)
         assert result is False
 
+    def test_trv_unknown_returns_false(self, bt):
+        """An entity saying nothing leaves its device unaccounted for."""
+        sensor = _make_sensor_state()
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+        bt.hass.states.get.return_value = State(TRV_ID, STATE_UNKNOWN)
+        result = BetterThermostat._check_entities_ready(bt, sensor)
+        assert result is False
+
+    def test_a_model_that_reports_unknown_while_driven_is_ready(self, bt):
+        """Waiting for a TRV that is already taking commands never ends.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds, so the startup
+        loop would keep waiting for a device that is right there.
+        """
+        from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+        from custom_components.better_thermostat.utils.const import CalibrationType
+
+        sensor = _make_sensor_state()
+        bt.real_trvs = {
+            TRV_ID: Trv(
+                entity_id=TRV_ID,
+                model_quirks=zwa021,
+                advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+            )
+        }
+        bt.hass.states.get.return_value = State(TRV_ID, STATE_UNKNOWN)
+        result = BetterThermostat._check_entities_ready(bt, sensor)
+        assert result is True
+
     def test_all_ready_returns_true(self, bt):
         """Return True when all entities are ready."""
         sensor = _make_sensor_state()

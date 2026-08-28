@@ -48,6 +48,23 @@ def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
     return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
 
 
+def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether the TRV is operating while its state reads ``unknown``.
+
+    The manufacturer-specific thermostat mode is not one the climate entity
+    describes, so the entity reports ``unknown`` for as long as the device
+    is in it. The device is reachable throughout and takes the valve
+    positions Better Thermostat writes.
+
+    Returns
+    -------
+    bool
+        True while this TRV is configured for direct valve control, the
+        only setting under which the quirk engages that mode.
+    """
+    return _is_direct_valve(self, entity_id)
+
+
 def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return the given local calibration offset unchanged."""
     return offset

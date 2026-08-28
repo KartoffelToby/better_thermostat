@@ -98,7 +98,11 @@ from .events.door import door_queue, trigger_door_change
 from .events.temperature import _update_external_temp_ema, trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import initial_tweak, load_model_quirks
+from .model_fixes.model_quirks import (
+    initial_tweak,
+    load_model_quirks,
+    trv_state_unknown_as_available,
+)
 from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
@@ -1499,17 +1503,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return False
 
-        for trv in self.real_trvs:
-            trv_state = self.hass.states.get(trv)
-            if trv_state is None or trv_state.state in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
+        for entity_id in self.real_trvs:
+            trv_state = self.hass.states.get(entity_id)
+            if (
+                trv_state is None
+                or trv_state.state in (STATE_UNAVAILABLE, None)
+                or (
+                    trv_state.state == STATE_UNKNOWN
+                    and not trv_state_unknown_as_available(self, entity_id)
+                )
             ):
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
-                    trv,
+                    entity_id,
                 )
                 return False
         return True

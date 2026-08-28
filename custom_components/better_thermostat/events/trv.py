@@ -21,6 +21,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
@@ -91,7 +92,10 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if _org_trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+    if _org_trv_state.state == STATE_UNAVAILABLE or (
+        _org_trv_state.state == STATE_UNKNOWN
+        and not trv_state_unknown_as_available(self, entity_id)
+    ):
         # The device is gone; its last internal temperature must not
         # keep feeding SENSOR_FALLBACK and the ladder as if it were live.
         if trv.current_temperature is not None:

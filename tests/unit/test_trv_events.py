@@ -280,6 +280,48 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
 
     @pytest.mark.asyncio
+    async def test_unknown_trv_invalidates_internal_temperature(self, mock_bt):
+        """An entity saying nothing leaves its device unaccounted for."""
+        unknown = State(ENTITY_ID, "unknown")
+        mock_bt.hass.states.get.return_value = unknown
+
+        await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=unknown))
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
+
+    @pytest.mark.asyncio
+    async def test_a_model_reporting_unknown_while_driven_keeps_its_reading(
+        self, mock_bt
+    ):
+        """A device that is taking commands has not gone anywhere.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds. Discarding its
+        reading would drop the room off the sensor fallback for a device
+        that never left.
+        """
+        from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.model_quirks = zwa021
+        trv.advanced = {
+            **trv.advanced,
+            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+        }
+        unknown = _make_state("unknown")
+        mock_bt.hass.states.get.return_value = unknown
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=unknown, old_state=unknown)
+            )
+
+        assert trv.current_temperature == 18.0
+
+    @pytest.mark.asyncio
     async def test_first_reading_after_recovery_bypasses_debounce(self, mock_bt):
         """The first valid reading after an outage repopulates the cache at once."""
         unavailable = State(ENTITY_ID, "unavailable")

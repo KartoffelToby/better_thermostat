@@ -328,6 +328,52 @@ class TestCheckCriticalEntities:
         assert len(mock_bt_instance.devices_errors) > 0
 
     @pytest.mark.anyio
+    async def test_returns_false_when_a_trv_reports_unknown(self, mock_bt_instance):
+        """An entity saying nothing leaves its device unaccounted for."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        mock_state = MagicMock()
+        mock_state.state = "unknown"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_a_model_that_reports_unknown_while_driven_stays_available(
+        self, mock_bt_instance
+    ):
+        """A repair issue for a TRV that is taking commands is a false alarm.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds, and the outage
+        the watcher would announce never happened.
+        """
+        from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+        from custom_components.better_thermostat.utils.const import CalibrationType
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.model_quirks = zwa021
+            trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
+        mock_state = MagicMock()
+        mock_state.state = "unknown"
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            result = await check_critical_entities(mock_bt_instance)
+
+        assert result is True
+        assert mock_bt_instance.devices_errors == []
+        assert not mock_ir.async_create_issue.called
+
+    @pytest.mark.anyio
     async def test_no_issue_during_grace_period(self, mock_bt_instance):
         """Unavailable TRV during startup grace does not raise a repair issue."""
         from datetime import timedelta
@@ -1482,7 +1528,7 @@ class TestAwaitCriticalEntities:
         )
 
         # Single TRV configured
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
 
         call_count = 0
 
@@ -1519,7 +1565,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
         mock_state = MagicMock()
         mock_state.state = "unavailable"  # never comes online
         mock_bt_instance.hass.states.get.return_value = mock_state
@@ -1548,7 +1594,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
 
         mock_state = MagicMock()
         mock_state.state = "unavailable"
@@ -1588,7 +1634,10 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}, "climate.trv_2": {}}
+        mock_bt_instance.real_trvs = {
+            "climate.trv_1": Trv(entity_id="climate.trv_1"),
+            "climate.trv_2": Trv(entity_id="climate.trv_2"),
+        }
 
         trv1_calls = 0
 
@@ -1628,7 +1677,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_bt_instance.real_trvs = {"climate.trv_1": {}}
+        mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
 
         get_count = 0
 

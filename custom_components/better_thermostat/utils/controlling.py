@@ -35,6 +35,7 @@ from custom_components.better_thermostat.events.trv import convert_outbound_stat
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
@@ -1927,9 +1928,14 @@ async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bo
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or (_trv_state.state == STATE_UNKNOWN and not state_unknown_as_available)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_system_mode",
                 self.device_name,
@@ -1982,9 +1988,14 @@ async def check_target_temperature(
     """
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or (_trv_state.state == STATE_UNKNOWN and not state_unknown_as_available)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_target_temperature",
                 self.device_name,
