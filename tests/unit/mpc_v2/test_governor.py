@@ -60,3 +60,38 @@ def test_reset_drops_internal_reference() -> None:
     gov.update(T_sp=21.0, T_outdoor_C=5.0, T_room_now=20.0)
     gov.reset()
     assert gov.state() is None
+
+
+def test_lowered_setpoint_is_reached_and_not_only_approached() -> None:
+    """Lowering the setpoint in mild weather must reach the new target.
+
+    A setpoint that needs almost no flow is still attainable — the valve
+    closes. Holding the governed reference above it would keep the room warm
+    against the user's wish.
+    """
+    gov = _make_governor()
+    gov.update(T_sp=21.0, T_outdoor_C=16.0, T_room_now=21.0)
+    v = 21.0
+    for _ in range(200):
+        v = gov.update(T_sp=17.0, T_outdoor_C=16.0, T_room_now=21.0)
+    assert abs(v - 17.0) < 1e-9, f"governed reference stalled at {v:.3f} C"
+
+
+def test_small_rise_in_mild_weather_reaches_the_setpoint() -> None:
+    """A modest raise below the flow margin must not stall the reference."""
+    gov = _make_governor()
+    gov.update(T_sp=17.0, T_outdoor_C=16.0, T_room_now=17.0)
+    v = gov.update(T_sp=17.5, T_outdoor_C=16.0, T_room_now=17.0)
+    assert abs(v - 17.5) < 1e-9, f"governed reference stalled at {v:.3f} C"
+
+
+def test_disturbance_estimate_enters_the_reachability_check() -> None:
+    """Free heat counts toward the flow a setpoint needs."""
+    gov = _make_governor()
+    without_gain = gov.update(T_sp=25.0, T_outdoor_C=-20.0, T_room_now=19.0)
+    assert without_gain < 25.0
+    gov.reset()
+    with_gain = gov.update(
+        T_sp=25.0, T_outdoor_C=-20.0, T_room_now=19.0, D_hat_K_per_min=0.1
+    )
+    assert abs(with_gain - 25.0) < 1e-9
