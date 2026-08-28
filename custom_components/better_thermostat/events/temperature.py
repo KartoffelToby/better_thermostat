@@ -14,6 +14,7 @@ import math
 from time import monotonic
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
@@ -140,10 +141,22 @@ async def _apply_temperature_update(self, new_temp):
                     self.device_name,
                     trv_id,
                 )
-    except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
-        _LOGGER.debug(
-            "better_thermostat %s: external_temperature write to TRV failed (non critical)",
+    except (
+        HomeAssistantError,
+        OSError,
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        # A device that refuses the value keeps its old one, but the room
+        # temperature BT decides on has already changed, so the control cycle
+        # below still has to run on the new reading.
+        _LOGGER.warning(
+            "better_thermostat %s: external_temperature write to TRV failed: %s",
             self.device_name,
+            exc,
         )
     # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
     # Still mark that a control cycle is needed after maintenance so we immediately
