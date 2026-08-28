@@ -928,17 +928,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # repair issue while slow integrations finish initializing.
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
-        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+        self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
             maxsize=1
         )
         if self.window_id is not None:
-            self.window_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+            self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
                 maxsize=1
             )
         if self.door_id is not None:
-            self.door_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
-                maxsize=1
-            )
+            self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
         self._control_task = None
         self._window_task = None
         self._door_task = None
@@ -3978,7 +3976,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             old_preset = self.preset_mgr.mode
             new_temp = self.preset_mgr.activate(
-                preset_mode, self.bt_target_temp, self.min_temp, self.max_temp
+                preset_mode,
+                current_target_temp=self.bt_target_temp,
+                min_temp=self.min_temp,
+                max_temp=self.max_temp,
             )
             self.kernel_state = replace(
                 self.kernel_state,

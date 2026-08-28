@@ -588,6 +588,40 @@ class TestControlQueue:
         # Note: This tests the finally block behavior (lines 135-137)
         assert mock_self.ignore_states is True
 
+    @pytest.mark.asyncio
+    async def test_an_item_that_carries_no_cycle_is_still_marked_done(self):
+        """An item without a cycle leaves the queue joinable.
+
+        The queue counts an item as unfinished until the worker acknowledges
+        it, and ``join`` is what reads that count. An item that asks for no
+        control pass still has to be acknowledged, or the count never clears.
+        """
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.in_maintenance = False
+        mock_self.ignore_states = False
+        mock_self.startup_running = False
+        mock_self.calculate_heating_power = AsyncMock()
+        mock_self.cooler_entity_id = None
+        mock_self.real_trvs = {}
+
+        queue = asyncio.Queue()
+        mock_self.control_queue_task = queue
+        await queue.put(None)
+
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        try:
+            await asyncio.wait_for(queue.join(), timeout=1)
+        finally:
+            queue_task.cancel()
+            try:
+                await queue_task
+            except asyncio.CancelledError:
+                pass
+
+        # The item asked for no control pass, so none was run.
+        mock_self.calculate_heating_power.assert_not_called()
+
 
 async def _wait_until(predicate, timeout=5.0):
     """Yield to the event loop until a predicate holds.

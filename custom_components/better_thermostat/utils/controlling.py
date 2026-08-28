@@ -807,9 +807,14 @@ async def control_queue(self: BetterThermostat) -> None:
                         await asyncio.sleep(FAILED_CYCLE_BACKOFF_S)
                         request_control_cycle(self)
 
-                    self.control_queue_task.task_done()
                     if not getattr(self, "in_maintenance", False):
                         self.ignore_states = False
+
+                # One acknowledgement per item taken, including an item that
+                # carries no cycle. The queue counts an item as unfinished
+                # until it is acknowledged, so an unacknowledged one keeps that
+                # count standing for as long as the entity lives.
+                self.control_queue_task.task_done()
     except asyncio.CancelledError:
         _LOGGER.debug(
             "better_thermostat %s: control_queue task cancelled, cleaning up",

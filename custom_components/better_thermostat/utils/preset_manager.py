@@ -52,9 +52,18 @@ class PresetManager:
         return [PRESET_NONE] + self.enabled_presets
 
     def activate(
-        self, preset: str, current_temp: float | None, min_temp: float, max_temp: float
+        self,
+        preset: str,
+        current_target_temp: float | None,
+        min_temp: float,
+        max_temp: float,
     ) -> float | None:
-        """Switch to *preset*. Returns new target temperature, or ``None``."""
+        """Switch to *preset*. Returns new target temperature, or ``None``.
+
+        ``current_target_temp`` is the setpoint in force before the switch, not
+        the measured room temperature: leaving ``PRESET_NONE`` stores it so that
+        returning to ``PRESET_NONE`` restores the setpoint the user had set.
+        """
         if preset not in self.available_modes:
             return None
 
@@ -64,7 +73,7 @@ class PresetManager:
         # Save temp when leaving NONE
         if old == PRESET_NONE and preset != PRESET_NONE:
             if self.saved_temperature is None:
-                self.saved_temperature = current_temp
+                self.saved_temperature = current_target_temp
 
         # Restore when returning to NONE
         if preset == PRESET_NONE and self.saved_temperature is not None:
