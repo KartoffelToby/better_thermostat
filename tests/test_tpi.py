@@ -147,22 +147,39 @@ class TestTpiOverManyCycles:
 
         TPI carries no accumulator, so replaying a reading against a fresh
         state has to give the same duty cycle as the same reading reached at
-        the end of a long, varied run.
+        the end of a long, varied run. The readings are drawn so that almost
+        every cycle lands strictly between the clamps: a duty cycle resting on
+        one of them would agree with the fresh run whatever the carried state
+        had done to it.
         """
         params = TpiParams()
         rng = Random(7)
         state = TpiState()
+        cycles = 200
+        duty_cycles = []
 
-        for cycle in range(200):
+        for cycle in range(cycles):
+            target_temp_C = 20.0 + rng.random() * 3.0
+            error_K = -0.25 + rng.random() * 1.4
+            delta_outdoor_K = 8.0 + rng.random() * 16.0
             inp = TpiInput(
                 key="k",
-                current_temp_C=18.0 + rng.random() * 6.0,
-                target_temp_C=20.0 + rng.random() * 3.0,
-                outdoor_temp_C=-10.0 + rng.random() * 30.0,
+                current_temp_C=target_temp_C - error_K,
+                target_temp_C=target_temp_C,
+                outdoor_temp_C=target_temp_C - delta_outdoor_K,
             )
             carried, state = compute_tpi(inp, params, state=state, now=float(cycle))
             fresh, _ = compute_tpi(inp, params, state=TpiState(), now=float(cycle))
             assert carried.duty_cycle_pct == fresh.duty_cycle_pct
+            duty_cycles.append(carried.duty_cycle_pct)
+
+        assert (
+            sum(
+                params.clamp_min_pct < duty_cycle < params.clamp_max_pct
+                for duty_cycle in duty_cycles
+            )
+            > cycles // 2
+        )
 
     def test_constant_error_holds_a_constant_duty_cycle(self):
         """A standing error must neither ramp the duty cycle up nor let it decay.
