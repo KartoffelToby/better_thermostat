@@ -53,3 +53,56 @@ async def test_per_trv_step_rounds_the_setpoint(bt):
     bt.real_trvs[ENTITY_ID].adapter.set_temperature.assert_awaited_once_with(
         bt, ENTITY_ID, pytest.approx(21.3)
     )
+
+
+# The field the delegate records the outbound setpoint in on the TRV. It is
+# read by name because `glossary.toml` retires this spelling as an identifier
+# in favour of `trv.setpoint`.
+_RECORDED_SETPOINT_FIELD = "last_temperature"
+
+
+@pytest.mark.asyncio
+async def test_a_target_that_is_not_a_number_is_not_written(bt):
+    """A stand-in reaches the device as if the user had asked for it.
+
+    Substituting a value keeps the write going out: a device that reports
+    a range receives its lower bound, one that reports none receives the
+    stand-in itself, and either way the room is driven to a temperature
+    nobody asked for.
+    """
+    answer = await set_temperature(bt, ENTITY_ID, "warm")
+
+    assert answer is None
+    bt.real_trvs[ENTITY_ID].adapter.set_temperature.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_target_of_none_is_not_written(bt):
+    """A missing target is no more sendable than an unreadable one."""
+    answer = await set_temperature(bt, ENTITY_ID, None)
+
+    assert answer is None
+    bt.real_trvs[ENTITY_ID].adapter.set_temperature.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_the_outbound_setpoint_is_recorded_before_it_goes_out(bt):
+    """The echo suppression reads the record while the write is in flight.
+
+    A TRV republishes what it was written, and Home Assistant can hand
+    that state change to the TRV event handler before the service call
+    returns. A record written only afterwards would still hold the
+    previous value at that moment, so the device's own echo would read as
+    someone turning the knob on the valve.
+    """
+    trv = bt.real_trvs[ENTITY_ID]
+    recorded_while_writing = []
+
+    async def note_the_record(_bt, _entity_id, _temperature):
+        recorded_while_writing.append(vars(trv)[_RECORDED_SETPOINT_FIELD])
+
+    trv.adapter.set_temperature = AsyncMock(side_effect=note_the_record)
+
+    await set_temperature(bt, ENTITY_ID, 21.3)
+
+    assert recorded_while_writing == [pytest.approx(21.5)]
