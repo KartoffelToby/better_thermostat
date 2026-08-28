@@ -5,6 +5,7 @@ import contextlib
 import importlib
 from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
@@ -447,3 +448,66 @@ class TestExternalTemperatureWriteSelectsTheSensor:
                 "option": "external",
             },
         ]
+
+
+class TestExternalTemperatureWriteTheDeviceRefuses:
+    """A refused write is reported, not raised.
+
+    Batteries sleep, devices go out of reach, an integration reloads its
+    config entry, and a device may declare a narrower range than the clamp
+    the quirk applies. All of these answer a blocking service call with a
+    ``HomeAssistantError``. Raising it here would abandon the caller's own
+    work on the room temperature it just accepted, so the quirk reports the
+    write as declined instead.
+    """
+
+    @staticmethod
+    def _device_on_the_internal_sensor(monkeypatch):
+        """A TRVZB whose device carries both the input and the selector."""
+        trv = _registry_entry("climate.trv1", domain="climate")
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
+            domain="number",
+            translation_key="external_temperature_input",
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            domain="select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self("internal", entries=[trv, number, selector])
+        mock_self.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+        }
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+        return mock_self
+
+    @pytest.mark.parametrize("failing_domain", ["number", "select"])
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            HomeAssistantError("device did not answer"),
+            ServiceValidationError("value is out of range"),
+            OSError("connection reset"),
+        ],
+        ids=["unreachable", "out_of_range", "transport"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_refusal_is_reported_as_a_declined_write(
+        self, monkeypatch, failing_domain, refusal
+    ):
+        """Either half of the write may be refused; both yield False."""
+        mock_self = self._device_on_the_internal_sensor(monkeypatch)
+
+        async def _refuse(domain, *args, **kwargs):
+            if domain == failing_domain:
+                raise refusal
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse)
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.42)
+            is False
+        )

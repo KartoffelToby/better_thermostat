@@ -8,6 +8,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 import pytest
 
@@ -273,6 +274,38 @@ class TestApplyTemperatureUpdate:
         quirks.maybe_set_external_temperature.assert_awaited_once_with(
             mock_bt, "climate.trv1", 21.0
         )
+
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            HomeAssistantError("device did not answer"),
+            ServiceValidationError("value is out of range"),
+            OSError("connection reset"),
+        ],
+        ids=["unreachable", "out_of_range", "transport"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_refused_trv_write_still_starts_a_control_cycle(
+        self, mock_bt, refusal
+    ):
+        """The reading is already accepted when the write goes out.
+
+        A device that answers the write with an error keeps its old valve
+        position, and without a cycle on the new reading it keeps it until
+        the next room sensor change: the room is then regulated on a
+        temperature Better Thermostat has already discarded.
+        """
+        quirks = AsyncMock()
+        quirks.maybe_set_external_temperature.side_effect = refusal
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
+
+        await _apply_temperature_update(mock_bt, 21.0)
+
+        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
 
 
 # ---------------------------------------------------------------------------
