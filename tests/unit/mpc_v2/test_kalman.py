@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -75,3 +77,40 @@ def test_observer_uses_actual_elapsed_time() -> None:
     assert obs.innovation(y_meas, u=0.2, T_outdoor_C=5.0, dt_s=300.0) == pytest.approx(
         expected
     )
+
+
+@pytest.mark.parametrize(
+    ("dt_pattern_s", "steps"),
+    [((30.0,), 800), ((300.0, 300.0, 1800.0), 400)],
+    ids=["steady-cadence", "sparse-cadence"],
+)
+def test_covariance_stays_symmetric_and_positive_semidefinite(
+    dt_pattern_s: tuple[float, ...], steps: int
+) -> None:
+    """Every update must leave a covariance a Kalman gain can be taken from.
+
+    Each step folds its covariance into the next, so a step that loses
+    symmetry or positive semidefiniteness only shows up once the sequence
+    carries it forward. The bound is a rounding bound: the two off-diagonal
+    entries evaluate one algebraic expression in a different operation order,
+    so they may differ by a few units in the last place of the covariance
+    scale, and no more.
+    """
+    eps = float(np.finfo(float).eps)
+    rounding_ulps = 64.0
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = _make_observer(plant)
+    obs.initialise(np.array([20.0, 22.0]))
+
+    for k in range(steps):
+        dt_s = dt_pattern_s[k % len(dt_pattern_s)]
+        u = 0.9 if (k // 20) % 2 == 0 else 0.05
+        y_meas = 20.0 + 2.0 * math.sin(k / 9.0) + 0.002 * k
+        obs.update(y_meas, u=u, T_outdoor_C=-5.0, dt_s=dt_s)
+
+        P = obs.P
+        scale = float(np.trace(P))
+        assert math.isfinite(scale)
+        tolerance = rounding_ulps * eps * scale
+        assert abs(float(P[0, 1] - P[1, 0])) <= tolerance
+        assert float(np.linalg.eigvalsh(P).min()) >= -tolerance

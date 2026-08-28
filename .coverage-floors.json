@@ -73,7 +73,7 @@
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/__init__.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/_types.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/dob.py": 100.0,
-  "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/governor.py": 96.3,
+  "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/governor.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/kalman.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/plant.py": 100.0,
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/qp_optimiser.py": 94.7,

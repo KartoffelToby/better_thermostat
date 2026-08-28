@@ -1,6 +1,9 @@
 """Tests for the TPI (Time Proportional Integrator) controller."""
 
+from random import Random
 from unittest.mock import patch
+
+import pytest
 
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
@@ -134,3 +137,87 @@ class TestTpiTimeHandling:
 
         assert result is not None
         assert state.last_update_ts == 500.0
+
+
+class TestTpiOverManyCycles:
+    """Properties of a run of cycles, not of a single computation."""
+
+    def test_duty_cycle_depends_only_on_the_current_readings(self):
+        """With both temperatures present, no earlier cycle may shift the output.
+
+        TPI carries no accumulator, so replaying a reading against a fresh
+        state has to give the same duty cycle as the same reading reached at
+        the end of a long, varied run.
+        """
+        params = TpiParams()
+        rng = Random(7)
+        state = TpiState()
+
+        for cycle in range(200):
+            inp = TpiInput(
+                key="k",
+                current_temp_C=18.0 + rng.random() * 6.0,
+                target_temp_C=20.0 + rng.random() * 3.0,
+                outdoor_temp_C=-10.0 + rng.random() * 30.0,
+            )
+            carried, state = compute_tpi(inp, params, state=state, now=float(cycle))
+            fresh, _ = compute_tpi(inp, params, state=TpiState(), now=float(cycle))
+            assert carried.duty_cycle_pct == fresh.duty_cycle_pct
+
+    def test_constant_error_holds_a_constant_duty_cycle(self):
+        """A standing error must neither ramp the duty cycle up nor let it decay.
+
+        The command is proportional to the current error, so repeating the same
+        reading has to repeat the same duty cycle for as long as the error
+        stands.
+        """
+        params = TpiParams(coef_int=0.6, coef_ext=0.01)
+        state = TpiState()
+        inp = TpiInput(
+            key="k", current_temp_C=21.8, target_temp_C=22.0, outdoor_temp_C=5.0
+        )
+        expected_pct = 100.0 * (
+            params.coef_int * (22.0 - 21.8) + params.coef_ext * (22.0 - 5.0)
+        )
+
+        duty_cycles = []
+        for cycle in range(50):
+            result, state = compute_tpi(
+                inp, params, state=state, now=float(cycle) * 300.0
+            )
+            duty_cycles.append(result.duty_cycle_pct)
+
+        assert duty_cycles == pytest.approx([expected_pct] * 50)
+
+    def test_last_duty_cycle_is_held_for_every_cycle_of_a_sensor_dropout(self):
+        """A room sensor that stops reporting must freeze the command, not drop it.
+
+        The held value is the only state that reaches across cycles, so it has
+        to survive the whole gap and give way to live readings again once the
+        sensor returns.
+        """
+        params = TpiParams()
+        state = TpiState()
+        reading = TpiInput(
+            key="k", current_temp_C=21.7, target_temp_C=22.0, outdoor_temp_C=5.0
+        )
+        gap = TpiInput(
+            key="k", current_temp_C=None, target_temp_C=22.0, outdoor_temp_C=5.0
+        )
+
+        warm, state = compute_tpi(reading, params, state=state, now=0.0)
+        held_pct = warm.duty_cycle_pct
+        assert held_pct > 0.0
+
+        for cycle in range(1, 13):
+            result, state = compute_tpi(gap, params, state=state, now=float(cycle))
+            assert result.debug["reason"] == "missing_temps"
+            assert result.duty_cycle_pct == held_pct
+
+        colder = TpiInput(
+            key="k", current_temp_C=21.0, target_temp_C=22.0, outdoor_temp_C=5.0
+        )
+        after_gap, _ = compute_tpi(colder, params, state=state, now=200.0)
+        fresh, _ = compute_tpi(colder, params, state=TpiState(), now=200.0)
+        assert after_gap.duty_cycle_pct == fresh.duty_cycle_pct
+        assert after_gap.duty_cycle_pct != held_pct

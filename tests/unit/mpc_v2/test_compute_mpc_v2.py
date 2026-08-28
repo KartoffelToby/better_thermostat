@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
+import math
 
 import numpy as np
 import pytest
@@ -603,3 +604,45 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         out_fresh.diagnostics.T_room_hat
     )
     assert out_restored.valve_percent == out_fresh.valve_percent
+
+
+def test_restored_snapshot_reproduces_the_uninterrupted_command_sequence() -> None:
+    """A restart mid-run must not change a single later valve command.
+
+    The snapshot is the controller's whole memory, so a controller resumed
+    from one has to issue exactly the commands the uninterrupted controller
+    would have issued for the remaining inputs. The plant carries a valve
+    command delay so the replayed command history takes part as well.
+    """
+    params = MpcV2Params()
+    params.plant = replace(params.plant, valve_command_delay_s=900.0)
+    steps = 24
+    resume_at = 10
+
+    def drive(controller: MpcV2Controller, cycles: range) -> list[float]:
+        return [
+            controller.step(
+                t_s=1000.0 + 300.0 * cycle,
+                T_room_C=21.0 + 0.4 * math.sin(cycle / 3.0),
+                T_target_C=21.0,
+                T_outdoor_C=12.0,
+            )[0]
+            for cycle in cycles
+        ]
+
+    uninterrupted = drive(MpcV2Controller(params), range(steps))
+    # The scenario has to keep the valve moving: a command pinned to a rail
+    # would match no matter what the restore dropped.
+    assert len(set(uninterrupted)) > steps // 2
+
+    interrupted = MpcV2Controller(params)
+    before_restart = drive(interrupted, range(resume_at))
+    stored = json.loads(json.dumps(asdict(interrupted.export_snapshot())))
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+
+    resumed = MpcV2Controller(params)
+    resumed.restore_snapshot(snapshot)
+    after_restart = drive(resumed, range(resume_at, steps))
+
+    assert before_restart + after_restart == uninterrupted
