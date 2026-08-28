@@ -21,6 +21,9 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
+from custom_components.better_thermostat.adapters.delegate import (
+    set_temperature as delegate_set_temperature,
+)
 from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
@@ -1321,6 +1324,52 @@ class TestRestoreState:
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
+_real_asyncio_sleep = asyncio.sleep
+
+
+class _AdvancingClock:
+    """An event-loop clock that a sleep moves forward instead of waiting.
+
+    A retry ladder spends tens of seconds of backoff, and a deadline
+    around it reads the loop's clock. Handing the loop this clock and this
+    sleep lets both happen in test time: the sleep hands control back at
+    once and charges its delay to the clock the deadline is measured on.
+    """
+
+    def __init__(self, loop):
+        self._loop_time = loop.time
+        self._elapsed = 0.0
+
+    def time(self) -> float:
+        return self._loop_time() + self._elapsed
+
+    async def sleep(self, delay, result=None):
+        if delay and delay > 0:
+            self._elapsed += delay
+        await _real_asyncio_sleep(0)
+        return result
+
+
+def _trv_refusing_every_write(attempts: list[str]):
+    """A thermostat whose only TRV raises on every setpoint write."""
+    trv = MagicMock(spec=Trv)
+    trv.target_temp_step = 0.5
+    trv.min_temp = 5.0
+    trv.max_temp = 30.0
+
+    async def refuse(_self, entity_id, _temperature):
+        attempts.append(entity_id)
+        raise HomeAssistantError("TRV is not reachable")
+
+    trv.adapter = MagicMock()
+    trv.adapter.set_temperature = refuse
+
+    thermostat = MagicMock()
+    thermostat.device_name = "Test BT"
+    thermostat.bt_target_temp_step = None
+    thermostat.real_trvs = {TRV_ID: trv}
+    return thermostat
+
 
 class TestStartupControlSync:
     """The initial device sync must run after the lifecycle gate opens."""
@@ -1386,6 +1435,38 @@ class TestStartupControlSync:
             await BetterThermostat._startup_control_trvs(bt)
 
         assert ctl.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_lets_a_write_spend_its_retries(
+        self, bt, caplog
+    ):
+        """A TRV that is out of reach gets every attempt the write ladder has.
+
+        An unreachable device in the first seconds after a restart is what
+        those retries exist for, so the startup budget has to outlast their
+        backoff. The write runs against a clock this test advances, so the
+        ladder's delays elapse for the budget without costing wall time.
+        """
+        bt.real_trvs = {TRV_ID: {}}
+        loop = asyncio.get_running_loop()
+        clock = _AdvancingClock(loop)
+        attempts: list[str] = []
+        writer = _trv_refusing_every_write(attempts)
+
+        async def control_by_writing(_self, entity_id, cycle=None):
+            return await delegate_set_temperature(writer, entity_id, 21.0)
+
+        with (
+            patch.object(loop, "time", clock.time),
+            patch("asyncio.sleep", clock.sleep),
+            patch(f"{_CLIMATE}.compute_control_cycle", return_value=None),
+            patch(f"{_CLIMATE}.control_trv", control_by_writing),
+            caplog.at_level(logging.ERROR),
+        ):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert len(attempts) == 6
+        assert "Timeout controlling TRV" not in caplog.text
 
 
 async def _run_finalize_startup(bt):

@@ -237,6 +237,18 @@ _LOGGER = logging.getLogger(__name__)
 # interval sits well inside the shortest fallback window rather than near it.
 EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL = timedelta(minutes=30)
 
+# How long one TRV may occupy the serial startup sync before the loop moves
+# on to the next one. The budget has to outlast the retry ladder of the write
+# it wraps, because a device that is not reachable in the first seconds after
+# a restart is precisely what that ladder exists for: five retries at a delay
+# doubling from one second spend 31 s of backoff, or 37 s once the retry
+# jitter is counted against them, and a control call settles for three more
+# seconds after its writes. A shorter budget cancels the write mid-ladder and
+# abandons the device with attempts still unspent. The budget stays a liveness
+# guard for the loop, so a call in which several write channels each spend a
+# full ladder is still cut off.
+STARTUP_CONTROL_BUDGET_S = 45.0
+
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
@@ -2221,7 +2233,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: controlling TRV %s...", self.device_name, trv
             )
             try:
-                await asyncio.wait_for(control_trv(self, trv, cycle=cycle), timeout=10)
+                await asyncio.wait_for(
+                    control_trv(self, trv, cycle=cycle),
+                    timeout=STARTUP_CONTROL_BUDGET_S,
+                )
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s controlled", self.device_name, trv
                 )
