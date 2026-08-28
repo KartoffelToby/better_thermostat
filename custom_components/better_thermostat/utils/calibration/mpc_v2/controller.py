@@ -272,18 +272,21 @@ class MpcV2Controller:
         An estimate or covariance that is empty, wrong-shaped or non-finite (a
         partial or corrupted snapshot) leaves the freshly constructed defaults
         in place — a mis-shaped or ``NaN`` covariance would otherwise poison
-        every subsequent Kalman update. Version gating lives in
-        :meth:`ControllerSnapshot.from_mapping`.
+        every subsequent Kalman update. The covariance additionally has to be
+        symmetric and positive semi-definite, which
+        :meth:`KalmanObserver.restore_covariance` decides. Version gating lives
+        in :meth:`ControllerSnapshot.from_mapping`.
         """
         n = self.plant_fine.state_dim
         x_hat = np.asarray(snap.x_hat, dtype=float)
         seeded = x_hat.shape == (n,) and bool(np.all(np.isfinite(x_hat)))
         if seeded:
             self.kalman.initialise(x_hat)
-        if snap.kalman_P:
-            P = np.asarray(snap.kalman_P, dtype=float)
-            if P.shape == (n, n) and bool(np.all(np.isfinite(P))):
-                self.kalman.P = P
+        if snap.kalman_P and not self.kalman.restore_covariance(snap.kalman_P):
+            _LOGGER.warning(
+                "MPC v2 snapshot covariance is unusable; the observer keeps "
+                "its default uncertainty and re-learns"
+            )
         self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u

@@ -117,6 +117,14 @@ def import_mpc_v2_state(
         # Record the prior the controller was built with so a later
         # preset/plant-prior change trips the rebuild guard in compute_mpc_v2.
         state.plant_signature = _plant_signature_of(effective_params)
-    except Exception as err:
-        _LOGGER.debug("MPC v2 restore_snapshot failed: %s", err)
+    except Exception:
+        # A snapshot that cannot be rehydrated means the stored state is
+        # corrupt. The fallback is a fresh controller, which is also what a
+        # first start produces — so the two are told apart by this line rather
+        # than by the resulting state. The room re-learns from the default
+        # instead of running on half-restored state.
+        _LOGGER.warning(
+            "MPC v2 controller state could not be restored, starting fresh",
+            exc_info=True,
+        )
     return state

@@ -63,6 +63,68 @@ def test_innovation_matches_measurement_minus_predicted_y() -> None:
     assert abs(obs.innovation(y_meas, u=0.3, T_outdoor_C=5.0) - expected) < 1e-12
 
 
+def test_update_keeps_the_covariance_exactly_symmetric() -> None:
+    """P stays symmetric bit for bit, not merely to within round-off."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = _make_observer(plant)
+    obs.initialise(np.array([20.0, 22.0]))
+    for step in range(50):
+        obs.update(20.1 + 0.01 * step, u=0.4, T_outdoor_C=5.0, dt_s=300.0)
+        np.testing.assert_array_equal(obs.P, obs.P.T)
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        pytest.param([[-1.0, 0.0], [0.0, 1.0]], id="negative-variance"),
+        pytest.param([[1.0, 2.0], [2.0, 1.0]], id="symmetric-but-indefinite"),
+        pytest.param([[0.01, 5.0], [0.0, 0.5]], id="asymmetric"),
+        pytest.param([[0.01, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], id="3x3"),
+        pytest.param([[0.01, float("nan")], [float("nan"), 1.0]], id="non-finite"),
+        pytest.param([[0.01, 0.0], [0.0]], id="ragged"),
+        pytest.param([], id="empty"),
+    ],
+)
+def test_restore_covariance_refuses_a_matrix_that_is_not_a_covariance(
+    stored: list[list[float]],
+) -> None:
+    """Only a finite, symmetric, positive semi-definite matrix may be adopted."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = _make_observer(plant)
+    default_P = obs.P.copy()
+
+    assert obs.restore_covariance(stored) is False
+    np.testing.assert_array_equal(obs.P, default_P)
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        pytest.param([[0.02, 0.01], [0.01, 0.5]], id="positive-definite"),
+        pytest.param([[1.0, 1.0], [1.0, 1.0]], id="positive-semi-definite"),
+    ],
+)
+def test_restore_covariance_adopts_a_valid_matrix(stored: list[list[float]]) -> None:
+    """A well-formed stored covariance replaces the construction default."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = _make_observer(plant)
+
+    assert obs.restore_covariance(stored) is True
+    np.testing.assert_allclose(obs.P, np.array(stored))
+
+
+def test_restored_covariance_keeps_the_estimate_bounded() -> None:
+    """An indefinite covariance would blow the estimate up; a rejected one cannot."""
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    obs = _make_observer(plant)
+    obs.initialise(np.array([20.0, 22.0]))
+    obs.restore_covariance([[-1.0, 0.0], [0.0, 1.0]])
+
+    for step in range(5):
+        obs.update(20.1, u=0.4, T_outdoor_C=5.0, dt_s=300.0)
+        assert abs(float(obs.x_hat[0]) - 20.1) < 5.0, f"diverged at step {step}"
+
+
 def test_observer_uses_actual_elapsed_time() -> None:
     """A sparse HA event advances the model by its full interval, not 30 s."""
     plant = PlantModelRC2(PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0)

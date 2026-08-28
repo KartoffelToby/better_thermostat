@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 import json
+import logging
 
 import numpy as np
 import pytest
@@ -78,6 +79,53 @@ def test_max_opening_pct_is_honoured() -> None:
     )
     assert out is not None
     assert out.valve_percent <= 40
+
+
+def _step_returning(fraction: float):
+    """Wrap ``MpcV2Controller.step`` so it reports a fixed valve fraction.
+
+    The optimiser cannot be steered onto an exact half percent from the
+    outside, so the percent conversion is exercised by pinning the fraction
+    the controller hands back while its diagnostics stay real.
+    """
+    real_step = MpcV2Controller.step
+
+    def fixed_step(self, *args: object, **kwargs: object):
+        _u, diagnostics = real_step(self, *args, **kwargs)
+        return fraction, diagnostics
+
+    return fixed_step
+
+
+@pytest.mark.parametrize(
+    ("fraction", "expected"),
+    [
+        pytest.param(0.005, 1, id="0.5-percent"),
+        pytest.param(0.025, 3, id="2.5-percent"),
+        pytest.param(0.045, 5, id="4.5-percent"),
+        pytest.param(0.125, 13, id="12.5-percent"),
+        pytest.param(0.1234, 12, id="rounds-down"),
+        pytest.param(0.1256, 13, id="rounds-up"),
+        pytest.param(0.0, 0, id="closed"),
+        pytest.param(1.0, 100, id="wide-open"),
+    ],
+)
+def test_valve_percent_rounds_half_up(
+    monkeypatch, fraction: float, expected: int
+) -> None:
+    """A fraction landing exactly between two percents opens the wider one."""
+    monkeypatch.setattr(MpcV2Controller, "step", _step_returning(fraction))
+    out, _ = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
+    assert out is not None
+    assert out.valve_percent == expected
+
+
+def test_fractional_max_opening_pct_is_never_exceeded(monkeypatch) -> None:
+    """A cap of 55.9 % admits 55 %, never a rounded-up 56 %."""
+    monkeypatch.setattr(MpcV2Controller, "step", _step_returning(1.0))
+    out, _ = compute_mpc_v2(_baseline_input(max_opening_pct=55.9), MpcV2Params(), None)
+    assert out is not None
+    assert out.valve_percent == 55
 
 
 def test_diagnostics_exposed() -> None:
@@ -354,6 +402,29 @@ def test_export_state_without_controller_returns_none() -> None:
     assert export_mpc_v2_state(MpcV2State()) is None
 
 
+def test_unreadable_snapshot_is_reported_at_warning(monkeypatch, caplog) -> None:
+    """A snapshot that cannot be rehydrated is louder than an absent one.
+
+    Both cases boot a fresh controller, so without a WARNING carrying the
+    exception a corrupt store looks exactly like a first start.
+    """
+
+    def raise_on_restore(self, snap: ControllerSnapshot) -> None:
+        raise RuntimeError("snapshot payload is inconsistent")
+
+    monkeypatch.setattr(MpcV2Controller, "restore_snapshot", raise_on_restore)
+    payload = {"snapshot": {"v": SNAPSHOT_VERSION, "x_hat": [20.0, 21.0]}}
+
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state(payload, MpcV2Params())
+
+    assert state.controller is None
+    reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(reports) == 1
+    assert reports[0].exc_info is not None
+    assert "snapshot payload is inconsistent" in caplog.text
+
+
 def test_non_finite_input_holds_last_command(caplog) -> None:
     """NaN/Inf in any sensor input must not poison the cached state."""
     state: MpcV2State | None = None
@@ -525,6 +596,34 @@ def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
     np.testing.assert_array_equal(controller.kalman.P, default_P)
     np.testing.assert_array_equal(controller.kalman.x_hat, default_x)
     assert controller._last_u == 0.4  # scalar fields still restore
+
+
+def test_indefinite_covariance_is_refused_on_restore(caplog) -> None:
+    """A stored covariance with a negative eigenvalue must not reach the filter.
+
+    Folded into the Kalman gain it turns the innovation variance negative, and
+    the estimate runs away by orders of magnitude within a few cycles.
+    """
+    seed = [20.0, 21.0]
+    reference = MpcV2Controller(MpcV2Params())
+    reference.kalman.initialise(np.array(seed))
+
+    controller = MpcV2Controller(MpcV2Params())
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": seed, "kalman_P": [[-1.0, 0.0], [0.0, 1.0]]}
+    )
+    assert snap is not None
+    with caplog.at_level("WARNING"):
+        controller.restore_snapshot(snap)
+
+    np.testing.assert_array_equal(controller.kalman.P, reference.kalman.P)
+    assert any("covariance" in r.getMessage() for r in caplog.records)
+
+    for step in range(5):
+        controller.step(
+            t_s=1000.0 + 300.0 * step, T_room_C=20.0, T_target_C=21.0, T_outdoor_C=5.0
+        )
+        assert abs(float(controller.kalman.x_hat[0]) - 20.0) < 5.0
 
 
 # Snapshot shapes that carry no usable state vector of the controller's
