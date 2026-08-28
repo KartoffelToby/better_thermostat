@@ -15,6 +15,7 @@ file nobody has budgeted.
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import textwrap
 
@@ -47,9 +48,9 @@ def script(tmp_path, monkeypatch):
     return module
 
 
-def _module(tmp_path, source: str) -> Path:
+def _module(tmp_path, source: str, name: str = "test_sample.py") -> Path:
     """Write a test module into the temporary tree and return its path."""
-    path = tmp_path / "test_sample.py"
+    path = tmp_path / name
     path.write_text(textwrap.dedent(source), encoding="utf-8")
     return path
 
@@ -93,7 +94,7 @@ def test_a_summary_that_states_an_obligation_is_left_alone(script, tmp_path):
     assert script._scan_module(path) == []
 
 
-def test_only_the_summary_line_is_read(script, tmp_path):
+def test_only_the_summary_paragraph_is_read(script, tmp_path):
     """Wording below the summary describes the setup, not the contract.
 
     The paragraphs under a summary say what the fixture arranges, so a
@@ -161,10 +162,11 @@ def test_one_question_per_test(script, tmp_path):
 
 
 def test_a_written_out_value_is_not_a_shouted_quantifier(script, tmp_path):
-    """A mode spelled in capitals is a value, so it raises no question.
+    """A summary naming the NONE preset raises no question about its contract.
 
-    `NONE`, `OFF` and the other written-out modes appear in capitals all over
-    the suite. Counting them would fill the list with preset transitions.
+    `NONE` is the spelling of a value here, not a quantifier somebody shouted,
+    and it appears in capitals all over the suite. Counting it would fill the
+    list with preset transitions.
     """
     path = _module(
         tmp_path,
@@ -205,6 +207,46 @@ def test_a_summary_in_plain_words_is_not_marked_as_the_louder_half(script, tmp_p
     findings = script._scan_module(path)
 
     assert [f.code_shaped for f in findings] == [False]
+
+
+def test_an_interval_copied_from_the_source_is_a_candidate(script, tmp_path):
+    """A summary carrying a bare count of seconds names the source's number.
+
+    Unlike a quantifier, a number of seconds makes no claim of its own. It has
+    no meaning away from the constant it was copied from, so it is a candidate
+    on its own rather than only next to another wording.
+    """
+    path = _module(
+        tmp_path,
+        '''
+        def test_debounce():
+            """Reject a change inside the 600s debounce window."""
+        ''',
+    )
+
+    findings = script._scan_module(path)
+
+    assert [f.marker for f in findings] == ["copied interval"]
+
+
+def test_a_summary_wrapped_across_lines_is_read_whole(script, tmp_path):
+    """A summary too long for one line is still one sentence to read.
+
+    The contract ends at the blank line, not at the first newline, so a
+    wording carried onto the second line of the same paragraph belongs to the
+    obligation and has to be picked up.
+    """
+    path = _module(
+        tmp_path,
+        '''
+        def test_wrapped():
+            """Report the head that came up late,
+            whatever the group always did before it.
+            """
+        ''',
+    )
+
+    assert script._scan_module(path) != []
 
 
 def test_a_module_that_cannot_be_parsed_stops_the_run(script, tmp_path):
@@ -253,6 +295,54 @@ def test_a_two_word_span_is_a_turn_of_phrase(script, tmp_path):
     assert script._symptom_phrases(symptoms) == []
 
 
+def test_a_three_word_span_identifies_a_report(script, tmp_path):
+    """A span long enough to name a symptom is read as one.
+
+    The lower bound exists to drop turns of phrase, so it has to keep the
+    shortest span that still identifies what a user reported.
+    """
+    symptoms = tmp_path / "symptoms.md"
+    symptoms.write_text(
+        'The report says "the valve sticks" over and over.\n', encoding="utf-8"
+    )
+
+    assert script._symptom_phrases(symptoms) == ["the valve sticks"]
+
+
+def test_a_module_that_cannot_be_parsed_stops_the_symptom_scan(script, tmp_path):
+    """A module counted as empty because it would not parse reads as clean.
+
+    A skipped module and a module with nothing to report give the same answer,
+    and no caller can tell them apart. The symptom scan therefore ends the run
+    on the same input the wording scan ends on.
+    """
+    path = _module(tmp_path, "def test_broken(:\n")
+
+    with pytest.raises(SystemExit) as exit_info:
+        script._scan_symptoms([path], ["the valve stays fully open"])
+
+    assert "nothing was counted" in str(exit_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Which files are scanned
+# ---------------------------------------------------------------------------
+
+
+def test_only_python_modules_are_scanned(script, monkeypatch):
+    """Tracked files that are not Python carry no docstrings to parse.
+
+    The tree holds documents next to the tests. Handing one to the parser
+    ends the run on a file that never had a contract to state.
+    """
+    listing = subprocess.CompletedProcess(
+        args=(), returncode=0, stdout="tests/test_a.py\0tests/DESIGN.md\0tests/x\0"
+    )
+    monkeypatch.setattr(script.subprocess, "run", lambda *a, **kw: listing)
+
+    assert script._test_files(None) == [script.REPO_ROOT / "tests/test_a.py"]
+
+
 # ---------------------------------------------------------------------------
 # The budget
 # ---------------------------------------------------------------------------
@@ -261,6 +351,55 @@ def test_a_two_word_span_is_a_turn_of_phrase(script, tmp_path):
 def _counts(script, monkeypatch, **files):
     """Make the script see the given per-file counts instead of scanning."""
     monkeypatch.setattr(script, "_measure", lambda: dict(files))
+
+
+def _tree(script, monkeypatch, tmp_path):
+    """Write a tree holding two candidates in one module and one in another."""
+    first = _module(
+        tmp_path,
+        '''
+        def test_one():
+            """The write always happens."""
+
+        def test_two():
+            """The head never reports back."""
+        ''',
+        name="test_first.py",
+    )
+    second = _module(
+        tmp_path,
+        '''
+        def test_three():
+            """A stale reading is dropped regardless of the mode."""
+        ''',
+        name="test_second.py",
+    )
+    monkeypatch.setattr(script, "_test_files", lambda paths: [first, second])
+    return "test_first.py", "test_second.py"
+
+
+def test_every_candidate_in_a_file_is_counted(script, monkeypatch, tmp_path):
+    """A file's number is how many candidates it holds, not whether it holds any.
+
+    The budget can only fall towards zero if it counts each summary. A number
+    that said "this file has some" would let a file work off every candidate
+    but one and still read as unchanged.
+    """
+    first, second = _tree(script, monkeypatch, tmp_path)
+
+    assert script._measure() == {first: 2, second: 1}
+
+
+def test_check_measures_the_tree_it_is_run_against(script, monkeypatch, tmp_path):
+    """The check compares the budget against today's tree, not a stored count.
+
+    A budget checked against anything but a fresh scan would pass on a file
+    that has gained a restatement since it was recorded.
+    """
+    first, second = _tree(script, monkeypatch, tmp_path)
+    script.BUDGET_FILE.write_text(json.dumps({first: 1, second: 1}), encoding="utf-8")
+
+    assert script.check() == 1
 
 
 def test_update_records_the_counts_it_measured(script, monkeypatch):
@@ -349,3 +488,43 @@ def test_check_refuses_to_run_before_a_budget_exists(script, monkeypatch):
         script.check()
 
     assert "no budget recorded" in str(exit_info.value)
+
+
+# ---------------------------------------------------------------------------
+# The modes
+# ---------------------------------------------------------------------------
+
+
+def test_list_prints_the_candidates_it_found(script, monkeypatch, tmp_path, capsys):
+    """The list mode names each candidate, because reading them is its purpose.
+
+    A count alone says how much is left but not which sentence to go and read,
+    which is the whole of what this mode is for.
+    """
+    _tree(script, monkeypatch, tmp_path)
+
+    assert script.show(None, None) == 0
+
+    output = capsys.readouterr().out
+    assert "test_first.py:2: test_one" in output
+    assert "test_second.py:2: test_three" in output
+    assert "3 docstrings to ask the question about" in output
+
+
+def test_the_mode_named_on_the_command_line_is_the_one_that_runs(script, monkeypatch):
+    """Each mode runs the work it names, so a run cannot rewrite what it checks.
+
+    The check and the re-record differ in direction: one refuses a tree that
+    gained a candidate, the other accepts today's tree as the new bar. A run
+    that confused them would report success while raising the budget.
+    """
+    ran = []
+    monkeypatch.setattr(script, "check", lambda: ran.append("check") or 0)
+    monkeypatch.setattr(script, "update", lambda: ran.append("update") or 0)
+    monkeypatch.setattr(script, "show", lambda paths, symptoms: ran.append("list") or 0)
+
+    for mode in ("check", "update", "list"):
+        monkeypatch.setattr(sys, "argv", ["restated_contracts.py", mode])
+        assert script.main() == 0
+
+    assert ran == ["check", "update", "list"]

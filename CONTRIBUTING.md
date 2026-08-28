@@ -220,10 +220,15 @@ marker comes off with the fix instead of outliving it.
 
 `scripts/restated_contracts.py list` collects the summaries where this question
 is worth asking — a shouted quantifier, an `if any` clause, `regardless`, `even
-when` — and `.restated-contract-budget.json` holds the count, so the backlog
-gets worked off rather than added to. A hit is a question, not a verdict: a
-requirement may well say "never". Read the sentence and decide which of the two
-it is.
+when`, a bare interval copied out of the source — and
+`.restated-contract-budget.json` holds the count, so the backlog gets worked off
+rather than added to. A hit is a question, not a verdict: a requirement may well
+say "never". Read the sentence and decide which of the two it is.
+
+Those markers are a sample, not a survey: they report 112 of the tree's 3275
+test docstrings, and the script's own docstring names the common shapes they
+miss. A green check means the budget held, not that a docstring you are reading
+is fine.
 
 ## Naming
 

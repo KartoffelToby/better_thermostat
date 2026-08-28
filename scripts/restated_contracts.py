@@ -14,26 +14,35 @@ somebody asked for, or the behaviour somebody found? Both answers occur, and
 the wording that produces a hit is perfectly correct in plenty of tests — a
 requirement may legitimately say "never" or "regardless".
 
-Two forms are machine-findable, and together they cover the suspicion.
+One form runs by default and carries the budget. Every test function is parsed
+with :mod:`ast` and the opening paragraph of its docstring matched against
+wordings that repeat the *shape of a condition* rather than an obligation: a
+shouted quantifier (`ANY`, `ALWAYS`), an `if any`/`if all` clause,
+`regardless`, `even when`, and a bare interval copied out of the source
+(`600s`). Only that paragraph is read, because the ones under it describe the
+setup, where such a word qualifies a precondition. The docstring is taken from
+the tree, so a comment or a string that merely carries the wording is not
+counted.
 
-**Restating wording.** Every test function is parsed with :mod:`ast` and the
-summary line of its docstring matched against wordings that repeat the *shape
-of a condition* rather than an obligation: a shouted quantifier (`ANY`,
-`ALWAYS`), an `if any`/`if all` clause, `regardless`, `even when`. Only the
-summary is read, because the paragraphs under it describe the setup, where such
-a word qualifies a precondition. The docstring is taken from the tree, so a
-comment or a string that merely carries the wording is not counted. This form
-is deterministic over the tracked tests, and it is the form the budget records.
+``list`` marks a hit with ``!`` when the summary also spells an identifier or a
+call out of the source. A public name is a fair word for a requirement, so on
+its own that is not enough to ask about, but next to a restating wording it is
+the sharper half of the list.
 
-``list`` marks a hit with ``!`` when the summary also spells an identifier, a
-call or an interval out of the source. Reaching for the implementation's own
-vocabulary is the second tell, and those are the sentences to read first.
+**What this does not reach.** The marker list is a sample of the suspicion, not
+a survey of it. Of 3275 test docstrings in the tree it reports 112, and two
+common shapes stay outside it by measurement: 246 summaries opening "Test that
+…", which name the call rather than the obligation, and 177 built around
+"should", which state an expectation without saying whose. Matching either
+would add 423 sentences to a list of 112 and bury the question this exists to
+ask, so both are left to the reader. A green run means the budget held, never
+that the tree is free of restatements.
 
 **Symptom wording.** A test whose docstring repeats a phrase from a document
 that collects reported symptoms is pinning what a user complained about. The
 repository tracks no such document, so this form needs one passed in with
-``--symptoms`` and never contributes to the budget: a count that depends on an
-untracked file could not be held.
+``--symptoms``. It never contributes to the budget — a count that depends on an
+untracked file could not be held — and it runs only in ``list``.
 
 Three modes:
 
@@ -64,6 +73,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BUDGET_FILE = REPO_ROOT / ".restated-contract-budget.json"
 SCANNED = "tests"
 
+# A bare count of seconds or minutes is the source's own number. Unlike a
+# quantifier it carries no claim at all, so it is only ever a copy.
+_INTERVAL = r"\b\d+ ?(?:s|ms|min)\b"
+
 # Each wording repeats the shape of a condition instead of stating what is
 # owed. A shouted quantifier is the sharpest of them: nobody writes a
 # requirement in capitals, but somebody reading a loop out of the source does.
@@ -81,16 +94,19 @@ MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("unconditional", re.compile(r"\bunconditional(?:ly)?\b", re.I)),
     ("in every case", re.compile(r"\bin (?:every|all|either) cases?\b", re.I)),
     ("always or never", re.compile(r"\b(?:always|never)\b", re.I)),
+    ("copied interval", re.compile(_INTERVAL)),
 )
 
-# A summary that reaches for the implementation's own vocabulary — an
-# identifier, a call, a bare interval out of the source — is describing the
-# code rather than the obligation. On its own that is not enough to ask about,
-# but next to a restating wording it is the sharper half of the list.
+# A summary that reaches for the implementation's own vocabulary is describing
+# the code rather than the obligation. An identifier and a written-out call are
+# too common in this tree to ask about on their own — a public name is a fair
+# word for a requirement — so they only sharpen a hit somebody else produced.
+# The interval is the exception and stands in MARKERS as well: a bare number of
+# seconds has no meaning outside the source it was copied from.
 CODE_SHAPED = re.compile(
     r"\b[a-z_]+_[a-z_]+\b"  # snake_case identifier
     r"|\b\w+\(\)"  # a call written out
-    r"|\b\d+ ?(?:s|ms|min)\b"  # an interval copied from the source
+    r"|" + _INTERVAL  # an interval copied from the source
 )
 
 # A phrase shorter than this matches by accident. Symptom documents are prose,
@@ -135,20 +151,32 @@ def _test_files(paths: list[str] | None) -> list[Path]:
     return [REPO_ROOT / name for name in names]
 
 
-def _first_sentence(docstring: str) -> str:
-    """Return the docstring's summary line, collapsed onto one line."""
+def _summary_paragraph(docstring: str) -> str:
+    """Return everything above the first blank line, collapsed onto one line.
+
+    A summary that wraps across several lines is one sentence to read, so the
+    whole opening paragraph is returned rather than its first line.
+    """
     summary = docstring.strip().split("\n\n", 1)[0]
     return " ".join(summary.split())
 
 
-def _scan_module(path: Path) -> list[Finding]:
-    """Return the restating docstrings among a module's test functions."""
-    source = path.read_text(encoding="utf-8")
+def _parse_module(path: Path) -> ast.Module:
+    """Return a module's syntax tree, or stop the run when it will not parse.
+
+    A module that could not be parsed has no findings, which is the same answer
+    a clean module gives. Nothing downstream can tell the two apart, so an
+    unparseable module ends the run instead of being counted as empty.
+    """
     try:
-        tree = ast.parse(source, filename=str(path))
+        return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except SyntaxError as err:
         sys.exit(f"{path} could not be parsed, so nothing was counted: {err}")
 
+
+def _scan_module(path: Path) -> list[Finding]:
+    """Return the restating docstrings among a module's test functions."""
+    tree = _parse_module(path)
     relative = path.relative_to(REPO_ROOT).as_posix()
     findings: list[Finding] = []
     for node in ast.walk(tree):
@@ -159,10 +187,11 @@ def _scan_module(path: Path) -> list[Finding]:
         docstring = ast.get_docstring(node, clean=True)
         if not docstring:
             continue
-        # Only the summary line is read. It is the sentence that states the
-        # contract; the paragraphs under it explain the setup, and a "never"
-        # down there qualifies a precondition rather than the obligation.
-        summary = _first_sentence(docstring)
+        # Only the opening paragraph is read. It is the sentence that states
+        # the contract, however far it wraps; the paragraphs under it explain
+        # the setup, and a "never" down there qualifies a precondition rather
+        # than the obligation.
+        summary = _summary_paragraph(docstring)
         for marker, pattern in MARKERS:
             if pattern.search(summary) is None:
                 continue
@@ -198,10 +227,7 @@ def _scan_symptoms(files: list[Path], phrases: list[str]) -> list[Finding]:
     lowered = [(phrase, phrase.lower()) for phrase in phrases]
     findings: list[Finding] = []
     for path in files:
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        except SyntaxError:
-            continue
+        tree = _parse_module(path)
         relative = path.relative_to(REPO_ROOT).as_posix()
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -211,7 +237,7 @@ def _scan_symptoms(files: list[Path], phrases: list[str]) -> list[Finding]:
             docstring = ast.get_docstring(node, clean=True)
             if not docstring:
                 continue
-            haystack = _first_sentence(docstring).lower()
+            haystack = _summary_paragraph(docstring).lower()
             for phrase, needle in lowered:
                 if needle in haystack:
                     findings.append(
