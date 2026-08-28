@@ -193,6 +193,38 @@ The same applies to the entry a test starts from. A `make_entry()` that omits a
 key the config flow always writes does not weaken a test — it takes the branch
 behind that key out of the run entirely, and every assertion downstream of it
 passes for the wrong reason.
+
+## A test docstring names the requirement, not the run
+
+A test asserts its rule only as well as somebody once wanted that rule. Where
+the docstring retells what the code does, the test holds the behaviour that was
+found, and it holds a defect as firmly as it holds a decision. Nothing in the
+suite objects: the lines run, the module keeps its coverage floor, and a
+mutation probe even reports the spot as well covered, because a defect planted
+there turns it red. Whether the contract is the wanted one is a question to the
+text, not to the execution.
+
+"A single HomematicIP device slows the whole group down" is an observation.
+"The room sensor follows its own debounce interval" is a requirement. Both
+sentences describe the same run, and only the second says what the test is for.
+
+Where the requirement cannot be phrased without sounding like a bug, it is one.
+Take that literally. If the honest sentence comes out as "one slow head holds
+up every sensor in the room", stop writing the docstring and go read the code.
+
+A requirement that is real but not met yet still belongs in the tree, stated as
+a requirement and marked `@pytest.mark.xfail(strict=True)` with a reason that
+says what the code does today. `strict` is what makes that worth doing: the
+test turns the marker into a failure the moment the behaviour arrives, so the
+marker comes off with the fix instead of outliving it.
+
+`scripts/restated_contracts.py list` collects the summaries where this question
+is worth asking — a shouted quantifier, an `if any` clause, `regardless`, `even
+when` — and `.restated-contract-budget.json` holds the count, so the backlog
+gets worked off rather than added to. A hit is a question, not a verdict: a
+requirement may well say "never". Read the sentence and decide which of the two
+it is.
+
 ## Naming
 
 Three conventions carry the naming here, and none of them is ours:

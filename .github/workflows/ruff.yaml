@@ -39,5 +39,10 @@ jobs:
       # existing ones are worked off.
       - name: Check the rejected name budget
         run: uv run --locked --only-group dev python scripts/check_naming.py check
+      # A test docstring that retells the code pins the behaviour it found,
+      # which the suite cannot notice: the test is green either way. This caps
+      # the summaries where that question is still open.
+      - name: Check the restated contract budget
+        run: uv run --locked --only-group dev python scripts/restated_contracts.py check
       - name: yamllint
         run: uv run --locked --only-group dev yamllint --strict .
