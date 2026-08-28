@@ -388,6 +388,57 @@ class TestMaybeSelectExternalSensor:
         ]
 
     @pytest.mark.asyncio
+    async def test_a_selector_that_names_itself_nothing_is_found_by_its_id(
+        self, monkeypatch
+    ):
+        """Not every integration publishes a translation key.
+
+        The id is the only handle left on such an entry, so it stays the
+        fallback for the siblings that carry no key.
+        """
+        trv = _registry_entry("climate.trv1", domain="climate")
+        unnamed = _registry_entry(
+            "select.trv1_temperature_sensor_select", domain="select"
+        )
+        mock_self = _make_selector_self("internal", entries=[trv, unnamed])
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": "external"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_sibling_that_names_something_else_is_left_alone(self, monkeypatch):
+        """An entry with a key of its own has said what it is.
+
+        Guessing at its id would write the sensor choice into whatever
+        else the device exposes, so the fallback passes it by.
+        """
+        trv = _registry_entry("climate.trv1", domain="climate")
+        named_otherwise = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            domain="select",
+            translation_key="valve_opening_degree",
+        )
+        unrelated = _registry_entry("select.trv1_backlight", domain="select")
+        mock_self = _make_selector_self(
+            "internal", entries=[trv, named_otherwise, unrelated]
+        )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
     async def test_a_device_without_a_selector_is_not_written(self, monkeypatch):
         """Nothing on the device answers for the sensor choice."""
         trv = _registry_entry("climate.trv1", domain="climate")
