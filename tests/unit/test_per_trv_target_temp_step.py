@@ -8,13 +8,11 @@ fine-grained TRV by less than the coarse step would have the change
 classified as an echo of a Better Thermostat write and dropped.
 """
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import ATTR_TARGET_TEMP_STEP, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import State
-from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -80,7 +78,6 @@ def bt():
     mock.window_open = False
     mock.control_queue_task = AsyncMock()
     mock.context = MagicMock()
-    mock.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     mock.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     mock.real_trvs = {
         TRV_ID: Trv(
