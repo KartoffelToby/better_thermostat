@@ -359,6 +359,35 @@ class TestMaybeSelectExternalSensor:
         assert _selector_calls(mock_self) == []
 
     @pytest.mark.asyncio
+    async def test_the_translation_key_wins_over_an_earlier_id_match(self, monkeypatch):
+        """The key names the selector; the id fragment only guesses at it.
+
+        A device can carry a second select whose id reads like the
+        selector, a leftover from a rename. The registry hands that one
+        out first, so matching per entry would write to it and never
+        reach the entry that names itself.
+        """
+        trv = _registry_entry("climate.trv1", domain="climate")
+        decoy = _registry_entry(
+            "select.trv1_temperature_sensor_select_old", domain="select"
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            domain="select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self("internal", entries=[trv, decoy, selector])
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": "external"}
+        ]
+
+    @pytest.mark.asyncio
     async def test_a_device_without_a_selector_is_not_written(self, monkeypatch):
         """Nothing on the device answers for the sensor choice."""
         trv = _registry_entry("climate.trv1", domain="climate")
