@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
@@ -33,6 +35,33 @@ def fix_target_temperature_calibration(
     Currently a passthrough, but provided for future adjustments.
     """
     return temperature
+
+
+async def _write_setpoint(
+    self: ModelFixHost, entity_id: str, payload: dict[str, str | float]
+) -> bool:
+    """Put one setpoint payload on the wire.
+
+    Returns True once the device took the write. A device that is asleep or
+    out of reach, an integration reloading its config entry, and an entity
+    that declares no support for the attributes in the payload all answer a
+    blocking service call with an error; that is reported as a refused write
+    so the caller can fall back to the generic adapter, which carries the
+    retry handling.
+    """
+    try:
+        await self.hass.services.async_call(
+            "climate", "set_temperature", payload, blocking=True, context=self.context
+        )
+    except (HomeAssistantError, OSError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: BTH-RM230Z setpoint write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
+    return True
 
 
 async def override_set_hvac_mode(
@@ -71,11 +100,12 @@ async def override_set_temperature(
     Returns
     -------
     bool
-            True, always: the quirk issues a service call for every
-            input (a plain temperature write when the entity has no
-            current state or no range support, a range write
-            otherwise), so the caller never needs the generic
-            adapter fallback.
+            True once the setpoint write went out, so the caller does not
+            need the generic adapter fallback (a plain temperature write
+            when the entity has no current state or no range support, a
+            range write otherwise). False when the device refused it: the
+            adapter write then carries the setpoint instead, with its own
+            step rounding and retry handling.
     """
     temperature = celsius_to_system_temperature(self.hass, temperature)
     state = self.hass.states.get(entity_id)
@@ -86,14 +116,9 @@ async def override_set_temperature(
             self.device_name,
             entity_id,
         )
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": entity_id, "temperature": temperature},
-            blocking=True,
-            context=self.context,
+        return await _write_setpoint(
+            self, entity_id, {"entity_id": entity_id, "temperature": temperature}
         )
-        return True
 
     _supports_range = supports_temperature_range(state)
 
@@ -107,23 +132,15 @@ async def override_set_temperature(
     )
 
     if _supports_range:
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
+        return await _write_setpoint(
+            self,
+            entity_id,
             {
                 "entity_id": entity_id,
                 "target_temp_high": temperature,
                 "target_temp_low": temperature,
             },
-            blocking=True,
-            context=self.context,
         )
-    else:
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": entity_id, "temperature": temperature},
-            blocking=True,
-            context=self.context,
-        )
-    return True
+    return await _write_setpoint(
+        self, entity_id, {"entity_id": entity_id, "temperature": temperature}
+    )
