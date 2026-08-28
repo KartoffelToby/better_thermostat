@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.utils.helpers import (
     celsius_to_system_temperature,
@@ -23,6 +24,32 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     return temperature
 
 
+async def _select_manual_preset(self, entity_id):
+    """Take the TRV off its internal schedule.
+
+    A device that refuses the preset keeps running its own schedule and
+    overwrites whatever Better Thermostat sends it, so the refusal is
+    reported. It does not decide the command the caller asked for: that one
+    still has to reach the device, and it is written either way.
+    """
+    try:
+        await self.hass.services.async_call(
+            "climate",
+            "set_preset_mode",
+            {"entity_id": entity_id, "preset_mode": "manual"},
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: TV02-Zigbee manual preset for %s failed, "
+            "the device stays on its own schedule: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+
+
 async def override_set_hvac_mode(self, entity_id, hvac_mode):
     """Enable device quirks while setting HVAC mode.
 
@@ -38,16 +65,27 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     Returns
     -------
     bool
-        True, always: the quirk issues the mode write itself, so the
-        caller never needs the generic adapter fallback.
+        True once the mode write went out, so the caller does not need the
+        generic adapter fallback. False when the device refused it: the
+        adapter write then carries the mode instead, with its own retry
+        handling.
     """
-    await self.hass.services.async_call(
-        "climate",
-        "set_hvac_mode",
-        {"entity_id": entity_id, "hvac_mode": hvac_mode},
-        blocking=True,
-        context=self.context,
-    )
+    try:
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: TV02-Zigbee mode write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
     model = self.real_trvs[entity_id].model
     if model == "TV02-Zigbee" and hvac_mode != HVACMode.OFF:
         _LOGGER.debug(
@@ -55,13 +93,7 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
             self.device_name,
             entity_id,
         )
-        await self.hass.services.async_call(
-            "climate",
-            "set_preset_mode",
-            {"entity_id": entity_id, "preset_mode": "manual"},
-            blocking=True,
-            context=self.context,
-        )
+        await _select_manual_preset(self, entity_id)
     return True
 
 
@@ -84,8 +116,10 @@ async def override_set_temperature(self, entity_id, temperature):
     Returns
     -------
     bool
-        True, always: the quirk issues the setpoint write itself, so
-        the caller never needs the generic adapter fallback.
+        True once the setpoint write went out, so the caller does not need
+        the generic adapter fallback. False when the device refused it: the
+        adapter write then carries the setpoint instead, with its own step
+        rounding and retry handling.
     """
     model = self.real_trvs[entity_id].model
     if model == "TV02-Zigbee":
@@ -94,22 +128,25 @@ async def override_set_temperature(self, entity_id, temperature):
             self.device_name,
             entity_id,
         )
+        await _select_manual_preset(self, entity_id)
+
+    try:
         await self.hass.services.async_call(
             "climate",
-            "set_preset_mode",
-            {"entity_id": entity_id, "preset_mode": "manual"},
+            "set_temperature",
+            {
+                "entity_id": entity_id,
+                "temperature": celsius_to_system_temperature(self.hass, temperature),
+            },
             blocking=True,
             context=self.context,
         )
-
-    await self.hass.services.async_call(
-        "climate",
-        "set_temperature",
-        {
-            "entity_id": entity_id,
-            "temperature": celsius_to_system_temperature(self.hass, temperature),
-        },
-        blocking=True,
-        context=self.context,
-    )
+    except (HomeAssistantError, OSError) as ex:
+        _LOGGER.warning(
+            "better_thermostat %s: TV02-Zigbee setpoint write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
     return True
