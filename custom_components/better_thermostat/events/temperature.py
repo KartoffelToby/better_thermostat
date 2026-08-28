@@ -8,6 +8,7 @@ propagated to the target devices.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 import math
@@ -74,10 +75,37 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
+def _filter_lock(self) -> asyncio.Lock:
+    """Return the lock that serialises this entity's temperature filter.
+
+    The filter carries state from one reading to the next: the accumulated
+    delta, the pending plateau value and its timer. Home Assistant handles
+    every sensor update in its own task, and applying a reading suspends
+    while the value is written to the TRVs. Without the lock a reading that
+    arrives during such a write is decided against, and committed on top of,
+    a half-applied predecessor. The lock is created on first use and lives
+    on the entity, so each Better Thermostat only queues behind itself.
+    """
+    lock = getattr(self, "_temperature_filter_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        self._temperature_filter_lock = lock
+    return lock
+
+
 async def _apply_temperature_update(self, new_temp):
-    """Apply the new external temperature and trigger updates."""
+    """Apply the new external temperature once the filter is free."""
+    async with _filter_lock(self):
+        await _commit_temperature_update(self, new_temp)
+
+
+async def _commit_temperature_update(self, new_temp):
+    """Apply the new external temperature and trigger updates.
+
+    Callers hold the filter lock.
+    """
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update called with %.2f",
+        "better_thermostat %s: _commit_temperature_update called with %.2f",
         self.device_name,
         new_temp,
     )
@@ -154,12 +182,16 @@ async def _apply_temperature_update(self, new_temp):
         else:
             request_control_cycle(self)
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update finished", self.device_name
+        "better_thermostat %s: _commit_temperature_update finished", self.device_name
     )
 
 
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
+
+    Readings are handled one at a time; a reading that arrives while an
+    earlier one is still being applied waits its turn instead of being
+    dropped, so it is judged against the state the earlier one left behind.
 
     Parameters
     ----------
@@ -171,6 +203,15 @@ async def trigger_temperature_change(self, event):
     Returns
     -------
     None
+    """
+    async with _filter_lock(self):
+        await _evaluate_temperature_reading(self, event)
+
+
+async def _evaluate_temperature_reading(self, event):
+    """Decide whether one external temperature reading is applied.
+
+    Callers hold the filter lock.
     """
     if self.startup_running:
         return
@@ -354,7 +395,7 @@ async def trigger_temperature_change(self, event):
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
-        await _apply_temperature_update(self, _incoming_temperature_q)
+        await _commit_temperature_update(self, _incoming_temperature_q)
     else:
         _LOGGER.debug(
             "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s "

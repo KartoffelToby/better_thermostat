@@ -4,6 +4,7 @@ Covers EMA calculation, temperature application, guard clauses, debounce
 acceptance logic, accumulation tracking, and plateau acceptance.
 """
 
+import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -57,6 +58,9 @@ def mock_bt():
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+
+    # Serialisation of concurrent readings
+    bt._temperature_filter_lock = None
 
     # Anti-flicker state
     bt.flicker_candidate = None
@@ -803,3 +807,130 @@ class TestEdgeCasesAndRobustness:
 
         # 30s < 600s → rejected because one TRV is HomematicIP
         assert mock_bt.cur_temp == 20.0
+
+
+# ---------------------------------------------------------------------------
+# 8. Concurrent readings
+# ---------------------------------------------------------------------------
+
+
+class _RecordingQuirks:
+    """Model quirks that record external-temperature writes and overlap."""
+
+    def __init__(self):
+        self.writes: list[tuple[str, float]] = []
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.gate: asyncio.Event | None = None
+
+    async def maybe_set_external_temperature(self, entity, entity_id, temperature):
+        """Record one write, yielding long enough for another task to run."""
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            if self.gate is not None:
+                await self.gate.wait()
+            else:
+                for _ in range(3):
+                    await asyncio.sleep(0)
+            self.writes.append((entity_id, temperature))
+        finally:
+            self.in_flight -= 1
+
+
+class _AdvancingClock:
+    """Hand out timestamps that move forward on every read.
+
+    Each reading is debounced against the previous one, so a clock that
+    stood still would reject the second of two readings long before the
+    handlers could overlap.
+    """
+
+    def __init__(self, start, step_seconds=10):
+        self._current = start
+        self._step = timedelta(seconds=step_seconds)
+
+    def now(self):
+        """Return a timestamp ``step_seconds`` after the previous one."""
+        self._current += self._step
+        return self._current
+
+
+class TestConcurrentReadings:
+    """Two readings handled at the same time must not interleave."""
+
+    @staticmethod
+    def _attach_trvs(mock_bt, quirks, entity_ids):
+        """Give the thermostat TRVs that all share one quirks recorder."""
+        mock_bt.real_trvs = {
+            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            for entity_id in entity_ids
+        }
+
+    @pytest.mark.asyncio
+    async def test_overlapping_readings_reach_every_trv_in_order(self, mock_bt):
+        """Hand both accepted readings to every TRV, oldest first."""
+        quirks = _RecordingQuirks()
+        self._attach_trvs(mock_bt, quirks, ("climate.trv1", "climate.trv2"))
+        start = dt_util.now()
+        mock_bt.last_external_sensor_change = start
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.dt_util",
+            _AdvancingClock(start),
+        ):
+            await asyncio.gather(
+                trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "21.0"))
+                ),
+                trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "22.0"))
+                ),
+            )
+
+        assert quirks.max_in_flight == 1
+        assert quirks.writes == [
+            ("climate.trv1", 21.0),
+            ("climate.trv2", 21.0),
+            ("climate.trv1", 22.0),
+            ("climate.trv2", 22.0),
+        ]
+        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.accum_delta == 0.0
+        assert mock_bt.pending_temp is None
+
+    @pytest.mark.asyncio
+    async def test_overlapping_applies_do_not_share_the_write_loop(self, mock_bt):
+        """Serialise updates that skip the debounce, such as the plateau timer."""
+        quirks = _RecordingQuirks()
+        self._attach_trvs(mock_bt, quirks, ("climate.trv1",))
+
+        await asyncio.gather(
+            _apply_temperature_update(mock_bt, 21.0),
+            _apply_temperature_update(mock_bt, 22.0),
+        )
+
+        assert quirks.max_in_flight == 1
+        assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
+        assert mock_bt.last_known_external_temp == 22.0
+
+    @pytest.mark.asyncio
+    async def test_cancelled_update_lets_the_next_one_through(self, mock_bt):
+        """Release the serialisation when a pending update is cancelled."""
+        quirks = _RecordingQuirks()
+        quirks.gate = asyncio.Event()
+        self._attach_trvs(mock_bt, quirks, ("climate.trv1",))
+
+        cancelled = asyncio.create_task(_apply_temperature_update(mock_bt, 21.0))
+        await asyncio.sleep(0)
+        queued = asyncio.create_task(_apply_temperature_update(mock_bt, 22.0))
+        await asyncio.sleep(0)
+
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        quirks.gate.set()
+        await queued
+
+        assert quirks.writes == [("climate.trv1", 22.0)]
+        assert mock_bt.last_known_external_temp == 22.0
