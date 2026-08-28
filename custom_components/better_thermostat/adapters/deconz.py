@@ -32,6 +32,12 @@ OFFSET_MIN: Final = -6.0
 OFFSET_MAX: Final = 6.0
 OFFSET_STEP: Final = 1.0
 
+# deCONZ expresses a thermostat's ``config/offset`` in hundredths of a degree,
+# the same encoding it uses for ``heatsetpoint`` and the measured temperature:
+# the value 250 is 2.5 K. Every number crossing this adapter's own interface is
+# in Kelvin, so the wire value is scaled on the way out and back on the way in.
+OFFSET_UNITS_PER_KELVIN: Final = 100
+
 
 async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     """Get info from TRV."""
@@ -71,7 +77,7 @@ async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return 0.0
     try:
-        return float(str(state.attributes.get("offset", 0)))
+        return float(str(state.attributes.get("offset", 0))) / OFFSET_UNITS_PER_KELVIN
     except ValueError, TypeError:
         _LOGGER.warning(
             "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
@@ -101,6 +107,9 @@ async def set_offset(
 ) -> bool:
     """Write a calibration offset through the deCONZ configure service.
 
+    The service passes its payload to the deCONZ REST API unaltered, so
+    what goes out is the requested offset in that API's own units.
+
     Parameters
     ----------
     self : AdapterHost
@@ -124,7 +133,7 @@ async def set_offset(
         {
             "entity": entity_id,
             "field": "/config",
-            "data": {"offset": calibration_offset},
+            "data": {"offset": round(calibration_offset * OFFSET_UNITS_PER_KELVIN)},
         },
         blocking=True,
         context=self.context,

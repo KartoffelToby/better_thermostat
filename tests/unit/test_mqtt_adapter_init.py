@@ -107,9 +107,9 @@ async def test_successful_discovery_is_not_traced_as_a_failure(caplog):
 def _bt_with_preset(preset_modes, preset_mode=None) -> MagicMock:
     """Build a stand-in whose TRV reports ``preset_modes`` and needs a reset.
 
-    ``calibration`` is deliberately not 1: the preset reset sits inside the
-    branch that discovers the local calibration entity, so a TRV that needs
-    no such lookup never reaches it.
+    ``calibration`` is deliberately not 1, the value a configuration that
+    names no calibration type leaves behind; every type a configuration can
+    name reaches the reset.
     """
     bt = MagicMock()
     bt.device_name = "Test BT"
@@ -200,6 +200,30 @@ async def test_preset_reset_is_skipped_when_the_trv_already_runs_manual():
     bt = _bt_with_preset(["none", "auto", "manual"], preset_mode="manual")
     await _init_with_preset(bt)
     assert _preset_calls(bt) == []
+
+
+@pytest.mark.parametrize("calibration", [0, 2, 3])
+@pytest.mark.asyncio
+async def test_every_calibration_a_configuration_can_name_reaches_the_reset(
+    calibration,
+):
+    """How a TRV calibrates does not decide whether it keeps its schedule.
+
+    The reset is read off the record startup built, before the lookup in
+    the same pass fills the calibration entity in, so a TRV that ends up
+    with one is taken off its schedule as much as a TRV that never had one.
+    """
+    bt = _bt_with_preset(["none", "auto", "manual"], preset_mode="auto")
+    bt.real_trvs[ENTITY_ID].calibration = calibration
+
+    with (
+        patch(_FIND_VALVE, AsyncMock(return_value=None)),
+        patch(_FIND_CALIBRATION, AsyncMock(return_value="number.trv_calibration")),
+        patch(_WAIT_FOR_CALIBRATION, AsyncMock(return_value=None)),
+    ):
+        await init(bt, ENTITY_ID)
+
+    assert _preset_calls(bt) == [{"entity_id": ENTITY_ID, "preset_mode": "manual"}]
 
 
 _GET_INFO_FIND_VALVE = (

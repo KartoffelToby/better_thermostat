@@ -85,15 +85,16 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     """Initialize the MQTT adapter for a TRV entity.
 
     Adopts the valve position entity and the local calibration entity,
-    and takes the TRV off its own schedule on the pass that looks the
-    calibration entity up.
+    and takes the TRV off its own schedule.
     """
     await discover_valve_entity(self, entity_id)
 
     trv = self.real_trvs[entity_id]
-    # The preset reset rides on the pass that looks the calibration entity
-    # up: a TRV that already carries one, and one that is not calibrated
-    # through such an entity, keep the preset they are on.
+    # Read before the lookup below fills the entity in, so it describes the
+    # record as startup built it: no calibration entity yet, and the
+    # calibration type the configuration named. Only a configuration naming
+    # none leaves that type at 1, so the reset reaches every configured TRV,
+    # whichever way that TRV is calibrated.
     resets_preset = (
         trv.local_temperature_calibration_entity is None and trv.calibration != 1
     )
