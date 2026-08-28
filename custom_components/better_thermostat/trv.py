@@ -28,7 +28,10 @@ class ModelQuirks(Protocol):
     Quirk modules are plain modules under ``model_fixes/``; this is the
     contract every one of them provides. ``override_set_valve`` is the
     one optional extension — callers probe it with ``getattr``, and
-    :meth:`Trv.capabilities` turns its presence into a capability.
+    :meth:`Trv.capabilities` turns its presence into a capability. Only
+    a module that really drives its device's valve defines it: a module
+    that answers the probe without commanding anything would report
+    valve support for a device that has none.
     """
 
     fix_local_calibration: Callable[..., float]
