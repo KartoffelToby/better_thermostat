@@ -7,6 +7,7 @@ Better Thermostat integration for deCONZ-controlled TRV devices.
 from __future__ import annotations
 
 import logging
+from typing import Final
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
@@ -23,6 +24,13 @@ _LOGGER = logging.getLogger(__name__)
 CAPABILITIES = AdapterCapabilities(
     offset_write=True, offset_needs_entity=False, valve_write=False
 )
+
+# The offset range and granularity the deCONZ configure service accepts.
+# They belong to the ecosystem rather than to a discovered entity, so every
+# deCONZ TRV reports the same three numbers and the write clamps to them.
+OFFSET_MIN: Final = -6.0
+OFFSET_MAX: Final = 6.0
+OFFSET_STEP: Final = 1.0
 
 
 async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
@@ -75,20 +83,22 @@ async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
 
 async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
     """Get offset step."""
-    return 1.0
+    return OFFSET_STEP
 
 
 async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
-    return -6
+    return OFFSET_MIN
 
 
 async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
-    return 6
+    return OFFSET_MAX
 
 
-async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
+async def set_offset(
+    self: AdapterHost, entity_id: str, calibration_offset: float
+) -> bool:
     """Write a calibration offset through the deCONZ configure service.
 
     Parameters
@@ -97,8 +107,8 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         Host providing Home Assistant access and the per-TRV records.
     entity_id : str
         Entity ID of the TRV to write to
-    offset : float
-        Calibration offset in Kelvin
+    calibration_offset : float
+        Calibration offset in Kelvin, clamped to the range deCONZ accepts
 
     Returns
     -------
@@ -106,14 +116,20 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         True once the write went out. The offset rides on the TRV's own
         service call, so every deCONZ TRV has the channel.
     """
+    calibration_offset = min(await get_max_offset(self, entity_id), calibration_offset)
+    calibration_offset = max(await get_min_offset(self, entity_id), calibration_offset)
     await self.hass.services.async_call(
         "deconz",
         "configure",
-        {"entity": entity_id, "field": "/config", "data": {"offset": offset}},
+        {
+            "entity": entity_id,
+            "field": "/config",
+            "data": {"offset": calibration_offset},
+        },
         blocking=True,
         context=self.context,
     )
-    self.real_trvs[entity_id].last_calibration = offset
+    self.real_trvs[entity_id].last_calibration = calibration_offset
     return True
 
 
