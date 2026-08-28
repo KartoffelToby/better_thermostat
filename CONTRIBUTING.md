@@ -405,10 +405,12 @@ behind on purpose — the same defect fixed in a different place on each line, f
 instance — record it in `.forward-port-gaps.json` with the reason. The reason is
 written by hand: a generated one would say nothing, and the reason is the point.
 
-This is the release gate for the next major version. It runs on a pull request
-from `develop` to `master` and on demand from the Actions tab, and not on
-ordinary pull requests: a gap on the maintenance line is not something an
-unrelated change has to close.
+This is the release gate for the next major version. It runs on every pull
+request to `master` and on demand from the Actions tab. One head passes without
+being checked: a pull request from `1.9`, which is a maintenance release and
+ships the very commits the report would name. Ordinary pull requests target
+`develop` and never reach the gate. A merge pushed to `master` directly has no
+pull request, and nothing watches that path.
 
 The script names its own blind spots in its docstring. The one to know before
 reading the output: a commit carrying fewer than three markers is not scored at

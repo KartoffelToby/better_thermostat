@@ -38,8 +38,8 @@ Below 16 characters a line is short enough to recur by coincidence, above it
 is not.
 
 ``HIT_RATE_THRESHOLD`` is 0.5, and the measured distribution has nothing near
-it: on the range this was built against, commits carried forward scored 67%
-and up, commits not carried forward 33% and down.
+it: over ``develop..origin/1.9``, commits carried forward score 75% and up,
+commits not carried forward 33% and down.
 
 Known misreadings, both directions:
 
@@ -157,9 +157,16 @@ class Commit:
 
 
 def _git(*arguments: str) -> str:
-    """Return the standard output of a git command that has to succeed."""
+    """Return the standard output of a git command that has to succeed.
+
+    ``core.quotePath`` is off because both commands that print paths here are
+    read by their prefix and their suffix. Git quotes a path carrying bytes
+    above ASCII, and a quoted one opens with a quotation mark instead of
+    ``b/`` and ends in one instead of a known suffix, so the file it names
+    drops out of the comparison on both sides.
+    """
     finished = subprocess.run(
-        ("git", "-C", str(REPO_ROOT), *arguments),
+        ("git", "-C", str(REPO_ROOT), "-c", "core.quotePath=false", *arguments),
         capture_output=True,
         text=True,
         check=False,
@@ -248,18 +255,33 @@ def _looks_distinctive(line: str) -> bool:
 
 
 def _added_lines(sha: str) -> dict[str, list[str]]:
-    """Return the distinctive added lines of a commit, per file."""
+    """Return the distinctive added lines of a commit, per file.
+
+    A file's ``--- a/…`` and ``+++ b/…`` headers stand between ``diff --git``
+    and the file's first hunk, and only there. Inside a hunk the same prefixes
+    belong to content: at zero context a removed line reading ``--x`` renders
+    as ``---x`` and an added line reading ``++x`` as ``+++x``, so a header is
+    only recognised while no hunk is open. A YAML document separator or a
+    Markdown rule is enough to meet that shape.
+    """
     diff = _git("show", "--format=", "--unified=0", "--no-color", sha)
     per_file: dict[str, list[str]] = {}
     path: str | None = None
+    in_hunk = False
     for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            path = line[6:]
-            continue
-        if line.startswith(("+++", "---")):
-            # "+++ /dev/null" is a deletion, and nothing after it belongs to
-            # a file that still exists.
+        if line.startswith("diff --git "):
+            # Every file starts out unnamed. A deleted one reads
+            # "+++ /dev/null" and never gets a name, so nothing is collected
+            # under it.
             path = None
+            in_hunk = False
+            continue
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if not in_hunk:
+            if line.startswith("+++ b/"):
+                path = line[6:]
             continue
         if not line.startswith("+") or path is None or not _is_text(path):
             continue
@@ -282,7 +304,7 @@ def _prior_lines(sha: str, path: str) -> set[str]:
     return {line.strip() for line in finished.stdout.splitlines()}
 
 
-def markers_of(sha: str, limit: int = MARKERS_PER_COMMIT) -> list[str]:
+def markers_of(sha: str, limit: int | None = None) -> list[str]:
     """Return up to ``limit`` markers for a commit.
 
     Parameters
@@ -290,10 +312,15 @@ def markers_of(sha: str, limit: int = MARKERS_PER_COMMIT) -> list[str]:
     sha
         The commit to read.
     limit
-        How many markers to take. They are drawn one file at a time, longest
-        first within a file, so a commit spread over many files is judged on
-        all of them rather than on whichever one is largest.
+        How many markers to take, ``MARKERS_PER_COMMIT`` when left open. The
+        budget is read on each call rather than bound into the signature, so
+        a caller that varies the constant varies what this returns. Markers
+        are drawn one file at a time, longest first within a file, so a commit
+        spread over many files is judged on all of them rather than on
+        whichever one is largest.
     """
+    if limit is None:
+        limit = MARKERS_PER_COMMIT
     per_file: dict[str, list[str]] = {}
     for path, lines in _added_lines(sha).items():
         prior = _prior_lines(sha, path)
@@ -429,7 +456,11 @@ def check(maintenance: str, development: str) -> int:
         )
         return 0
 
-    print(f"\n{len(unrecorded)} commits are not carried forward:")
+    print(
+        f"\n{len(behind)} commits are not carried forward, "
+        f"{len(behind) - len(unrecorded)} of them recorded in "
+        f"{ACKNOWLEDGED_FILE.name}. The remaining {len(unrecorded)}:"
+    )
     for commit in sorted(unrecorded, key=lambda c: c.hit_rate):
         print(_describe(commit))
     print(
