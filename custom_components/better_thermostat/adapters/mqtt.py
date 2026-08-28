@@ -11,12 +11,13 @@ import logging
 from typing import Final
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..utils.helpers import find_local_calibration_entity, find_valve_entity
 from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
 from .generic import (
+    get_current_offset as generic_get_current_offset,
     set_hvac_mode as generic_set_hvac_mode,
+    set_offset as generic_set_offset,
     set_temperature as generic_set_temperature,
 )
 from .types import AdapterHost, AdapterProbeHost
@@ -164,22 +165,22 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
 
 
 async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
-    """Get current offset."""
-    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
-    if calibration_entity is None:
-        return 0.0
-    state = self.hass.states.get(calibration_entity)
-    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-        return 0.0
-    try:
-        return float(str(state.state))
-    except ValueError, TypeError:
-        _LOGGER.warning(
-            "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
-            self.device_name,
-            state.state,
-        )
-        return 0.0
+    """Read the offset the calibration entity currently reports.
+
+    Parameters
+    ----------
+    self : AdapterHost
+        Host providing Home Assistant access and the per-TRV records.
+    entity_id : str
+        Entity ID of the TRV to read for.
+
+    Returns
+    -------
+    float
+        Offset in Kelvin, 0.0 when the TRV has no calibration entity or the
+        entity reports nothing readable.
+    """
+    return await generic_get_current_offset(self, entity_id)
 
 
 async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
@@ -233,29 +234,7 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         True once the write went out, False when no calibration entity was
         discovered for this TRV and there is nothing to write to.
     """
-    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
-    if calibration_entity is None:
-        return False
-
-    max_calibration = await get_max_offset(self, entity_id)
-    min_calibration = await get_min_offset(self, entity_id)
-
-    offset = min(max_calibration, offset)
-    offset = max(min_calibration, offset)
-
-    await self.hass.services.async_call(
-        "number",
-        SERVICE_SET_VALUE,
-        {"entity_id": calibration_entity, "value": offset},
-        blocking=True,
-        context=self.context,
-    )
-    self.real_trvs[entity_id].last_calibration = offset
-    last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
-    if last_hvac_mode is not None and last_hvac_mode != "off":
-        await asyncio.sleep(3)
-        await generic_set_hvac_mode(self, entity_id, last_hvac_mode)
-    return True
+    return await generic_set_offset(self, entity_id, offset)
 
 
 async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> None:

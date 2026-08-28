@@ -8,6 +8,7 @@ import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 
 from .types import AdapterHost
 
@@ -45,6 +46,71 @@ class AdapterCapabilities:
     # therefore requires one) instead of an ecosystem service call.
     offset_needs_entity: bool = True
     valve_needs_entity: bool = True
+
+
+def _zero_offset_option(state: State | None) -> str:
+    """Return the option of a calibration select that carries a zero offset.
+
+    Parameters
+    ----------
+    state : State or None
+        State of the calibration select, or None when it has none yet.
+
+    Returns
+    -------
+    str
+        The offered option that reads as zero Kelvin, or the Kelvin spelling
+        of zero when the entity offers nothing that does.
+    """
+    if state is None:
+        return "0.0k"
+    for option in state.attributes.get("options") or []:
+        try:
+            if float(str(option).replace("k", "")) == 0.0:
+                return str(option)
+        except ValueError, TypeError:
+            continue
+    return "0.0k"
+
+
+async def _write_zero_calibration(
+    self: AdapterHost, calibration_entity: str, state: State | None
+) -> None:
+    """Write a zero offset through the service the entity's domain answers to.
+
+    Discovery accepts a calibration helper in either the ``number`` or the
+    ``select`` domain, and each takes its own service: a select rejects
+    ``number.set_value`` and only moves when told an option it offers.
+
+    Parameters
+    ----------
+    self : AdapterHost
+        Host providing Home Assistant access and the per-TRV records.
+    calibration_entity : str
+        Entity ID of the calibration helper to write to.
+    state : State or None
+        State of that entity, used to pick an option it actually offers.
+
+    Returns
+    -------
+    None
+    """
+    if calibration_entity.split(".", 1)[0] == "select":
+        await self.hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": calibration_entity, "option": _zero_offset_option(state)},
+            blocking=False,
+            context=self.context,
+        )
+        return
+    await self.hass.services.async_call(
+        "number",
+        SERVICE_SET_VALUE,
+        {"entity_id": calibration_entity, "value": 0},
+        blocking=False,
+        context=self.context,
+    )
 
 
 async def wait_for_calibration_entity_or_timeout(
@@ -97,13 +163,7 @@ async def wait_for_calibration_entity_or_timeout(
                 )
                 # Force set calibration to 0 to initialize the entity
                 try:
-                    await self.hass.services.async_call(
-                        "number",
-                        SERVICE_SET_VALUE,
-                        {"entity_id": calibration_entity, "value": 0},
-                        blocking=False,
-                        context=self.context,
-                    )
+                    await _write_zero_calibration(self, calibration_entity, _state)
                 except Exception as e:
                     _LOGGER.error(
                         "better_thermostat %s: Failed to set calibration to 0 for entity '%s': %s",
