@@ -2449,13 +2449,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except KeyError, TypeError:
                     pass
 
-            # Build snapshots (skips TRVs with state=None)
+            # Build snapshots. A TRV that publishes no state, or one whose
+            # state names no mode to restore, gets none and stays out of the
+            # run below.
             infos = build_trv_snapshots(
                 self.real_trvs, trvs, self.hass.states.get, self.device_name
             )
             serviced_ids = {info.entity_id for info in infos}
 
-            # Release guard for TRVs that were skipped (state=None)
+            # Release guard for the TRVs that got no snapshot
             for trv_id in trvs:
                 if trv_id not in serviced_ids:
                     try:
