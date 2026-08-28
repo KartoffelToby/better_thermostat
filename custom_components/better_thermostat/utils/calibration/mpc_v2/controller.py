@@ -203,13 +203,18 @@ class MpcV2Controller:
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
-        sp_for_opt = self.governor.update(
-            T_sp=T_target_C, T_outdoor_C=T_outdoor_C, T_room_now=T_room_C
-        )
-
         innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
         x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
         self.dob.update(innovation, dt_s)
+
+        # The governor runs behind the observer so it judges which setpoints
+        # are reachable on the same disturbance estimate the QP plans with.
+        sp_for_opt = self.governor.update(
+            T_sp=T_target_C,
+            T_outdoor_C=T_outdoor_C,
+            T_room_now=T_room_C,
+            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+        )
 
         if t_s < self._next_mpc_t_s:
             return self._last_u, self._diagnostics()
