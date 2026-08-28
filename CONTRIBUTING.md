@@ -379,3 +379,38 @@ uv run python scripts/coverage_floors.py update
 
 `update` prints every floor it lowers. If a pull request lowers one, the diff
 says which module gave up coverage and by how much.
+
+## The maintenance line
+
+`1.9` is the maintenance line and `develop` is what ships as the next major
+version. A change wanted on both is written twice, one commit per line, because
+the lines have diverged far enough that a cherry-pick no longer applies. A
+change written only on `1.9` is a gap, and squash-merges hide it: a pair shares
+no patch id, so `git cherry` reports every commit as missing and says nothing.
+
+`scripts/forward_port_gaps.py` compares the text instead. For every commit on
+`1.9` that `develop` does not contain it takes up to twelve distinctive added
+lines and looks each one up in `develop`'s *tree*. Reading the tree rather than
+the history is what survives the squash: a line that arrived under any commit
+is in the tree.
+
+```bash
+git fetch origin 1.9:refs/remotes/origin/1.9        # once, if you have no 1.9
+uv run python scripts/forward_port_gaps.py list     # every commit, with its hit rate
+uv run python scripts/forward_port_gaps.py check    # what CI runs
+```
+
+A commit under a 50% hit rate is a candidate to forward-port. Where it stays
+behind on purpose — the same defect fixed in a different place on each line, for
+instance — record it in `.forward-port-gaps.json` with the reason. The reason is
+written by hand: a generated one would say nothing, and the reason is the point.
+
+This is the release gate for the next major version. It runs on a pull request
+from `develop` to `master` and on demand from the Actions tab, and not on
+ordinary pull requests: a gap on the maintenance line is not something an
+unrelated change has to close.
+
+The script names its own blind spots in its docstring. The one to know before
+reading the output: a commit carrying fewer than three markers is not scored at
+all, so version bumps and prose-only commits are listed apart rather than
+judged, and a real change small enough to leave no marker is listed with them.

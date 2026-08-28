@@ -1,0 +1,46 @@
+name: Forward-port gaps
+
+# The next major version ships as a pull request from develop to master, and
+# it may not ship while the maintenance line still holds work that never
+# reached develop. A patch release of the maintenance line targets master too
+# and is not what this gate is about, so the head branch decides.
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gaps:
+    name: Maintenance line carried forward
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+          # The comparison walks both lines commit by commit and reads each
+          # touched file's parent revision, so a shallow clone has nothing
+          # to read.
+          fetch-depth: 0
+      - name: Fetch both release lines
+        run: >-
+          git fetch --no-tags --force origin
+          develop:refs/remotes/origin/develop
+          1.9:refs/remotes/origin/1.9
+      - name: Set up uv (install cache)
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: true
+      - name: Check that the maintenance line is carried forward
+        run: >-
+          uv run --locked --only-group dev
+          python scripts/forward_port_gaps.py check
+          --maintenance origin/1.9 --development origin/develop
