@@ -60,7 +60,6 @@ def mock_bt():
 
     # Anti-flicker state
     bt.flicker_candidate = None
-    bt.flicker_unignore_cancel = None
 
     # Maintenance
     bt.in_maintenance = False

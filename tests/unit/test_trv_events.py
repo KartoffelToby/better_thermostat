@@ -2125,6 +2125,22 @@ class TestConvertInboundStates:
             result = convert_inbound_states(mock_bt, ENTITY_ID, state)
         assert result is None
 
+    def test_heat_cool_mode_returns_none(self, mock_bt):
+        """Return None for HEAT_COOL.
+
+        A device that names its heating mode heat_cool is decoded into HEAT by
+        the remap, so a HEAT_COOL reaching this point is a mode the entity does
+        not adopt. The mode adoption downstream relies on that: it only ever
+        sees OFF, HEAT or nothing.
+        """
+        state = _make_state(state_str="heat_cool")
+        with patch(
+            "custom_components.better_thermostat.events.trv.mode_remap",
+            return_value=HVACMode.HEAT_COOL,
+        ):
+            result = convert_inbound_states(mock_bt, ENTITY_ID, state)
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # 8. convert_outbound_states
