@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from homeassistant.components.climate.const import (
     PRESET_ACTIVITY,
@@ -522,7 +523,24 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
         trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
         if trv_state is None:
             return
-        trv_state.valve_max_opening = max(0.0, min(100.0, float(value)))
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            # Clamping against 0..100 does not remove a non-finite number, it
+            # disguises it: every comparison with NaN is false, so NaN and
+            # +inf leave the clamp as 100 (the cap stops limiting anything)
+            # and -inf as 0 (the valve is held shut). Home Assistant's own
+            # range check passes them for the same reason, which makes this
+            # the last place the cap can still be recognised as unusable.
+            _LOGGER.warning(
+                "Better Thermostat %s: %s is not a usable maximum valve "
+                "opening for %s, keeping %s %%",
+                self._bt_climate.device_name,
+                value,
+                self._trv_entity_id,
+                trv_state.valve_max_opening,
+            )
+            return
+        trv_state.valve_max_opening = max(0.0, min(100.0, numeric))
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""

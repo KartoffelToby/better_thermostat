@@ -767,7 +767,7 @@ class StateManager:
         if live is None:
             persisted = self._state.mpc_v2.get(key)
             live = (
-                import_mpc_v2_state(asdict(persisted), params)
+                import_mpc_v2_state(asdict(persisted), params, key=key)
                 if persisted is not None
                 else MpcV2State()
             )

@@ -83,14 +83,18 @@ def export_mpc_v2_state(state: MpcV2State) -> dict[str, Any] | None:
 
 
 def import_mpc_v2_state(
-    payload: Mapping[str, Any], params: MpcV2Params | None = None
+    payload: Mapping[str, Any],
+    params: MpcV2Params | None = None,
+    *,
+    key: str | None = None,
 ) -> MpcV2State:
     """Rehydrate a single live v2 state from a previously exported payload.
 
     A fresh ``MpcV2Controller`` is constructed and seeded via
     :meth:`MpcV2Controller.restore_snapshot`. When ``params`` is ``None`` the
     controller boots with defaults — the caller is expected to recompute soon
-    after with the correct params.
+    after with the correct params. ``key`` names the state entry the payload
+    belongs to, so a report about an unusable value can point at the room.
     """
     state = MpcV2State()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
@@ -99,7 +103,16 @@ def import_mpc_v2_state(
             try:
                 setattr(state, attr, float(value))
             except TypeError, ValueError, OverflowError:
-                pass
+                # The field keeps the default a first start leaves there, so
+                # a value the store lost is indistinguishable from one it
+                # never held unless this line says so.
+                _LOGGER.warning(
+                    "MPC v2 stored %s for %s is not a usable number, "
+                    "continuing without it",
+                    attr,
+                    key or "an unnamed state entry",
+                    exc_info=True,
+                )
     # The fallback-WARN latch is per controller instance; restoring it keeps
     # the throttle intact across the export/import round-trip the dispatcher
     # performs every cycle (otherwise the WARN fires on every compute).

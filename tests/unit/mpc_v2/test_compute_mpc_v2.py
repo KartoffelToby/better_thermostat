@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 import json
+import logging
 
 import numpy as np
 import pytest
@@ -603,3 +604,47 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         out_fresh.diagnostics.T_room_hat
     )
     assert out_restored.valve_percent == out_fresh.valve_percent
+
+
+@pytest.mark.parametrize(
+    ("attr", "stored", "fallback"),
+    [
+        pytest.param("last_percent", "forty-two", None, id="unparsable-text"),
+        pytest.param("last_compute_ts", 10**400, 0.0, id="wider-than-a-float"),
+        pytest.param("created_ts", {"nested": 1}, 0.0, id="wrong-type"),
+    ],
+)
+def test_unusable_stored_scalar_is_reported_at_warning(
+    caplog, attr: str, stored: object, fallback: float | None
+) -> None:
+    """A stored scalar that cannot be parsed is named instead of dropped.
+
+    The field falls back to the value a first start leaves there, so the two
+    are told apart by the report rather than by the resulting state.
+    """
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state({attr: stored}, key="uid:climate.hall:t21.0")
+
+    assert getattr(state, attr) == fallback
+    reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(reports) == 1
+    assert reports[0].exc_info is not None
+    assert attr in reports[0].getMessage()
+    assert "uid:climate.hall:t21.0" in reports[0].getMessage()
+
+
+def test_usable_stored_scalars_restore_without_a_report(caplog) -> None:
+    """The values the store actually writes rehydrate silently."""
+    payload = {
+        "last_percent": 42.0,
+        "last_compute_ts": 1_700_000_000.0,
+        "created_ts": 1_699_000_000.0,
+    }
+
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state(payload, key="uid:climate.hall:t21.0")
+
+    assert state.last_percent == 42.0
+    assert state.last_compute_ts == 1_700_000_000.0
+    assert state.created_ts == 1_699_000_000.0
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
