@@ -15,6 +15,7 @@ halves are tested apart because they promise different things:
   independent, and must not take the others down when it fails.
 """
 
+import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.lock import LockState
@@ -22,8 +23,12 @@ from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.calibration import (
+    _supports_direct_valve_control,
+)
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationType
 
 ENTITY_ID = "climate.trv"
 DEVICE_ID = "device-1"
@@ -175,13 +180,48 @@ class TestTheDefaultQuirkChangesNothing:
             is False
         )
 
-    @pytest.mark.asyncio
-    async def test_the_valve_write_is_not_overridden(self):
-        """Declining the override is what lets the adapter write."""
-        assert (
-            await default_quirk.override_set_valve(_thermostat(), ENTITY_ID, 50)
-            is False
+    def test_no_valve_override_is_offered(self):
+        """The valve override is absent, not a declining one.
+
+        Callers probe for it with ``getattr`` and read a hit as "this
+        model drives its valve directly". A declining implementation
+        here would answer that probe for every device on this module.
+        """
+        assert not hasattr(default_quirk, "override_set_valve")
+
+
+class TestDirectValveControlNeedsAValveToDrive:
+    """What the shell makes of a module without a valve override."""
+
+    @staticmethod
+    def _thermostat_with(quirks):
+        """A thermostat whose one TRV runs *quirks* in direct valve mode."""
+        thermostat = MagicMock()
+        thermostat.real_trvs = {
+            ENTITY_ID: Trv(
+                entity_id=ENTITY_ID,
+                advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+                model_quirks=quirks,
+            )
+        }
+        return thermostat
+
+    def test_a_model_on_the_default_module_drives_no_valve(self):
+        """No valve entity and no valve quirk leaves nothing to write to."""
+        thermostat = self._thermostat_with(default_quirk)
+
+        assert _supports_direct_valve_control(thermostat, ENTITY_ID) is False
+
+    @pytest.mark.parametrize("model", ["TRVZB", "ZWA021"])
+    def test_a_model_that_drives_its_valve_still_does(self, model):
+        """The modules that do command a valve keep the capability."""
+        thermostat = self._thermostat_with(
+            importlib.import_module(
+                f"custom_components.better_thermostat.model_fixes.{model}"
+            )
         )
+
+        assert _supports_direct_valve_control(thermostat, ENTITY_ID) is True
 
 
 class TestAdoptionNeedsADevice:

@@ -219,9 +219,9 @@ def build_trv_snapshots(
             continue
         valve_entity = trv_data.valve_position_entity
         quirks = trv_data.model_quirks
-        support_valve = bool(valve_entity) or bool(
-            getattr(quirks, "override_set_valve", None)
-        )
+        support_valve = bool(
+            valve_entity and trv_data.valve_position_writable is True
+        ) or bool(getattr(quirks, "override_set_valve", None))
         adv = _get_advanced(trv_data)
         cal_type = adv.get("calibration")
         use_direct = bool(
