@@ -75,7 +75,7 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
-def _filter_lock(self) -> asyncio.Lock:
+def temperature_filter_lock(self) -> asyncio.Lock:
     """Return the lock that serialises this entity's temperature filter.
 
     The filter carries state from one reading to the next: the accumulated
@@ -85,6 +85,9 @@ def _filter_lock(self) -> asyncio.Lock:
     arrives during such a write is decided against, and committed on top of,
     a half-applied predecessor. The lock is created on first use and lives
     on the entity, so each Better Thermostat only queues behind itself.
+
+    Everything that writes the room temperature to the TRVs takes this
+    lock: the sensor readings, the plateau timer and the keepalive tick.
     """
     lock = getattr(self, "_temperature_filter_lock", None)
     if lock is None:
@@ -95,7 +98,7 @@ def _filter_lock(self) -> asyncio.Lock:
 
 async def _apply_temperature_update(self, new_temp):
     """Apply the new external temperature once the filter is free."""
-    async with _filter_lock(self):
+    async with temperature_filter_lock(self):
         await _commit_temperature_update(self, new_temp)
 
 
@@ -189,9 +192,14 @@ async def _commit_temperature_update(self, new_temp):
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
 
-    Readings are handled one at a time; a reading that arrives while an
-    earlier one is still being applied waits its turn instead of being
-    dropped, so it is judged against the state the earlier one left behind.
+    Decides whether one external temperature reading is applied. Readings
+    are handled one at a time, so a reading that arrives while an earlier
+    one is still being applied waits its turn instead of being dropped and
+    is then judged against the state the earlier one left behind.
+
+    Callers hold the filter lock (see :func:`temperature_filter_lock`);
+    the decision reads and rewrites filter state that must not be shared
+    with a second reading.
 
     Parameters
     ----------
@@ -203,15 +211,6 @@ async def trigger_temperature_change(self, event):
     Returns
     -------
     None
-    """
-    async with _filter_lock(self):
-        await _evaluate_temperature_reading(self, event)
-
-
-async def _evaluate_temperature_reading(self, event):
-    """Decide whether one external temperature reading is applied.
-
-    Callers hold the filter lock.
     """
     if self.startup_running:
         return
