@@ -58,9 +58,6 @@ def mock_bt():
     bt.pending_since = None
     bt.plateau_timer_cancel = None
 
-    # Anti-flicker state
-    bt.flicker_candidate = None
-
     # Maintenance
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False

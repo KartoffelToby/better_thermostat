@@ -72,6 +72,7 @@ from .device_profiles import (
 DOMAIN = "better_thermostat"
 SENSOR_ID = "sensor.room_temperature"
 WINDOW_ID = "binary_sensor.window"
+HUMIDITY_ID = "sensor.room_humidity"
 
 # The entity every test drives, derived from the default entry title.
 BT_ENTITY = "climate.bt_test"
@@ -502,6 +503,7 @@ def make_entry(
     devices: DeviceProfile | RoleScenario | GroupScenario,
     *,
     with_window: bool = False,
+    with_humidity: bool = False,
     name: str = "BT Test",
     heat_auto_swapped: bool = False,
 ) -> MockConfigEntry:
@@ -562,6 +564,8 @@ def make_entry(
         data["window_sensors"] = WINDOW_ID
         data["window_off_delay"] = 0
         data["window_off_delay_after"] = 0
+    if with_humidity:
+        data["humidity_sensor"] = HUMIDITY_ID
     return MockConfigEntry(domain=DOMAIN, version=18, data=data, title=name)
 
 
@@ -704,6 +708,11 @@ def profile_id(spec) -> str:
 def set_room_sensor(hass, value, unit=UnitOfTemperature.CELSIUS) -> None:
     """Publish an external room temperature reading in ``unit``."""
     hass.states.async_set(SENSOR_ID, str(value), {"unit_of_measurement": unit})
+
+
+def set_room_humidity(hass, value) -> None:
+    """Publish an external relative humidity reading in percent."""
+    hass.states.async_set(HUMIDITY_ID, str(value), {"unit_of_measurement": "%"})
 
 
 def mode_commands(events, entity_id: str) -> list[str]:

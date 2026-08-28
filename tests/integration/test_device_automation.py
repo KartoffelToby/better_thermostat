@@ -41,6 +41,7 @@ from .conftest import (
     BT_ENTITY,
     DOMAIN,
     make_entry,
+    set_room_humidity,
     set_room_sensor,
     setup_entry,
     wait_for,
@@ -93,9 +94,15 @@ CONDITION_CASES = {
 
 
 async def _entry_with_device(hass):
-    """Set a thermostat up and return its config entry and device id."""
+    """Set a thermostat up and return its config entry and device id.
+
+    The entry carries a humidity sensor because two of the offered triggers
+    watch the humidity, and a thermostat without that sensor has no humidity
+    to report.
+    """
     set_room_sensor(hass, 19.0)
-    entry = make_entry(GENERIC_HEAT_TRV)
+    set_room_humidity(hass, 45.0)
+    entry = make_entry(GENERIC_HEAT_TRV, with_humidity=True)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     registry_entry = er.async_get(hass).async_get(BT_ENTITY)
