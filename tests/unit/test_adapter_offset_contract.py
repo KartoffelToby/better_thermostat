@@ -197,3 +197,95 @@ class TestNoOffsetChannelReportsFalse:
         assert result is False
         mock_self.hass.services.async_call.assert_not_awaited()
         assert mock_self.real_trvs[ENTITY_ID].last_calibration is None
+
+
+def _deconz_thermostat(reported=0):
+    """Build a thermostat whose deCONZ TRV reports ``reported`` as its offset.
+
+    Parameters
+    ----------
+    reported : int
+        The value the deCONZ integration publishes on the climate entity,
+        which is the ``config/offset`` of the deCONZ resource itself.
+
+    Returns
+    -------
+    MagicMock
+        A stand-in for the Better Thermostat climate entity instance.
+    """
+    mock_self = _mock_self(calibration_entity=None)
+    mock_self.hass.states.get = lambda requested: State(
+        ENTITY_ID, "heat", {"offset": reported}
+    )
+    return mock_self
+
+
+def _written_config(mock_self):
+    """The payload the recorded deCONZ configure call carried."""
+    return mock_self.hass.services.async_call.await_args.args[2]["data"]
+
+
+class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
+    """deCONZ carries a thermostat's offset in hundredths of a degree.
+
+    ``config/offset`` sits in the same resource as ``heatsetpoint`` and the
+    measured temperature and shares their encoding, so 250 is 2.5 K. The
+    configure service hands the payload to the REST API unaltered, and the
+    API scales it down to the 0.1 K steps the device itself takes; a plain
+    Kelvin float therefore arrives a hundred times too small and leaves the
+    device uncalibrated. The same scale governs the read, because the
+    attribute the integration publishes is that resource value.
+    """
+
+    @pytest.mark.parametrize(
+        ("kelvin", "expected"),
+        [(0.0, 0), (0.5, 50), (2.5, 250), (-2.5, -250), (-6.0, -600)],
+    )
+    @pytest.mark.asyncio
+    async def test_the_write_carries_the_offset_deconz_expects(self, kelvin, expected):
+        """What goes on the wire is the Kelvin request in deCONZ's units."""
+        mock_self = _mock_self()
+
+        await deconz.set_offset(mock_self, ENTITY_ID, kelvin)
+
+        assert _written_config(mock_self) == {"offset": expected}
+
+    @pytest.mark.asyncio
+    async def test_the_recorded_command_stays_in_kelvin(self):
+        """The scale belongs to the wire, not to the TRV record.
+
+        Every comparison the control cycle makes against ``last_calibration``
+        is in Kelvin, so the value stored there is the one that was asked for.
+        """
+        mock_self = _mock_self()
+
+        await deconz.set_offset(mock_self, ENTITY_ID, -2.0)
+
+        assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.0
+
+    @pytest.mark.parametrize(
+        ("reported", "expected"), [(0, 0.0), (250, 2.5), (-250, -2.5), (-600, -6.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_the_read_answers_in_kelvin(self, reported, expected):
+        """A device resting at 2.5 K reports 250 and reads back as 2.5."""
+        assert (
+            await deconz.get_current_offset(_deconz_thermostat(reported), ENTITY_ID)
+            == expected
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_write_and_the_read_share_one_scale(self):
+        """A device echoing the write back reports the offset that was sent.
+
+        The control cycle compares the two every run, so a read and a write
+        that disagreed on the scale would leave them permanently apart and
+        re-assert the offset for as long as the TRV is calibrated.
+        """
+        writing = _mock_self()
+        await deconz.set_offset(writing, ENTITY_ID, -2.0)
+        echoed = _written_config(writing)["offset"]
+
+        assert await deconz.get_current_offset(
+            _deconz_thermostat(echoed), ENTITY_ID
+        ) == pytest.approx(-2.0)
