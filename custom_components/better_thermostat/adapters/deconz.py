@@ -107,8 +107,9 @@ async def set_offset(
 ) -> bool:
     """Write a calibration offset through the deCONZ configure service.
 
-    The service passes its payload to the deCONZ REST API unaltered, so
-    what goes out is the requested offset in that API's own units.
+    deCONZ counts the offset in hundredths of a Kelvin, so the clamped Kelvin
+    value is scaled by ``OFFSET_UNITS_PER_KELVIN`` here. The ``configure``
+    service forwards that payload to the REST API unaltered.
 
     Parameters
     ----------
