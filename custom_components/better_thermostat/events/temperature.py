@@ -126,6 +126,7 @@ async def _apply_temperature_update(self, new_temp):
             float(_ema),
         )
     # Write the value used by BT (self.cur_temp) to the TRV
+    entity_ids: list[str] = []
     try:
         entity_ids = list(self.real_trvs.keys())
         if not entity_ids and hasattr(self, "entity_ids"):
@@ -136,7 +137,6 @@ async def _apply_temperature_update(self, new_temp):
             self.device_name,
             exc,
         )
-        entity_ids = []
     for entity_id in entity_ids:
         try:
             _trv = self.real_trvs.get(entity_id) if hasattr(self, "real_trvs") else None

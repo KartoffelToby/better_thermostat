@@ -5,6 +5,7 @@ acceptance logic, accumulation tracking, and plateau acceptance.
 """
 
 from datetime import timedelta
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
@@ -334,6 +335,23 @@ class TestApplyTemperatureUpdate:
         answering.maybe_set_external_temperature.assert_awaited_once_with(
             mock_bt, "climate.trv2", 21.0
         )
+
+    @pytest.mark.asyncio
+    async def test_a_missing_trv_map_still_starts_a_control_cycle(
+        self, mock_bt, caplog
+    ):
+        """Losing the head list costs the write, not the cycle.
+
+        The reading has already been accepted at this point, so the room has to
+        be regulated on it even when there is nobody left to send it to.
+        """
+        del mock_bt.real_trvs
+
+        with caplog.at_level(logging.WARNING):
+            await _apply_temperature_update(mock_bt, 21.0)
+
+        assert "no TRV list to write external_temperature to" in caplog.text
+        mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
 
 # ---------------------------------------------------------------------------
