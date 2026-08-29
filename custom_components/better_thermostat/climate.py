@@ -2367,13 +2367,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
         # quick availability check - only critical entities needed for maintenance
         try:
-            # The degraded-mode annunciation updates first: it has to keep
-            # reporting a lost room sensor even while an unavailable TRV
-            # aborts the tick.
+            # The degraded-mode annunciation has to keep reporting a lost
+            # room sensor, and the repair issues have to stay current, but
+            # neither decides this run. A head that reports nothing gets no
+            # snapshot and stays out of the exercise; the valves that do
+            # answer still need theirs, and a valve left unmoved for a season
+            # is what this tick exists to prevent.
             await check_and_update_degraded_mode(self)
-            ok = await check_critical_entities(self)
-            if ok is False:
-                return
+            await check_critical_entities(self)
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance availability check failed; "
