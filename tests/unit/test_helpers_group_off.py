@@ -113,6 +113,26 @@ def test_no_off_target_temp_low_at_min_true():
     assert group_all_members_off(_fake_self(members, states)) is True
 
 
+def test_no_off_null_temperature_falls_back_to_target_temp_low():
+    """A device on a target range publishes ``temperature`` as None.
+
+    Home Assistant emits both attributes for a device that supports a single
+    target and a range, and leaves ``temperature`` empty while the range is in
+    use. Reading only that key makes a head sitting at its minimum look like it
+    is heating, and the room comes back from a restart in HEAT.
+    """
+    members = {"climate.a": _member(no_off=True), "climate.b": _member(no_off=True)}
+    states = {
+        "climate.a": _state("climate.a", "heat", temperature=5.0),
+        "climate.b": State(
+            "climate.b",
+            "heat",
+            attributes={"temperature": None, "target_temp_low": 5.0, "min_temp": 5.0},
+        ),
+    }
+    assert group_all_members_off(_fake_self(members, states)) is True
+
+
 def test_unavailable_members_skipped():
     """An unavailable member is ignored; the rest still decide the outcome."""
     members = {f"climate.{n}": _member() for n in ("a", "b", "c")}

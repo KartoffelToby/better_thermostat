@@ -599,13 +599,34 @@ def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -
     A member counts as off when its reported HVAC state is ``off`` or, for a
     ``no_off_system_mode`` device (which never reports ``off``), when its
     current setpoint has dropped to that device's minimum temperature. The
-    setpoint is read via :func:`attr_to_celsius` (with ``target_temp_low`` as
-    fallback attribute) so it is compared in Celsius, like ``min_temp``.
+    setpoint is read via :func:`attr_to_celsius` so it is compared in Celsius,
+    like ``min_temp``. ``target_temp_low`` carries the setpoint whenever
+    ``temperature`` yields nothing: a device that supports both a single target
+    and a target range publishes ``temperature`` as ``None`` while it runs on
+    the range.
 
     ``min_temp`` comes from the cached :class:`Trv` and falls back to the
     reported state, because ``Trv.min_temp`` is filled by ``_initialize_trvs``
     — which runs after the startup mode is decided, so a caller in the startup
     path finds the cache still empty.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``real_trvs``
+    entity_id : str
+            entity id of the group member to judge
+    state : State
+            the member's reported state
+
+    Returns
+    -------
+    bool
+            True when the member is off, False when it heats
+
+    See Also
+    --------
+    group_all_members_off : applies this reading to the whole room
     """
     if state.state == HVACMode.OFF:
         return True
@@ -614,12 +635,13 @@ def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -
     if member is None or not (member.advanced or {}).get("no_off_system_mode", False):
         return False
 
-    setpoint_key = (
-        "temperature" if "temperature" in state.attributes else "target_temp_low"
-    )
     setpoint = attr_to_celsius(
-        self, state, setpoint_key, None, "member_counts_as_off()"
+        self, state, "temperature", None, "member_counts_as_off()"
     )
+    if setpoint is None:
+        setpoint = attr_to_celsius(
+            self, state, "target_temp_low", None, "member_counts_as_off()"
+        )
     min_temp = member.min_temp
     if min_temp is None:
         min_temp = attr_to_celsius(
