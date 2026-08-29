@@ -104,6 +104,13 @@ def _step_returning(fraction: float):
         pytest.param(0.025, 3, id="2.5-percent"),
         pytest.param(0.045, 5, id="4.5-percent"),
         pytest.param(0.125, 13, id="12.5-percent"),
+        # The four half percents below 1.0 whose double sits under the half:
+        # 0.285 * 100.0 is 28.499999999999996, so a bare `+ 0.5` sends them
+        # down and the contract above would hold for most halves but not all.
+        pytest.param(0.145, 15, id="14.5-percent-below-its-half"),
+        pytest.param(0.285, 29, id="28.5-percent-below-its-half"),
+        pytest.param(0.565, 57, id="56.5-percent-below-its-half"),
+        pytest.param(0.575, 58, id="57.5-percent-below-its-half"),
         pytest.param(0.1234, 12, id="rounds-down"),
         pytest.param(0.1256, 13, id="rounds-up"),
         pytest.param(0.0, 0, id="closed"),
