@@ -1,7 +1,10 @@
 """Tests for the Trv domain object."""
 
+import importlib
+
 import pytest
 
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 
 
@@ -191,6 +194,27 @@ class TestTrvCapabilities:
 
         trv = _make()
         trv.model_quirks = _Quirk()
+        assert trv.capabilities().supports_valve_write is True
+
+    def test_the_default_quirks_claim_no_valve_support(self):
+        """A model without a quirk file of its own gets the default module.
+
+        Every device whose model has no ``model_fixes/<model>.py`` loads
+        this module, so a valve override living in it would report valve
+        support for the entire long tail of TRVs.
+        """
+        trv = _make()
+        trv.model_quirks = default_quirk
+        trv.valve_position_entity = None
+        assert trv.capabilities().supports_valve_write is False
+
+    @pytest.mark.parametrize("model", ["TRVZB", "ZWA021"])
+    def test_a_model_that_drives_its_valve_keeps_the_capability(self, model):
+        """The modules that do command a valve still report one."""
+        trv = _make()
+        trv.model_quirks = importlib.import_module(
+            f"custom_components.better_thermostat.model_fixes.{model}"
+        )
         assert trv.capabilities().supports_valve_write is True
 
 

@@ -263,6 +263,7 @@ def test_select_selectors_declare_translation_keys():
 def test_selector_catalog_covers_every_option():
     """Every value a dropdown can emit must have an English label."""
     from custom_components.better_thermostat.config_flow import (
+        _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE,
         _TARGET_TEMP_STEP_SELECTOR_TO_VALUE,
     )
     from custom_components.better_thermostat.utils.const import (
@@ -276,6 +277,8 @@ def test_selector_catalog_covers_every_option():
         "calibration_mode": {member.value for member in CalibrationMode},
         "calibration_type": {member.value for member in CalibrationType},
         "mpc_v2_plant_preset": {member.value for member in MpcV2PlantPreset},
+        "target_temp_min": set(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
+        "target_temp_max": set(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
         "target_temp_step": set(_TARGET_TEMP_STEP_SELECTOR_TO_VALUE),
     }
     for key, options in expected.items():

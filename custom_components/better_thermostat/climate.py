@@ -140,6 +140,8 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_WEATHER,
@@ -153,6 +155,7 @@ from .utils.const import (
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RUN_VALVE_MAINTENANCE,
     SUPPORT_FLAGS,
+    TARGET_TEMP_BOUND_AUTO,
     VERSION,
     CalibrationMode,
     CalibrationType,
@@ -291,6 +294,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entry.data.get(CONF_OUTDOOR_SENSOR, None),
         entry.data.get(CONF_OFF_TEMPERATURE, None),
         entry.data.get(CONF_TOLERANCE, 0.0),
+        entry.data.get(CONF_TARGET_TEMP_MIN, None),
+        entry.data.get(CONF_TARGET_TEMP_MAX, None),
         entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
         entry.data.get(CONF_MODEL, None),
         entry.data.get(CONF_COOLER, None),
@@ -360,6 +365,33 @@ def _arm_degraded_grace(self) -> None:
             self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
         ),
     )
+
+
+def _configured_temperature_bound(
+    value: str | float | None, device_name: str, field: str
+) -> float | None:
+    """Return a configured target temperature bound in degrees Celsius.
+
+    ``None`` means the bound follows the controlled entities: either the entry
+    carries no value for it, or it carries the one the config flow stores for a
+    bound left on automatic.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        bound = float(value)
+    except TypeError, ValueError:
+        _LOGGER.warning(
+            "better_thermostat %s: invalid %s '%s', deriving the bound from the "
+            "controlled entities instead",
+            device_name,
+            field,
+            value,
+        )
+        return None
+    if not math.isfinite(bound) or bound == float(TARGET_TEMP_BOUND_AUTO):
+        return None
+    return bound
 
 
 def _target_temp_step_celsius(
@@ -693,6 +725,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         outdoor_sensor,
         off_temperature,
         tolerance,
+        target_temp_min,
+        target_temp_max,
         target_temp_step,
         model,
         cooler_entity_id,
@@ -734,6 +768,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             Outdoor temperature above which heating is switched off.
         tolerance : float
             Temperature hysteresis in degrees.
+        target_temp_min : str | float | None
+            Lower bound of the target temperature range, or None to derive it
+            from the controlled entities.
+        target_temp_max : str | float | None
+            Upper bound of the target temperature range, or None to derive it
+            from the controlled entities.
         target_temp_step : str | float | None
             Step size for target temperature adjustments.
         model : str
@@ -843,6 +883,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self.cur_temp = None
         self._current_humidity: float | None = 0.0
+        # A configured bound overrides what the controlled entities report, so
+        # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
+        self.bt_target_temp_min: float | None = _configured_temperature_bound(
+            target_temp_min, name, CONF_TARGET_TEMP_MIN
+        )
+        self.bt_target_temp_max: float | None = _configured_temperature_bound(
+            target_temp_max, name, CONF_TARGET_TEMP_MAX
+        )
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
@@ -1573,7 +1621,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return states
 
     def _resolve_temperature_range(self, states: list[State]) -> None:
-        """Derive min/max/step temperature from TRV states."""
+        """Derive min/max/step temperature from TRV states.
+
+        A bound configured on the entry replaces the one derived from the
+        children, so a thermostat can be held to a narrower range than its
+        devices allow.
+        """
         # Convert each child's min/max to Celsius before reducing, because
         # children may report in Fahrenheit while BT works internally in °C.
         min_temps: list[float] = []
@@ -1608,8 +1661,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if _sf is not None:
                 steps.append(_sf)
-        self.bt_min_temp = max(min_temps) if min_temps else None
-        self.bt_max_temp = min(max_temps) if max_temps else None
+        if self.bt_target_temp_min is None:
+            self.bt_min_temp = max(min_temps) if min_temps else None
+        else:
+            self.bt_min_temp = self.bt_target_temp_min
+        if self.bt_target_temp_max is None:
+            self.bt_max_temp = min(max_temps) if max_temps else None
+        else:
+            self.bt_max_temp = self.bt_target_temp_max
 
         if (
             self.bt_min_temp is not None
