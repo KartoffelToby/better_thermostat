@@ -4,9 +4,15 @@ The delegate keys the confirmation watchdog and the recorded intent on that
 answer, so it has to separate "the write went out" from "this device has no
 offset channel". A written offset cannot carry that: the legitimate value
 0.0 reads the same as a device that wrote nothing.
+
+The reads around that write answer to the same rule. Startup stores the
+range and the granularity an adapter reports on the TRV record, and every
+later write is clamped against them, so the three getters have one return
+type and one answer for a device that declares nothing.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
 import pytest
@@ -17,6 +23,9 @@ from custom_components.better_thermostat.adapters import (
     mqtt,
     tado,
     zwave_js,
+)
+from custom_components.better_thermostat.adapters.base import (
+    wait_for_calibration_entity_or_timeout,
 )
 from custom_components.better_thermostat.trv import Trv
 
@@ -253,3 +262,359 @@ class TestNoOffsetChannelIsNeverLookedUp:
         assert await getattr(adapter, getter)(undiscovered, ENTITY_ID) == await getattr(
             adapter, getter
         )(stateless, ENTITY_ID)
+
+
+# The reads that fill the calibration bounds at startup.
+BOUND_GETTERS = ("get_offset_step", "get_min_offset", "get_max_offset")
+
+
+def _stateless(calibration_entity=CALIBRATION_ENTITY):
+    """Build a thermostat whose state machine knows no entity at all."""
+    thermostat = _mock_self(calibration_entity=calibration_entity)
+    thermostat.hass.states.get = lambda requested: None
+    return thermostat
+
+
+class TestTheBoundsAreOneInterface:
+    """The three getters answer the same type, whatever the ecosystem.
+
+    Startup writes what they answer onto the TRV record, which declares
+    plain numbers, and the offset write clamps against them. An adapter
+    that answers ``None`` hands the shell a value it has to repair before
+    anything can be computed with it, and one that answers an ``int``
+    hands the next arithmetic a different type than its neighbour does.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS + SERVICE_ADAPTERS)
+    @pytest.mark.parametrize("getter", BOUND_GETTERS)
+    @pytest.mark.asyncio
+    async def test_a_bound_read_off_a_device_is_a_float(self, adapter, getter):
+        """A TRV whose calibration entity reports gets a float."""
+        assert isinstance(
+            await getattr(adapter, getter)(_mock_self(), ENTITY_ID), float
+        )
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS + SERVICE_ADAPTERS)
+    @pytest.mark.parametrize("getter", BOUND_GETTERS)
+    @pytest.mark.asyncio
+    async def test_an_undeclared_bound_is_a_float_too(self, adapter, getter):
+        """A TRV that declares nothing gets a number, not an absence."""
+        undiscovered = _stateless(calibration_entity=None)
+        undiscovered.hass.states.get = _reject_anything_but_an_entity_id
+
+        assert isinstance(
+            await getattr(adapter, getter)(undiscovered, ENTITY_ID), float
+        )
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS + SERVICE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_the_bounds_span_an_interval(self, adapter):
+        """The lower bound is below the upper one, so the clamp holds."""
+        thermostat = _stateless()
+
+        assert await adapter.get_min_offset(
+            thermostat, ENTITY_ID
+        ) < await adapter.get_max_offset(thermostat, ENTITY_ID)
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS + SERVICE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_the_step_is_a_usable_grid(self, adapter):
+        """A step of zero or less would divide the rounding by nothing."""
+        assert await adapter.get_offset_step(_stateless(), ENTITY_ID) > 0
+
+
+class TestTheUndeclaredBoundsAreOneTable:
+    """An entity that declares no range means the same in every ecosystem.
+
+    Which adapter found a calibration entity says nothing about the device
+    behind it, so the answer for an entity that publishes no range may not
+    depend on it. Two adapters disagreeing here give the same hardware two
+    different clamps.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize("getter", BOUND_GETTERS)
+    @pytest.mark.asyncio
+    async def test_a_stateless_entity_answers_alike_everywhere(self, adapter, getter):
+        """No state, so no published range: one answer for all of them."""
+        assert await getattr(adapter, getter)(_stateless(), ENTITY_ID) == await getattr(
+            generic, getter
+        )(_stateless(), ENTITY_ID)
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize("getter", BOUND_GETTERS)
+    @pytest.mark.asyncio
+    async def test_an_undiscovered_entity_answers_alike_everywhere(
+        self, adapter, getter
+    ):
+        """A TRV without a calibration entity is the same case again."""
+        undiscovered = _stateless(calibration_entity=None)
+        undiscovered.hass.states.get = _reject_anything_but_an_entity_id
+        reference = _stateless(calibration_entity=None)
+        reference.hass.states.get = _reject_anything_but_an_entity_id
+
+        assert await getattr(adapter, getter)(undiscovered, ENTITY_ID) == await getattr(
+            generic, getter
+        )(reference, ENTITY_ID)
+
+
+class TestTheBoundsOfASelectComeFromItsOptions:
+    """A select names its range by the options it offers.
+
+    Discovery accepts a select as a calibration entity for every
+    ecosystem, and a select publishes no ``min`` and no ``max`` at all, so
+    an adapter that only reads those two attributes reports a range the
+    device never named and the shell then clamps against it.
+
+    Home Assistant passes an entity's attributes on as the integration
+    published them, so the options are not guaranteed to be strings and
+    not guaranteed to carry a number each. Both are read the way the write
+    path reads them, which parses every option it can and ignores the
+    rest; a read that assumed otherwise would raise out of the startup
+    pass that fills the bounds and leave the TRV without any.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("getter", "expected"), [("get_min_offset", -6.0), ("get_max_offset", 6.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_the_options_name_the_range(self, adapter, getter, expected):
+        """The offered options are the range, in every ecosystem."""
+        mock_self = _mock_self_with_select()
+
+        assert await getattr(adapter, getter)(mock_self, ENTITY_ID) == expected
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("getter", "expected"), [("get_min_offset", -6.0), ("get_max_offset", 6.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_options_published_as_numbers_still_name_the_range(
+        self, adapter, getter, expected
+    ):
+        """An option that is not a string is read for its number anyway."""
+        mock_self = _mock_self_with_select(options=[-6, -3, 0, 3, 6])
+
+        assert await getattr(adapter, getter)(mock_self, ENTITY_ID) == expected
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("getter", "expected"), [("get_min_offset", -3.0), ("get_max_offset", 3.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_an_option_without_a_number_is_left_out(
+        self, adapter, getter, expected
+    ):
+        """The options that do carry one still name the range."""
+        mock_self = _mock_self_with_select(options=["off", "-3.0k", "3.0k"])
+
+        assert await getattr(adapter, getter)(mock_self, ENTITY_ID) == expected
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("getter", "expected"), [("get_min_offset", -10.0), ("get_max_offset", 10.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_options_that_name_no_range_fall_back_to_the_default(
+        self, adapter, getter, expected
+    ):
+        """A select of named modes declares no offset range at all."""
+        mock_self = _mock_self_with_select(options=["off", "auto"])
+
+        assert await getattr(adapter, getter)(mock_self, ENTITY_ID) == expected
+
+
+class TestAServiceWriteStaysInsideTheDeclaredRange:
+    """An ecosystem that names its own range writes inside it.
+
+    deCONZ and Tado report a fixed range instead of discovering one, and
+    startup stores exactly that as the TRV's calibration bounds. A write
+    that left it would contradict the bounds the same adapter reported a
+    moment earlier.
+    """
+
+    @pytest.mark.parametrize("adapter", SERVICE_ADAPTERS)
+    @pytest.mark.parametrize("requested", [-99.0, 99.0])
+    @pytest.mark.asyncio
+    async def test_a_request_beyond_the_range_reaches_the_bound(
+        self, adapter, requested
+    ):
+        """What goes out is the nearest offset the ecosystem accepts."""
+        mock_self = _mock_self()
+        bound = await (
+            adapter.get_min_offset(mock_self, ENTITY_ID)
+            if requested < 0
+            else adapter.get_max_offset(mock_self, ENTITY_ID)
+        )
+
+        await adapter.set_offset(mock_self, ENTITY_ID, requested)
+
+        assert mock_self.real_trvs[ENTITY_ID].last_calibration == bound
+
+
+def _deconz_thermostat(reported=0):
+    """Build a thermostat whose deCONZ TRV reports ``reported`` as its offset.
+
+    Parameters
+    ----------
+    reported : int
+        The value the deCONZ integration publishes on the climate entity,
+        which is the ``config/offset`` of the deCONZ resource itself.
+
+    Returns
+    -------
+    MagicMock
+        A stand-in for the Better Thermostat climate entity instance.
+    """
+    mock_self = _mock_self(calibration_entity=None)
+    mock_self.hass.states.get = lambda requested: State(
+        ENTITY_ID, "heat", {"offset": reported}
+    )
+    return mock_self
+
+
+def _written_config(mock_self):
+    """The payload the recorded deCONZ configure call carried."""
+    return mock_self.hass.services.async_call.await_args.args[2]["data"]
+
+
+class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
+    """deCONZ carries a thermostat's offset in hundredths of a degree.
+
+    ``config/offset`` sits in the same resource as ``heatsetpoint`` and the
+    measured temperature and shares their encoding, so 250 is 2.5 K. The
+    configure service hands the payload to the REST API unaltered, and the
+    API scales it down to the 0.1 K steps the device itself takes; a plain
+    Kelvin float therefore arrives a hundred times too small and leaves the
+    device uncalibrated. The same scale governs the read, because the
+    attribute the integration publishes is that resource value.
+    """
+
+    @pytest.mark.parametrize(
+        ("kelvin", "expected"),
+        [(0.0, 0), (0.5, 50), (2.5, 250), (-2.5, -250), (-6.0, -600)],
+    )
+    @pytest.mark.asyncio
+    async def test_the_write_carries_the_offset_deconz_expects(self, kelvin, expected):
+        """What goes on the wire is the Kelvin request in deCONZ's units."""
+        mock_self = _mock_self()
+
+        await deconz.set_offset(mock_self, ENTITY_ID, kelvin)
+
+        assert _written_config(mock_self) == {"offset": expected}
+
+    @pytest.mark.asyncio
+    async def test_the_recorded_command_stays_in_kelvin(self):
+        """The scale belongs to the wire, not to the TRV record.
+
+        Every comparison the shell makes against ``last_calibration`` is in
+        Kelvin, so the value stored there is the one that was asked for.
+        """
+        mock_self = _mock_self()
+
+        await deconz.set_offset(mock_self, ENTITY_ID, -2.5)
+
+        assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.5
+
+    @pytest.mark.parametrize(
+        ("reported", "expected"), [(0, 0.0), (250, 2.5), (-250, -2.5), (-600, -6.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_the_read_answers_in_kelvin(self, reported, expected):
+        """A device resting at 2.5 K reports 250 and reads back as 2.5."""
+        assert (
+            await deconz.get_current_offset(_deconz_thermostat(reported), ENTITY_ID)
+            == expected
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_write_and_the_read_share_one_scale(self):
+        """A device echoing the write back reports the offset that was sent.
+
+        The confirmation watchdog compares the two, so a read and a write
+        that disagreed on the scale would leave them permanently apart and
+        re-assert the offset every cycle.
+        """
+        writing = _mock_self()
+        await deconz.set_offset(writing, ENTITY_ID, -2.5)
+        echoed = _written_config(writing)["offset"]
+
+        assert await deconz.get_current_offset(
+            _deconz_thermostat(echoed), ENTITY_ID
+        ) == pytest.approx(-2.5)
+
+
+_FIND_CALIBRATION = (
+    "custom_components.better_thermostat.adapters.generic.find_local_calibration_entity"
+)
+_WAIT_FOR_CALIBRATION = (
+    "custom_components.better_thermostat.adapters.generic."
+    "wait_for_calibration_entity_or_timeout"
+)
+_FIND_VALVE = (
+    "custom_components.better_thermostat.adapters.valve_entity.find_valve_entity"
+)
+
+
+class TestATrvWithoutACalibrationEntityIsNamedAtStartup:
+    """Discovery that finds nothing is reported, and nothing is waited for.
+
+    These TRVs are configured for local calibration, so one without an
+    entity to write to has no channel at all and its owner has to be told
+    which TRV it is. The wait that follows a successful discovery takes an
+    entity id, so running it on the absence only reports the absence a
+    second time and costs the startup budget nothing but time.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_the_trv_is_named_and_no_wait_is_started(self, adapter, caplog):
+        """One warning names the TRV; the wait is not entered."""
+        mock_self = _mock_self(calibration_entity=None)
+        waiting = AsyncMock()
+
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, AsyncMock(return_value=None)),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        waiting.assert_not_awaited()
+        assert f"no local calibration entity found for '{ENTITY_ID}'" in caplog.text
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_discovered_entity_is_waited_for(self, adapter, caplog):
+        """The TRV that has one is not reported as missing it."""
+        mock_self = _mock_self(calibration_entity=None)
+        waiting = AsyncMock()
+
+        with (
+            caplog.at_level(logging.WARNING),
+            patch(_FIND_VALVE, AsyncMock(return_value=None)),
+            patch(_FIND_CALIBRATION, AsyncMock(return_value=CALIBRATION_ENTITY)),
+            patch(_WAIT_FOR_CALIBRATION, waiting),
+        ):
+            await adapter.init(mock_self, ENTITY_ID)
+
+        waiting.assert_awaited_once_with(mock_self, ENTITY_ID, CALIBRATION_ENTITY)
+        assert "no local calibration entity found" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_the_wait_itself_refuses_an_absent_entity(self, caplog):
+        """The helper the adapters share holds the same line.
+
+        It polls an entity id, and an absent entity gives it nothing to
+        poll, so it says so instead of spending the startup budget on six
+        rounds of waiting for an entity that was never found.
+        """
+        mock_self = _mock_self(calibration_entity=None)
+
+        with caplog.at_level(logging.WARNING):
+            await wait_for_calibration_entity_or_timeout(mock_self, ENTITY_ID, None)
+
+        assert f"calibration_entity is None for '{ENTITY_ID}'" in caplog.text
+        mock_self.hass.services.async_call.assert_not_awaited()
