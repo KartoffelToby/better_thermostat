@@ -622,6 +622,44 @@ class TestControlQueue:
         # The item asked for no control pass, so none was run.
         mock_self.calculate_heating_power.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_an_item_cancelled_mid_flight_is_still_marked_done(self):
+        """Cancellation lands between taking an item and finishing with it.
+
+        The worker is cancelled when the entity goes away, and it is
+        suspended inside the work far more often than between two items. The
+        item it had taken stays counted as unfinished until it is
+        acknowledged, so a shutdown that waits on that count never returns.
+        """
+        started = asyncio.Event()
+
+        async def never_finishes():
+            started.set()
+            await asyncio.Event().wait()
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.in_maintenance = False
+        mock_self.ignore_states = False
+        mock_self.startup_running = False
+        mock_self.calculate_heating_power = never_finishes
+        mock_self.cooler_entity_id = None
+        mock_self.real_trvs = {}
+
+        queue = asyncio.Queue()
+        mock_self.control_queue_task = queue
+        await queue.put(["climate.trv"])
+
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        queue_task.cancel()
+        try:
+            await queue_task
+        except asyncio.CancelledError:
+            pass
+
+        await asyncio.wait_for(queue.join(), timeout=1)
+
 
 async def _wait_until(predicate, timeout=5.0):
     """Yield to the event loop until a predicate holds.

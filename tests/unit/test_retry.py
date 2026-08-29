@@ -106,7 +106,12 @@ class TestWhatIsWorthRetrying:
 
     @pytest.mark.asyncio
     async def test_a_rejected_service_payload_is_handed_back_on_the_first_attempt(self):
-        """Data a service schema rejects is rejected again on every attempt."""
+        """Data a service schema rejects comes back on the first attempt.
+
+        Repeating a payload the schema has already refused cannot change its
+        verdict, so the caller gets the error without waiting out a backoff
+        budget that would end in the same place.
+        """
         attempts = []
 
         @async_retry(retries=5)

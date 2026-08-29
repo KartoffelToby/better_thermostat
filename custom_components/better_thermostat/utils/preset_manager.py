@@ -58,11 +58,26 @@ class PresetManager:
         min_temp: float,
         max_temp: float,
     ) -> float | None:
-        """Switch to *preset*. Returns new target temperature, or ``None``.
+        """Switch to ``preset`` and return the setpoint it asks for.
 
-        ``current_target_temp`` is the setpoint in force before the switch, not
-        the measured room temperature: leaving ``PRESET_NONE`` stores it so that
-        returning to ``PRESET_NONE`` restores the setpoint the user had set.
+        Parameters
+        ----------
+        preset : str
+            the preset to switch to
+        current_target_temp : float | None
+            the setpoint in force before the switch, not the measured room
+            temperature: leaving ``PRESET_NONE`` stores it so that returning
+            to ``PRESET_NONE`` restores the setpoint the user had set
+        min_temp : float
+            lowest setpoint the device accepts
+        max_temp : float
+            highest setpoint the device accepts
+
+        Returns
+        -------
+        float | None
+            the new target temperature, or None when the preset is not one
+            this thermostat offers
         """
         if preset not in self.available_modes:
             return None

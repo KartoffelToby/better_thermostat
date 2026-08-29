@@ -49,15 +49,29 @@ def async_retry(
     attempt even when ``exceptions`` covers them, so a broken call fails fast
     with its own traceback rather than after the whole backoff budget.
 
-    Args:
-        retries: Number of retries before giving up
-        base_delay: Initial delay between retries in seconds
-        jitter: Random jitter factor as a percentage (0.2 = 20% variation)
-        backoff_factor: Exponential backoff multiplier (2.0 = double the delay each retry)
-        max_delay: Maximum delay in seconds, regardless of backoff calculation
-        exceptions: Tuple of exceptions to catch and retry on
-        log_level: Logging level for retry attempts (e.g. logging.WARNING, logging.ERROR)
-        identifier: Optional identifier string to include in log messages
+    Parameters
+    ----------
+    retries : int
+        number of retries before giving up
+    base_delay : float
+        initial delay between retries, in seconds
+    jitter : float
+        random jitter as a fraction of the delay (0.2 = 20 % variation)
+    backoff_factor : float
+        exponential backoff multiplier (2.0 doubles the delay each retry)
+    max_delay : float
+        ceiling on the delay in seconds, whatever the backoff computes
+    exceptions : tuple[type[Exception], ...]
+        exception types to catch and retry on
+    log_level : int
+        logging level for the retry lines, e.g. ``logging.WARNING``
+    identifier : str
+        optional label included in the log messages
+
+    Returns
+    -------
+    Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]
+        a decorator wrapping an async function in the retry loop
     """
 
     def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
