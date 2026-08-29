@@ -1,9 +1,11 @@
 """Tests for events/temperature.py – external temperature event handlers.
 
 Covers EMA calculation, temperature application, guard clauses, debounce
-acceptance logic, accumulation tracking, and plateau acceptance.
+acceptance logic, accumulation tracking, plateau acceptance, and the order
+in which overlapping readings and the keepalive tick reach the TRVs.
 """
 
+import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,9 +13,13 @@ from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
 
+from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.events.temperature import (
     _apply_temperature_update,
     _update_external_temp_ema,
+    temperature_filter_lock,
     trigger_temperature_change,
 )
 from custom_components.better_thermostat.trv import Trv
@@ -57,6 +63,9 @@ def mock_bt():
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+
+    # Serialisation of concurrent readings
+    bt._temperature_filter_lock = None
 
     # Maintenance
     bt.in_maintenance = False
@@ -799,3 +808,284 @@ class TestEdgeCasesAndRobustness:
 
         # 30s < 600s → rejected because one TRV is HomematicIP
         assert mock_bt.cur_temp == 20.0
+
+
+# ---------------------------------------------------------------------------
+# 8. Concurrent readings
+# ---------------------------------------------------------------------------
+
+
+class _RecordingQuirks:
+    """Model quirks that record external-temperature writes and overlap."""
+
+    def __init__(self):
+        self.writes: list[tuple[str, float]] = []
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.gate: asyncio.Event | None = None
+        # How many writes wait for ``gate``; None holds up every one of
+        # them. A budget of one leaves a caller standing between two TRVs
+        # while another one runs its own round to the end.
+        self.gated_writes: int | None = None
+        self.started = 0
+
+    async def maybe_set_external_temperature(self, entity, entity_id, temperature):
+        """Record one write, yielding long enough for another task to run."""
+        self.started += 1
+        gated = self.gate is not None and (
+            self.gated_writes is None or self.started <= self.gated_writes
+        )
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            if gated:
+                await self.gate.wait()
+            else:
+                for _ in range(3):
+                    await asyncio.sleep(0)
+            self.writes.append((entity_id, temperature))
+        finally:
+            self.in_flight -= 1
+
+
+class _AdvancingClock:
+    """Hand out timestamps that move forward on every read.
+
+    Each reading is debounced against the previous one, so a clock that
+    stood still would reject the second of two readings long before the
+    handlers could overlap.
+    """
+
+    def __init__(self, start, step_seconds=10):
+        self._current = start
+        self._step = timedelta(seconds=step_seconds)
+
+    def now(self):
+        """Return a timestamp ``step_seconds`` after the previous one."""
+        self._current += self._step
+        return self._current
+
+
+class TestConcurrentReadings:
+    """Two readings handled at the same time must not interleave."""
+
+    @staticmethod
+    def _attach_trvs(mock_bt, quirks, entity_ids):
+        """Give the thermostat TRVs that all share one quirks recorder."""
+        mock_bt.real_trvs = {
+            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            for entity_id in entity_ids
+        }
+
+    @staticmethod
+    async def _take_turn_and_read(mock_bt, state):
+        """Hand one reading to the filter the way the thermostat does."""
+        async with temperature_filter_lock(mock_bt):
+            await trigger_temperature_change(mock_bt, _make_event(state))
+
+    @pytest.mark.asyncio
+    async def test_overlapping_readings_reach_every_trv_in_order(self, mock_bt):
+        """Hand both accepted readings to every TRV, oldest first."""
+        quirks = _RecordingQuirks()
+        self._attach_trvs(mock_bt, quirks, ("climate.trv1", "climate.trv2"))
+        start = dt_util.now()
+        mock_bt.last_external_sensor_change = start
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.dt_util",
+            _AdvancingClock(start),
+        ):
+            await asyncio.gather(
+                self._take_turn_and_read(mock_bt, State(SENSOR_ID, "21.0")),
+                self._take_turn_and_read(mock_bt, State(SENSOR_ID, "22.0")),
+            )
+
+        assert quirks.max_in_flight == 1
+        assert quirks.writes == [
+            ("climate.trv1", 21.0),
+            ("climate.trv2", 21.0),
+            ("climate.trv1", 22.0),
+            ("climate.trv2", 22.0),
+        ]
+        assert mock_bt.last_known_external_temp == 22.0
+        assert mock_bt.accum_delta == 0.0
+        assert mock_bt.pending_temp is None
+
+    @pytest.mark.asyncio
+    async def test_overlapping_applies_do_not_share_the_write_loop(self, mock_bt):
+        """Serialise updates that skip the debounce, such as the plateau timer."""
+        quirks = _RecordingQuirks()
+        self._attach_trvs(mock_bt, quirks, ("climate.trv1",))
+
+        await asyncio.gather(
+            _apply_temperature_update(mock_bt, 21.0),
+            _apply_temperature_update(mock_bt, 22.0),
+        )
+
+        assert quirks.max_in_flight == 1
+        assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
+        assert mock_bt.last_known_external_temp == 22.0
+
+    @pytest.mark.asyncio
+    async def test_cancelled_update_lets_the_next_one_through(self, mock_bt):
+        """Release the serialisation when a pending update is cancelled."""
+        quirks = _RecordingQuirks()
+        quirks.gate = asyncio.Event()
+        self._attach_trvs(mock_bt, quirks, ("climate.trv1",))
+
+        cancelled = asyncio.create_task(_apply_temperature_update(mock_bt, 21.0))
+        await asyncio.sleep(0)
+        queued = asyncio.create_task(_apply_temperature_update(mock_bt, 22.0))
+        await asyncio.sleep(0)
+
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        quirks.gate.set()
+        await queued
+
+        assert quirks.writes == [("climate.trv1", 22.0)]
+        assert mock_bt.last_known_external_temp == 22.0
+
+
+async def _suspending_translations(*args, **kwargs):
+    """Stand in for a translation lookup that has to read its files.
+
+    Home Assistant serves a cached language from memory without ever
+    giving up control, and reads it through the executor when the cache
+    does not hold it yet. Announcing a change of degraded mode is the only
+    part of the entity checks that looks a translation up, so the checks
+    take longer for the reading that announces one than for the next
+    reading, which is the difference the ordering has to survive.
+    """
+    await asyncio.sleep(0)
+    return {}
+
+
+class TestArrivalOrder:
+    """Readings are applied in the order the room sensor sent them."""
+
+    @staticmethod
+    def _make_thermostat_checkable(mock_bt):
+        """Give the thermostat what the entity checks read.
+
+        The checks look at the sensors the thermostat was configured with
+        and at the control-mode record; a bare mock answers every one of
+        those with a new mock and the checks cannot run against it.
+        """
+        mock_bt.hass.states.get = lambda entity_id: State(entity_id, "21.0")
+        mock_bt.window_id = None
+        mock_bt.door_id = None
+        mock_bt.cooler_entity_id = None
+        mock_bt.humidity_sensor_entity_id = None
+        mock_bt.outdoor_sensor = None
+        mock_bt.weather_entity = None
+        mock_bt.devices_errors = []
+        mock_bt.devices_states = {}
+        mock_bt.unavailable_sensors = []
+        mock_bt._critical_grace_until = None
+        mock_bt.kernel_state = KernelState()
+        mock_bt.clock = FakeClock()
+        # The first of the two readings announces that degraded mode has
+        # ended, which is the pass whose checks have to wait.
+        mock_bt._degraded_warning_emitted = True
+
+    @staticmethod
+    def _collect_handlers(mock_bt, handlers):
+        """Build the handler coroutines the listener hands over.
+
+        The thermostat is a mock, so the coroutine it would hand to Home
+        Assistant has to be built from the real method.
+        """
+        mock_bt._handle_temperature_reading = lambda event: (
+            BetterThermostat._handle_temperature_reading(mock_bt, event)
+        )
+        mock_bt.hass.async_create_background_task = lambda coro, name=None: (
+            handlers.append(asyncio.ensure_future(coro))
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_older_of_two_readings_is_applied_first(self, mock_bt):
+        """Two readings dispatched together keep the order they arrived in.
+
+        Home Assistant handles each state change in its own task. The
+        checks that run for a reading wait on the pass that announces a
+        change of degraded mode and on no other, so the second reading can
+        overtake the first one and leave the room regulated on the older
+        value.
+        """
+        self._make_thermostat_checkable(mock_bt)
+        quirks = _RecordingQuirks()
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
+        start = dt_util.now()
+        mock_bt.last_external_sensor_change = start
+        handlers = []
+        self._collect_handlers(mock_bt, handlers)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.helpers.translation."
+                "async_get_translations",
+                _suspending_translations,
+            ),
+            patch(
+                "custom_components.better_thermostat.events.temperature.dt_util",
+                _AdvancingClock(start),
+            ),
+        ):
+            await asyncio.gather(
+                BetterThermostat._trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "21.0"))
+                ),
+                BetterThermostat._trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "22.0"))
+                ),
+            )
+            await asyncio.gather(*handlers)
+
+        assert quirks.writes == [("climate.trv1", 21.0), ("climate.trv1", 22.0)]
+        assert mock_bt.last_known_external_temp == 22.0
+
+
+class TestKeepaliveTick:
+    """The periodic re-send shares its turn with the readings."""
+
+    @pytest.mark.asyncio
+    async def test_the_tick_does_not_write_over_a_reading_it_overlapped(self, mock_bt):
+        """A tick left standing between two TRVs must not undo an update.
+
+        The tick reads the room temperature once and writes it to every
+        TRV in turn. An update landing while it is between two of them
+        would leave the TRVs it has yet to reach on the value it started
+        with, while Better Thermostat regulates on the newer one.
+        """
+        quirks = _RecordingQuirks()
+        quirks.gate = asyncio.Event()
+        quirks.gated_writes = 1
+        mock_bt.real_trvs = {
+            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            for entity_id in ("climate.trv1", "climate.trv2")
+        }
+
+        tick = asyncio.create_task(
+            BetterThermostat._external_temperature_keepalive(mock_bt)
+        )
+        await asyncio.sleep(0)
+        reading = asyncio.create_task(_apply_temperature_update(mock_bt, 22.0))
+        for _ in range(4):
+            await asyncio.sleep(0)
+        quirks.gate.set()
+        await asyncio.gather(tick, reading)
+
+        assert quirks.max_in_flight == 1
+        assert quirks.writes == [
+            ("climate.trv1", 20.0),
+            ("climate.trv2", 20.0),
+            ("climate.trv1", 22.0),
+            ("climate.trv2", 22.0),
+        ]
+        assert mock_bt.last_known_external_temp == 22.0
