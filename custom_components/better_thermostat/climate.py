@@ -867,9 +867,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         self._bt_hvac_mode: HVACMode | None = None
-        # Track min/max encountered target temps (initialize to default span)
-        self.min_target_temp = 18.0
-        self.max_target_temp = 21.0
         self.closed_window_triggered = False
         self.call_for_heat = True
         self.ignore_states = False
@@ -968,7 +965,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._slope_periodic_last_ts = None
 
         # Anti-flicker state
-        self.flicker_unignore_cancel = None
         self.flicker_candidate = None
         self.plateau_timer_cancel = None
         self.last_change_direction = 0
@@ -1735,13 +1731,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 STATE_UNKNOWN,
                 None,
             ):
-                self._current_humidity = (
-                    convert_to_float(
-                        str(_hum_state.state), self.device_name, "startup()"
-                    )
-                    or 0.0
+                # An unreadable value leaves the humidity unknown. 0 % is a
+                # reading a room can publish, so coercing to it would pass a
+                # missing measurement off as a measured one.
+                self._current_humidity = convert_to_float(
+                    str(_hum_state.state), self.device_name, "startup()"
                 )
-            # else: already logged warning above, _current_humidity stays None
 
         # Seed the window and door regions from the sensors' startup state.
         # A non-active sensor (unavailable/unknown) is treated as closed so
@@ -2078,11 +2073,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 self._current_humidity = 0
             else:
-                self._current_humidity = (
-                    convert_to_float(
-                        str(_hum_state.state), self.device_name, "startup()"
-                    )
-                    or 0.0
+                self._current_humidity = convert_to_float(
+                    str(_hum_state.state), self.device_name, "startup()"
                 )
         else:
             self._current_humidity = 0.0
@@ -2922,12 +2914,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if self.cur_temp is None:
             return
-
-        # Lazy init of target range bounds
-        if not hasattr(self, "min_target_temp"):
-            self.min_target_temp = self.bt_target_temp or 18.0
-        if not hasattr(self, "max_target_temp"):
-            self.max_target_temp = self.bt_target_temp or 21.0
 
         current_action = self._compute_hvac_action()
         outdoor_temp = self._get_outdoor_temp()
