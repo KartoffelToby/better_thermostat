@@ -166,20 +166,20 @@ async def trigger_trv_change(self, event):
         )
         _new_current_temp = None
 
-    _time_diff = 5
-    try:
-        for trv_conf in self.all_trvs:
-            if trv_conf["advanced"][CONF_HOMEMATICIP]:
-                _time_diff = 600
-    except KeyError:
-        pass
+    # A HomematicIP valve is radio-duty-cycle limited and is therefore read
+    # far apart; every other integration only needs the short anti-flicker
+    # window. Both the interval and the stamp it is measured against belong to
+    # the device this event came from, so a duty-cycle limit on one valve does
+    # not hold back the internal temperature of the other valves in the room.
+    _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
+    _last_internal_change = trv.last_internal_sensor_change
     if (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
         and (
             trv.consume_accept_next_internal_temp()
-            or (dt_util.now() - self.last_internal_sensor_change).total_seconds()
-            > _time_diff
+            or _last_internal_change is None
+            or (dt_util.now() - _last_internal_change).total_seconds() > _time_diff
             or (trv.calibration_received is False and trv.calibration != 1)
         )
     ):
@@ -192,7 +192,7 @@ async def trigger_trv_change(self, event):
             _old_temp,
             _new_current_temp,
         )
-        self.last_internal_sensor_change = dt_util.now()
+        trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
 
         # async def in controlling? (left as note)
