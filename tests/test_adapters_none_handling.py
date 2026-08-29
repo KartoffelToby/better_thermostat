@@ -7,7 +7,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from custom_components.better_thermostat.adapters import generic, mqtt, zwave_js
 from custom_components.better_thermostat.trv import Trv
+
+# Adapters whose offset bounds come from an entity discovery found.
+ENTITY_ADAPTERS = (generic, mqtt, zwave_js)
+
+
+def _adapter_id(adapter):
+    """Name an adapter module by its ecosystem, for readable test ids."""
+    return adapter.__name__.rsplit(".", 1)[-1]
 
 
 @pytest.fixture
@@ -67,119 +76,72 @@ class TestDeconzAdapter:
         assert result == {"support_offset": True, "support_valve": False}
 
 
-class TestMqttAdapter:
-    """Tests for MQTT adapter None handling."""
+class TestBoundsOfAnEntityThatDeclaresNone:
+    """Every entity-backed adapter answers one undeclared default.
 
+    A TRV whose calibration entity was never discovered and one whose
+    entity has not reported a state leave the bounds equally undeclared.
+    The ecosystem the TRV happens to belong to does not change what that
+    means, so the answer may not depend on which adapter was asked: the
+    shell records these numbers once at startup and clamps every later
+    offset write against them.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
     @pytest.mark.anyio
-    async def test_get_offset_step_returns_default_when_state_is_none(
-        self, mock_bt_instance
-    ):
-        """Test that get_offset_step returns 1.0 when state is None."""
-        from custom_components.better_thermostat.adapters.mqtt import get_offset_step
-
+    async def test_step_of_a_stateless_entity(self, adapter, mock_bt_instance):
+        """An entity that reports nothing publishes no granularity."""
         mock_bt_instance.hass.states.get.return_value = None
 
-        result = await get_offset_step(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
 
         assert result == 1.0
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
     @pytest.mark.anyio
-    async def test_get_min_offset_returns_default_when_state_is_none(
-        self, mock_bt_instance
-    ):
-        """Test that get_min_offset returns -10.0 when state is None."""
-        from custom_components.better_thermostat.adapters.mqtt import get_min_offset
-
+    async def test_min_of_a_stateless_entity(self, adapter, mock_bt_instance):
+        """An entity that reports nothing publishes no lower bound."""
         mock_bt_instance.hass.states.get.return_value = None
 
-        result = await get_min_offset(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_min_offset(mock_bt_instance, "climate.test_trv")
 
         assert result == -10.0
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
     @pytest.mark.anyio
-    async def test_get_max_offset_returns_default_when_state_is_none(
-        self, mock_bt_instance
-    ):
-        """Test that get_max_offset returns 10.0 when state is None."""
-        from custom_components.better_thermostat.adapters.mqtt import get_max_offset
-
+    async def test_max_of_a_stateless_entity(self, adapter, mock_bt_instance):
+        """An entity that reports nothing publishes no upper bound."""
         mock_bt_instance.hass.states.get.return_value = None
 
-        result = await get_max_offset(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_max_offset(mock_bt_instance, "climate.test_trv")
 
         assert result == 10.0
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
     @pytest.mark.anyio
-    async def test_get_offset_step_returns_attribute_when_state_exists(
-        self, mock_bt_instance
-    ):
-        """Test that get_offset_step returns attribute value when state exists."""
-        from custom_components.better_thermostat.adapters.mqtt import get_offset_step
-
-        mock_state = MagicMock()
-        mock_state.attributes = {"step": 0.5}
-        mock_bt_instance.hass.states.get.return_value = mock_state
-
-        result = await get_offset_step(mock_bt_instance, "climate.test_trv")
-
-        assert result == 0.5
-
-
-class TestGenericAdapter:
-    """Tests for generic adapter None handling."""
-
-    @pytest.mark.anyio
-    async def test_get_offset_step_returns_none_when_state_is_none(
-        self, mock_bt_instance
-    ):
-        """Test that get_offset_step returns None when state is None."""
-        from custom_components.better_thermostat.adapters.generic import get_offset_step
-
-        mock_bt_instance.hass.states.get.return_value = None
-
-        result = await get_offset_step(mock_bt_instance, "climate.test_trv")
-
-        assert result is None
-
-    @pytest.mark.anyio
-    async def test_get_min_offset_returns_default_when_state_is_none(
-        self, mock_bt_instance
-    ):
-        """Test that get_min_offset returns -6.0 when state is None."""
-        from custom_components.better_thermostat.adapters.generic import get_min_offset
-
-        mock_bt_instance.hass.states.get.return_value = None
-
-        result = await get_min_offset(mock_bt_instance, "climate.test_trv")
-
-        assert result == -6.0
-
-    @pytest.mark.anyio
-    async def test_get_max_offset_returns_default_when_state_is_none(
-        self, mock_bt_instance
-    ):
-        """Test that get_max_offset returns 6.0 when state is None."""
-        from custom_components.better_thermostat.adapters.generic import get_max_offset
-
-        mock_bt_instance.hass.states.get.return_value = None
-
-        result = await get_max_offset(mock_bt_instance, "climate.test_trv")
-
-        assert result == 6.0
-
-    @pytest.mark.anyio
-    async def test_get_offset_step_returns_none_when_no_calibration_entity(
-        self, mock_bt_instance
-    ):
-        """Test that get_offset_step returns None when no calibration entity configured."""
-        from custom_components.better_thermostat.adapters.generic import get_offset_step
-
+    async def test_step_without_a_calibration_entity(self, adapter, mock_bt_instance):
+        """A TRV discovery found no entity for gets the same answer."""
         mock_bt_instance.real_trvs = {
             "climate.test_trv": Trv(
                 entity_id="climate.test_trv", local_temperature_calibration_entity=None
             )
         }
 
-        result = await get_offset_step(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
 
-        assert result is None
+        assert result == 1.0
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
+    @pytest.mark.anyio
+    async def test_step_comes_from_the_entity_when_it_publishes_one(
+        self, adapter, mock_bt_instance
+    ):
+        """A published step is what the adapter reports, not the default."""
+        mock_state = MagicMock()
+        mock_state.domain = "number"
+        mock_state.attributes = {"step": 0.5}
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
+
+        assert result == 0.5
