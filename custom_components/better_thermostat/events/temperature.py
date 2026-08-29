@@ -89,6 +89,16 @@ def temperature_filter_lock(self) -> asyncio.Lock:
 
     Everything that writes the room temperature to the TRVs takes this
     lock: the sensor readings, the plateau timer and the keepalive tick.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    asyncio.Lock
+            the entity's own lock, created on first use
     """
     lock = getattr(self, "_temperature_filter_lock", None)
     if lock is None:
