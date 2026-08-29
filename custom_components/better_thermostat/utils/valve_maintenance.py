@@ -196,14 +196,28 @@ def build_trv_snapshots(
 ) -> list[MaintenanceTrvInfo]:
     """Build per-TRV snapshots needed for the maintenance cycle.
 
-    *get_state* should be ``hass.states.get``.
-
     A TRV without a readable state is left out of the run entirely: it
     publishes no state at all, or the one it publishes is ``unavailable``
     or ``unknown`` and therefore names no mode and no setpoint to put back
     afterwards. Only a TRV with a snapshot is driven, so the one skipped
     here is never left standing in one of the cycle's temperature
     extremes. Every skip is logged at debug level.
+
+    Parameters
+    ----------
+    real_trvs : TrvMap
+            the cached TRV records, keyed by entity id
+    trv_ids : list[str]
+            entity ids to consider for this run
+    get_state : Callable[[str], State | None]
+            reads a TRV's reported state; ``hass.states.get``
+    device_name : str
+            thermostat instance name, for logging
+
+    Returns
+    -------
+    list[MaintenanceTrvInfo]
+            one snapshot per TRV the cycle may drive, in the order given
     """
     infos: list[MaintenanceTrvInfo] = []
     for trv_id in trv_ids:
