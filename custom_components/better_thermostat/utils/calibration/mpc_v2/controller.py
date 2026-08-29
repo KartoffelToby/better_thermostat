@@ -204,10 +204,6 @@ class MpcV2Controller:
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
-        sp_for_opt = self.governor.update(
-            T_sp=T_target_C, T_outdoor_C=T_outdoor_C, T_room_now=T_room_C
-        )
-
         # The observer follows real elapsed time.  The QP below intentionally
         # remains on its fixed coarse planning grid; mixing those two time
         # bases was the source of large artificial DOB excursions on sparse
@@ -217,6 +213,15 @@ class MpcV2Controller:
         )
         x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C, dt_s=dt_s)
         self.dob.update(innovation, dt_s)
+
+        # The governor runs behind the observer so it judges which setpoints
+        # are reachable on the same disturbance estimate the QP plans with.
+        sp_for_opt = self.governor.update(
+            T_sp=T_target_C,
+            T_outdoor_C=T_outdoor_C,
+            T_room_now=T_room_C,
+            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+        )
 
         if t_s < self._next_mpc_t_s:
             return self._last_u, self._diagnostics()

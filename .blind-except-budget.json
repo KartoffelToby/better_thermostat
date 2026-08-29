@@ -1,8 +1,7 @@
 {
   "custom_components/better_thermostat/adapters/base.py": 1,
   "custom_components/better_thermostat/adapters/delegate.py": 7,
-  "custom_components/better_thermostat/adapters/mqtt.py": 1,
-  "custom_components/better_thermostat/adapters/zwave_js.py": 2,
+  "custom_components/better_thermostat/adapters/zwave_js.py": 1,
   "custom_components/better_thermostat/calibration.py": 2,
   "custom_components/better_thermostat/climate.py": 28,
   "custom_components/better_thermostat/events/temperature.py": 1,

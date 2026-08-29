@@ -23,6 +23,7 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.valve_maintenance import (
     MaintenanceTrvInfo,
@@ -293,6 +294,22 @@ class TestBuildTrvSnapshots:
         }
         result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
         assert result[0].use_direct_valve is True
+
+    def test_a_model_without_a_valve_quirk_is_not_direct(self):
+        """A model with no quirk file of its own runs on the default one.
+
+        Direct valve mode makes a maintenance cycle write valve
+        percentages and skip the setpoint sweep altogether, so a device
+        that has no valve channel would sit through a run that commands
+        nothing at all.
+        """
+        trvs = {
+            "trv1": _trv(
+                maintenance=True, quirks=default_quirk, calibration="direct_valve_based"
+            )
+        }
+        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        assert result[0].use_direct_valve is False
 
     def test_valve_entity_direct(self):
         """Test Valve entity direct."""

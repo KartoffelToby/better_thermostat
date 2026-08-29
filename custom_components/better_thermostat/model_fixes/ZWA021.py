@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
@@ -88,9 +89,10 @@ async def override_set_hvac_mode(
     """Engage the manufacturer-specific mode for direct valve control.
 
     Only active when the TRV is configured for direct valve control and the
-    requested mode is not OFF. In all other cases this returns ``False`` so the
-    caller falls back to the standard ``climate.set_hvac_mode`` service, leaving
-    behaviour identical to a device without this quirk.
+    requested mode is not OFF. In all other cases, and when the device refuses
+    the mode write, this returns ``False`` so the caller falls back to the
+    standard ``climate.set_hvac_mode`` service, leaving behaviour identical to
+    a device without this quirk.
     """
     if not _is_direct_valve(self, entity_id):
         return False
@@ -103,18 +105,31 @@ async def override_set_hvac_mode(
         self.device_name,
         entity_id,
     )
-    await self.hass.services.async_call(
-        _ZWAVE_JS_DOMAIN,
-        _ZWAVE_JS_SET_VALUE,
-        {
-            "entity_id": entity_id,
-            "command_class": _THERMOSTAT_MODE_COMMAND_CLASS,
-            "property": "mode",
-            "value": _MANUFACTURER_SPECIFIC_MODE,
-        },
-        blocking=True,
-        context=self.context,
-    )
+    try:
+        await self.hass.services.async_call(
+            _ZWAVE_JS_DOMAIN,
+            _ZWAVE_JS_SET_VALUE,
+            {
+                "entity_id": entity_id,
+                "command_class": _THERMOSTAT_MODE_COMMAND_CLASS,
+                "property": "mode",
+                "value": _MANUFACTURER_SPECIFIC_MODE,
+            },
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError) as ex:
+        # No Z-Wave JS to reach, a node that is asleep or out of range, or a
+        # firmware that rejects the undocumented mode: the device is not in
+        # valve mode, so the standard climate service is the one that can
+        # still make it heat.
+        _LOGGER.warning(
+            "better_thermostat %s: ZWA021 valve mode write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
     return True
 
 
@@ -128,10 +143,11 @@ async def override_set_temperature(
 async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
     """Drive the valve directly via the Multilevel Switch command class.
 
-    Active only in direct valve control; otherwise returns ``False`` so the
-    generic valve handling applies. The device is expected to already be in
-    manufacturer-specific mode (see :func:`override_set_hvac_mode`). The
-    requested 0-100 % opening is mapped onto the device's 0-99 range.
+    Active only in direct valve control; otherwise, and when the device
+    refuses the write, returns ``False`` so the generic valve handling
+    applies. The device is expected to already be in manufacturer-specific
+    mode (see :func:`override_set_hvac_mode`). The requested 0-100 % opening
+    is mapped onto the device's 0-99 range.
     """
     if not _is_direct_valve(self, entity_id):
         return False
@@ -148,16 +164,28 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
         value,
         _VALVE_MAX,
     )
-    await self.hass.services.async_call(
-        _ZWAVE_JS_DOMAIN,
-        _ZWAVE_JS_SET_VALUE,
-        {
-            "entity_id": entity_id,
-            "command_class": _MULTILEVEL_SWITCH_COMMAND_CLASS,
-            "property": "targetValue",
-            "value": value,
-        },
-        blocking=True,
-        context=self.context,
-    )
+    try:
+        await self.hass.services.async_call(
+            _ZWAVE_JS_DOMAIN,
+            _ZWAVE_JS_SET_VALUE,
+            {
+                "entity_id": entity_id,
+                "command_class": _MULTILEVEL_SWITCH_COMMAND_CLASS,
+                "property": "targetValue",
+                "value": value,
+            },
+            blocking=True,
+            context=self.context,
+        )
+    except (HomeAssistantError, OSError) as ex:
+        # Reporting the refused write as a declined one keeps the caller from
+        # recording a position the valve never reached, and leaves it free to
+        # try the generic valve channel.
+        _LOGGER.warning(
+            "better_thermostat %s: ZWA021 valve write for %s failed: %s",
+            self.device_name,
+            entity_id,
+            ex,
+        )
+        return False
     return True

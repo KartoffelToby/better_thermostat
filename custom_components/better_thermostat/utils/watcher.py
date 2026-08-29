@@ -326,6 +326,11 @@ async def await_optional_sensors(
     pending: list[str] = []
 
     for idx, delay in enumerate(delays):
+        # The entity may be torn down mid-wait; stop retrying immediately
+        # instead of running out the (up to ~60 s) schedule against a
+        # being-removed instance.
+        if getattr(self, "is_removed", False):
+            return pending
         pending = [
             eid
             for eid in get_optional_sensors(self)
@@ -349,6 +354,8 @@ async def await_optional_sensors(
         )
         await _sleep(delay)
         elapsed += delay
+        if getattr(self, "is_removed", False):
+            return pending
 
     # Final check after the last sleep
     pending = [
