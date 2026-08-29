@@ -1859,7 +1859,7 @@ class TestValidateHvacMode:
         bt.humidity_sensor_entity_id = None
         parked = {"temperature": 5.0, "min_temp": 5.0}
         bt.real_trvs = {
-            trv_id: _make_no_off_trv(trv_id) for trv_id in (TRV_ID, TRV_ID_2)
+            entity_id: _make_no_off_trv(entity_id) for entity_id in (TRV_ID, TRV_ID_2)
         }
         states = [
             _make_trv_state(TRV_ID, state="heat", attrs=parked),
@@ -1873,7 +1873,7 @@ class TestValidateHvacMode:
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
         bt.real_trvs = {
-            trv_id: _make_no_off_trv(trv_id) for trv_id in (TRV_ID, TRV_ID_2)
+            entity_id: _make_no_off_trv(entity_id) for entity_id in (TRV_ID, TRV_ID_2)
         }
         states = [
             _make_trv_state(
