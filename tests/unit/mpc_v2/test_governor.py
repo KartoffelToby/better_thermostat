@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.governor import (
     GovernorParams,
     ScalarReferenceGovernor,
@@ -129,12 +127,6 @@ def test_reference_tracks_a_feasibility_limit_that_moves_every_step() -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="_is_feasible applies the lower input bound in both directions, so a "
-    "lowered setpoint whose steady-state valve fraction sits below the safety "
-    "margin is never released",
-)
 def test_lowered_setpoint_is_handed_back_unshaped() -> None:
     """Asking for less heat needs no shaping, so the setpoint passes straight through.
 
@@ -155,3 +147,38 @@ def test_lowered_setpoint_is_handed_back_unshaped() -> None:
     ]
 
     assert references == [T_sp] * 200
+
+
+def test_lowered_setpoint_is_reached_and_not_only_approached() -> None:
+    """Lowering the setpoint in mild weather must reach the new target.
+
+    A setpoint that needs almost no flow is still attainable — the valve
+    closes. Holding the governed reference above it would keep the room warm
+    against the user's wish.
+    """
+    gov = _make_governor()
+    gov.update(T_sp=21.0, T_outdoor_C=16.0, T_room_now=21.0)
+    v = 21.0
+    for _ in range(200):
+        v = gov.update(T_sp=17.0, T_outdoor_C=16.0, T_room_now=21.0)
+    assert abs(v - 17.0) < 1e-9, f"governed reference stalled at {v:.3f} C"
+
+
+def test_small_rise_in_mild_weather_reaches_the_setpoint() -> None:
+    """A modest raise below the flow margin must not stall the reference."""
+    gov = _make_governor()
+    gov.update(T_sp=17.0, T_outdoor_C=16.0, T_room_now=17.0)
+    v = gov.update(T_sp=17.5, T_outdoor_C=16.0, T_room_now=17.0)
+    assert abs(v - 17.5) < 1e-9, f"governed reference stalled at {v:.3f} C"
+
+
+def test_disturbance_estimate_enters_the_reachability_check() -> None:
+    """Free heat counts toward the flow a setpoint needs."""
+    gov = _make_governor()
+    without_gain = gov.update(T_sp=25.0, T_outdoor_C=-20.0, T_room_now=19.0)
+    assert without_gain < 25.0
+    gov.reset()
+    with_gain = gov.update(
+        T_sp=25.0, T_outdoor_C=-20.0, T_room_now=19.0, D_hat_K_per_min=0.1
+    )
+    assert abs(with_gain - 25.0) < 1e-9
