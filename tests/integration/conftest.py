@@ -26,6 +26,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_platform,
     setup_test_component_platform,
 )
+import voluptuous as vol
 
 # Pin the repository's custom_components namespace package before the
 # hass fixture mounts the plugin's testing config dir: that dir carries
@@ -49,6 +50,7 @@ from homeassistant.components.number import (
 )
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -73,6 +75,9 @@ WINDOW_ID = "binary_sensor.window"
 
 # The entity every test drives, derived from the default entry title.
 BT_ENTITY = "climate.bt_test"
+
+# Enough steps for any entry this suite builds; a flow that wants more is stuck.
+MAX_FLOW_STEPS = 10
 
 # The integration the simulated devices belong to when they need a device
 # registry entry.
@@ -594,13 +599,90 @@ async def wait_for_startup(hass, entry):
     return bt
 
 
+def form_default(form, key):
+    """Return the value a form pre-fills ``key`` with.
+
+    An entity selector carries its pre-fill as a suggested value rather than a
+    schema default, so both places have to be read to see what the user is
+    actually shown.
+    """
+    for marker in form["data_schema"].schema:
+        if marker != key:
+            continue
+        description = getattr(marker, "description", None)
+        if isinstance(description, dict) and "suggested_value" in description:
+            return description["suggested_value"]
+        default = getattr(marker, "default", None)
+        assert default is not None and default is not vol.UNDEFINED, (
+            f"{key} carries no pre-filled value"
+        )
+        return default()
+    raise AssertionError(f"step {form['step_id']} publishes no field {key!r}")
+
+
+def accepted_form(form, **overrides):
+    """Return the submission a user accepting every pre-filled value sends.
+
+    The submission carries what the form itself offers rather than what a test
+    puts in a dict, so a pre-fill that disagrees with what the entry runs on
+    reaches the handler the way the user would send it.
+    """
+    submission = {}
+    for marker in form["data_schema"].schema:
+        key = str(marker.schema)
+        description = getattr(marker, "description", None)
+        if isinstance(description, dict) and "suggested_value" in description:
+            submission[key] = description["suggested_value"]
+            continue
+        default = getattr(marker, "default", None)
+        if default is None or default is vol.UNDEFINED:
+            continue
+        value = default()
+        if value is not vol.UNDEFINED:
+            submission[key] = value
+    return submission | overrides
+
+
+async def click_through_the_options(hass, entry, **overrides):
+    """Walk the options flow accepting every pre-filled value, and return the forms.
+
+    This is "the user opened the settings and changed nothing": every step is
+    submitted with what it offered. ``overrides`` replace single fields on the
+    steps that publish them, for the user who changed exactly one thing.
+    """
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    forms = []
+    # A flow that keeps handing back the same step would otherwise hang the
+    # suite instead of failing it. No step of this flow repeats, so the bound
+    # is generous.
+    for _ in range(MAX_FLOW_STEPS):
+        if result["type"] != "form":
+            break
+        forms.append(result)
+        step_overrides = {
+            key: value
+            for key, value in overrides.items()
+            if any(marker == key for marker in result["data_schema"].schema)
+        }
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], accepted_form(result, **step_overrides)
+        )
+    else:
+        raise AssertionError(f"options flow did not finish: {result}")
+    # A step that aborts also leaves the loop, and the caller would then read
+    # the state the entry had before the flow ran.
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    await hass.async_block_till_done()
+    return forms
+
+
 @contextlib.asynccontextmanager
 async def counting_reloads(hass, entry):
     """Count the reloads of ``entry`` that happen inside the block.
 
-    A reload restarts the thermostat, and one that lands while the previous one
-    is still starting up arrives before the state has been restored. How many
-    reloads a user action costs is therefore a behaviour, not a detail.
+    A reload restarts the thermostat, and one that lands while the previous
+    one is still starting up arrives before the state has been restored. How
+    many reloads a user action costs is therefore a behaviour, not a detail.
     """
     reloads = []
     original = hass.config_entries.async_reload

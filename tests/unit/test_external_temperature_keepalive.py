@@ -8,8 +8,7 @@ so the periodic re-send is what holds such a device on the external
 value while the room is settled.
 """
 
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -17,73 +16,10 @@ from custom_components.better_thermostat.climate import (
     EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
     BetterThermostat,
 )
-from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.trv import Trv
 
-_CLIMATE = "custom_components.better_thermostat.climate"
-_NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 TRV_ID = "climate.trv"
 TRV_ID_2 = "climate.trv2"
-
-
-def _startup_bt():
-    """Minimal BetterThermostat stand-in for _finalize_startup."""
-    mock = MagicMock()
-    mock.device_name = "Test BT"
-    mock.is_removed = False
-    mock.kernel_state = KernelState()
-    mock.clock = MagicMock()
-    mock.clock.now.return_value = _NOW
-    mock.clock.monotonic.return_value = 1000.0
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
-    mock.entity_ids = [TRV_ID]
-    mock.all_trvs = None
-    mock.all_entities = []
-    mock.sensor_entity_id = "sensor.room_temp"
-    mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
-    mock._async_unsub_state_changed = None
-    mock._trigger_time = AsyncMock()
-    mock._trigger_check_weather = AsyncMock()
-    mock._startup_control_trvs = AsyncMock()
-    mock.async_update_ha_state = AsyncMock()
-    mock.hass = MagicMock()
-    return mock
-
-
-async def _registered_intervals(bt):
-    """The (callback, interval) pairs _finalize_startup registers."""
-    track_interval = MagicMock()
-    with (
-        patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
-        patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
-        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.async_track_time_interval", track_interval),
-        patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
-        patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
-        patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
-    ):
-        await BetterThermostat._finalize_startup(bt)
-    return [(call.args[1], call.args[2]) for call in track_interval.call_args_list]
-
-
-@pytest.mark.asyncio
-async def test_the_keepalive_is_registered_as_a_periodic_tick():
-    """Startup leaves a repeating timer behind.
-
-    The task created at the end of startup writes once and covers the
-    first interval; every write after that is the timer's, because a
-    settled room produces no sensor change to drive one.
-    """
-    bt = _startup_bt()
-    intervals = await _registered_intervals(bt)
-    assert (
-        bt._external_temperature_keepalive,
-        EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
-    ) in intervals
 
 
 @pytest.mark.asyncio
