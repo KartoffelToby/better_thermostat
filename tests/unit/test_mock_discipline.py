@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
+import importlib
 import inspect
 from pathlib import Path
 from types import ModuleType
@@ -63,7 +64,24 @@ def _async_surface(module: ModuleType) -> set[str]:
     }
 
 
-SEAM = _async_surface(delegate) | _async_surface(default_quirk)
+def _quirk_surface() -> set[str]:
+    """Public coroutine functions across every quirk module.
+
+    The optional half of the quirk surface lives only in the modules
+    that need it, so deriving the seam from ``default.py`` alone would
+    leave those names unguarded wherever a test patches one.
+    """
+    directory = Path(default_quirk.__file__).parent
+    package = "custom_components.better_thermostat.model_fixes"
+    names: set[str] = set()
+    for path in sorted(directory.glob("*.py")):
+        if path.stem in {"__init__", "types"}:
+            continue
+        names |= _async_surface(importlib.import_module(f"{package}.{path.stem}"))
+    return names
+
+
+SEAM = _async_surface(delegate) | _quirk_surface()
 
 
 class PatchSite(NamedTuple):
