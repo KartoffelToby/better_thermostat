@@ -196,12 +196,13 @@ async def test_an_unreadable_maintenance_list_leaves_the_other_ticks_standing():
     depend on it.
     """
     bt = _startup_bt()
+    collect = MagicMock(side_effect=RuntimeError("TRV cache is unreadable"))
 
-    with patch(
-        f"{_CLIMATE}.collect_maintenance_trvs",
-        MagicMock(side_effect=RuntimeError("TRV cache is unreadable")),
-    ):
+    with patch(f"{_CLIMATE}.collect_maintenance_trvs", collect):
         registered = await _run_finalize_startup(bt)
 
+    # Without this the assertions below would hold just as well for a run that
+    # never reached the collector, and the fallback would go untested.
+    collect.assert_called_once_with(bt.real_trvs)
     assert (bt._maintenance_tick, timedelta(minutes=5)) not in registered.intervals
     assert _five_minute_ladder_tick(bt, registered) is not None
