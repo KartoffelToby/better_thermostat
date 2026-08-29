@@ -589,6 +589,67 @@ def mode_remap(
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
 
+def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -> bool:
+    """Whether one group member is effectively off.
+
+    This is the single reading of "off" behind the room-level rule that both
+    the startup path and the runtime event path apply: a room is off only when
+    every one of its heads is off, and it heats as soon as one head heats.
+
+    A member counts as off when its reported HVAC state is ``off`` or, for a
+    ``no_off_system_mode`` device (which never reports ``off``), when its
+    current setpoint has dropped to that device's minimum temperature. The
+    setpoint is read via :func:`attr_to_celsius` so it is compared in Celsius,
+    like ``min_temp``. ``target_temp_low`` carries the setpoint whenever
+    ``temperature`` yields nothing: a device that supports both a single target
+    and a target range publishes ``temperature`` as ``None`` while it runs on
+    the range.
+
+    ``min_temp`` comes from the cached :class:`Trv` and falls back to the
+    reported state, because ``Trv.min_temp`` is filled by ``_initialize_trvs``
+    — which runs after the startup mode is decided, so a caller in the startup
+    path finds the cache still empty.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``real_trvs``
+    entity_id : str
+            entity id of the group member to judge
+    state : State
+            the member's reported state
+
+    Returns
+    -------
+    bool
+            True when the member is off, False when it heats
+
+    See Also
+    --------
+    group_all_members_off : applies this reading to the whole room
+    """
+    if state.state == HVACMode.OFF:
+        return True
+
+    member = self.real_trvs.get(entity_id)
+    if member is None or not (member.advanced or {}).get("no_off_system_mode", False):
+        return False
+
+    setpoint = attr_to_celsius(
+        self, state, "temperature", None, "member_counts_as_off()"
+    )
+    if setpoint is None:
+        setpoint = attr_to_celsius(
+            self, state, "target_temp_low", None, "member_counts_as_off()"
+        )
+    min_temp = member.min_temp
+    if min_temp is None:
+        min_temp = attr_to_celsius(
+            self, state, "min_temp", None, "member_counts_as_off()"
+        )
+    return setpoint is not None and min_temp is not None and setpoint <= min_temp
+
+
 def group_all_members_off(self: BetterThermostat) -> bool:
     """Whether every available group member is effectively off.
 
@@ -597,11 +658,8 @@ def group_all_members_off(self: BetterThermostat) -> bool:
     valve dropping to its minimum temperature cannot turn the whole room off.
     With at most one TRV there is no group to disagree, so the gate is open.
 
-    A member counts as off when its reported HVAC state is ``off`` or, for a
-    ``no_off_system_mode`` device (which never reports ``off``), when its
-    current setpoint has dropped to that device's minimum temperature. The
-    setpoint is read via :func:`attr_to_celsius` (with ``target_temp_low`` as
-    fallback attribute) so it is compared in Celsius, like ``min_temp``.
+    What makes one member count as off is :func:`member_counts_as_off`, which
+    the startup path reads too so the two cannot drift apart.
     """
     trv_ids = list(self.real_trvs.keys())
     if len(trv_ids) <= 1:
@@ -613,27 +671,8 @@ def group_all_members_off(self: BetterThermostat) -> bool:
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
             continue
         saw_member = True
-        if state.state == HVACMode.OFF:
-            continue
-        member = self.real_trvs.get(entity_id)
-        if member is not None and (member.advanced or {}).get(
-            "no_off_system_mode", False
-        ):
-            setpoint_key = (
-                "temperature"
-                if "temperature" in state.attributes
-                else "target_temp_low"
-            )
-            setpoint = attr_to_celsius(
-                self, state, setpoint_key, None, "group_all_members_off()"
-            )
-            if (
-                setpoint is not None
-                and member.min_temp is not None
-                and setpoint <= member.min_temp
-            ):
-                continue
-        return False
+        if not member_counts_as_off(self, entity_id, state):
+            return False
     return saw_member
 
 
