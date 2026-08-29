@@ -166,12 +166,12 @@ async def _commit_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Write the value used by BT (self.cur_temp) to the TRV
+    # Write the value used by BT (self.cur_temp) to the TRV. The heads are
+    # read from `real_trvs`, which is what carries the quirks the write goes
+    # through: an id from anywhere else resolves to no TRV and no write.
     entity_ids: list[str] = []
     try:
         entity_ids = list(self.real_trvs.keys())
-        if not entity_ids and hasattr(self, "entity_ids"):
-            entity_ids = list(self.entity_ids or [])
     except (AttributeError, TypeError) as exc:
         _LOGGER.warning(
             "better_thermostat %s: no TRV list to write external_temperature to: %s",
@@ -180,7 +180,7 @@ async def _commit_temperature_update(self, new_temp):
         )
     for entity_id in entity_ids:
         try:
-            _trv = self.real_trvs.get(entity_id) if hasattr(self, "real_trvs") else None
+            _trv = self.real_trvs.get(entity_id)
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                 await quirks.maybe_set_external_temperature(
