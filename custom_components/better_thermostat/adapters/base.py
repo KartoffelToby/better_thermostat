@@ -76,15 +76,15 @@ async def wait_for_calibration_entity_or_timeout(
         )
         return
 
-    # Wait for the entity to be available with timeout
-    _ready = True
-    _max_retries = 6  # 30 seconds total (6 * 5 seconds)
+    # Six passes with a five-second sleep between them. The last pass forces
+    # the write instead of sleeping again, so the wait spans 25 seconds.
+    _max_retries = 6
     _retry_count = 0
-    while _ready:
+    while True:
         _state = self.hass.states.get(calibration_entity)
         if _state is None or _state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.info(
-                "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
+                "better_thermostat %s: waiting for local_temperature_calibration entity with id '%s' to become fully available...",
                 self.device_name,
                 calibration_entity,
             )
@@ -111,9 +111,7 @@ async def wait_for_calibration_entity_or_timeout(
                         calibration_entity,
                         e,
                     )
-                _ready = False
                 return
             await asyncio.sleep(5)
             continue
-        _ready = False
         return
