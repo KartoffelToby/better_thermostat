@@ -324,6 +324,19 @@ async def contact_queue(self: BetterThermostat, role: ContactRole) -> None:
     from the settled region: only a flip of the effective state against
     the announced state fires the logbook entry and control kick, so
     several queued items sharing one commit announce it exactly once.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        the thermostat whose queue is drained
+    role : ContactRole
+        which contact kind this worker serves, naming the queue attribute
+        and the kernel-state region it settles
+
+    Returns
+    -------
+    None
+        the worker runs until it is cancelled
     """
     announced: bool | None = None
     try:
