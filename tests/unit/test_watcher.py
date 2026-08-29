@@ -1411,6 +1411,61 @@ class TestAwaitOptionalSensors:
         )
         assert sleep_calls == [2, 4]
 
+    def test_returns_immediately_when_already_removed(self, mock_bt_instance):
+        """An entity torn down before the wait starts never checks a sensor."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_optional_sensors,
+        )
+
+        mock_bt_instance.is_removed = True
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        result = self._run(
+            await_optional_sensors(
+                mock_bt_instance, delays=(3, 5, 10), _sleep=fake_sleep
+            )
+        )
+
+        assert result == []
+        assert sleep_calls == []
+        mock_bt_instance.hass.states.get.assert_not_called()
+
+    def test_stops_early_when_removed_mid_wait(self, mock_bt_instance):
+        """A teardown during the wait aborts the retry schedule immediately."""
+        from custom_components.better_thermostat.utils.watcher import (
+            await_optional_sensors,
+        )
+
+        mock_bt_instance.window_id = None
+        mock_bt_instance.humidity_sensor_entity_id = None
+        mock_bt_instance.weather_entity = None
+
+        mock_state = MagicMock()
+        mock_state.state = "unavailable"  # never comes online
+        mock_bt_instance.hass.states.get.return_value = mock_state
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+            # Instance torn down while we were waiting.
+            mock_bt_instance.is_removed = True
+
+        result = self._run(
+            await_optional_sensors(
+                mock_bt_instance, delays=(3, 5, 10, 15), _sleep=fake_sleep
+            )
+        )
+
+        # Only the first delay elapses; the post-sleep is_removed check returns
+        # instead of running the remaining schedule.
+        assert sleep_calls == [3]
+        assert result == ["sensor.outdoor_temp"]
+
 
 class TestAwaitCriticalEntities:
     """Tests for await_critical_entities retry logic.
