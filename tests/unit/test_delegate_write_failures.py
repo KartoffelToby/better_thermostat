@@ -121,6 +121,31 @@ class TestAValveCommandThatGoesNowhere:
         adapter.set_valve.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_service_call_channel_writes_without_a_helper_entity(self):
+        """An adapter that needs no number entity must not be blocked by one.
+
+        `Trv.capabilities` already reads `valve_needs_entity` this way, so an
+        adapter whose valve channel is an ecosystem service call is reported
+        as valve capable. Requiring a discovered entity here as well would
+        make that report a promise the write path never keeps.
+        """
+        adapter = SimpleNamespace(
+            CAPABILITIES=AdapterCapabilities(
+                offset_write=True, valve_write=True, valve_needs_entity=False
+            ),
+            set_valve=AsyncMock(return_value=True),
+        )
+        thermostat = _thermostat(adapter)
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.valve_position_entity = None
+        trv.valve_position_writable = None
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        adapter.set_valve.assert_awaited_once_with(thermostat, ENTITY_ID, 50)
+
+    @pytest.mark.asyncio
     async def test_a_position_that_is_not_a_number_is_refused(self):
         """A value no attempt can fix is not put on the wire."""
         adapter = _valve_adapter(return_value=None)

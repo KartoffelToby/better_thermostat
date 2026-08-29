@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 import logging
+import math
 
 from homeassistant.helpers.importlib import async_import_module
 
@@ -122,12 +123,17 @@ async def set_temperature(self, entity_id, temperature):
     stand-in. A stand-in is indistinguishable from a setpoint the user
     asked for: a device that reports a range would receive its lower
     bound, and a device that reports none would receive the stand-in
-    itself.
+    itself. NaN and the infinities are refused on the same grounds:
+    ``float()`` takes them, rounding carries them through, and the clamp
+    turns them into a bound — a NaN target would reach the device as its
+    maximum setpoint.
     """
     # Normalize input to float early
     try:
         t = float(temperature)
     except TypeError, ValueError:
+        t = None
+    if t is None or not math.isfinite(t):
         _LOGGER.error(
             "better_thermostat %s: target temperature %r for %s is not a number, "
             "nothing was written",
@@ -329,14 +335,20 @@ async def set_valve(self, entity_id, valve) -> bool:
     # back to the discovered surface, as elsewhere.
     declared = getattr(getattr(trv_state, "adapter", None), "CAPABILITIES", None)
     adapter_writes_valve = declared is None or declared.valve_write
+    # An adapter whose valve channel is an ecosystem service call has no
+    # helper entity to discover. `Trv.capabilities` already reads the flag
+    # that way, so requiring an entity here would report a TRV as valve
+    # capable and then never write to it.
+    adapter_needs_valve_entity = declared is None or declared.valve_needs_entity
     valve_entity = getattr(trv_state, "valve_position_entity", None)
     valve_writable = getattr(trv_state, "valve_position_writable", None)
     adapter_write = getattr(getattr(trv_state, "adapter", None), "set_valve", None)
 
     # Each channel carries whether its own answer decides the outcome: a quirk
     # reports whether it took the position, while an adapter call that returns
-    # is the write. The adapter's channel exists only once a helper entity was
-    # discovered and is known to be writable.
+    # is the write. The adapter's channel exists once a helper entity was
+    # discovered and is known to be writable, or once the adapter declares it
+    # needs no such entity because its valve channel is a service call.
     channels = []
     quirk_write = getattr(
         getattr(trv_state, "model_quirks", None), "override_set_valve", None
@@ -345,9 +357,10 @@ async def set_valve(self, entity_id, valve) -> bool:
         channels.append(("override", quirk_write, True))
     if (
         adapter_write is not None
-        and valve_entity
-        and valve_writable is True
         and adapter_writes_valve
+        and (
+            (valve_entity and valve_writable is True) or not adapter_needs_valve_entity
+        )
     ):
         channels.append(("adapter", adapter_write, False))
 

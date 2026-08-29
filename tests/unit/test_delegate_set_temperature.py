@@ -77,6 +77,23 @@ async def test_a_target_that_is_not_a_number_is_not_written(bt):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target", [float("nan"), float("inf"), float("-inf")], ids=["nan", "inf", "-inf"]
+)
+async def test_a_target_that_is_not_finite_is_not_written(bt, target):
+    """These pass `float()` and the clamp turns them into a bound.
+
+    NaN is literally not a number, and the clamp does not reject it: it
+    comes out as the device's maximum setpoint, so the room is driven to
+    full heat by a value nobody could have meant.
+    """
+    answer = await set_temperature(bt, ENTITY_ID, target)
+
+    assert answer is None
+    bt.real_trvs[ENTITY_ID].adapter.set_temperature.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_a_target_of_none_is_not_written(bt):
     """A missing target is no more sendable than an unreadable one."""
     answer = await set_temperature(bt, ENTITY_ID, None)
