@@ -155,6 +155,31 @@ async def test_the_device_offers_every_declared_trigger(hass, fake_trv):
     assert ours == TRIGGER_TYPES
 
 
+async def test_a_thermostat_without_a_humidity_sensor_is_offered_no_humidity_trigger(
+    hass, fake_trv
+):
+    """A trigger that can never fire does not belong in the automation editor.
+
+    Without that sensor the thermostat publishes no humidity, so both
+    humidity triggers would attach to an automation and then stay silent for
+    good — which reads to the user as a broken automation, not as a missing
+    sensor.
+    """
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    assert registry_entry is not None
+
+    offered = await async_get_device_automations(
+        hass, DeviceAutomationType.TRIGGER, registry_entry.device_id
+    )
+    ours = {item[CONF_TYPE] for item in offered if item.get(CONF_DOMAIN) == DOMAIN}
+
+    assert ours == TRIGGER_TYPES - {"humidity_high", "current_humidity_changed"}
+
+
 @pytest.mark.parametrize("trigger_type", sorted(TRIGGER_CASES), ids=str)
 async def test_each_trigger_fires_on_the_change_it_names(hass, fake_trv, trigger_type):
     """An automation built on each offered trigger runs when its change happens.

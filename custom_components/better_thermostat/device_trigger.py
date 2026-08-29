@@ -51,6 +51,7 @@ from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from . import DOMAIN
+from .utils.const import CONF_HUMIDITY
 from .utils.helpers import is_bt_climate_entity
 
 # All supported trigger types
@@ -124,6 +125,19 @@ async def async_get_triggers(
             CONF_ENTITY_ID: entry.entity_id,
         }
 
+        # A thermostat configured without a humidity sensor publishes no
+        # humidity, so the two triggers that watch it would attach to an
+        # automation and never fire. `entry.data` is the same place the
+        # climate entity reads the sensor from.
+        config_entry = (
+            hass.config_entries.async_get_entry(entry.config_entry_id)
+            if entry.config_entry_id
+            else None
+        )
+        watches_humidity = bool(
+            (config_entry.data if config_entry else {}).get(CONF_HUMIDITY)
+        )
+
         # Purpose-specific triggers (primary – shown first in the UI)
         primary_types = [
             "heating_active",
@@ -139,7 +153,9 @@ async def async_get_triggers(
             )
 
         # Purpose-specific triggers (secondary – sensor / diagnostic info)
-        secondary_types = ["humidity_high", "battery_low"]
+        secondary_types = ["battery_low"]
+        if watches_humidity:
+            secondary_types.insert(0, "humidity_high")
         for trigger_type in secondary_types:
             triggers.append(
                 {**base, CONF_TYPE: trigger_type, "metadata": {"secondary": True}}
@@ -158,13 +174,16 @@ async def async_get_triggers(
                     CONF_TYPE: "current_temperature_changed",
                     "metadata": {"secondary": True},
                 },
+            ]
+        )
+        if watches_humidity:
+            triggers.append(
                 {
                     **base,
                     CONF_TYPE: "current_humidity_changed",
                     "metadata": {"secondary": True},
-                },
-            ]
-        )
+                }
+            )
 
     return triggers
 
