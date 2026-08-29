@@ -24,6 +24,14 @@ VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     """Answer whether the TRV is operating while its state reads ``unknown``.
 
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records.
+        Unused by the default policy.
+    entity_id : str
+        Entity ID of the TRV being judged. Unused by the default policy.
+
     Returns
     -------
     bool

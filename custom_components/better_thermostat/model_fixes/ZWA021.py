@@ -57,6 +57,13 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     is in it. The device is reachable throughout and takes the valve
     positions Better Thermostat writes.
 
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records
+    entity_id : str
+        Entity ID of the TRV being judged
+
     Returns
     -------
     bool
