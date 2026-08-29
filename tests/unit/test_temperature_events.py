@@ -307,6 +307,34 @@ class TestApplyTemperatureUpdate:
 
         mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
+    @pytest.mark.asyncio
+    async def test_a_refused_trv_write_does_not_skip_the_other_heads(self, mock_bt):
+        """Every head in the room gets the reading, whatever the first one answers.
+
+        In a multi-head room the write goes out head by head. One device that
+        refuses must not cost the remaining heads their reading, or they keep
+        regulating on a room temperature Better Thermostat has discarded.
+        """
+        refusing = AsyncMock()
+        refusing.maybe_set_external_temperature.side_effect = HomeAssistantError(
+            "device did not answer"
+        )
+        answering = AsyncMock()
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": refusing}
+            ),
+            "climate.trv2": Trv.from_legacy_dict(
+                "climate.trv2", {"model_quirks": answering}
+            ),
+        }
+
+        await _apply_temperature_update(mock_bt, 21.0)
+
+        answering.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv2", 21.0
+        )
+
 
 # ---------------------------------------------------------------------------
 # 3. Guard clauses for trigger_temperature_change

@@ -127,37 +127,47 @@ async def _apply_temperature_update(self, new_temp):
         )
     # Write the value used by BT (self.cur_temp) to the TRV
     try:
-        trv_ids = list(self.real_trvs.keys())
-        if not trv_ids and hasattr(self, "entity_ids"):
-            trv_ids = list(self.entity_ids or [])
-        for trv_id in trv_ids:
-            _trv = self.real_trvs.get(trv_id) if hasattr(self, "real_trvs") else None
+        entity_ids = list(self.real_trvs.keys())
+        if not entity_ids and hasattr(self, "entity_ids"):
+            entity_ids = list(self.entity_ids or [])
+    except (AttributeError, TypeError) as exc:
+        _LOGGER.warning(
+            "better_thermostat %s: no TRV list to write external_temperature to: %s",
+            self.device_name,
+            exc,
+        )
+        entity_ids = []
+    for entity_id in entity_ids:
+        try:
+            _trv = self.real_trvs.get(entity_id) if hasattr(self, "real_trvs") else None
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                await quirks.maybe_set_external_temperature(
+                    self, entity_id, self.cur_temp
+                )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
                     self.device_name,
-                    trv_id,
+                    entity_id,
                 )
-    except (
-        HomeAssistantError,
-        OSError,
-        AttributeError,
-        KeyError,
-        TypeError,
-        ValueError,
-        RuntimeError,
-    ) as exc:
-        # A device that refuses the value keeps its old one, but the room
-        # temperature BT decides on has already changed, so the control cycle
-        # below still has to run on the new reading.
-        _LOGGER.warning(
-            "better_thermostat %s: external_temperature write to TRV failed: %s",
-            self.device_name,
-            exc,
-        )
+        except (
+            HomeAssistantError,
+            OSError,
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            # A device that refuses the value keeps its old one; the other TRVs
+            # still get the reading, and the control cycle below runs on it.
+            _LOGGER.warning(
+                "better_thermostat %s: external_temperature write to %s failed: %s",
+                self.device_name,
+                entity_id,
+                exc,
+            )
     # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
     # Still mark that a control cycle is needed after maintenance so we immediately
     # resume with the latest temperature.
