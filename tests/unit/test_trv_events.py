@@ -408,7 +408,11 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_temp_change_respects_time_diff(self, mock_bt):
-        """Changes within 5 s of the TRV's last internal sensor change are skipped."""
+        """A reading arriving inside the head's debounce window is discarded.
+
+        The window exists because a head that has just been calibrated
+        reports the value it was told, not the one it measured.
+        """
         mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
             timedelta(seconds=2)
         )
@@ -431,7 +435,11 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_temp_change_homematicip_600s(self, mock_bt):
-        """A HomematicIP TRV guards its own readings with 600 s instead of 5 s."""
+        """A HomematicIP head debounces on its own duty cycle, not the generic one.
+
+        Its radio reports far less often, so a reading that would be inside
+        the generic window is already the head's newest word.
+        """
         mock_bt.real_trvs[ENTITY_ID].advanced[CONF_HOMEMATICIP] = True
         mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
             timedelta(seconds=30)
@@ -483,7 +491,7 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_homematicip_trv_keeps_its_own_600s_window(self, mock_bt):
-        """The HomematicIP valve of a mixed room still waits out its 600 s.
+        """The HomematicIP valve of a mixed room still waits out its own window.
 
         A room mate on another radio does not shorten the duty-cycle window,
         just as the window does not lengthen the room mate's.
