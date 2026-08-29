@@ -4287,6 +4287,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.kernel_state = replace(
             self.kernel_state, lifecycle=lifecycle_stop(self.kernel_state.lifecycle)
         )
+        # The plateau timer is scheduled on hass, not on the entity, so a
+        # pending one outlives the unload and would write the external
+        # temperature to TRVs this entity no longer drives. Awaiting the
+        # workers below yields to the loop, which is long enough for a due
+        # timer to fire, so it goes first.
+        if self.plateau_timer_cancel is not None:
+            self.plateau_timer_cancel()
+            self.plateau_timer_cancel = None
         if self._control_task:
             self._control_task.cancel()
             try:
@@ -4305,12 +4313,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self._door_task
             except asyncio.CancelledError:
                 pass
-        # The plateau timer is scheduled on hass, not on the entity, so a
-        # pending one outlives the unload and would write the external
-        # temperature to TRVs this entity no longer drives.
-        if self.plateau_timer_cancel is not None:
-            self.plateau_timer_cancel()
-            self.plateau_timer_cancel = None
         await super().async_will_remove_from_hass()
 
 

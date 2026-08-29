@@ -360,6 +360,40 @@ class TestPlateauTimerOnRemoval:
         _external_temperature_writes(plateau_bt).assert_not_awaited()
         assert plateau_bt.plateau_timer_cancel is None
 
+    @pytest.mark.asyncio
+    async def test_the_timer_goes_before_the_workers_are_awaited(
+        self, hass, plateau_bt
+    ):
+        """Shutting the workers down yields, and a due timer fires in that gap.
+
+        Every `await` in the teardown hands the loop back, so a timer still
+        armed at that point gets its turn and writes to devices the entity is
+        in the middle of letting go of.
+        """
+        await _arm_plateau_timer(plateau_bt)
+        order = []
+        withdraw_timer = plateau_bt.plateau_timer_cancel
+
+        def record_timer_withdrawal():
+            order.append("timer")
+            withdraw_timer()
+
+        plateau_bt.plateau_timer_cancel = record_timer_withdrawal
+
+        async def never_finishes():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                order.append("worker")
+                raise
+
+        plateau_bt._control_task = hass.async_create_task(never_finishes())
+        await asyncio.sleep(0)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        assert order == ["timer", "worker"]
+
 
 # ---------------------------------------------------------------------------
 # 1. _check_entities_ready
