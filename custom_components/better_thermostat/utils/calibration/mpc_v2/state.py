@@ -93,8 +93,22 @@ def import_mpc_v2_state(
     A fresh ``MpcV2Controller`` is constructed and seeded via
     :meth:`MpcV2Controller.restore_snapshot`. When ``params`` is ``None`` the
     controller boots with defaults — the caller is expected to recompute soon
-    after with the correct params. ``key`` names the state entry the payload
-    belongs to, so a report about an unusable value can point at the room.
+    after with the correct params.
+
+    Parameters
+    ----------
+    payload : Mapping[str, Any]
+        the exported state to rehydrate
+    params : MpcV2Params | None
+        parameters for the rebuilt controller, defaults when None
+    key : str | None
+        names the state entry the payload belongs to, so a report about an
+        unusable value can point at the room rather than at nothing
+
+    Returns
+    -------
+    MpcV2State
+        the rehydrated state, with any unusable field left at its default
     """
     state = MpcV2State()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):

@@ -426,7 +426,9 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
     return state
 
 
-def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
+def deserialize_mpc_v2(
+    raw: dict[str, Any], *, key: str | None = None
+) -> MpcV2StateData | None:
     """Deserialize a single MPC v2 state dict; ``None`` if the entry is corrupt.
 
     A non-finite float in ``last_percent``, ``last_compute_ts`` or
@@ -445,6 +447,19 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
     empty default in its place — the very shape described above. Only a
     store this integration did not write can hold one: what it saves is
     always a mapping.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+
+    Returns
+    -------
+    MpcV2StateData | None
+        the parsed entry, or None when it is corrupt
     """
     state = MpcV2StateData()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
@@ -460,6 +475,15 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
         except _PoisonedState:
             return None
         except TypeError, ValueError, OverflowError:
+            # The field keeps the default a first start leaves there. Saying
+            # so here is the only chance: the caller hands the parsed entry
+            # on, where a default and a value the store lost look alike.
+            _LOGGER.warning(
+                "MPC v2 stored %s for %s is not a usable number, continuing without it",
+                attr,
+                key or "an unnamed state entry",
+                exc_info=True,
+            )
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -599,7 +623,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     if isinstance(mpc_v2_raw, Mapping):
         for key, state_dict in mpc_v2_raw.items():
             if isinstance(state_dict, dict):
-                mpc_v2 = deserialize_mpc_v2(state_dict)
+                mpc_v2 = deserialize_mpc_v2(state_dict, key=key)
                 if mpc_v2 is not None:
                     state.mpc_v2[key] = mpc_v2
 
@@ -794,7 +818,7 @@ class StateManager:
             exported = export_mpc_v2_state(live)
             if exported is None:
                 continue
-            persistable = deserialize_mpc_v2(exported)
+            persistable = deserialize_mpc_v2(exported, key=key)
             if persistable is not None:
                 self._state.mpc_v2[key] = persistable
 
@@ -830,7 +854,11 @@ class StateManager:
         for live_key in list(self._mpc_v2_live):
             live = self._mpc_v2_live.pop(live_key)
             exported = export_mpc_v2_state(live)
-            persistable = deserialize_mpc_v2(exported) if exported is not None else None
+            persistable = (
+                deserialize_mpc_v2(exported, key=live_key)
+                if exported is not None
+                else None
+            )
             if persistable is not None:
                 self._state.mpc_v2[live_key] = persistable
             else:

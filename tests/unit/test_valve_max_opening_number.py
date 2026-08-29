@@ -1,10 +1,12 @@
 """Tests for the maximum-valve-opening number entity.
 
 Home Assistant validates a ``number.set_value`` payload with ``value <
-min_value or value > max_value``. Both comparisons are false for a
-non-finite number, so ``NaN`` and the infinities reach the entity. Clamping
-one against ``0..100`` does not remove it, it disguises it as a plausible
-limit, which is why the entity has to recognise it as unusable itself.
+min_value or value > max_value``. That rejects the infinities but not
+``NaN``, for which both comparisons are false. A value restored from the
+store or set from inside the integration passes no such check at all, so
+all three can reach the entity. Clamping one against ``0..100`` does not
+remove it, it disguises it as a plausible limit, which is why the entity
+has to recognise it as unusable itself.
 """
 
 from __future__ import annotations

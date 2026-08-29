@@ -525,12 +525,14 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
             return
         numeric = float(value)
         if not math.isfinite(numeric):
-            # Clamping against 0..100 does not remove a non-finite number, it
-            # disguises it: every comparison with NaN is false, so NaN and
-            # +inf leave the clamp as 100 (the cap stops limiting anything)
-            # and -inf as 0 (the valve is held shut). Home Assistant's own
-            # range check passes them for the same reason, which makes this
-            # the last place the cap can still be recognised as unusable.
+            # Clamping against 0..100 does not remove a non-finite number,
+            # it disguises it: NaN and +inf leave the clamp as 100 (the cap
+            # stops limiting anything) and -inf as 0 (the valve is held
+            # shut). Home Assistant's range check rejects the infinities —
+            # `+inf > max_value` holds — but every comparison with NaN is
+            # false, so NaN passes it. A restored or internally set value
+            # meets no such check at all, which leaves this the last place
+            # any of the three can still be recognised as unusable.
             _LOGGER.warning(
                 "Better Thermostat %s: %s is not a usable maximum valve "
                 "opening for %s, keeping %s %%",
