@@ -6,6 +6,7 @@ _restore_state, _validate_hvac_mode.
 """
 
 import asyncio
+from datetime import timedelta
 import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,19 +20,26 @@ from homeassistant.const import (
 )
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
 )
 from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.events.temperature import (
+    PLATEAU_ACCEPT_WINDOW,
+    trigger_temperature_change,
+)
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_CALL_FOR_HEAT,
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
@@ -72,7 +80,20 @@ def bt():
     mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID
-    mock.real_trvs = {TRV_ID: {"calibration": 1}}
+    # Production holds Trv objects here, not raw dicts: a fixture that maps to
+    # a dict passes attribute reads straight through MagicMock and hides
+    # whatever the code under test asks of a member.
+    mock.real_trvs = {
+        TRV_ID: Trv(
+            entity_id=TRV_ID,
+            calibration=1,
+            integration="generic_thermostat",
+            adapter=None,
+            model_quirks=None,
+            model="SomeModel",
+            advanced={},
+        )
+    }
     mock.cooler_entity_id = None
     mock.outdoor_sensor = None
     mock.humidity_sensor_entity_id = None
@@ -131,6 +152,39 @@ def bt():
     return mock
 
 
+@pytest.fixture
+def plateau_bt(bt, hass):
+    """A thermostat whose plateau timer is scheduled on a real event loop.
+
+    The plateau path only exists once a reading has been accepted, so the
+    baseline reading is fed through the production handler rather than
+    assigned, and the TRV write the timer performs is observable on the
+    quirk the handler delegates to.
+    """
+    bt.hass = hass
+    bt.startup_running = False
+    bt._control_task = None
+    bt._window_task = None
+    bt._door_task = None
+    bt.control_queue_task = None
+    bt.in_maintenance = False
+    bt._control_needed_after_maintenance = False
+    bt.last_external_sensor_change = None
+    bt.prev_stable_temp = None
+    bt.last_change_direction = 0
+    bt.accum_delta = 0.0
+    bt.accum_dir = 0
+    bt.pending_temp = None
+    bt.pending_since = None
+    bt.plateau_timer_cancel = None
+    bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
+    trv = MagicMock()
+    trv.model_quirks = MagicMock()
+    trv.model_quirks.maybe_set_external_temperature = AsyncMock()
+    bt.real_trvs = {TRV_ID: trv}
+    return bt
+
+
 def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
     """Build a TRV State with typical attributes."""
     default_attrs = {
@@ -143,6 +197,24 @@ def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
     if attrs:
         default_attrs.update(attrs)
     return State(entity_id, state, attributes=default_attrs)
+
+
+def _make_no_off_trv(entity_id):
+    """Build a Trv for a device that never reports "off".
+
+    ``min_temp`` is left empty on purpose: ``_initialize_trvs`` fills it only
+    after the startup mode is decided, so this is the shape the startup path
+    actually sees.
+    """
+    return Trv(
+        entity_id=entity_id,
+        calibration=None,
+        integration="generic_thermostat",
+        adapter=None,
+        model_quirks=None,
+        model="SomeModel",
+        advanced={"no_off_system_mode": True, "child_lock": False},
+    )
 
 
 def _make_sensor_state(temp="21.5", state_val=None):
@@ -234,10 +306,124 @@ class TestStartupUnloadBailout:
         bt._control_task = None
         bt._window_task = None
         bt._door_task = None
+        bt.plateau_timer_cancel = None
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
         assert bt.kernel_state.lifecycle.startup_running is False
+
+
+# ---------------------------------------------------------------------------
+# 0b. what an unload has to withdraw from hass
+# ---------------------------------------------------------------------------
+
+
+# Half the significance threshold, so this reading reaches the TRVs through
+# the plateau timer and through no other accept path.
+SUB_THRESHOLD_TEMP = 20.05
+
+
+async def _feed_sensor_reading(entity, temperature):
+    """Deliver one external temperature reading to the event handler."""
+    event = MagicMock()
+    event.data = {"new_state": State(SENSOR_ID, str(temperature))}
+    await trigger_temperature_change(entity, event)
+
+
+def _external_temperature_writes(entity):
+    """Return the TRV write an accepted reading performs."""
+    return entity.real_trvs[TRV_ID].model_quirks.maybe_set_external_temperature
+
+
+async def _arm_plateau_timer(entity):
+    """Establish a baseline reading, then leave a plateau timer pending."""
+    await _feed_sensor_reading(entity, 20.0)
+    _external_temperature_writes(entity).assert_awaited_once()
+    _external_temperature_writes(entity).reset_mock()
+
+    # The accepted reading is a minute old, so the debounce interval the
+    # timer re-checks when it fires has long passed.
+    entity.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+
+    await _feed_sensor_reading(entity, SUB_THRESHOLD_TEMP)
+    assert entity.plateau_timer_cancel is not None
+    assert entity.pending_temp == SUB_THRESHOLD_TEMP
+    _external_temperature_writes(entity).assert_not_awaited()
+
+
+def _pass_the_plateau_window(hass):
+    """Advance the loop past the plateau window so a pending timer fires."""
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=PLATEAU_ACCEPT_WINDOW + 5)
+    )
+
+
+class TestPlateauTimerOnRemoval:
+    """A pending plateau timer must not outlive the entity that armed it.
+
+    The timer is scheduled on hass, so nothing about the unload stops it on
+    its own: it fires against the torn-down instance and writes to devices
+    the entity no longer drives.
+    """
+
+    @pytest.mark.asyncio
+    async def test_armed_timer_fires_while_the_entity_lives(self, hass, plateau_bt):
+        """The window elapsing accepts the reading and writes it to the TRV."""
+        await _arm_plateau_timer(plateau_bt)
+
+        _pass_the_plateau_window(hass)
+        await hass.async_block_till_done()
+
+        _external_temperature_writes(plateau_bt).assert_awaited_once_with(
+            plateau_bt, TRV_ID, SUB_THRESHOLD_TEMP
+        )
+
+    @pytest.mark.asyncio
+    async def test_armed_timer_writes_nothing_after_removal(self, hass, plateau_bt):
+        """Removal withdraws the timer, so the window passes without a write."""
+        await _arm_plateau_timer(plateau_bt)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        _pass_the_plateau_window(hass)
+        await hass.async_block_till_done()
+
+        _external_temperature_writes(plateau_bt).assert_not_awaited()
+        assert plateau_bt.plateau_timer_cancel is None
+
+    @pytest.mark.asyncio
+    async def test_the_timer_goes_before_the_workers_are_awaited(
+        self, hass, plateau_bt
+    ):
+        """Shutting the workers down yields, and a due timer fires in that gap.
+
+        Every `await` in the teardown hands the loop back, so a timer still
+        armed at that point gets its turn and writes to devices the entity is
+        in the middle of letting go of.
+        """
+        await _arm_plateau_timer(plateau_bt)
+        order = []
+        withdraw_timer = plateau_bt.plateau_timer_cancel
+
+        def record_timer_withdrawal():
+            order.append("timer")
+            withdraw_timer()
+
+        plateau_bt.plateau_timer_cancel = record_timer_withdrawal
+
+        async def never_finishes():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                order.append("worker")
+                raise
+
+        plateau_bt._control_task = hass.async_create_task(never_finishes())
+        await asyncio.sleep(0)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        assert order == ["timer", "worker"]
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +713,19 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = State(HUMIDITY_ID, "55.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert HUMIDITY_ID in bt.all_entities
+
+    def test_unreadable_humidity_stays_unknown(self, bt):
+        """A humidity that does not parse is not reported as 0 %.
+
+        0 % is a reading a room can publish, so a sensor whose value cannot be
+        read has to stay unknown instead of being answered with a number.
+        """
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = State(HUMIDITY_ID, "not-a-number")
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt._current_humidity is None
 
     def test_ema_initialized_with_cur_temp(self, bt):
         """Test Ema initialized with cur temp."""
@@ -1790,13 +1989,67 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.OFF
 
-    def test_none_mode_most_heat_sets_heat(self, bt):
-        """Test None mode most heat sets heat."""
+    def test_none_mode_every_head_heating_sets_heat(self, bt):
+        """A room whose heads all heat comes up heating."""
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
         states = [
             _make_trv_state(TRV_ID, state="heat"),
             _make_trv_state(TRV_ID_2, state="heat"),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    def test_none_mode_one_head_heating_sets_heat(self, bt):
+        """One head still heating is enough to bring the room up heating.
+
+        The counterpart of the runtime rule: the room follows its heads off
+        only once all of them are off, so a single one that is not carries it.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        states = [
+            _make_trv_state(TRV_ID, state="off"),
+            _make_trv_state(TRV_ID_2, state="heat"),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    def test_none_mode_heads_parked_at_their_minimum_set_off(self, bt):
+        """Heads that never report "off" are off at their own minimum.
+
+        A ``no_off_system_mode`` valve expresses "off" as its minimum setpoint,
+        so a room of them parked there is off — the reading the runtime path
+        has always used, and which the startup path used to miss because it
+        judged the reported state alone.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        parked = {"temperature": 5.0, "min_temp": 5.0}
+        bt.real_trvs = {
+            entity_id: _make_no_off_trv(entity_id) for entity_id in (TRV_ID, TRV_ID_2)
+        }
+        states = [
+            _make_trv_state(TRV_ID, state="heat", attrs=parked),
+            _make_trv_state(TRV_ID_2, state="heat", attrs=parked),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+    def test_none_mode_one_head_above_its_minimum_sets_heat(self, bt):
+        """One head lifted off its minimum brings the whole room up heating."""
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.real_trvs = {
+            entity_id: _make_no_off_trv(entity_id) for entity_id in (TRV_ID, TRV_ID_2)
+        }
+        states = [
+            _make_trv_state(
+                TRV_ID, state="heat", attrs={"temperature": 5.0, "min_temp": 5.0}
+            ),
+            _make_trv_state(
+                TRV_ID_2, state="heat", attrs={"temperature": 21.0, "min_temp": 5.0}
+            ),
         ]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.HEAT
@@ -1827,6 +2080,21 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         # humidity should be re-read
         assert bt._current_humidity is not None
+
+    def test_unreadable_humidity_stays_unknown(self, bt):
+        """The humidity re-read keeps an unparsable reading unknown.
+
+        This pass runs after the sensors are initialized and decides the value
+        the entity publishes, so coercing it to 0 % here would present a
+        missing measurement as a measured one.
+        """
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        bt.hass.states.get.return_value = State(HUMIDITY_ID, STATE_UNAVAILABLE)
+        states = [_make_trv_state()]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt._current_humidity is None
 
     def test_humidity_sensor_none_sets_zero(self, bt):
         """Test Humidity sensor none sets zero."""
