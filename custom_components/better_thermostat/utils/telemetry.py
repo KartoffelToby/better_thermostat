@@ -111,6 +111,18 @@ def _strict_json(payload: object, label: str) -> str | None:
     ``Infinity``, which no JSON parser accepts, so one non-finite sample
     would make the whole attribute unreadable for every consumer. Omitting
     that attribute leaves the others usable.
+
+    Parameters
+    ----------
+    payload : object
+        the telemetry to serialize
+    label : str
+        name of the attribute, used in the log line when serializing fails
+
+    Returns
+    -------
+    str | None
+        the JSON text, or None when the payload does not serialize
     """
     try:
         return json.dumps(payload, allow_nan=False)

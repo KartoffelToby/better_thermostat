@@ -45,6 +45,18 @@ def _legacy_thermal_stat(thermal_data: dict[str, Any], field: str) -> float | No
     number. Importing it as unset lets the rest of the migration finish and
     be saved; letting the parse error out would abandon the import halfway
     and leave the migration to run again on every start.
+
+    Parameters
+    ----------
+    thermal_data : dict[str, Any]
+        the legacy store's thermal section
+    field : str
+        name of the statistic to read from it
+
+    Returns
+    -------
+    float | None
+        the statistic as a finite float, or None when it is unusable
     """
     raw_value = thermal_data.get(field)
     value = finite_or_none(raw_value)

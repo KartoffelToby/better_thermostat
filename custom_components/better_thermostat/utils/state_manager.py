@@ -301,6 +301,16 @@ def finite_or_none(value: Any) -> float | None:
     collapse to ``None``. Non-finite numbers carry no usable learning, and
     keeping one would only feed the same unusable value back into the next
     calculation that reads it.
+
+    Parameters
+    ----------
+    value : Any
+        the value to read, from a store or a caller
+
+    Returns
+    -------
+    float | None
+        the value as a finite float, or None when it is not one
     """
     if value is None:
         return None
