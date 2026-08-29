@@ -268,6 +268,33 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
 
         assert answered is False
 
+    @pytest.mark.asyncio
+    async def test_the_option_is_written_and_waited_for(self):
+        """A refusal only reaches the caller when the call blocks.
+
+        `ServiceRegistry.async_call` defaults to fire-and-forget and runs a
+        failing handler in a background task, so without `blocking=True` the
+        device's refusal never raises here and the mode reads as switched
+        when it is not.
+        """
+        host = _host(state=State("select.trv_trv_mode", "2"), model="SPZB0001")
+        host.hass.services.async_call = AsyncMock(return_value=None)
+
+        with patch.object(
+            spzb0001_quirk.er,
+            "async_get",
+            lambda hass: self._registry_holding_a_mode_select(),
+        ):
+            assert await spzb0001_quirk.check_operation_mode(host, ENTITY_ID, "1")
+
+        host.hass.services.async_call.assert_awaited_once_with(
+            "select",
+            "select_option",
+            {"entity_id": "select.trv_trv_mode", "option": "1"},
+            blocking=True,
+            context=host.context,
+        )
+
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
     async def test_a_refused_option_does_not_end_the_startup_tweak(self, refusal):

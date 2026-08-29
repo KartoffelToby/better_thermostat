@@ -32,8 +32,15 @@ async def _select_manual_preset(self: ModelFixHost, entity_id: str) -> None:
 
     A device that refuses the preset keeps running its own schedule and
     overwrites whatever Better Thermostat sends it, so the refusal is
-    reported. It does not decide the command the caller asked for: that one
+    logged. It does not decide the command the caller asked for: that one
     still has to reach the device, and it is written either way.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records
+    entity_id : str
+        Entity ID of the TRV to take off its schedule
     """
     try:
         await self.hass.services.async_call(

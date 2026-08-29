@@ -42,12 +42,25 @@ async def _write_setpoint(
 ) -> bool:
     """Put one setpoint payload on the wire.
 
-    Returns True once the device took the write. A device that is asleep or
-    out of reach, an integration reloading its config entry, and an entity
-    that declares no support for the attributes in the payload all answer a
-    blocking service call with an error; that is reported as a refused write
-    so the caller can fall back to the generic adapter, which carries the
-    retry handling.
+    A device that is asleep or out of reach, an integration reloading its
+    config entry, and an entity that declares no support for the attributes
+    in the payload all answer a blocking service call with an error; that is
+    reported as a refused write so the caller can fall back to the generic
+    adapter, which carries the retry handling.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records
+    entity_id : str
+        Entity ID of the TRV the payload is addressed to
+    payload : dict[str, str | float]
+        Service data for ``climate.set_temperature``
+
+    Returns
+    -------
+    bool
+        True once the device took the write, False when it refused
     """
     try:
         await self.hass.services.async_call(
