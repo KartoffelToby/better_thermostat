@@ -160,3 +160,48 @@ async def test_an_unreachable_valve_does_not_stop_the_ladder():
         await BetterThermostat._availability_tick(bt)
 
     degraded.assert_awaited_once_with(bt)
+
+
+class _TrvMapThatCannotBeRead(dict):
+    """A TRV map whose iteration fails, as a corrupted cache would."""
+
+    def values(self):
+        """Raise instead of yielding, the way a broken cache reads."""
+        raise RuntimeError("TRV cache is unreadable")
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_trv_map_still_gets_the_ladder_tick():
+    """The tick every configuration needs cannot depend on reading the modes.
+
+    Deciding which of the two five-minute handlers to register means reading
+    each head's balance and calibration mode. That read failing says nothing
+    about the ladder, which still has to step, so the run falls back to the
+    availability tick rather than to no tick at all.
+    """
+    bt = _startup_bt()
+    bt.real_trvs = _TrvMapThatCannotBeRead()
+
+    registered = await _run_finalize_startup(bt)
+
+    assert _five_minute_ladder_tick(bt, registered) == "_availability_tick"
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_maintenance_list_leaves_the_other_ticks_standing():
+    """Valve maintenance is the one tick a failed read may cost.
+
+    It is orthogonal to the ladder: a head list that cannot be read names no
+    valve to exercise, and the startup carries on with the ticks that do not
+    depend on it.
+    """
+    bt = _startup_bt()
+
+    with patch(
+        f"{_CLIMATE}.collect_maintenance_trvs",
+        MagicMock(side_effect=RuntimeError("TRV cache is unreadable")),
+    ):
+        registered = await _run_finalize_startup(bt)
+
+    assert (bt._maintenance_tick, timedelta(minutes=5)) not in registered.intervals
+    assert _five_minute_ladder_tick(bt, registered) is not None
