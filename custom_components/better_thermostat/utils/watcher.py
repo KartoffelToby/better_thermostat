@@ -148,10 +148,15 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
     # Coming back from an outage is the one moment worth reading whatever the
     # earlier passes found, so neither reason to skip applies to it.
     if not recovered:
-        if info.get("battery") is not None:
-            return
         retry_at = self._next_battery_read.get(entity)
-        if retry_at is not None and self.clock.monotonic() < retry_at:
+        if retry_at is not None:
+            # A retry is pending because the battery entity had nothing to
+            # report. Whatever level is stored is the one from before that,
+            # so holding a level is not a reason to skip here — only the
+            # wait is, or the reading would stay stale until the next outage.
+            if self.clock.monotonic() < retry_at:
+                return
+        elif info.get("battery") is not None:
             return
 
     self.hass.async_create_background_task(

@@ -655,6 +655,39 @@ class TestGetBatteryStatus:
         assert bt.devices_states[self.TRV]["battery"] == "87"
 
     @pytest.mark.anyio
+    async def test_a_pending_retry_outranks_the_level_it_was_scheduled_over(
+        self, mock_bt_instance
+    ):
+        """A stored level is the one from before the entity went quiet.
+
+        The device came back and was asked; its battery entity had nothing
+        to say, so the older reading is still standing. Treating that
+        reading as an answer would retire the retry it was scheduled over,
+        and the level would stay at the pre-outage value until the next
+        outage happened to schedule another one.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            BATTERY_REREAD_DELAY_SECONDS,
+            get_battery_status,
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        await get_battery_status(bt, self.TRV)
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+
+        self._reporting(bt, "unavailable")
+        schedule_battery_refresh(bt, self.TRV, recovered=True)
+        await get_battery_status(bt, self.TRV)
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+        bt.hass.async_create_background_task.reset_mock()
+
+        bt.clock.advance(BATTERY_REREAD_DELAY_SECONDS)
+        schedule_battery_refresh(bt, self.TRV, recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+    @pytest.mark.anyio
     async def test_a_battery_without_a_level_is_not_read_on_every_pass(
         self, mock_bt_instance
     ):
