@@ -114,13 +114,26 @@ async def override_set_temperature(self, entity_id, temperature):
 async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
     """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
 
-    Scans the device of the given climate entity for a `number.*` entity that
-    represents valve opening/position and writes the provided percentage.
-    Prefers explicit Sonoff entities:
-      - number.*.valve_opening_degree = percent
-      - number.*.valve_closing_degree = 100 - percent
-    Returns True when the requested position went out, False when no number
-    entity matched or the device refused one of the writes.
+    Scans the device of the given climate entity for a ``number.*`` entity
+    that represents valve opening/position and writes the provided
+    percentage. Prefers explicit Sonoff entities:
+      - ``number.*.valve_opening_degree`` = percent
+      - ``number.*.valve_closing_degree`` = 100 - percent
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Climate entity identifying the TRV device
+    percent : int
+        Requested valve position, in percent
+
+    Returns
+    -------
+    bool
+        True when the requested position went out, False when no number
+        entity matched or the device refused one of the writes
     """
     try:
         model = str(self.real_trvs[entity_id].model or "")
