@@ -29,8 +29,15 @@ async def _select_manual_preset(self, entity_id):
 
     A device that refuses the preset keeps running its own schedule and
     overwrites whatever Better Thermostat sends it, so the refusal is
-    reported. It does not decide the command the caller asked for: that one
+    logged. It does not decide the command the caller asked for: that one
     still has to reach the device, and it is written either way.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to take off its schedule
     """
     try:
         await self.hass.services.async_call(

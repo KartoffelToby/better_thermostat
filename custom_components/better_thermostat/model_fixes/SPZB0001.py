@@ -29,10 +29,25 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
     """Put the device's TRV mode select onto ``goal``.
 
     Finds the ``select`` entity carrying the TRV mode on the same device as
-    ``entity_id`` and selects ``goal`` when it reads anything else. Returns
-    True once the mode reads ``goal`` or the switch to it has been requested,
-    and False when the registry entry, the mode select or its state is
-    missing, or when the device refused the option.
+    ``entity_id`` and selects ``goal`` when it reads anything else. Direct
+    valve control depends on that mode, so a refused option is reported
+    rather than assumed to have taken effect.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the climate entity identifying the device
+    goal : str
+        Option the TRV mode select is to carry
+
+    Returns
+    -------
+    bool
+        True once the mode reads ``goal`` or the switch to it went through.
+        False when the registry entry, the mode select or its state is
+        missing, or when the device refused the option.
     """
 
     entity_registry = er.async_get(self.hass)
@@ -74,7 +89,11 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
         )
         try:
             await self.hass.services.async_call(
-                "select", "select_option", {"entity_id": target_entity, "option": goal}
+                "select",
+                "select_option",
+                {"entity_id": target_entity, "option": goal},
+                blocking=True,
+                context=self.context,
             )
         except (HomeAssistantError, OSError) as ex:
             # A device whose mode select does not carry this option, or
