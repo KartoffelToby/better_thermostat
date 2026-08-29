@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
 
@@ -96,6 +97,12 @@ class Trv:
     # One-shot flag: the next live internal reading after an outage must
     # bypass the debounce so it is not dropped as a stale duplicate.
     accept_next_internal_temp: bool = False
+    # When this device's internal temperature was last accepted. The debounce
+    # that guards it is a property of the device that reported it, so the
+    # stamp belongs to that device: a reading taken from one valve says
+    # nothing about how fresh another valve's reading is. ``None`` means no
+    # reading has been accepted yet and the next one passes.
+    last_internal_sensor_change: datetime | None = None
     last_temperature: float | None = None
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
