@@ -192,6 +192,36 @@ def test_snapshot_round_trip_preserves_last_u() -> None:
     np.testing.assert_allclose(fresh.kalman.x_hat, state.controller.kalman.x_hat)
 
 
+def test_a_fixed_step_keeps_the_configured_horizon_grid() -> None:
+    """With adaptive stepping off the QP keeps the step size it was given."""
+    params = MpcV2Params()
+    params.qp.adaptive_step_s = False
+    params.qp.step_s = 90.0
+
+    controller = MpcV2Controller(params)
+
+    assert controller.params.qp.step_s == 90.0
+    assert controller.plant_coarse.dt_s == 90.0
+
+
+def test_a_command_before_the_first_step_records_no_history() -> None:
+    """Nothing has been planned yet, so there is no entry to overwrite.
+
+    `set_command_u` and `set_applied_u` amend the command the last cycle
+    planned. Called on a controller that has never stepped, they must clamp the
+    value and leave the empty history alone rather than index into it.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.set_command_u(1.5)
+    assert controller._last_u == 1.0
+
+    controller.set_applied_u(-0.4)
+
+    assert controller._last_u == 0.0
+    assert list(controller._u_history) == []
+
+
 def test_make_plant_prior_defaults_when_no_input() -> None:
     """With no input make_plant_prior returns the PlantParams defaults."""
     prior = make_plant_prior()
