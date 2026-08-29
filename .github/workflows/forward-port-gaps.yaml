@@ -50,14 +50,24 @@ jobs:
         with:
           enable-cache: true
       # A manual run has no head ref, which is the head this gate applies to.
+      #
+      # The head branch name alone does not identify the maintenance line: a
+      # pull request from any fork carries whatever name that fork's branch
+      # has, so a fork branch called `1.9` would wave itself through. The
+      # branch this repository releases from lives in this repository, so the
+      # head has to come from here too.
       - name: Check that the maintenance line is carried forward
-        if: github.head_ref != '1.9'
+        if: >-
+          ${{ !(github.head_ref == '1.9'
+          && github.event.pull_request.head.repo.full_name == github.repository) }}
         run: >-
           uv run --locked --only-group dev
           python scripts/forward_port_gaps.py check
           --maintenance origin/1.9 --development origin/develop
       - name: Say why the check does not apply
-        if: github.head_ref == '1.9'
+        if: >-
+          ${{ github.head_ref == '1.9'
+          && github.event.pull_request.head.repo.full_name == github.repository }}
         run: >-
           echo "A release of the maintenance line ships the commits this
           report names. Run the workflow by hand to see them anyway."

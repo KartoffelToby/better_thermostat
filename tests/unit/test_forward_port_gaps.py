@@ -325,6 +325,55 @@ def test_a_path_outside_ascii_is_read_on_both_lines(lines):
     assert commit.hit_rate == 1.0
 
 
+def test_a_path_git_escapes_is_read_on_both_lines(lines):
+    """A tab in a name is escaped whatever ``core.quotePath`` says.
+
+    ``core.quotePath=false`` reaches bytes above ASCII and nothing else, so a
+    control character, a quotation mark or a backslash still arrives wrapped
+    in quotation marks. Read by prefix and suffix the file then drops out of
+    both the tree and the commit, and the gap it holds is invisible — in the
+    file least likely to be looked at by hand.
+    """
+    script, line = lines
+    name = "docs/we\tird.md"
+    body = _body(3)
+    line.git("checkout", "-q", "develop")
+    line.write(name, body)
+    line.commit("docs: the note on the development line")
+    line.git("checkout", "-q", "maintenance")
+    line.write(name, body)
+    maintenance_commit = line.commit("docs: the note on the maintenance line")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 3
+    assert commit.hit_rate == 1.0
+
+
+def test_one_marker_repeated_across_files_is_answered_once(lines):
+    """Three files carrying the same line are three changes, not one.
+
+    The development tree is searched as one set of lines, so a marker taken
+    from every copy is answered by the single occurrence over there. Counting
+    each copy would let a commit score full marks with two of its three files
+    never carried forward.
+    """
+    script, line = lines
+    shared = "CONSTANT_THE_THREE_FILES_SHARE = 'the same long line in each'"
+    line.git("checkout", "-q", "develop")
+    line.write("one.py", f"{shared}\n")
+    line.commit("fix: the one file that was carried forward")
+    line.git("checkout", "-q", "maintenance")
+    for name in ("one.py", "two.py", "three.py"):
+        line.write(name, f"{shared}\n")
+    maintenance_commit = line.commit("Fix support for a device")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 1
+    assert commit.hit_rate == 1.0
+
+
 def test_a_commit_is_judged_on_at_most_the_marker_budget(lines):
     """Twelve markers are the most a commit is judged on, however large it is."""
     script, line = lines

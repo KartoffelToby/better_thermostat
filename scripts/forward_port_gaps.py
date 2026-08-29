@@ -163,7 +163,9 @@ def _git(*arguments: str) -> str:
     read by their prefix and their suffix. Git quotes a path carrying bytes
     above ASCII, and a quoted one opens with a quotation mark instead of
     ``b/`` and ends in one instead of a known suffix, so the file it names
-    drops out of the comparison on both sides.
+    drops out of the comparison on both sides. That setting does not reach a
+    tab, a quotation mark or a backslash in a name, which git escapes
+    regardless; :func:`_unquote_path` reads those back.
     """
     finished = subprocess.run(
         ("git", "-C", str(REPO_ROOT), "-c", "core.quotePath=false", *arguments),
@@ -198,12 +200,53 @@ def _is_text(path: str) -> bool:
     return path.endswith(TEXT_SUFFIXES)
 
 
+def _unquote_path(field: str) -> str:
+    r"""Return the pathname a git field names, undoing its C quoting.
+
+    Git wraps a pathname in quotation marks and escapes it as a C string as
+    soon as it holds a control character, a quotation mark or a backslash.
+    ``core.quotePath=false`` does not reach those, so a name carrying a tab
+    reads as ``"we\tird.py"`` — it neither starts with ``b/`` nor ends in a
+    known suffix, and the file drops silently out of the comparison, which is
+    the file a gap is least likely to be noticed in.
+    """
+    if not field.startswith('"') or not field.endswith('"'):
+        return field
+    # The escapes stand for bytes, so they are decoded to bytes first and
+    # read back as the UTF-8 git wrote them from.
+    escaped = field[1:-1]
+    return (
+        escaped.encode("utf-8")
+        .decode("unicode_escape")
+        .encode("latin-1")
+        .decode("utf-8", "replace")
+    )
+
+
+def _tree_paths(ref: str) -> list[str]:
+    """Return every path in the ref's tree, read without quoting.
+
+    ``-z`` makes git write the names raw and separate them with NUL, which is
+    the one separator a pathname cannot hold.
+    """
+    finished = subprocess.run(
+        ("git", "-C", str(REPO_ROOT), "ls-tree", "-r", "-z", "--name-only", ref),
+        capture_output=True,
+        check=True,
+    )
+    return [
+        name.decode("utf-8", "replace") for name in finished.stdout.split(b"\0") if name
+    ]
+
+
 def _tree_lines(ref: str) -> set[str]:
     """Return every stripped text line the ref's tree holds."""
-    paths = _git("ls-tree", "-r", "--name-only", ref).splitlines()
-    specification = "".join(f"{ref}:{p}\n" for p in paths if _is_text(p)).encode()
+    paths = [path for path in _tree_paths(ref) if _is_text(path)]
+    # ``-z`` on the input too: without it the request is one path per line,
+    # and a name holding a newline would be read as two requests.
+    specification = "".join(f"{ref}:{path}\0" for path in paths).encode()
     finished = subprocess.run(
-        ("git", "-C", str(REPO_ROOT), "cat-file", "--batch"),
+        ("git", "-C", str(REPO_ROOT), "cat-file", "--batch", "-z"),
         input=specification,
         capture_output=True,
         check=True,
@@ -280,8 +323,10 @@ def _added_lines(sha: str) -> dict[str, list[str]]:
             in_hunk = True
             continue
         if not in_hunk:
-            if line.startswith("+++ b/"):
-                path = line[6:]
+            if line.startswith("+++ "):
+                field = _unquote_path(line[4:])
+                # A deleted file reads "+++ /dev/null" and keeps no name.
+                path = field[2:] if field.startswith("b/") else None
             continue
         if not line.startswith("+") or path is None or not _is_text(path):
             continue
@@ -331,14 +376,23 @@ def markers_of(sha: str, limit: int | None = None) -> list[str]:
         if fresh:
             per_file[path] = fresh
 
+    # One marker string counts once for the whole commit. The development
+    # tree is searched as one set of lines, so a string taken from three
+    # files is answered by a single occurrence over there — the commit would
+    # score full marks for one file's change having been carried forward.
     chosen: list[str] = []
+    taken: set[str] = set()
     depth = 0
     while len(chosen) < limit:
         available = [path for path in sorted(per_file) if depth < len(per_file[path])]
         if not available:
             break
         for path in available:
-            chosen.append(per_file[path][depth])
+            marker = per_file[path][depth]
+            if marker in taken:
+                continue
+            taken.add(marker)
+            chosen.append(marker)
             if len(chosen) >= limit:
                 break
         depth += 1
