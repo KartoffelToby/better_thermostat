@@ -95,6 +95,13 @@ def get_battery_status(self, entity) -> None:
     asking again, the level would never be read again. The stored slot is left
     untouched in that case and the read is retried once
     ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity : str
+        Entity ID of the device whose battery entity is read
     """
     info = self.devices_states.get(entity)
     if info is None:
@@ -147,10 +154,15 @@ def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
     # Coming back from an outage is the one moment worth reading whatever the
     # earlier passes found, so neither reason to skip applies to it.
     if not recovered:
-        if info.get("battery") is not None:
-            return
         retry_at = self._next_battery_read.get(entity)
-        if retry_at is not None and self.clock.monotonic() < retry_at:
+        if retry_at is not None:
+            # A retry is pending because the battery entity had nothing to
+            # report. Whatever level is stored is the one from before that,
+            # so holding a level is not a reason to skip here — only the
+            # wait is, or the reading would stay stale until the next outage.
+            if self.clock.monotonic() < retry_at:
+                return
+        elif info.get("battery") is not None:
             return
 
     get_battery_status(self, entity)
@@ -328,6 +340,11 @@ async def await_optional_sensors(
     pending: list[str] = []
 
     for idx, delay in enumerate(delays):
+        # The entity may be torn down mid-wait; stop retrying immediately
+        # instead of running out the (up to ~60 s) schedule against a
+        # being-removed instance.
+        if getattr(self, "is_removed", False):
+            return pending
         pending = [
             eid
             for eid in get_optional_sensors(self)
@@ -351,6 +368,8 @@ async def await_optional_sensors(
         )
         await _sleep(delay)
         elapsed += delay
+        if getattr(self, "is_removed", False):
+            return pending
 
     # Final check after the last sleep
     pending = [

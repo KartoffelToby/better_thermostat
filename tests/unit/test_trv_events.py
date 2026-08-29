@@ -30,6 +30,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import mode_remap
 
 ENTITY_ID = "climate.test_trv"
+PEER_ID = "climate.test_trv_peer"
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +64,6 @@ def mock_bt():
     bt.cooler_entity_id = None
     bt.ignore_states = False
     bt.context = MagicMock()  # unique context so != event.context
-    bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
     bt._enforce_cool_above_heat = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
@@ -132,6 +132,63 @@ def _make_event(bt, new_state=None, old_state=None, entity_id=ENTITY_ID):
     }
     event.context = MagicMock()  # differs from bt.context
     return event
+
+
+def _add_homematicip_peer(bt):
+    """Put a second, HomematicIP-flagged valve into the same room.
+
+    Returns the state the peer reports, so a caller can route
+    ``hass.states.get`` to the right state per entity.
+    """
+    peer = Trv.from_legacy_dict(
+        PEER_ID,
+        {
+            "hvac_mode": HVACMode.HEAT,
+            "hvac_modes": [HVACMode.OFF, HVACMode.HEAT],
+            "min_temp": 5.0,
+            "max_temp": 30.0,
+            "current_temperature": 18.0,
+            "temperature": 19.0,
+            "last_temperature": 19.0,
+            "last_hvac_mode": "heat",
+            "target_temp_received": True,
+            "system_mode_received": True,
+            "calibration_received": True,
+            "calibration": 1,
+            "last_calibration": 0.0,
+            "ignore_trv_states": False,
+            "model": "SomeModel",
+            "model_quirks": None,
+            "hvac_action": "heating",
+            "valve_position": 50,
+            "advanced": {
+                "calibration": CalibrationType.LOCAL_BASED,
+                "calibration_mode": CalibrationMode.DEFAULT,
+                "no_off_system_mode": False,
+                "heat_auto_swapped": False,
+                "child_lock": False,
+                CONF_HOMEMATICIP: True,
+            },
+        },
+    )
+    bt.real_trvs[PEER_ID] = peer
+    bt.all_trvs = [
+        {"advanced": {CONF_HOMEMATICIP: False}},
+        {"advanced": {CONF_HOMEMATICIP: True}},
+    ]
+    peer_state = State(
+        PEER_ID, "heat", attributes={"current_temperature": 20.0, "temperature": 19.0}
+    )
+
+    def _state_for(entity_id):
+        return (
+            peer_state
+            if entity_id == PEER_ID
+            else _make_state(attributes={"current_temperature": 20.0})
+        )
+
+    bt.hass.states.get.side_effect = _state_for
+    return peer_state
 
 
 def _bind_cooler_hvac_mode(bt):
@@ -288,7 +345,7 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
 
         # The TRV recovers well inside the 5 s debounce window.
-        mock_bt.last_internal_sensor_change = dt_util.now()
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now()
         trv_state = _make_state(attributes={"current_temperature": 18.0})
         mock_bt.hass.states.get.return_value = trv_state
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
@@ -351,8 +408,10 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_temp_change_respects_time_diff(self, mock_bt):
-        """Changes within 5 s of the last internal sensor change are skipped."""
-        mock_bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=2)
+        """Changes within 5 s of the TRV's last internal sensor change are skipped."""
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(seconds=2)
+        )
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -372,9 +431,11 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_temp_change_homematicip_600s(self, mock_bt):
-        """HomematicIP uses a 600 s guard instead of 5 s."""
-        mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
-        mock_bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=30)
+        """A HomematicIP TRV guards its own readings with 600 s instead of 5 s."""
+        mock_bt.real_trvs[ENTITY_ID].advanced[CONF_HOMEMATICIP] = True
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(seconds=30)
+        )
         trv_state = _make_state(attributes={"current_temperature": 20.0})
         mock_bt.hass.states.get.return_value = trv_state
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
@@ -391,6 +452,61 @@ class TestInternalTemperatureChange:
 
         # 30 s elapsed < 600 s → blocked
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.0
+
+    @pytest.mark.asyncio
+    async def test_homematicip_peer_does_not_hold_back_the_other_trv(self, mock_bt):
+        """A HomematicIP valve does not stretch its room mates' debounce window.
+
+        The 600 s window belongs to the HomematicIP radio, so the Zigbee valve
+        of the same room keeps the 5 s window: its reading is taken 30 s after
+        its own last one, while the HomematicIP valve reported a moment ago.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].last_internal_sensor_change = dt_util.now()
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(seconds=30)
+        )
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+        mock_bt.real_trvs[ENTITY_ID].calibration_received = True
+        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 20.0
+
+    @pytest.mark.asyncio
+    async def test_homematicip_trv_keeps_its_own_600s_window(self, mock_bt):
+        """The HomematicIP valve of a mixed room still waits out its 600 s.
+
+        A room mate on another radio does not shorten the duty-cycle window,
+        just as the window does not lengthen the room mate's.
+        """
+        peer_state = _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(seconds=30)
+        )
+        mock_bt.real_trvs[PEER_ID].current_temperature = 18.0
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(seconds=30)
+        )
+        event = _make_event(
+            mock_bt, new_state=peer_state, old_state=peer_state, entity_id=PEER_ID
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[PEER_ID].current_temperature == 18.0
 
     @pytest.mark.asyncio
     async def test_calibration_received_flag_set(self, mock_bt):
@@ -2125,6 +2241,22 @@ class TestConvertInboundStates:
             result = convert_inbound_states(mock_bt, ENTITY_ID, state)
         assert result is None
 
+    def test_heat_cool_mode_returns_none(self, mock_bt):
+        """Return None for HEAT_COOL.
+
+        A device that names its heating mode heat_cool is decoded into HEAT by
+        the remap, so a HEAT_COOL reaching this point is a mode the entity does
+        not adopt. The mode adoption downstream relies on that: it only ever
+        sees OFF, HEAT or nothing.
+        """
+        state = _make_state(state_str="heat_cool")
+        with patch(
+            "custom_components.better_thermostat.events.trv.mode_remap",
+            return_value=HVACMode.HEAT_COOL,
+        ):
+            result = convert_inbound_states(mock_bt, ENTITY_ID, state)
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # 8. convert_outbound_states
@@ -2466,7 +2598,6 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.cooler_entity_id = None
     bt.ignore_states = False
     bt.context = MagicMock()
-    bt.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
     bt.async_write_ha_state = MagicMock()
     bt.hvac_mode = bt_hvac_mode
     bt._enforce_cool_above_heat = lambda **kwargs: (
