@@ -5,6 +5,7 @@ acceptance logic, accumulation tracking, and plateau acceptance.
 """
 
 from datetime import timedelta
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
@@ -305,6 +306,51 @@ class TestApplyTemperatureUpdate:
 
         await _apply_temperature_update(mock_bt, 21.0)
 
+        mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
+
+    @pytest.mark.asyncio
+    async def test_a_refused_trv_write_does_not_skip_the_other_heads(self, mock_bt):
+        """Every head in the room gets the reading, whatever the first one answers.
+
+        In a multi-head room the write goes out head by head. One device that
+        refuses must not cost the remaining heads their reading, or they keep
+        regulating on a room temperature Better Thermostat has discarded.
+        """
+        refusing = AsyncMock()
+        refusing.maybe_set_external_temperature.side_effect = HomeAssistantError(
+            "device did not answer"
+        )
+        answering = AsyncMock()
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": refusing}
+            ),
+            "climate.trv2": Trv.from_legacy_dict(
+                "climate.trv2", {"model_quirks": answering}
+            ),
+        }
+
+        await _apply_temperature_update(mock_bt, 21.0)
+
+        answering.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv2", 21.0
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_missing_trv_map_still_starts_a_control_cycle(
+        self, mock_bt, caplog
+    ):
+        """Losing the head list costs the write, not the cycle.
+
+        The reading has already been accepted at this point, so the room has to
+        be regulated on it even when there is nobody left to send it to.
+        """
+        del mock_bt.real_trvs
+
+        with caplog.at_level(logging.WARNING):
+            await _apply_temperature_update(mock_bt, 21.0)
+
+        assert "no TRV list to write external_temperature to" in caplog.text
         mock_bt.control_queue_task.put.assert_awaited_once_with(mock_bt)
 
 
