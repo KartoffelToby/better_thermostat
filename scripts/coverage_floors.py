@@ -15,8 +15,11 @@ Two modes:
 
 ``check``
     Compare a coverage JSON report against the stored floors and exit non-zero
-    when any module fell below its own. Modules with no floor yet are listed
-    and do not fail — a new module has nothing to regress against.
+    when any module fell below its own. A module that has a floor but is
+    missing from the report fails too: a floor nothing measures holds nothing
+    back, so leaving the report would otherwise retire a guard in silence.
+    Modules with no floor yet are listed and do not fail — a new module has
+    nothing to regress against.
 
 ``update``
     Rewrite the floors from a report. Run this after landing work that raises
@@ -80,7 +83,10 @@ def _load_floors() -> dict[str, float]:
 
 
 def check(report_path: Path) -> int:
-    """Report every module that fell below its floor. Return an exit code."""
+    """Report every module that fell below its floor or left the report.
+
+    Return an exit code.
+    """
     measured = _read_report(report_path)
     floors = _load_floors()
     if not floors:
@@ -96,21 +102,31 @@ def check(report_path: Path) -> int:
 
     for module in new:
         print(f"no floor yet: {module} at {measured[module]:.1f}%")
-    for module in gone:
-        print(f"not in the report: {module} (floor {floors[module]:.1f}%)")
 
-    if not regressions:
-        print(f"all {len(floors)} modules hold their floor")
-        return 0
+    if regressions:
+        print("\ncoverage dropped below the recorded floor:")
+        for module, floor, now in regressions:
+            print(f"  {module}: {now:.1f}% < {floor:.1f}%")
+        print(
+            "\nAdd tests for what the change left uncovered, or — if the drop is "
+            f"intended — re-record with '{Path(__file__).name} update'."
+        )
 
-    print("\ncoverage dropped below the recorded floor:")
-    for module, floor, now in regressions:
-        print(f"  {module}: {now:.1f}% < {floor:.1f}%")
-    print(
-        "\nAdd tests for what the change left uncovered, or — if the drop is "
-        f"intended — re-record with '{Path(__file__).name} update'."
-    )
-    return 1
+    if gone:
+        print("\nrecorded floors the report does not cover:")
+        for module in gone:
+            print(f"  {module} (floor {floors[module]:.1f}%)")
+        print(
+            "\nA floor nothing measures holds nothing back. Restore the module at "
+            "the recorded path, or re-record with "
+            f"'{Path(__file__).name} update' if it was deleted or renamed."
+        )
+
+    if regressions or gone:
+        return 1
+
+    print(f"all {len(floors)} modules hold their floor")
+    return 0
 
 
 def update(report_path: Path) -> int:
