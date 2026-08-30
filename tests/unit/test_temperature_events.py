@@ -1003,8 +1003,8 @@ class TestArrivalOrder:
         mock_bt._handle_temperature_reading = lambda event: (
             BetterThermostat._handle_temperature_reading(mock_bt, event)
         )
-        mock_bt.hass.async_create_background_task = lambda coro, name=None: (
-            handlers.append(asyncio.ensure_future(coro))
+        mock_bt._spawn_owned = lambda coro, *, name: handlers.append(
+            asyncio.ensure_future(coro)
         )
 
     @pytest.mark.asyncio

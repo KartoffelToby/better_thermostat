@@ -179,6 +179,7 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt._owned_tasks = set()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
     trv.model_quirks = MagicMock()
@@ -309,6 +310,7 @@ class TestStartupUnloadBailout:
         bt._window_task = None
         bt._door_task = None
         bt.plateau_timer_cancel = None
+        bt._owned_tasks = set()
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
@@ -426,6 +428,151 @@ class TestPlateauTimerOnRemoval:
         await BetterThermostat.async_will_remove_from_hass(plateau_bt)
 
         assert order == ["timer", "worker"]
+
+
+# ---------------------------------------------------------------------------
+# 0c. background tasks the entity owns
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def owned_task_bt(bt, hass):
+    """A thermostat whose background tasks run on a real event loop.
+
+    Spawning and teardown are both under test here, so the helper that
+    starts a task runs for real while staying observable, and no queue
+    worker is started, leaving the teardown only the spawned work to
+    answer for.
+    """
+    bt.hass = hass
+    bt._control_task = None
+    bt._window_task = None
+    bt._door_task = None
+    bt.plateau_timer_cancel = None
+    bt._owned_tasks = set()
+    bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
+        bt, coro, name=name
+    )
+    return bt
+
+
+def _record_readings_into(entity, readings):
+    """Make the reading handler append to ``readings`` after one loop turn.
+
+    The turn matters: the handler has to be suspended, not finished, when
+    the removal starts, or there is nothing left for the removal to stop.
+    """
+
+    async def handle(event):
+        await asyncio.sleep(0)
+        readings.append(event)
+
+    entity._handle_temperature_reading = AsyncMock(side_effect=handle)
+
+
+class TestOwnedBackgroundTasks:
+    """Work the entity started must end when the entity is removed.
+
+    Home Assistant cancels background tasks when the core shuts down, not
+    when a single entity goes away, so an entity that unloads on its own
+    leaves them running. Several of them write to TRVs, and a write that
+    lands after the unload comes from a thermostat the user no longer has.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_dispatched_reading_reaches_the_handler(self, hass, owned_task_bt):
+        """A reading dispatched by a live entity is handled."""
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+        event = MagicMock()
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, event)
+        await hass.async_block_till_done()
+
+        assert readings == [event]
+
+    @pytest.mark.asyncio
+    async def test_removal_drops_a_reading_still_in_flight(self, hass, owned_task_bt):
+        """A reading dispatched before the removal must not be handled after it.
+
+        Handling it writes the room temperature to TRVs the entity has
+        already let go of, so the reading has to die with its entity.
+        """
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+        assert readings == []
+
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        await hass.async_block_till_done()
+
+        assert readings == []
+
+    @pytest.mark.asyncio
+    async def test_a_finished_task_stops_being_tracked(self, hass, owned_task_bt):
+        """Tracking must end when the work does.
+
+        A thermostat handles a reading every few seconds for months on end.
+        Holding on to every task it ever started would grow without bound
+        for the sake of a teardown that has nothing left to cancel.
+        """
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+        assert len(owned_task_bt._owned_tasks) == 1
+
+        await hass.async_block_till_done()
+        # The task drops itself from a callback the loop runs after it ends.
+        await asyncio.sleep(0)
+
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_removal_keeps_the_last_state_write(self, hass, owned_task_bt):
+        """The save the removal itself performs must not be cancelled with the rest.
+
+        It is the only record the next start has of the learned thermal
+        model and the target the user last set; dropping it silently resets
+        the thermostat to its defaults on the next restart.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_task_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+
+        # Home Assistant runs the registered removal callbacks after the
+        # entity's own teardown, so the save is written last.
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        assert readings == []
+        state_mgr.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
