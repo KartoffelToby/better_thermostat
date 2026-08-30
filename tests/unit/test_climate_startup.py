@@ -2063,6 +2063,7 @@ class TestValidateHvacMode:
         """
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
         bt.cooler_entity_id = COOLER_ID
         states = [
             _make_trv_state(TRV_ID, state="off"),
