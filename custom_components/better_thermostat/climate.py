@@ -747,6 +747,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._control_task = None
         self._window_task = None
         self._door_task = None
+        self._owned_tasks: set[asyncio.Task] = set()
         self.is_removed = False
         # Valve maintenance control
         self.in_maintenance = False
@@ -789,6 +790,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_sent_cooler_temp_ts: float | None = None
         self.last_sent_cooler_hvac_mode_ts: float | None = None
         self.last_cooler_mode_decided: str | None = None
+
+    def _spawn_owned(self, coro, *, name):
+        """Start a background task this entity cancels when it is removed.
+
+        Home Assistant cancels tasks made with ``async_create_background_task``
+        at core shutdown only. A task started for one entity therefore outlives
+        that entity's removal, and several of them go on writing to TRVs the
+        entity no longer drives. Keeping a handle in ``_owned_tasks`` gives
+        ``async_will_remove_from_hass`` something to cancel. The done callback
+        drops finished tasks again, so a long-lived entity does not accumulate
+        handles for work that is over.
+
+        Parameters
+        ----------
+        coro : collections.abc.Coroutine
+            The coroutine to run in the background.
+        name : str
+            Task name Home Assistant records for diagnostics.
+
+        Returns
+        -------
+        asyncio.Task
+            The running task, held in ``_owned_tasks`` until it finishes.
+        """
+        task = self.hass.async_create_background_task(coro, name=name)
+        self._owned_tasks.add(task)
+        task.add_done_callback(self._owned_tasks.discard)
+        return task
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -904,6 +933,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.state_mgr is not None:
                 try:
                     self._record_thermal_to_state()
+                    # The last save is left to hass rather than owned: the
+                    # on_remove callbacks run before async_will_remove_from_hass,
+                    # so an owned task would be cancelled before it writes.
                     self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
@@ -949,7 +981,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     All parameters are piped.
             """
             self.context = Context()
-            self.hass.async_create_background_task(
+            self._spawn_owned(
                 self.startup(), name=f"better_thermostat_startup_{self.device_name}"
             )
 
@@ -1050,7 +1082,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             trigger_temperature_change(self, event),
             name=f"bt_trigger_temp_change_{self.device_name}",
         )
@@ -1165,7 +1197,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if (event.data.get("new_state")) is None:
             return
 
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             trigger_trv_change(self, event),
             name=f"bt_trigger_trv_change_{self.device_name}",
         )
@@ -1184,7 +1216,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Only process contact changes if the sensor is available
         if is_entity_available(self.hass, contact_id):
-            self.hass.async_create_background_task(
+            self._spawn_owned(
                 trigger_fn(self, event),
                 name=f"bt_trigger_{task_label}_change_{self.device_name}",
             )
@@ -1211,7 +1243,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if (event.data.get("new_state")) is None:
             return
 
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             trigger_cooler_change(self, event),
             name=f"bt_trigger_cooler_change_{self.device_name}",
         )
@@ -2087,7 +2119,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # ends, so a TRV that is still missing defers its repair issue. Re-run
         # the check once the grace window has elapsed; otherwise the issue
         # only appears when some later event happens to trigger a check.
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             self._post_grace_recheck(
                 self._critical_grace_until, check_critical_entities
             ),
@@ -2164,7 +2196,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await await_optional_sensors(self)
         await check_and_update_degraded_mode(self)
 
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             self._post_grace_recheck(
                 self._degraded_grace_until, check_and_update_degraded_mode
             ),
@@ -2340,7 +2372,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: creating keepalive task...", self.device_name
             )
-            self.hass.async_create_background_task(
+            self._spawn_owned(
                 self._external_temperature_keepalive(),
                 name=f"bt_ext_temp_keepalive_{self.device_name}",
             )
@@ -2429,7 +2461,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         # Run maintenance asynchronously (don't block the tick)
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             self._run_valve_maintenance(trvs_to_service),
             name=f"bt_valve_maintenance_{self.device_name}",
         )
@@ -3726,7 +3758,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.hass is None:
             return
         # Schedule without waiting; state updates will propagate asynchronously.
-        self.hass.async_create_background_task(
+        self._spawn_owned(
             self.async_set_preset_mode(preset_mode),
             name=f"bt_set_preset_{self.device_name}",
         )
@@ -3954,6 +3986,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if self.plateau_timer_cancel is not None:
             self.plateau_timer_cancel()
             self.plateau_timer_cancel = None
+        # The owned tasks are cancelled before anything is awaited, for the same
+        # reason: several of them write to TRVs, and awaiting the workers below
+        # hands the loop back long enough for a ready one to take its turn. The
+        # set is copied and emptied first, because the done callbacks discard
+        # from it as the cancellations land.
+        owned = list(self._owned_tasks)
+        self._owned_tasks.clear()
+        for task in owned:
+            task.cancel()
         if self._control_task:
             self._control_task.cancel()
             try:
@@ -3972,4 +4013,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self._door_task
             except asyncio.CancelledError:
                 pass
+        if owned:
+            await asyncio.gather(*owned, return_exceptions=True)
         await super().async_will_remove_from_hass()

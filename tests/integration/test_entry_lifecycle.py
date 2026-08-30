@@ -6,11 +6,16 @@ real entry is set up against a simulated TRV and the assertions are the
 service calls that arrive at the device.
 """
 
+import asyncio
+from unittest.mock import patch
+
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import mock_restore_cache
+
+from custom_components.better_thermostat.utils.state_manager import StateManager
 
 from .conftest import (
     DOMAIN,
@@ -114,6 +119,37 @@ async def test_unload_and_reload_the_entry(hass, fake_trv):
         blocking=True,
     )
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+
+
+async def test_the_last_state_save_survives_the_unload(hass, fake_trv):
+    """The save the entity dispatches while unloading has to reach the store.
+
+    It is dispatched from an on-remove callback, which Home Assistant runs
+    before ``async_will_remove_from_hass``, so it is already in flight while
+    the entity ends its background work. Losing it discards the thermal
+    model and the preset temperatures the user last had.
+    """
+    _room_sensor(hass)
+    entry = make_entry()
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    saved = asyncio.Event()
+    let_the_write_land = asyncio.Event()
+    write_the_store = StateManager.save_if_dirty
+
+    async def report_the_save(self):
+        # A real save hands the loop back for the executor round trip, so it
+        # is still pending while the entity finishes letting go.
+        await let_the_write_land.wait()
+        await write_the_store(self)
+        saved.set()
+
+    with patch.object(StateManager, "save_if_dirty", report_the_save):
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        let_the_write_land.set()
+        assert await wait_for(hass, saved.is_set)
 
 
 async def test_climate_entity_id_follows_device_name_after_rename(hass, fake_trv):
