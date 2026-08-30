@@ -43,7 +43,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import Context, State, callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import (
     device_registry as dr,
     entity_platform,
@@ -1386,16 +1386,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 self.device_name,
                                 trv_id,
                             )
-                    except OSError, RuntimeError, AttributeError, TypeError:
-                        _LOGGER.debug(
-                            "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
+                    except (
+                        HomeAssistantError,
+                        OSError,
+                        RuntimeError,
+                        AttributeError,
+                        TypeError,
+                    ) as exc:
+                        # A device that refuses the write does not hold back the
+                        # others, and the value is re-sent on the next tick.
+                        _LOGGER.warning(
+                            "better_thermostat %s: external_temperature keepalive write failed for %s: %s",
                             self.device_name,
                             trv_id,
+                            exc,
                         )
-        except OSError, RuntimeError, AttributeError, TypeError:
-            _LOGGER.debug(
-                "better_thermostat %s: external_temperature keepalive encountered an error",
+        except (
+            HomeAssistantError,
+            OSError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+        ) as exc:
+            _LOGGER.warning(
+                "better_thermostat %s: external_temperature keepalive failed: %s",
                 self.device_name,
+                exc,
             )
 
     async def _trigger_humidity_change(self, event):
