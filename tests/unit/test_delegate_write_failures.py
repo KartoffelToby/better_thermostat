@@ -156,6 +156,26 @@ class TestAValveCommandThatGoesNowhere:
         assert answer is False
         adapter.set_valve.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "position", [float("inf"), float("-inf")], ids=["inf", "-inf"]
+    )
+    async def test_a_position_beyond_every_number_is_refused(self, position):
+        """These are refused by a different exception than the others.
+
+        `int()` answers the infinities with `OverflowError`, not the
+        `ValueError` an unreadable string gets. A refusal that does not name
+        it lets the exception out of the write path instead of reporting the
+        position as one that went nowhere.
+        """
+        adapter = _valve_adapter(return_value=None)
+        thermostat = _thermostat(adapter)
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, position)
+
+        assert answer is False
+        adapter.set_valve.assert_not_awaited()
+
 
 class TestAnAdapterThatCannotBeImported:
     """The generic adapter catches every ecosystem, including a broken one."""

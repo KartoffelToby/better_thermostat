@@ -315,7 +315,10 @@ async def set_valve(self, entity_id, valve) -> bool:
     """
     try:
         target_pct = int(valve)
-    except TypeError, ValueError:
+    except TypeError, ValueError, OverflowError:
+        # `int()` refuses the infinities with OverflowError rather than
+        # ValueError, and a position that cannot be converted is not one to
+        # raise on: the caller re-derives it on the next cycle either way.
         _LOGGER.error(
             "better_thermostat %s: valve position %r for %s is not a number, "
             "nothing was written",
