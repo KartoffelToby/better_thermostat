@@ -2038,6 +2038,28 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.OFF
 
+    def test_none_mode_a_cooler_is_not_a_head_of_the_room(self, bt):
+        """The cooler travels with the heads but does not vote on heating.
+
+        `_collect_trv_states` hands the same list to the temperature-range
+        calculation and to this check, and the cooler belongs in the first.
+        Counting it here brings a room whose every head is off back up in
+        HEAT after any restart that lost the mode — for as long as a cooler
+        stays configured.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.cooler_entity_id = COOLER_ID
+        states = [
+            _make_trv_state(TRV_ID, state="off"),
+            _make_trv_state(TRV_ID_2, state="off"),
+            _make_cooler_state({ATTR_TEMPERATURE: 24.0}),
+        ]
+
+        BetterThermostat._validate_hvac_mode(bt, states)
+
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
     def test_none_mode_one_head_above_its_minimum_sets_heat(self, bt):
         """One head lifted off its minimum brings the whole room up heating."""
         bt.bt_hvac_mode = None
