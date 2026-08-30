@@ -48,15 +48,29 @@ def bt():
 
 
 @pytest.mark.asyncio
-async def test_critical_entities_unavailable_returns_early(bt):
-    """When critical entities are unavailable, nothing is scheduled or dispatched."""
+async def test_one_unreadable_head_does_not_cost_the_others_their_exercise(bt):
+    """Availability is reported, not obeyed: the readable valves still run.
+
+    `check_critical_entities` rejects a room as soon as one head reports
+    `unavailable` or `unknown` — the same two states the snapshot step
+    filters on. Returning on it means a single flaky head suspends the
+    exercise for every healthy valve in the room, for as long as it stays
+    flaky, and the snapshot filter never gets to do its job.
+    """
+    critical = AsyncMock(return_value=False)
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=False)),
+        patch(f"{_CLIMATE}.check_critical_entities", critical),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    assert bt.next_valve_maintenance is None
-    bt._spawn_owned.assert_not_called()
+
+    # Still consulted, so the repair issues it raises and clears stay current.
+    critical.assert_awaited_once_with(bt)
+    bt._spawn_owned.assert_called_once()
 
 
 @pytest.mark.asyncio
