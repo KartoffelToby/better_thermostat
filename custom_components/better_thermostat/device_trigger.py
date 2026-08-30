@@ -97,6 +97,19 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     }
 )
 
+# The value each classic trigger compares against its threshold.
+#
+# Home Assistant publishes these attributes only while they hold a value, so a
+# sensor that goes unavailable takes the attribute with it. Reading through
+# ``get`` renders ``None``, which the numeric-state trigger treats as "nothing
+# to compare"; a plain attribute lookup renders the empty string and makes it
+# log a conversion error on every state change for as long as the sensor is
+# away.
+CLASSIC_VALUE_TEMPLATES = {
+    "current_temperature_changed": "{{ state.attributes.get('current_temperature') }}",
+    "current_humidity_changed": "{{ state.attributes.get('current_humidity') }}",
+}
+
 # Default threshold values
 DEFAULT_HUMIDITY_THRESHOLD = 60.0  # %
 DEFAULT_BATTERY_THRESHOLD = 20.0  # %
@@ -430,12 +443,7 @@ async def async_attach_trigger(
         )
 
     # Classic triggers: current_temperature_changed / current_humidity_changed
-    if trigger_type == "current_temperature_changed":
-        template = "{{ state.attributes.current_temperature }}"
-    else:
-        template = "{{ state.attributes.current_humidity }}"
-
-    numeric_config = _build_numeric(template)
+    numeric_config = _build_numeric(CLASSIC_VALUE_TEMPLATES[trigger_type])
     numeric_config = await numeric_state_trigger.async_validate_trigger_config(
         hass, numeric_config
     )

@@ -14,8 +14,11 @@ registries so the functions under test run against genuine
 from __future__ import annotations
 
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_ENTITY_ID, CONF_TYPE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.condition import async_numeric_state
+from homeassistant.helpers.template import Template
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat import DOMAIN
@@ -28,6 +31,7 @@ from custom_components.better_thermostat.device_condition import (
     async_get_conditions,
 )
 from custom_components.better_thermostat.device_trigger import (
+    CLASSIC_VALUE_TEMPLATES,
     TRIGGER_TYPES,
     async_get_triggers,
 )
@@ -138,6 +142,29 @@ async def test_get_triggers_omits_the_humidity_pair_without_that_sensor(
         "humidity_high",
         "current_humidity_changed",
     }
+
+
+@pytest.mark.parametrize("trigger_type", sorted(CLASSIC_VALUE_TEMPLATES), ids=str)
+async def test_a_value_trigger_stays_quiet_once_its_sensor_is_gone(
+    hass: HomeAssistant, trigger_type: str
+) -> None:
+    """A lost sensor makes the trigger not fire, not report a broken automation.
+
+    Home Assistant drops these attributes from the state while they hold no
+    value, so a sensor that goes unavailable takes the quantity the automation
+    watches with it. The trigger has to read that as "nothing to compare",
+    because the alternative is a conversion error logged on every single state
+    change for as long as the sensor stays away.
+    """
+    template = Template(CLASSIC_VALUE_TEMPLATES[trigger_type], hass)
+    without_the_attribute = State("climate.bt", "heat", {})
+
+    assert (
+        async_numeric_state(
+            hass, without_the_attribute, above=25.0, value_template=template
+        )
+        is False
+    )
 
 
 async def test_get_triggers_skips_entity_without_state(hass: HomeAssistant) -> None:
