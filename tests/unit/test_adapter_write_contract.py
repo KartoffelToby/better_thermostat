@@ -21,6 +21,7 @@ value has not changed. No adapter does that, and none should — the shell
 already decides it, once, for every ecosystem.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -184,6 +185,48 @@ class TestTheDeclarationIsTheContract:
 
         assert answer is False
         assert _calls(thermostat) == []
+
+
+class TestAValveQuirkOutranksTheAdapter:
+    """A model driving its own valve is asked before the adapter is."""
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    @pytest.mark.asyncio
+    async def test_a_handled_override_is_the_whole_write(self, name):
+        """The quirk took the position, so no adapter write follows it.
+
+        This is the channel a valve capability sourced from the quirks
+        stands for, and it works for an ecosystem that declares no valve
+        channel of its own just as well.
+        """
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.model_quirks = SimpleNamespace(
+            override_set_valve=AsyncMock(return_value=True)
+        )
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        assert _calls(thermostat) == []
+        assert trv.last_valve_percent == 50
+        assert trv.last_valve_method == "override"
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_declined_override_leaves_the_write_to_the_adapter(self, name):
+        """A quirk that does not take this one steps out of the way."""
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.model_quirks = SimpleNamespace(
+            override_set_valve=AsyncMock(return_value=False)
+        )
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        assert len(_calls(thermostat)) == 1
+        assert trv.last_valve_method == "adapter"
 
 
 # Grids a number entity can publish, including the ones where the step does

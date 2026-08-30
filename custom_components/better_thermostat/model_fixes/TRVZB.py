@@ -10,6 +10,7 @@ import asyncio
 import logging
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import (
@@ -126,12 +127,26 @@ async def maybe_set_sonoff_valve_percent(
 ) -> bool:
     """Try to set Sonoff TRVZB valve percent via a number entity on the same device.
 
-    Scans the device of the given climate entity for a `number.*` entity that
-    represents valve opening/position and writes the provided percentage.
-    Prefers explicit Sonoff entities:
-      - number.*.valve_opening_degree = percent
-      - number.*.valve_closing_degree = 100 - percent
-    Returns True if at least one write succeeds, False otherwise.
+    Scans the device of the given climate entity for a ``number.*`` entity
+    that represents valve opening/position and writes the provided
+    percentage. Prefers explicit Sonoff entities:
+      - ``number.*.valve_opening_degree`` = percent
+      - ``number.*.valve_closing_degree`` = 100 - percent
+
+    Parameters
+    ----------
+    self : ModelFixHost
+            Better Thermostat host providing device state and HA access
+    entity_id : str
+            entity_id of the TRV
+    percent : int
+            the valve position to request, in percent
+
+    Returns
+    -------
+    bool
+            True when the requested position went out, False when no
+            number entity matched or the device refused one of the writes
     """
     try:
         model = str(self.real_trvs[entity_id].model or "")
@@ -299,10 +314,23 @@ async def maybe_set_sonoff_valve_percent(
                 entity_id,
             )
         return wrote
-    except (TypeError, ValueError, KeyError, AttributeError) as ex:
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent exception: %s",
+    except (
+        HomeAssistantError,
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+    ) as ex:
+        # The device did not take the position: it is asleep, out of reach,
+        # its integration is reloading, or the number entity declares a
+        # narrower range than the clamp above. Reporting the refused write as
+        # a declined one keeps the caller from recording a position the valve
+        # never reached, and lets it fall back to its own valve channel.
+        _LOGGER.warning(
+            "better_thermostat %s: TRVZB valve write for %s failed: %s",
             self.device_name,
+            entity_id,
             ex,
         )
         return False
@@ -623,10 +651,23 @@ async def maybe_set_external_temperature(
         # that is regulating on it.
         await maybe_select_external_sensor(self, entity_id)
         return True
-    except (TypeError, ValueError, KeyError, AttributeError) as ex:
-        _LOGGER.debug(
-            "better_thermostat %s: TRVZB maybe_set_external_temperature exception: %s",
+    except (
+        HomeAssistantError,
+        OSError,
+        TypeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+    ) as ex:
+        # The device did not take the value: it is asleep, out of reach, its
+        # integration is reloading, or it declares a narrower range than the
+        # clamp above. Reporting the refused write as a declined one leaves
+        # the caller free to serve the remaining TRVs and to control on the
+        # new reading; the next write retries.
+        _LOGGER.warning(
+            "better_thermostat %s: TRVZB external temperature write for %s failed: %s",
             self.device_name,
+            entity_id,
             ex,
         )
         return False

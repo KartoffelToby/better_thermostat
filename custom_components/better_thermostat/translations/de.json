@@ -20,6 +20,8 @@
           "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
+          "target_temp_min": "Sollminimumtemperatur",
+          "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets"
         },
@@ -53,8 +55,10 @@
     "error": {
       "failed": "Ups, hier stimmt was nicht!",
       "no_name": "Du musst einen Namen vergeben.",
+      "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
     },
     "abort": {
@@ -81,6 +85,8 @@
           "door_off_delay_after": "Wartezeit, bevor das Thermostat bei geschlossener Tür angeschaltet wird.",
           "outdoor_sensor": "Wenn ein Außentemperatursensor vorhanden ist, kann dieser anstelle der Wetter-Entität genutzt werden.",
           "weather": "Die Wetter-Entität für die Außentemperatur.",
+          "target_temp_min": "Sollminimumtemperatur",
+          "target_temp_max": "Sollmaximumtemperatur",
           "target_temp_step": "Solltemperatur-Schritt",
           "presets": "Aktivierte Presets",
           "valve_maintenance": "Wenn Ihr Thermostat keinen eigenen Wartungsmodus hat, können Sie diesen verwenden.",
@@ -111,6 +117,10 @@
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       }
+    },
+    "error": {
+      "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten."
     }
   },
   "issues": {
@@ -184,6 +194,98 @@
         "home": "Zuhause",
         "sleep": "Schlafen",
         "activity": "Aktivität"
+      }
+    },
+    "target_temp_min": {
+      "options": {
+        "auto": "Automatisch",
+        "min_max_0": "0 °C",
+        "min_max_1": "1 °C",
+        "min_max_2": "2 °C",
+        "min_max_3": "3 °C",
+        "min_max_4": "4 °C",
+        "min_max_5": "5 °C",
+        "min_max_6": "6 °C",
+        "min_max_7": "7 °C",
+        "min_max_8": "8 °C",
+        "min_max_9": "9 °C",
+        "min_max_10": "10 °C",
+        "min_max_11": "11 °C",
+        "min_max_12": "12 °C",
+        "min_max_13": "13 °C",
+        "min_max_14": "14 °C",
+        "min_max_15": "15 °C",
+        "min_max_16": "16 °C",
+        "min_max_17": "17 °C",
+        "min_max_18": "18 °C",
+        "min_max_19": "19 °C",
+        "min_max_20": "20 °C",
+        "min_max_21": "21 °C",
+        "min_max_22": "22 °C",
+        "min_max_23": "23 °C",
+        "min_max_24": "24 °C",
+        "min_max_25": "25 °C",
+        "min_max_26": "26 °C",
+        "min_max_27": "27 °C",
+        "min_max_28": "28 °C",
+        "min_max_29": "29 °C",
+        "min_max_30": "30 °C",
+        "min_max_31": "31 °C",
+        "min_max_32": "32 °C",
+        "min_max_33": "33 °C",
+        "min_max_34": "34 °C",
+        "min_max_35": "35 °C",
+        "min_max_36": "36 °C",
+        "min_max_37": "37 °C",
+        "min_max_38": "38 °C",
+        "min_max_39": "39 °C",
+        "min_max_40": "40 °C"
+      }
+    },
+    "target_temp_max": {
+      "options": {
+        "auto": "Automatisch",
+        "min_max_0": "0 °C",
+        "min_max_1": "1 °C",
+        "min_max_2": "2 °C",
+        "min_max_3": "3 °C",
+        "min_max_4": "4 °C",
+        "min_max_5": "5 °C",
+        "min_max_6": "6 °C",
+        "min_max_7": "7 °C",
+        "min_max_8": "8 °C",
+        "min_max_9": "9 °C",
+        "min_max_10": "10 °C",
+        "min_max_11": "11 °C",
+        "min_max_12": "12 °C",
+        "min_max_13": "13 °C",
+        "min_max_14": "14 °C",
+        "min_max_15": "15 °C",
+        "min_max_16": "16 °C",
+        "min_max_17": "17 °C",
+        "min_max_18": "18 °C",
+        "min_max_19": "19 °C",
+        "min_max_20": "20 °C",
+        "min_max_21": "21 °C",
+        "min_max_22": "22 °C",
+        "min_max_23": "23 °C",
+        "min_max_24": "24 °C",
+        "min_max_25": "25 °C",
+        "min_max_26": "26 °C",
+        "min_max_27": "27 °C",
+        "min_max_28": "28 °C",
+        "min_max_29": "29 °C",
+        "min_max_30": "30 °C",
+        "min_max_31": "31 °C",
+        "min_max_32": "32 °C",
+        "min_max_33": "33 °C",
+        "min_max_34": "34 °C",
+        "min_max_35": "35 °C",
+        "min_max_36": "36 °C",
+        "min_max_37": "37 °C",
+        "min_max_38": "38 °C",
+        "min_max_39": "39 °C",
+        "min_max_40": "40 °C"
       }
     },
     "target_temp_step": {
