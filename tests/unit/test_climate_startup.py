@@ -6,6 +6,7 @@ _restore_state, _validate_hvac_mode.
 """
 
 import asyncio
+from datetime import timedelta
 import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,11 +19,17 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
+)
+from custom_components.better_thermostat.events.temperature import (
+    PLATEAU_ACCEPT_WINDOW,
+    trigger_temperature_change,
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
@@ -30,6 +37,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
@@ -117,6 +125,39 @@ def bt():
         mock, value
     )
     return mock
+
+
+@pytest.fixture
+def plateau_bt(bt, hass):
+    """A thermostat whose plateau timer is scheduled on a real event loop.
+
+    The plateau path only exists once a reading has been accepted, so the
+    baseline reading is fed through the production handler rather than
+    assigned, and the TRV write the timer performs is observable on the
+    quirk the handler delegates to.
+    """
+    bt.hass = hass
+    bt.startup_running = False
+    bt._control_task = None
+    bt._window_task = None
+    bt._door_task = None
+    bt.control_queue_task = None
+    bt.in_maintenance = False
+    bt._control_needed_after_maintenance = False
+    bt.last_external_sensor_change = None
+    bt.prev_stable_temp = None
+    bt.last_change_direction = 0
+    bt.accum_delta = 0.0
+    bt.accum_dir = 0
+    bt.pending_temp = None
+    bt.pending_since = None
+    bt.plateau_timer_cancel = None
+    bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
+    trv = MagicMock()
+    trv.model_quirks = MagicMock()
+    trv.model_quirks.maybe_set_external_temperature = AsyncMock()
+    bt.real_trvs = {TRV_ID: trv}
+    return bt
 
 
 def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
@@ -230,11 +271,125 @@ class TestStartupUnloadBailout:
         bt._control_task = None
         bt._window_task = None
         bt._door_task = None
+        bt.plateau_timer_cancel = None
         bt.startup_running = True
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
         assert bt.startup_running is False
+
+
+# ---------------------------------------------------------------------------
+# 0b. what an unload has to withdraw from hass
+# ---------------------------------------------------------------------------
+
+
+# Half the significance threshold, so this reading reaches the TRVs through
+# the plateau timer and through no other accept path.
+SUB_THRESHOLD_TEMP = 20.05
+
+
+async def _feed_sensor_reading(entity, temperature):
+    """Deliver one external temperature reading to the event handler."""
+    event = MagicMock()
+    event.data = {"new_state": State(SENSOR_ID, str(temperature))}
+    await trigger_temperature_change(entity, event)
+
+
+def _external_temperature_writes(entity):
+    """Return the TRV write an accepted reading performs."""
+    return entity.real_trvs[TRV_ID].model_quirks.maybe_set_external_temperature
+
+
+async def _arm_plateau_timer(entity):
+    """Establish a baseline reading, then leave a plateau timer pending."""
+    await _feed_sensor_reading(entity, 20.0)
+    _external_temperature_writes(entity).assert_awaited_once()
+    _external_temperature_writes(entity).reset_mock()
+
+    # The accepted reading is a minute old, so the debounce interval the
+    # timer re-checks when it fires has long passed.
+    entity.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+
+    await _feed_sensor_reading(entity, SUB_THRESHOLD_TEMP)
+    assert entity.plateau_timer_cancel is not None
+    assert entity.pending_temp == SUB_THRESHOLD_TEMP
+    _external_temperature_writes(entity).assert_not_awaited()
+
+
+def _pass_the_plateau_window(hass):
+    """Advance the loop past the plateau window so a pending timer fires."""
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=PLATEAU_ACCEPT_WINDOW + 5)
+    )
+
+
+class TestPlateauTimerOnRemoval:
+    """A pending plateau timer must not outlive the entity that armed it.
+
+    The timer is scheduled on hass, so nothing about the unload stops it on
+    its own: it fires against the torn-down instance and writes to devices
+    the entity no longer drives.
+    """
+
+    @pytest.mark.asyncio
+    async def test_armed_timer_fires_while_the_entity_lives(self, hass, plateau_bt):
+        """The window elapsing accepts the reading and writes it to the TRV."""
+        await _arm_plateau_timer(plateau_bt)
+
+        _pass_the_plateau_window(hass)
+        await hass.async_block_till_done()
+
+        _external_temperature_writes(plateau_bt).assert_awaited_once_with(
+            plateau_bt, TRV_ID, SUB_THRESHOLD_TEMP
+        )
+
+    @pytest.mark.asyncio
+    async def test_armed_timer_writes_nothing_after_removal(self, hass, plateau_bt):
+        """Removal withdraws the timer, so the window passes without a write."""
+        await _arm_plateau_timer(plateau_bt)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        _pass_the_plateau_window(hass)
+        await hass.async_block_till_done()
+
+        _external_temperature_writes(plateau_bt).assert_not_awaited()
+        assert plateau_bt.plateau_timer_cancel is None
+
+    @pytest.mark.asyncio
+    async def test_the_timer_goes_before_the_workers_are_awaited(
+        self, hass, plateau_bt
+    ):
+        """Shutting the workers down yields, and a due timer fires in that gap.
+
+        Every `await` in the teardown hands the loop back, so a timer still
+        armed at that point gets its turn and writes to devices the entity is
+        in the middle of letting go of.
+        """
+        await _arm_plateau_timer(plateau_bt)
+        order = []
+        withdraw_timer = plateau_bt.plateau_timer_cancel
+
+        def record_timer_withdrawal():
+            order.append("timer")
+            withdraw_timer()
+
+        plateau_bt.plateau_timer_cancel = record_timer_withdrawal
+
+        async def never_finishes():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                order.append("worker")
+                raise
+
+        plateau_bt._control_task = hass.async_create_task(never_finishes())
+        await asyncio.sleep(0)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        assert order == ["timer", "worker"]
 
 
 # ---------------------------------------------------------------------------

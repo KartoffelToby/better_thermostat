@@ -3943,6 +3943,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Terminate the startup retry loop so an entity whose dependencies
         # never became available does not keep polling after unload.
         self.startup_running = False
+        # The plateau timer is scheduled on hass, not on the entity, so a
+        # pending one outlives the unload and would write the external
+        # temperature to TRVs this entity no longer drives. Awaiting the
+        # workers below yields to the loop, which is long enough for a due
+        # timer to fire, so it goes first.
+        if self.plateau_timer_cancel is not None:
+            self.plateau_timer_cancel()
+            self.plateau_timer_cancel = None
         if self._control_task:
             self._control_task.cancel()
             try:
