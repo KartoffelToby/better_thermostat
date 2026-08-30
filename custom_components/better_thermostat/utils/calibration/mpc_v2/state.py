@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 import logging
+import math
 from typing import Any
 
 from .controller import ControllerSnapshot, MpcV2Controller
@@ -83,7 +84,10 @@ def export_mpc_v2_state(state: MpcV2State) -> dict[str, Any] | None:
 
 
 def import_mpc_v2_state(
-    payload: Mapping[str, Any], params: MpcV2Params | None = None
+    payload: Mapping[str, Any],
+    params: MpcV2Params | None = None,
+    *,
+    key: str | None = None,
 ) -> MpcV2State:
     """Rehydrate a single live v2 state from a previously exported payload.
 
@@ -91,15 +95,47 @@ def import_mpc_v2_state(
     :meth:`MpcV2Controller.restore_snapshot`. When ``params`` is ``None`` the
     controller boots with defaults — the caller is expected to recompute soon
     after with the correct params.
+
+    Parameters
+    ----------
+    payload : Mapping[str, Any]
+        the exported state to rehydrate
+    params : MpcV2Params | None
+        parameters for the rebuilt controller, defaults when None
+    key : str | None
+        names the state entry the payload belongs to, so a report about an
+        unusable value can point at the room rather than at nothing
+
+    Returns
+    -------
+    MpcV2State
+        the rehydrated state, with any unusable field left at its default
     """
     state = MpcV2State()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
         value = payload.get(attr)
         if value is not None:
             try:
-                setattr(state, attr, float(value))
+                number = float(value)
+                # `float()` takes "NaN", "Infinity" and anything that
+                # overflows to one, and the contract above says an unusable
+                # field keeps its default. A non-finite command or timestamp
+                # poisons every calculation that reads it afterwards, so it
+                # goes down the same refusal path as an unreadable one.
+                if not math.isfinite(number):
+                    raise ValueError(f"{attr} is not finite: {value!r}")
+                setattr(state, attr, number)
             except TypeError, ValueError, OverflowError:
-                pass
+                # The field keeps the default a first start leaves there, so
+                # a value the store lost is indistinguishable from one it
+                # never held unless this line says so.
+                _LOGGER.warning(
+                    "MPC v2 stored %s for %s is not a usable number, "
+                    "continuing without it",
+                    attr,
+                    key or "an unnamed state entry",
+                    exc_info=True,
+                )
     # The fallback-WARN latch is per controller instance; restoring it keeps
     # the throttle intact across the export/import round-trip the dispatcher
     # performs every cycle (otherwise the WARN fires on every compute).
