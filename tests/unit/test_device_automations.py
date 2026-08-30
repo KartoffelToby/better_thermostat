@@ -37,9 +37,15 @@ from custom_components.better_thermostat.device_trigger import (
 )
 from custom_components.better_thermostat.utils.const import CONF_HUMIDITY
 
+# The two shapes a config entry takes when it names no humidity sensor. An
+# entry created without one never carries the key; clearing the selector in
+# the options flow writes it back as None, because `_normalize` keeps every
+# optional key the form submitted. Both have to read as "no humidity".
+NO_HUMIDITY_ENTRIES = ({}, {CONF_HUMIDITY: None})
+
 
 def _create_device(
-    hass: HomeAssistant, *, with_humidity: bool = True
+    hass: HomeAssistant, *, entry_data: dict | None = None
 ) -> dr.DeviceEntry:
     """Register a device attached to a mock config entry.
 
@@ -47,18 +53,18 @@ def _create_device(
     ----------
     hass : HomeAssistant
         The Home Assistant test instance.
-    with_humidity : bool
-        Whether the entry names a humidity sensor. The two humidity triggers
-        are only offered when it does, so a device built without one is how
-        that half of the listing is exercised.
+    entry_data : dict or None
+        The config entry data. Defaults to an entry naming a humidity sensor,
+        because the two humidity triggers are only offered when one is named.
 
     Returns
     -------
     dr.DeviceEntry
         The registered device entry.
     """
-    data = {CONF_HUMIDITY: "sensor.room_humidity"} if with_humidity else {}
-    config_entry = MockConfigEntry(domain=DOMAIN, data=data)
+    if entry_data is None:
+        entry_data = {CONF_HUMIDITY: "sensor.room_humidity"}
+    config_entry = MockConfigEntry(domain=DOMAIN, data=entry_data)
     config_entry.add_to_hass(hass)
     device_registry = dr.async_get(hass)
     return device_registry.async_get_or_create(
@@ -123,16 +129,17 @@ async def test_get_triggers_lists_all_types_for_bt_climate_entity(
         assert trigger[CONF_ENTITY_ID] == entity.entity_id
 
 
+@pytest.mark.parametrize("entry_data", NO_HUMIDITY_ENTRIES, ids=("absent", "none"))
 async def test_get_triggers_omits_the_humidity_pair_without_that_sensor(
-    hass: HomeAssistant,
+    hass: HomeAssistant, entry_data: dict
 ) -> None:
     """A thermostat with no humidity sensor publishes no humidity to watch.
 
     Offering the two triggers anyway gives the user an automation that
     attaches and then never fires, which reads as a broken automation rather
-    than a missing sensor.
+    than a missing sensor. Both entry shapes count as no sensor.
     """
-    device = _create_device(hass, with_humidity=False)
+    device = _create_device(hass, entry_data=entry_data)
     entity = _register_entity(hass, device)
     hass.states.async_set(entity.entity_id, "heat")
 
