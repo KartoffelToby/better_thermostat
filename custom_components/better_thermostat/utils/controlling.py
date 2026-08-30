@@ -1934,7 +1934,14 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
                 entity_id,
             )
             break
-        if _trv_state.state == _real_trv.last_hvac_mode:
+        # A device whose quirk reads `unknown` as operating cannot report the
+        # mode back: the mode it is in is not one the climate entity
+        # describes. Waiting for a match it will never make would hold the
+        # write open for the full confirmation budget and then warn about a
+        # device that is doing exactly what it was told.
+        if _trv_state.state == _real_trv.last_hvac_mode or (
+            _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
+        ):
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:

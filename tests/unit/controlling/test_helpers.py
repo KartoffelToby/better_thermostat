@@ -206,14 +206,16 @@ class TestCheckSystemMode:
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
-    async def test_a_model_reporting_unknown_while_driven_is_waited_for(self):
-        """The mode write is confirmed, not abandoned as an outage.
+    async def test_a_model_that_cannot_report_its_mode_confirms_at_once(self, caplog):
+        """A mode the entity does not describe is confirmed, not waited out.
 
-        A TRV driven through a mode its climate entity does not describe
-        reports ``unknown`` for as long as that mode holds, so reading it
-        as gone would end every confirmation wait before it began.
+        The device reports ``unknown`` for as long as it holds the
+        manufacturer mode, so its state can never equal the mode that was
+        written. Polling for a match it will never make would hold the
+        write open for the whole confirmation budget and then warn about a
+        device doing exactly what it was told.
         """
-        mock_self, mock_state = self._mock_self(
+        mock_self, _ = self._mock_self(
             live_state=STATE_UNKNOWN, last_hvac_mode=HVACMode.HEAT
         )
         trv = mock_self.real_trvs["climate.trv1"]
@@ -225,8 +227,6 @@ class TestCheckSystemMode:
 
         async def mock_sleep(duration):
             slept.append(duration)
-            if duration == 1:
-                mock_state.state = HVACMode.HEAT
             await original_sleep(0)
 
         import custom_components.better_thermostat.utils.controlling as controlling_module
@@ -234,12 +234,17 @@ class TestCheckSystemMode:
         original_sleep_func = controlling_module.asyncio.sleep
         controlling_module.asyncio.sleep = mock_sleep
         try:
-            result = await check_system_mode(mock_self, "climate.trv1")
+            with caplog.at_level(logging.WARNING):
+                result = await check_system_mode(mock_self, "climate.trv1")
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
         assert result is True
-        assert slept.count(1) == 1
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
+        # No second of the confirmation budget is spent, and nothing is
+        # reported about a device that answered as designed.
+        assert slept.count(1) == 0
+        assert "did not confirm" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_missing_state_treated_as_done(self):
