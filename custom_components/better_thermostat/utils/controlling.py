@@ -275,7 +275,7 @@ def _stamp_heartbeat(self: BetterThermostat) -> None:
 def _get_valve_control(
     self: BetterThermostat,
     snapshot: WorldSnapshot,
-    heater_entity_id: str,
+    entity_id: str,
     calibration_mode: CalibrationMode | str,
     calibration_type: CalibrationType | str,
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -291,7 +291,7 @@ def _get_valve_control(
         is_boost_heating(snapshot)
         and calibration_type == CalibrationType.DIRECT_VALVE_BASED
     ):
-        _trv = self.real_trvs.get(heater_entity_id)
+        _trv = self.real_trvs.get(entity_id)
         max_opening = _trv.valve_max_opening if _trv is not None else 100
         if isinstance(max_opening, (int, float)):
             target_pct = clamp_valve_percent(max_opening)
@@ -304,7 +304,7 @@ def _get_valve_control(
         return None, None
 
     # Try calibration balance from various calibration modes
-    cal_bal = self.real_trvs[heater_entity_id].calibration_balance
+    cal_bal = self.real_trvs[entity_id].calibration_balance
     if (
         isinstance(cal_bal, dict)
         and cal_bal.get("apply_valve")
@@ -322,7 +322,7 @@ def _get_valve_control(
             return cal_bal, source
 
     # Fallback to raw balance
-    raw_balance = self.real_trvs[heater_entity_id].balance
+    raw_balance = self.real_trvs[entity_id].balance
     if (
         isinstance(raw_balance, dict)
         and raw_balance.get("apply_valve")
@@ -695,121 +695,129 @@ async def control_queue(self: BetterThermostat) -> None:
                 continue
             else:
                 controls_to_process = await self.control_queue_task.get()
-                if controls_to_process is not None:
-                    self.ignore_states = True
+                try:
+                    if controls_to_process is not None:
+                        self.ignore_states = True
 
-                    # Calculate heating power once per cycle
-                    try:
-                        await self.calculate_heating_power()
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: ERROR calculating heating power",
-                            self.device_name,
-                        )
-
-                    # Calculate heat loss once per cycle (idle cooling)
-                    try:
-                        await self.calculate_heat_loss()
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: ERROR calculating heat loss",
-                            self.device_name,
-                        )
-
-                    # One observation and decision for the whole cycle;
-                    # on failure each TRV falls back to its own cycle.
-                    cycle = None
-                    try:
-                        cycle = compute_control_cycle(self)
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: ERROR computing control cycle",
-                            self.device_name,
-                        )
-
-                    # Handle cooler logic once per cycle, on the same
-                    # observation the TRVs are controlled with.
-                    _cooler_pass_completed = False
-                    if self.cooler_entity_id is not None:
+                        # Calculate heating power once per cycle
                         try:
-                            await control_cooler(
-                                self, cycle[0] if cycle is not None else None
-                            )
+                            await self.calculate_heating_power()
                         except Exception:
                             _LOGGER.exception(
-                                "better_thermostat %s: ERROR controlling cooler",
+                                "better_thermostat %s: ERROR calculating heating power",
                                 self.device_name,
                             )
-                        else:
-                            _cooler_pass_completed = True
 
-                    # Create tasks for all TRVs to run in parallel. A device
-                    # that carries both roles takes one mode and one setpoint,
-                    # so the heating channel stands down for the cycles the
-                    # cooling channel drives it. A cooling pass that raised left
-                    # no decision to read, and the permissive default is the
-                    # heating channel keeping the device.
-                    _shared_entity_id = dual_role_entity_id(self)
-                    _cooling_owns_shared = (
-                        _shared_entity_id is not None
-                        and _cooler_pass_completed
-                        and cooling_owns_dual_role_device(self, _shared_entity_id)
-                    )
-                    tasks = []
-                    controlled_trvs = []
-                    for trv in self.real_trvs.keys():
-                        if _cooling_owns_shared and trv == _shared_entity_id:
-                            _LOGGER.debug(
-                                "better_thermostat %s: %s is driven by the cooling "
-                                "channel this cycle, leaving the heating channel out",
+                        # Calculate heat loss once per cycle (idle cooling)
+                        try:
+                            await self.calculate_heat_loss()
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR calculating heat loss",
                                 self.device_name,
-                                trv,
                             )
-                            continue
-                        controlled_trvs.append(trv)
-                        tasks.append(control_trv(self, trv, cycle=cycle))
 
-                    if _cooling_owns_shared and not tasks:
-                        # The heating action and its hysteresis are advanced
-                        # inside control_trv, so a cycle whose only device went
-                        # to the cooling channel advances them here instead of
-                        # leaving the band on the state the previous cycle left.
-                        advance_hvac_action(self)
-                        # Leaving the room's only device to the cooling channel
-                        # is a deliberate decision and the cycle reached it, so
-                        # it counts as one: without the stamp the control
-                        # watchdog would read every cooling run longer than its
-                        # window as a hung loop.
-                        _stamp_heartbeat(self)
-
-                    # Run all TRV controls in parallel
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    result = True
-                    for i, res in enumerate(results):
-                        if isinstance(res, Exception):
-                            trv_id = controlled_trvs[i]
-                            _LOGGER.error(
-                                "better_thermostat %s: ERROR controlling TRV %s: %s",
+                        # One observation and decision for the whole cycle;
+                        # on failure each TRV falls back to its own cycle.
+                        cycle = None
+                        try:
+                            cycle = compute_control_cycle(self)
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR computing control cycle",
                                 self.device_name,
-                                trv_id,
-                                res,
                             )
-                            result = False
-                        elif res is False:
-                            result = False
 
-                    # Retry task if some TRVs failed; coalesces with any
-                    # already-pending request. The backoff sits here rather
-                    # than in the failing worker: a worker holds the TRV lock
-                    # and would stall the rest of the cycle with it.
-                    if result is False:
-                        await asyncio.sleep(FAILED_CYCLE_BACKOFF_S)
-                        request_control_cycle(self)
+                        # Handle cooler logic once per cycle, on the same
+                        # observation the TRVs are controlled with.
+                        _cooler_pass_completed = False
+                        if self.cooler_entity_id is not None:
+                            try:
+                                await control_cooler(
+                                    self, cycle[0] if cycle is not None else None
+                                )
+                            except Exception:
+                                _LOGGER.exception(
+                                    "better_thermostat %s: ERROR controlling cooler",
+                                    self.device_name,
+                                )
+                            else:
+                                _cooler_pass_completed = True
 
+                        # Create tasks for all TRVs to run in parallel. A device
+                        # that carries both roles takes one mode and one setpoint,
+                        # so the heating channel stands down for the cycles the
+                        # cooling channel drives it. A cooling pass that raised left
+                        # no decision to read, and the permissive default is the
+                        # heating channel keeping the device.
+                        _shared_entity_id = dual_role_entity_id(self)
+                        _cooling_owns_shared = (
+                            _shared_entity_id is not None
+                            and _cooler_pass_completed
+                            and cooling_owns_dual_role_device(self, _shared_entity_id)
+                        )
+                        tasks = []
+                        controlled_trvs = []
+                        for trv in self.real_trvs.keys():
+                            if _cooling_owns_shared and trv == _shared_entity_id:
+                                _LOGGER.debug(
+                                    "better_thermostat %s: %s is driven by the cooling "
+                                    "channel this cycle, leaving the heating channel out",
+                                    self.device_name,
+                                    trv,
+                                )
+                                continue
+                            controlled_trvs.append(trv)
+                            tasks.append(control_trv(self, trv, cycle=cycle))
+
+                        if _cooling_owns_shared and not tasks:
+                            # The heating action and its hysteresis are advanced
+                            # inside control_trv, so a cycle whose only device went
+                            # to the cooling channel advances them here instead of
+                            # leaving the band on the state the previous cycle left.
+                            advance_hvac_action(self)
+                            # Leaving the room's only device to the cooling channel
+                            # is a deliberate decision and the cycle reached it, so
+                            # it counts as one: without the stamp the control
+                            # watchdog would read every cooling run longer than its
+                            # window as a hung loop.
+                            _stamp_heartbeat(self)
+
+                        # Run all TRV controls in parallel
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                        result = True
+                        for i, res in enumerate(results):
+                            if isinstance(res, Exception):
+                                trv_id = controlled_trvs[i]
+                                _LOGGER.error(
+                                    "better_thermostat %s: ERROR controlling TRV %s: %s",
+                                    self.device_name,
+                                    trv_id,
+                                    res,
+                                )
+                                result = False
+                            elif res is False:
+                                result = False
+
+                        # Retry task if some TRVs failed; coalesces with any
+                        # already-pending request. The backoff sits here rather
+                        # than in the failing worker: a worker holds the TRV lock
+                        # and would stall the rest of the cycle with it.
+                        if result is False:
+                            await asyncio.sleep(FAILED_CYCLE_BACKOFF_S)
+                            request_control_cycle(self)
+
+                        if not getattr(self, "in_maintenance", False):
+                            self.ignore_states = False
+
+                finally:
+                    # One acknowledgement per item taken, including an item that
+                    # carries no cycle and one whose handling is cancelled. The
+                    # queue counts an item as unfinished until it is acknowledged,
+                    # and cancellation reaches this loop between the get() and the
+                    # end of the work it hands out.
                     self.control_queue_task.task_done()
-                    if not getattr(self, "in_maintenance", False):
-                        self.ignore_states = False
     except asyncio.CancelledError:
         _LOGGER.debug(
             "better_thermostat %s: control_queue task cancelled, cleaning up",
@@ -1398,7 +1406,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
 
 async def control_trv(
     self: BetterThermostat,
-    heater_entity_id: str | None = None,
+    entity_id: str | None = None,
     cycle: tuple[WorldSnapshot, DesiredState] | None = None,
 ) -> bool:
     """Control a single TRV by setting temperature, HVAC mode, calibration, and valve position.
@@ -1411,7 +1419,7 @@ async def control_trv(
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str, optional
+    entity_id : str, optional
         Entity ID of the TRV to control. If None or not found, returns False.
     cycle : tuple, optional
         Precomputed ``(snapshot, desired)`` control-cycle decision. If None, it is
@@ -1423,8 +1431,8 @@ async def control_trv(
         True if control succeeded or TRV was skipped (unavailable)
         False if TRV not found in real_trvs or state conversion failed
     """
-    # Guard against missing or invalid heater_entity_id
-    if not heater_entity_id or heater_entity_id not in self.real_trvs:
+    # Guard against missing or invalid entity_id
+    if not entity_id or entity_id not in self.real_trvs:
         return False
 
     if not hasattr(self, "task_manager"):
@@ -1436,17 +1444,17 @@ async def control_trv(
     _suppression_owned = False
     try:
         async with self._temp_lock:
-            self.real_trvs[heater_entity_id].ignore_trv_states = True
+            self.real_trvs[entity_id].ignore_trv_states = True
             _suppression_owned = True
             advance_hvac_action(self)
-            _trv = self.hass.states.get(heater_entity_id)
+            _trv = self.hass.states.get(entity_id)
 
             # The cycle decision normally arrives from control_queue; a
             # standalone invocation is its own cycle.
             if cycle is None:
                 cycle = compute_control_cycle(self)
             snapshot, desired = cycle
-            trv_desired = desired.trvs.get(heater_entity_id)
+            trv_desired = desired.trvs.get(entity_id)
 
             # The kernel addresses only reachable TRVs (boost overrides the skip).
             if _trv is None or trv_desired is None:
@@ -1454,9 +1462,9 @@ async def control_trv(
                     "better_thermostat %s: TRV %s is unavailable, skipping control. "
                     "Control will resume when TRV becomes available.",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                 )
-                _schedule_reachability_retry(self, heater_entity_id)
+                _schedule_reachability_retry(self, entity_id)
                 _stamp_heartbeat(self)
                 return True
 
@@ -1476,19 +1484,17 @@ async def control_trv(
             # translates HEAT into for them.
             _outbound_mode = self.bt_hvac_mode
             if _outbound_mode == HVACMode.HEAT_COOL and (
-                heater_entity_id == dual_role_entity_id(self)
+                entity_id == dual_role_entity_id(self)
             ):
                 _outbound_mode = HVACMode.HEAT
-            _remapped_states = convert_outbound_states(
-                self, heater_entity_id, _outbound_mode
-            )
+            _remapped_states = convert_outbound_states(self, entity_id, _outbound_mode)
             if not isinstance(_remapped_states, dict):
                 _LOGGER.warning(
                     "better_thermostat %s: convert_outbound_states returned %r for %s "
                     "(expected dict) — skipping control cycle",
                     self.device_name,
                     _remapped_states,
-                    heater_entity_id,
+                    entity_id,
                 )
                 # The caller backs the retry off; sleeping here would hold
                 # the lock and stall every other TRV of this cycle.
@@ -1497,10 +1503,10 @@ async def control_trv(
             _temperature = _remapped_states.get("temperature", None)
             _calibration = _remapped_states.get("local_temperature_calibration", None)
 
-            _calibration_mode = self.real_trvs[heater_entity_id].advanced.get(
+            _calibration_mode = self.real_trvs[entity_id].advanced.get(
                 "calibration_mode", DEFAULT_CALIBRATION_MODE
             )
-            _calibration_type = self.real_trvs[heater_entity_id].advanced.get(
+            _calibration_type = self.real_trvs[entity_id].advanced.get(
                 "calibration", CalibrationType.TARGET_TEMP_BASED
             )
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
@@ -1509,7 +1515,7 @@ async def control_trv(
                 is_boost_heating(snapshot)
                 and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
             ):
-                _temperature = self.real_trvs[heater_entity_id].max_temp
+                _temperature = self.real_trvs[entity_id].max_temp
 
             # HOLD rung of the fail-soft ladder: no usable temperature exists,
             # so no calibration runs. The kernel's intent carries the raw
@@ -1521,7 +1527,7 @@ async def control_trv(
                     "better_thermostat %s: control mode HOLD - locking %s on the "
                     "last known target %s",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                     trv_desired.setpoint,
                 )
                 _temperature = trv_desired.setpoint
@@ -1533,20 +1539,14 @@ async def control_trv(
                     valve_settings, _source = None, None
                 else:
                     valve_settings, _source = _get_valve_control(
-                        self,
-                        snapshot,
-                        heater_entity_id,
-                        _calibration_mode,
-                        _calibration_type,
+                        self, snapshot, entity_id, _calibration_mode, _calibration_type
                     )
                 if valve_settings is not None:
                     target_pct = int(round(valve_settings.get("valve_percent", 0)))
                     target_pct = int(
                         round(
                             _through_safety_hull(
-                                snapshot,
-                                heater_entity_id,
-                                valve_percent=float(target_pct),
+                                snapshot, entity_id, valve_percent=float(target_pct)
                             ).valve_percent
                             or 0.0
                         )
@@ -1554,31 +1554,31 @@ async def control_trv(
                     # Closing the valve (0 %) is the overheat-safe direction
                     # and bypasses the write budget; everything else waits
                     # for the next slot and converges via the next cycle.
-                    if _valve_at_target(self, heater_entity_id, target_pct):
+                    if _valve_at_target(self, entity_id, target_pct):
                         _LOGGER.debug(
                             "better_thermostat %s: valve of %s already at %s%%, "
                             "skipping write",
                             self.device_name,
-                            heater_entity_id,
+                            entity_id,
                             target_pct,
                         )
                     elif _consume_budget(
-                        self, heater_entity_id, "valve", bypass=target_pct == 0
+                        self, entity_id, "valve", bypass=target_pct == 0
                     ):
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_valve: %s to: %s%% (source=%s)",
                             self.device_name,
-                            heater_entity_id,
+                            entity_id,
                             target_pct,
                             _source,
                         )
-                        ok = await set_valve(self, heater_entity_id, target_pct)
+                        ok = await set_valve(self, entity_id, target_pct)
                         if not ok:
                             _LOGGER.debug(
                                 "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
                                 self.device_name,
                                 target_pct,
-                                heater_entity_id,
+                                entity_id,
                                 _source,
                             )
                             # The budget was already consumed but the valve never
@@ -1586,17 +1586,15 @@ async def control_trv(
                             # is not dropped permanently.
                             _schedule_budget_retry(
                                 self,
-                                heater_entity_id,
-                                _budget_remaining(self, heater_entity_id, "valve"),
+                                entity_id,
+                                _budget_remaining(self, entity_id, "valve"),
                             )
                     else:
                         # A deferred valve write re-derives on the catch-up
                         # cycle; without it the reconciler cannot see the
                         # miss (it compares against the last value written).
                         _schedule_budget_retry(
-                            self,
-                            heater_entity_id,
-                            _budget_remaining(self, heater_entity_id, "valve"),
+                            self, entity_id, _budget_remaining(self, entity_id, "valve")
                         )
                 elif _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
                     pass  # non-valve TRV: no valve control expected
@@ -1604,7 +1602,7 @@ async def control_trv(
                 _LOGGER.debug(
                     "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                 )
 
             # Apply the kernel's intent: a suppression (open window/door, no heat
@@ -1638,35 +1636,33 @@ async def control_trv(
                 _reset_pct = int(
                     round(
                         _through_safety_hull(
-                            snapshot, heater_entity_id, valve_percent=0.0
+                            snapshot, entity_id, valve_percent=0.0
                         ).valve_percent
                         or 0.0
                     )
                 )
-                if not _valve_at_target(self, heater_entity_id, _reset_pct):
-                    _consume_budget(self, heater_entity_id, "valve", bypass=True)
-                    ok = await set_valve(self, heater_entity_id, _reset_pct)
+                if not _valve_at_target(self, entity_id, _reset_pct):
+                    _consume_budget(self, entity_id, "valve", bypass=True)
+                    ok = await set_valve(self, entity_id, _reset_pct)
                     if not ok:
                         _LOGGER.debug(
                             "better_thermostat %s: delegate.set_valve returned False for "
                             "safety reset (target=%s%%, entity=%s)",
                             self.device_name,
                             _reset_pct,
-                            heater_entity_id,
+                            entity_id,
                         )
                         # The budget slot is stamped but the valve never moved;
                         # re-derive on the catch-up cycle so the reset is not
                         # dropped permanently.
                         _schedule_budget_retry(
-                            self,
-                            heater_entity_id,
-                            _budget_remaining(self, heater_entity_id, "valve"),
+                            self, entity_id, _budget_remaining(self, entity_id, "valve")
                         )
 
             # Manage TRVs with no HVACMode.OFF
-            _trv_has_no_off = _no_off_system_mode(self.real_trvs[heater_entity_id])
+            _trv_has_no_off = _no_off_system_mode(self.real_trvs[entity_id])
             if _trv_has_no_off is True and _new_hvac_mode == HVACMode.OFF:
-                _min_temp = self.real_trvs[heater_entity_id].min_temp
+                _min_temp = self.real_trvs[entity_id].min_temp
                 _LOGGER.debug(
                     "better_thermostat %s: sending %s°C to the TRV because this device has no system mode off and heater should be off",
                     self.device_name,
@@ -1679,7 +1675,7 @@ async def control_trv(
             # the top of the cycle may already be superseded. A device that
             # dropped out in that window reports no mode at all, so there the
             # earlier reading stands in.
-            _live_trv = self.hass.states.get(heater_entity_id)
+            _live_trv = self.hass.states.get(entity_id)
             if _live_trv is None or _live_trv.state in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
@@ -1697,21 +1693,21 @@ async def control_trv(
                 _LOGGER.debug(
                     "better_thermostat %s: TO TRV set_hvac_mode: %s from: %s to: %s",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                     _reported_hvac_mode,
                     _new_hvac_mode,
                 )
-                self.real_trvs[heater_entity_id].last_hvac_mode = _new_hvac_mode
+                self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 _tvr_has_quirk = await override_set_hvac_mode(
-                    self, heater_entity_id, _new_hvac_mode
+                    self, entity_id, _new_hvac_mode
                 )
                 if _tvr_has_quirk is False:
-                    await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
-                if self.real_trvs[heater_entity_id].system_mode_received is True:
-                    self.real_trvs[heater_entity_id].system_mode_received = False
+                    await set_hvac_mode(self, entity_id, _new_hvac_mode)
+                if self.real_trvs[entity_id].system_mode_received is True:
+                    self.real_trvs[entity_id].system_mode_received = False
                     self.task_manager.create_task(
-                        check_system_mode(self, heater_entity_id),
-                        name=f"bt_check_system_mode_{heater_entity_id}",
+                        check_system_mode(self, entity_id),
+                        name=f"bt_check_system_mode_{entity_id}",
                     )
 
             # set new calibration offset
@@ -1720,15 +1716,13 @@ async def control_trv(
                 and _new_hvac_mode != HVACMode.OFF
                 and _calibration_mode != CalibrationMode.NO_CALIBRATION
             ):
-                _current_calibration_s = await get_current_offset(
-                    self, heater_entity_id
-                )
+                _current_calibration_s = await get_current_offset(self, entity_id)
 
                 if _current_calibration_s is None:
                     _LOGGER.error(
                         "better_thermostat %s: calibration fatal error %s",
                         self.device_name,
-                        heater_entity_id,
+                        entity_id,
                     )
                     _stamp_heartbeat(self)
                     return True
@@ -1742,18 +1736,18 @@ async def control_trv(
                 # A finite offset goes in and the hull only clamps it to range,
                 # so a finite offset comes back out.
                 _calibration = _through_safety_hull(
-                    snapshot, heater_entity_id, offset=_calibration
+                    snapshot, entity_id, offset=_calibration
                 ).offset
                 if _calibration is None:
                     _LOGGER.debug(
                         "better_thermostat %s: safety hull yielded no offset for "
                         "%s, skipping calibration write this cycle",
                         self.device_name,
-                        heater_entity_id,
+                        entity_id,
                     )
 
-                trv_entry = self.real_trvs[heater_entity_id]
-                _offset_tolerance = _calibration_match_tolerance(self, heater_entity_id)
+                trv_entry = self.real_trvs[entity_id]
+                _offset_tolerance = _calibration_match_tolerance(self, entity_id)
 
                 # COMMAND: what the adapter actually put on the wire. Only
                 # that value can be acknowledged; before the first write the
@@ -1780,7 +1774,7 @@ async def control_trv(
                         "better_thermostat %s: TRV %s device confirms the last "
                         "calibration command (%s), releasing the write gate",
                         self.device_name,
-                        heater_entity_id,
+                        entity_id,
                         _last_sent,
                     )
                     trv_entry.calibration_received = True
@@ -1791,7 +1785,7 @@ async def control_trv(
                             "better_thermostat %s: no reference calibration for %s "
                             "yet, skipping calibration write this cycle",
                             self.device_name,
-                            heater_entity_id,
+                            entity_id,
                         )
                     else:
                         # INTENT: the value asked for before the adapter's own
@@ -1807,33 +1801,31 @@ async def control_trv(
                         if float(_last_requested) != _calibration or _command_diverged:
                             # A deferred offset re-derives on the next control cycle
                             # once the slot is free again.
-                            if _consume_budget(self, heater_entity_id, "offset"):
+                            if _consume_budget(self, entity_id, "offset"):
                                 _LOGGER.debug(
                                     "better_thermostat %s: TO TRV set_local_temperature_calibration: %s from: %s to: %s (device reports %s)",
                                     self.device_name,
-                                    heater_entity_id,
+                                    entity_id,
                                     _last_sent,
                                     _calibration,
                                     _current_calibration,
                                 )
-                                if await set_offset(
-                                    self, heater_entity_id, _calibration
-                                ):
+                                if await set_offset(self, entity_id, _calibration):
                                     trv_entry.calibration_received = False
                                     trv_entry.calibration_write_generation += 1
                                     self.task_manager.create_task(
                                         check_calibration(
                                             self,
-                                            heater_entity_id,
+                                            entity_id,
                                             trv_entry.calibration_write_generation,
                                         ),
-                                        name=f"bt_check_calibration_{heater_entity_id}",
+                                        name=f"bt_check_calibration_{entity_id}",
                                     )
                             else:
                                 _schedule_budget_retry(
                                     self,
-                                    heater_entity_id,
-                                    _budget_remaining(self, heater_entity_id, "offset"),
+                                    entity_id,
+                                    _budget_remaining(self, entity_id, "offset"),
                                 )
 
             # set new target temperature
@@ -1841,7 +1833,7 @@ async def control_trv(
             if _temperature is not None:
                 _raw_temperature = float(_temperature)
                 _temperature = _through_safety_hull(
-                    snapshot, heater_entity_id, setpoint=_raw_temperature
+                    snapshot, entity_id, setpoint=_raw_temperature
                 ).setpoint
                 _safety_overrode_setpoint = _temperature != _raw_temperature
             if _temperature is not None and (
@@ -1851,13 +1843,13 @@ async def control_trv(
                 # device step grid, the read-back values on the 0.01 grid, so
                 # exact set membership would re-send identical setpoints.
                 if not matches_any_setpoint(_temperature, _current_set_temperatures):
-                    trv_entry = self.real_trvs[heater_entity_id]
+                    trv_entry = self.real_trvs[entity_id]
                     # Safety-relevant writes (frost floor / OFF) bypass the
                     # write budget; everything else waits for the next slot
                     # and converges via the scheduled retry.
                     if _consume_budget(
                         self,
-                        heater_entity_id,
+                        entity_id,
                         "setpoint",
                         bypass=_safety_overrode_setpoint
                         or _new_hvac_mode == HVACMode.OFF,
@@ -1866,21 +1858,21 @@ async def control_trv(
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
                             self.device_name,
-                            heater_entity_id,
+                            entity_id,
                             old,
                             _temperature,
                         )
                         trv_entry.last_temperature = _temperature
                         _tvr_has_quirk = await override_set_temperature(
-                            self, heater_entity_id, _temperature
+                            self, entity_id, _temperature
                         )
                         if _tvr_has_quirk is False:
-                            await set_temperature(self, heater_entity_id, _temperature)
+                            await set_temperature(self, entity_id, _temperature)
                         if trv_entry.target_temp_received is True:
                             trv_entry.target_temp_received = False
                             self.task_manager.create_task(
-                                check_target_temperature(self, heater_entity_id),
-                                name=f"bt_check_target_temp_{heater_entity_id}",
+                                check_target_temperature(self, entity_id),
+                                name=f"bt_check_target_temp_{entity_id}",
                             )
                     else:
                         # A deferred setpoint re-derives on the catch-up cycle
@@ -1889,8 +1881,8 @@ async def control_trv(
                         # so a deferred TRV does not serialise the others.
                         _schedule_budget_retry(
                             self,
-                            heater_entity_id,
-                            _budget_remaining(self, heater_entity_id, "setpoint"),
+                            entity_id,
+                            _budget_remaining(self, entity_id, "setpoint"),
                         )
 
         # Watchdog heartbeat: the control loop demonstrably ran.
@@ -1901,10 +1893,10 @@ async def control_trv(
         return True
     finally:
         if _suppression_owned:
-            self.real_trvs[heater_entity_id].ignore_trv_states = False
+            self.real_trvs[entity_id].ignore_trv_states = False
 
 
-async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bool:
+async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
     """Wait for TRV to confirm HVAC mode change, timeout after 6 minutes.
 
     Polls the TRV's live entity state every second until it matches
@@ -1917,7 +1909,7 @@ async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bo
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str
+    entity_id : str
         Entity ID of the TRV to check
 
     Returns
@@ -1926,14 +1918,14 @@ async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bo
         Always returns True
     """
     _timeout = 0
-    _real_trv = self.real_trvs[heater_entity_id]
+    _real_trv = self.real_trvs[entity_id]
     while True:
-        _trv_state = self.hass.states.get(heater_entity_id)
+        _trv_state = self.hass.states.get(entity_id)
         if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_system_mode",
                 self.device_name,
-                heater_entity_id,
+                entity_id,
             )
             break
         if _trv_state.state == _real_trv.last_hvac_mode:
@@ -1944,7 +1936,7 @@ async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bo
                 "better_thermostat %s: TRV %s did not confirm the system mode change "
                 "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
-                heater_entity_id,
+                entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
                 _real_trv.last_hvac_mode,
                 _trv_state.state,
@@ -1958,9 +1950,7 @@ async def check_system_mode(self: BetterThermostat, heater_entity_id: str) -> bo
     return True
 
 
-async def check_target_temperature(
-    self: BetterThermostat, heater_entity_id: str
-) -> bool:
+async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bool:
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
@@ -1972,7 +1962,7 @@ async def check_target_temperature(
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str
+    entity_id : str
         Entity ID of the TRV to check
 
     Returns
@@ -1981,14 +1971,14 @@ async def check_target_temperature(
         Always returns True
     """
     _timeout = 0
-    _real_trv = self.real_trvs[heater_entity_id]
+    _real_trv = self.real_trvs[entity_id]
     while True:
-        _trv_state = self.hass.states.get(heater_entity_id)
+        _trv_state = self.hass.states.get(entity_id)
         if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_target_temperature",
                 self.device_name,
-                heater_entity_id,
+                entity_id,
             )
             break
         # See get_current_set_temperatures() docstring for why we accept a
@@ -2000,7 +1990,7 @@ async def check_target_temperature(
             _LOGGER.debug(
                 "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
                 self.device_name,
-                heater_entity_id,
+                entity_id,
                 _real_trv.last_temperature,
                 _current_set_temperatures,
             )
@@ -2017,7 +2007,7 @@ async def check_target_temperature(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
                 "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                 self.device_name,
-                heater_entity_id,
+                entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
                 _real_trv.last_temperature,
                 _current_set_temperatures,
@@ -2033,7 +2023,7 @@ async def check_target_temperature(
 
 
 async def check_calibration(
-    self: BetterThermostat, heater_entity_id: str, generation: int = 0
+    self: BetterThermostat, entity_id: str, generation: int = 0
 ) -> bool:
     """Wait for TRV to confirm a calibration offset write, timeout after 6 minutes.
 
@@ -2066,7 +2056,7 @@ async def check_calibration(
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
-    heater_entity_id : str
+    entity_id : str
         Entity ID of the TRV to check
     generation : int, optional
         Identity of the offset command this watchdog was armed for
@@ -2077,8 +2067,8 @@ async def check_calibration(
         Always returns True
     """
     _timeout = 0
-    _real_trv = self.real_trvs[heater_entity_id]
-    _tolerance = _calibration_match_tolerance(self, heater_entity_id)
+    _real_trv = self.real_trvs[entity_id]
+    _tolerance = _calibration_match_tolerance(self, entity_id)
     try:
         while True:
             if _real_trv.calibration_write_generation != generation:
@@ -2087,10 +2077,10 @@ async def check_calibration(
                     "the one %s was being watched for, leaving the write gate to "
                     "its watchdog",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                 )
                 return True
-            _trv_state = self.hass.states.get(heater_entity_id)
+            _trv_state = self.hass.states.get(entity_id)
             if _trv_state is None or _trv_state.state in (
                 STATE_UNAVAILABLE,
                 STATE_UNKNOWN,
@@ -2098,11 +2088,11 @@ async def check_calibration(
                 _LOGGER.debug(
                     "better_thermostat %s: %s became unavailable during check_calibration",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                 )
                 break
             _reported = convert_to_float(
-                str(await get_current_offset(self, heater_entity_id)),
+                str(await get_current_offset(self, entity_id)),
                 self.device_name,
                 "check_calibration()",
             )
@@ -2117,7 +2107,7 @@ async def check_calibration(
                     "better_thermostat %s: TRV %s did not confirm the calibration offset "
                     "after %ss (wrote=%s, last reported=%s); giving up and assuming applied",
                     self.device_name,
-                    heater_entity_id,
+                    entity_id,
                     WRITE_CONFIRM_TIMEOUT_S,
                     _real_trv.last_calibration,
                     _reported,

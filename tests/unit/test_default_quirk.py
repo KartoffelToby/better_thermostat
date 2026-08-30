@@ -175,13 +175,14 @@ class TestTheDefaultQuirkChangesNothing:
             is False
         )
 
-    @pytest.mark.asyncio
-    async def test_the_valve_write_is_not_overridden(self):
-        """Declining the override is what lets the adapter write."""
-        assert (
-            await default_quirk.override_set_valve(_thermostat(), ENTITY_ID, 50)
-            is False
-        )
+    def test_no_valve_override_is_offered(self):
+        """The valve override is absent, not a declining one.
+
+        Callers probe for it with ``getattr`` and read a hit as "this
+        model drives its valve directly". A declining implementation
+        here would answer that probe for every device on this module.
+        """
+        assert not hasattr(default_quirk, "override_set_valve")
 
 
 class TestAdoptionNeedsADevice:

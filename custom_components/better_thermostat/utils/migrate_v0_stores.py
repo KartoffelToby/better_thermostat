@@ -32,9 +32,42 @@ from .state_manager import (
     deserialize_mpc,
     deserialize_pid,
     deserialize_tpi,
+    finite_or_none,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _legacy_thermal_stat(thermal_data: dict[str, Any], field: str) -> float | None:
+    """Read one thermal statistic from a legacy store, unset if unusable.
+
+    A legacy file can hold a value ``float()`` refuses or a non-finite
+    number. Importing it as unset lets the rest of the migration finish and
+    be saved; letting the parse error out would abandon the import halfway
+    and leave the migration to run again on every start.
+
+    Parameters
+    ----------
+    thermal_data : dict[str, Any]
+        the legacy store's thermal section
+    field : str
+        name of the statistic to read from it
+
+    Returns
+    -------
+    float | None
+        the statistic as a finite float, or None when it is unusable
+    """
+    raw_value = thermal_data.get(field)
+    value = finite_or_none(raw_value)
+    if value is None and raw_value is not None:
+        _LOGGER.warning(
+            "better_thermostat: legacy thermal stat %s holds %r, which is not a "
+            "finite number; importing it as unset",
+            field,
+            raw_value,
+        )
+    return value
 
 
 def _import_legacy_data(
@@ -79,13 +112,9 @@ def _import_legacy_data(
                 state_mgr.set_tpi(key, deserialize_tpi(state_dict))
 
     if thermal_data and isinstance(thermal_data, dict):
-        heating_power = thermal_data.get("heating_power")
-        heat_loss_rate = thermal_data.get("heat_loss_rate")
         state_mgr.thermal = ThermalStats(
-            heating_power=(float(heating_power) if heating_power is not None else None),
-            heat_loss_rate=(
-                float(heat_loss_rate) if heat_loss_rate is not None else None
-            ),
+            heating_power=_legacy_thermal_stat(thermal_data, "heating_power"),
+            heat_loss_rate=_legacy_thermal_stat(thermal_data, "heat_loss_rate"),
         )
 
 

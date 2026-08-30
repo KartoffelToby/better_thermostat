@@ -1,0 +1,3 @@
+{
+  "9c7a0de083b066ffc32b0dba0feeb84d28bf8846": "The same defect is fixed on both lines in different places. The development line orders the degraded-mode annunciation ahead of the critical-entity check in every handler, and reaches the handlers through a state machine the maintenance line does not have, so the two test files share no line."
+}

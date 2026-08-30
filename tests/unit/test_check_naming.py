@@ -5,10 +5,13 @@ glossary replaced, so the check has to be right about a file that stayed level,
 a file that gained one, a file that fell, and a file nobody has budgeted, which
 fails on its first finding rather than on its second.
 
-The count underneath those cases has to be right about one more thing: it is
-taken from identifiers only. A rejected spelling inside a string, a comment or
+The count underneath those cases has to be right about two more things. It is
+taken from identifiers only: a rejected spelling inside a string, a comment or
 a docstring is a persisted key or a piece of prose, not a rename that is due,
-and counting it would make the budget demand edits that must not happen.
+and counting it would make the budget demand edits that must not happen. And a
+test that names the production attribute it asserts on carries no rename of its
+own, so it is charged for that spelling only once production has stopped using
+it.
 """
 
 import importlib.util
@@ -83,10 +86,14 @@ def checker(tmp_path, monkeypatch):
     script = _load_script()
     glossary = tmp_path / "glossary.toml"
     glossary.write_text(GLOSSARY, encoding="utf-8")
+    # Both scanned roots exist in the repository, and a root that does not is
+    # handed to the parser as if it were a file.
+    (tmp_path / "custom_components").mkdir()
+    (tmp_path / "tests").mkdir()
     monkeypatch.setattr(script, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(script, "GLOSSARY_FILE", glossary)
     monkeypatch.setattr(script, "BUDGET_FILE", tmp_path / "budget.json")
-    monkeypatch.setattr(script, "SCANNED", ("custom_components",))
+    monkeypatch.setattr(script, "SCANNED", ("custom_components", "tests"))
     return script
 
 
@@ -132,6 +139,77 @@ def test_check_fails_on_the_first_name_in_an_unbudgeted_file(checker, capsys):
     _budget(checker)
     assert checker.check(None) == 1
     assert "budget 0" in capsys.readouterr().out
+
+
+# A field production spells the way the glossary rejects, and a test that has
+# to say that spelling out loud to assert on the field.
+PRODUCTION_FIELD = textwrap.dedent(
+    '''
+    """A module whose field carries a rejected spelling."""
+
+
+    class Entry:
+        """Hold the field a test has to name in order to read it."""
+
+        def __init__(self, cfg):
+            self.cfg = cfg
+    '''
+)
+
+COVERS_THE_FIELD = textwrap.dedent(
+    '''
+    """A test that reads the field under the name production gives it."""
+
+
+    def test_entry_keeps_its_field(entry):
+        """Read the field by its production name."""
+        assert entry.cfg == {"mode": "heat"}
+    '''
+)
+
+
+def test_a_new_test_file_may_name_a_spelling_production_still_carries(checker):
+    """A test file nobody budgeted may name the attribute it asserts on."""
+    _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
+    _write(checker, "tests/unit/test_entry.py", COVERS_THE_FIELD)
+    _budget(checker, **{"custom_components/entry.py": 2})
+    assert checker.check(None) == 0
+
+
+def test_a_test_file_is_charged_for_a_spelling_it_invents(checker, capsys):
+    """A name no production site carries is the test's own naming decision."""
+    _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
+    _write(checker, "tests/unit/test_entry.py", "def test_read(val):\n    return val\n")
+    _budget(checker, **{"custom_components/entry.py": 2})
+    assert checker.check(None) == 1
+    assert "`val` is rejected, use `value`" in capsys.readouterr().out
+
+
+def test_a_test_file_is_charged_once_production_drops_the_spelling(checker, capsys):
+    """Renaming the last production site is what makes its readers due."""
+    _write(checker, "custom_components/entry.py", '"""Renamed already."""\n')
+    _write(checker, "tests/unit/test_entry.py", COVERS_THE_FIELD)
+    _budget(checker)
+    assert checker.check(None) == 1
+    assert "tests/unit/test_entry.py:7: `cfg` is rejected" in capsys.readouterr().out
+
+
+def test_production_is_charged_for_the_spelling_it_carries(checker):
+    """The allowance is for readers of a name, not for the name's own tree."""
+    _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
+    _budget(checker)
+    assert checker.check(None) == 1
+
+
+def test_update_records_no_entry_for_a_test_file_that_only_mirrors(checker):
+    """Nothing is due in it, so it carries no budget to hold."""
+    _write(checker, "custom_components/entry.py", PRODUCTION_FIELD)
+    _write(checker, "tests/unit/test_entry.py", COVERS_THE_FIELD)
+    _budget(checker, **{"custom_components/entry.py": 2})
+    assert checker.update(allow_raise=False) == 0
+    assert json.loads(checker.BUDGET_FILE.read_text()) == {
+        "custom_components/entry.py": 2
+    }
 
 
 def test_check_passes_when_a_count_falls(checker):

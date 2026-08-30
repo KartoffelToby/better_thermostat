@@ -9,10 +9,28 @@ import logging
 import random
 from typing import ParamSpec, TypeVar
 
+import voluptuous as vol
+
 _LOGGER = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+# Failures that repeating the call cannot fix: they report a defect in this
+# integration or in the payload it hands to a service, not a device or a bus
+# that is momentarily out of reach. They surface on the first attempt instead
+# of being hidden behind the full backoff budget.
+UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
+    AttributeError,
+    ImportError,
+    IndexError,
+    KeyError,
+    NameError,
+    NotImplementedError,
+    TypeError,
+    ZeroDivisionError,
+    vol.Invalid,
+)
 
 
 def async_retry(
@@ -27,26 +45,48 @@ def async_retry(
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
 
-    Args:
-        retries: Number of retries before giving up
-        base_delay: Initial delay between retries in seconds
-        jitter: Random jitter factor as a percentage (0.2 = 20% variation)
-        backoff_factor: Exponential backoff multiplier (2.0 = double the delay each retry)
-        max_delay: Maximum delay in seconds, regardless of backoff calculation
-        exceptions: Tuple of exceptions to catch and retry on
-        log_level: Logging level for retry attempts (e.g. logging.WARNING, logging.ERROR)
-        identifier: Optional identifier string to include in log messages
+    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS` are re-raised on the first
+    attempt even when ``exceptions`` covers them, so a broken call fails fast
+    with its own traceback rather than after the whole backoff budget.
+
+    Parameters
+    ----------
+    retries : int
+        number of retries before giving up
+    base_delay : float
+        initial delay between retries, in seconds
+    jitter : float
+        random jitter as a fraction of the delay (0.2 = 20 % variation)
+    backoff_factor : float
+        exponential backoff multiplier (2.0 doubles the delay each retry)
+    max_delay : float
+        ceiling on the delay in seconds, whatever the backoff computes
+    exceptions : tuple[type[Exception], ...]
+        exception types to catch and retry on
+    log_level : int
+        logging level for the retry lines, e.g. ``logging.WARNING``
+    identifier : str
+        optional label included in the log messages
+
+    Returns
+    -------
+    Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]
+        a decorator wrapping an async function in the retry loop
     """
 
     def decorator(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         @functools.wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            # Extract entity_id from args/kwargs if available for better logging
+            # The entity id only labels the log line. It is read from the
+            # keyword argument, or from the second positional argument that the
+            # ``(self, entity_id, ...)`` helpers carry it in. A signature of a
+            # different shape leaves the line without an entity rather than
+            # naming an unrelated argument as one.
             entity_id = kwargs.get("entity_id")
-            if (
-                entity_id is None and len(args) > 1
-            ):  # Assuming self and entity_id are first two args
+            if entity_id is None and len(args) > 1:
                 entity_id = args[1]
+            if not isinstance(entity_id, str):
+                entity_id = None
 
             log_prefix = f"better_thermostat{f' {identifier}' if identifier else ''}: "
             entity_suffix = f" to entity {entity_id}" if entity_id else ""
@@ -56,6 +96,14 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
+                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS):
+                        log_message = (
+                            f"{log_prefix}{func.__name__} hit an error that "
+                            f"retrying cannot fix: {e}{entity_suffix}"
+                        )
+                        _LOGGER.exception(log_message)
+                        raise
+
                     if attempt >= retries:
                         log_message = (
                             f"{log_prefix}{func.__name__} failed after "
