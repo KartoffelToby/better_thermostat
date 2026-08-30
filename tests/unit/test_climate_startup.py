@@ -1972,6 +1972,18 @@ class TestFinalizeStartupBatteryScan:
 # ---------------------------------------------------------------------------
 
 
+def _two_heads():
+    """Both TRVs the mode tests name, registered as heads of the room.
+
+    Only a state whose entity is among the room's heads speaks for it, so a
+    second head has to exist for a two-state case to say anything.
+    """
+    return {
+        entity_id: Trv(entity_id=entity_id, calibration=1)
+        for entity_id in (TRV_ID, TRV_ID_2)
+    }
+
+
 class TestValidateHvacMode:
     """Tests for _validate_hvac_mode."""
 
@@ -1995,6 +2007,7 @@ class TestValidateHvacMode:
         """A room whose heads all heat comes up heating."""
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
         states = [
             _make_trv_state(TRV_ID, state="heat"),
             _make_trv_state(TRV_ID_2, state="heat"),
@@ -2010,6 +2023,7 @@ class TestValidateHvacMode:
         """
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
         states = [
             _make_trv_state(TRV_ID, state="off"),
             _make_trv_state(TRV_ID_2, state="heat"),
