@@ -56,8 +56,8 @@ UNAVAILABLE_STATES = (
 
 # Seconds a battery entity that had nothing to report is left alone before it
 # is read again. Both availability checks run on nearly every event, so
-# without the pause an entity that publishes no level would cost a background
-# task and an entity state write on every one of them.
+# without the pause an entity that publishes no level would cost a state
+# lookup and an entity state write on every one of them.
 BATTERY_REREAD_DELAY_SECONDS = 300.0
 
 
@@ -84,7 +84,7 @@ def is_entity_available(hass, entity) -> bool:
     return entity_states.state not in UNAVAILABLE_STATES
 
 
-async def get_battery_status(self, entity):
+def get_battery_status(self, entity) -> None:
     """Read a battery entity for a device and update internal state.
 
     Uses the provided mapping stored in `self.devices_states`.
@@ -95,6 +95,13 @@ async def get_battery_status(self, entity):
     asking again, the level would never be read again. The stored slot is left
     untouched in that case and the read is retried once
     ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity : str
+        Entity ID of the device whose battery entity is read
     """
     info = self.devices_states.get(entity)
     if info is None:
@@ -116,14 +123,13 @@ async def get_battery_status(self, entity):
     self.async_write_ha_state()
 
 
-def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
-    """Queue a battery read for an available entity, but only when it says something new.
+def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
+    """Read an available entity's battery, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    a background task plus an entity state write. A battery value is only
-    ever new on the first pass after startup, while it is still unpopulated,
-    or when the entity has just come back from an outage, so those are the
-    passes that read it.
+    an entity state write. A battery value is only ever new on the first pass
+    after startup, while it is still unpopulated, or when the entity has just
+    come back from an outage, so those are the passes that read it.
 
     An unpopulated reading can also mean that the battery entity itself had
     nothing to report, which would otherwise put a read on every pass, so
@@ -159,9 +165,7 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
         elif info.get("battery") is not None:
             return
 
-    self.hass.async_create_background_task(
-        get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
-    )
+    get_battery_status(self, entity)
 
 
 def get_optional_sensors(self) -> list:
@@ -288,7 +292,7 @@ async def check_critical_entities(self) -> bool:
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
             ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-            schedule_battery_refresh(self, entity, recovered=recovered)
+            refresh_battery_reading(self, entity, recovered=recovered)
     return all_available
 
 
@@ -501,7 +505,7 @@ async def check_and_update_degraded_mode(self) -> bool:
                 entity,
             )
         else:
-            schedule_battery_refresh(
+            refresh_battery_reading(
                 self, entity, recovered=entity in previously_unavailable
             )
 
@@ -520,7 +524,7 @@ async def check_and_update_degraded_mode(self) -> bool:
                 self.sensor_entity_id,
             )
     else:
-        schedule_battery_refresh(
+        refresh_battery_reading(
             self,
             self.sensor_entity_id,
             recovered=self.sensor_entity_id in previously_unavailable,
