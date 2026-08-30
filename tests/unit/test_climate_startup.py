@@ -531,6 +531,36 @@ class TestOwnedBackgroundTasks:
         assert owned_bt._owned_tasks == set()
 
     @pytest.mark.asyncio
+    async def test_a_timer_firing_in_flight_is_cancelled_by_the_removal(
+        self, hass, owned_bt
+    ):
+        """A periodic tick already running when the entity goes must be stopped.
+
+        Unsubscribing an interval ends the next firing, not the one already
+        running. These ticks re-send setpoints and the external temperature,
+        so one that outlives the unload drives TRVs the entity has let go of.
+        """
+        reached_the_trv = False
+        writing = asyncio.Event()
+
+        async def keeps_writing(now):
+            writing.set()
+            await asyncio.sleep(0)
+            nonlocal reached_the_trv
+            reached_the_trv = True
+
+        BetterThermostat._start_owned_timer_work(
+            owned_bt, keeps_writing, "bt_test_tick", dt_util.utcnow()
+        )
+        await writing.wait()
+
+        await BetterThermostat.async_will_remove_from_hass(owned_bt)
+        await hass.async_block_till_done()
+
+        assert reached_the_trv is False
+        assert owned_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
     async def test_a_finished_task_stops_being_held(self, hass, owned_bt):
         """Every sensor reading starts one of these, so held handles must be released.
 
