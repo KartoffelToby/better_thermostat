@@ -6,12 +6,13 @@ offset channel". A written offset cannot carry that: the legitimate value
 0.0 reads the same as a device that wrote nothing.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import (
+    base,
     deconz,
     generic,
     mqtt,
@@ -92,13 +93,38 @@ class TestOffsetWriteReportsTrue:
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.5
 
 
-def _mock_self_with_select(options=SELECT_OPTIONS):
+class TestOffsetBoundsComeFromTheCalibrationEntity:
+    """The bounds an entity-backed adapter reports are the entity's own.
+
+    The calibration control clamps its request against these, so an adapter
+    that answers from a table instead of from the discovered entity lets the
+    control aim at offsets the device will never take.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("getter", "expected"),
+        [("get_min_offset", -5.0), ("get_max_offset", 5.0), ("get_offset_step", 0.5)],
+    )
+    @pytest.mark.asyncio
+    async def test_the_entity_attributes_are_what_is_reported(
+        self, adapter, getter, expected
+    ):
+        """Each bound is read off the calibration entity that was discovered."""
+        mock_self = _mock_self()
+
+        assert await getattr(adapter, getter)(mock_self, ENTITY_ID) == expected
+
+
+def _mock_self_with_select(options=SELECT_OPTIONS, reported="0.0k"):
     """Build a thermostat whose calibration entity is a select.
 
     Parameters
     ----------
     options : list of str
         Options the select entity offers, as it publishes them.
+    reported : str
+        The option the select currently reports as its state.
 
     Returns
     -------
@@ -111,7 +137,7 @@ def _mock_self_with_select(options=SELECT_OPTIONS):
     mock_self.hass = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()
     mock_self.hass.states.get = lambda requested: (
-        State(SELECT_CALIBRATION_ENTITY, "0.0k", {"options": list(options)})
+        State(SELECT_CALIBRATION_ENTITY, reported, {"options": list(options)})
         if requested == SELECT_CALIBRATION_ENTITY
         else State(ENTITY_ID, "heat", {})
     )
@@ -126,61 +152,198 @@ def _selected_option(mock_self):
     return mock_self.hass.services.async_call.await_args.args[2]["option"]
 
 
+def _called_service(mock_self):
+    """Return the (domain, service) pair the recorded service call addressed."""
+    return mock_self.hass.services.async_call.await_args.args[:2]
+
+
 class TestSelectOffsetRecordsWhatItSelected:
     """A select write records the offset the chosen option carries.
+
+    Discovery accepts a calibration helper in the ``number`` or the ``select``
+    domain, so every adapter that writes through a discovered entity can be
+    handed a select and has to address it as one. A select ignores
+    ``number.set_value``, so a write sent there never reaches the device while
+    still reporting success, and the offset control never converges.
 
     The confirmation compares the device's report against the recorded
     command, so a command that never went on the wire would leave the two
     permanently apart and re-assert the write every cycle.
+
+    The service adapters are absent from this axis on purpose: their offset
+    rides on the ecosystem's own service call and never addresses an entity.
     """
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_a_request_between_options_reaches_the_closest_one(self):
+    async def test_the_write_addresses_the_select_service(self, adapter):
+        """The option goes out through the service a select answers to."""
+        mock_self = _mock_self_with_select()
+
+        await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
+
+        assert _called_service(mock_self) == ("select", "select_option")
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_request_between_options_reaches_the_closest_one(self, adapter):
         """The option nearest the request is what the device is told."""
         mock_self = _mock_self_with_select()
 
-        result = await generic.set_offset(mock_self, ENTITY_ID, -2.0)
+        result = await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
 
         assert result is True
         assert _selected_option(mock_self) == "-3.0k"
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_the_snapped_option_is_the_recorded_command(self):
+    async def test_the_snapped_option_is_the_recorded_command(self, adapter):
         """The command is the snapped option's value, not the request."""
         mock_self = _mock_self_with_select()
 
-        await generic.set_offset(mock_self, ENTITY_ID, -2.0)
+        await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -3.0
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_the_adapter_leaves_the_requested_intent_alone(self):
+    async def test_the_adapter_leaves_the_requested_intent_alone(self, adapter):
         """Recording the intent stays the delegate's business."""
         mock_self = _mock_self_with_select()
 
-        await generic.set_offset(mock_self, ENTITY_ID, -2.0)
+        await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration_requested is None
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_an_offered_option_is_recorded_as_it_is(self):
+    async def test_an_offered_option_is_recorded_as_it_is(self, adapter):
         """A request the select offers verbatim needs no correction."""
         mock_self = _mock_self_with_select()
 
-        await generic.set_offset(mock_self, ENTITY_ID, -3.0)
+        await adapter.set_offset(mock_self, ENTITY_ID, -3.0)
 
         assert _selected_option(mock_self) == "-3.0k"
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -3.0
 
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_the_option_format_decides_the_command(self):
+    async def test_the_option_format_decides_the_command(self, adapter):
         """An option carries one decimal, so that is what was commanded."""
         mock_self = _mock_self_with_select(options=["-2.3k", "-2.2k"])
 
-        await generic.set_offset(mock_self, ENTITY_ID, -2.26)
+        await adapter.set_offset(mock_self, ENTITY_ID, -2.26)
 
         assert _selected_option(mock_self) == "-2.3k"
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.3
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_the_request_is_held_to_what_the_options_offer(self, adapter):
+        """A request beyond the offered range reaches the outermost option."""
+        mock_self = _mock_self_with_select()
+
+        await adapter.set_offset(mock_self, ENTITY_ID, -12.0)
+
+        assert _selected_option(mock_self) == "-6.0k"
+        assert mock_self.real_trvs[ENTITY_ID].last_calibration == -6.0
+
+
+class TestSelectOffsetIsReadBackAsKelvin:
+    """The offset a select reports is read as the number its option carries.
+
+    The confirmation and the calibration control both read this value back. An
+    adapter that cannot parse the Kelvin suffix reads every select as 0.0 and
+    keeps re-asserting a write the device already carries out.
+    """
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_the_reported_option_is_read_as_its_offset(self, adapter):
+        """The device's own option is what the reading reports."""
+        mock_self = _mock_self_with_select(reported="-3.0k")
+
+        assert await adapter.get_current_offset(mock_self, ENTITY_ID) == -3.0
+
+
+class TestForcedZeroAddressesTheEntitysOwnDomain:
+    """A calibration helper that never showed up is zeroed through its own service.
+
+    The startup wait gives up after its retries and writes a zero to nudge the
+    entity into reporting. That write is fire-and-forget, so a request sent to
+    the wrong domain leaves no trace at all: the helper keeps its old offset
+    and nothing says so.
+    """
+
+    @pytest.mark.parametrize(
+        ("calibration_entity", "expected_service", "expected_payload"),
+        [
+            (
+                CALIBRATION_ENTITY,
+                ("number", "set_value"),
+                {"entity_id": CALIBRATION_ENTITY, "value": 0},
+            ),
+            (
+                SELECT_CALIBRATION_ENTITY,
+                ("select", "select_option"),
+                {"entity_id": SELECT_CALIBRATION_ENTITY, "option": "0.0k"},
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_zero_goes_out_through_the_matching_service(
+        self, calibration_entity, expected_service, expected_payload
+    ):
+        """Each domain is addressed through the service it answers to."""
+        mock_self = _mock_self_with_select()
+        mock_self.hass.states.get = lambda requested: State(
+            calibration_entity, "unavailable", {"options": list(SELECT_OPTIONS)}
+        )
+
+        with patch(
+            "custom_components.better_thermostat.adapters.base.asyncio.sleep",
+            AsyncMock(),
+        ):
+            await base.wait_for_calibration_entity_or_timeout(
+                mock_self, ENTITY_ID, calibration_entity
+            )
+
+        assert _called_service(mock_self) == expected_service
+        assert mock_self.hass.services.async_call.await_args.args[2] == expected_payload
+
+    @pytest.mark.asyncio
+    async def test_a_select_without_options_is_told_the_kelvin_spelling_of_zero(self):
+        """With no option list to go by, zero Kelvin is spelled out."""
+        mock_self = _mock_self_with_select()
+        mock_self.hass.states.get = lambda requested: None
+
+        with patch(
+            "custom_components.better_thermostat.adapters.base.asyncio.sleep",
+            AsyncMock(),
+        ):
+            await base.wait_for_calibration_entity_or_timeout(
+                mock_self, ENTITY_ID, SELECT_CALIBRATION_ENTITY
+            )
+
+        assert _selected_option(mock_self) == "0.0k"
+
+    @pytest.mark.asyncio
+    async def test_the_zero_option_the_device_offers_is_the_one_used(self):
+        """A device that spells zero its own way is told its own spelling."""
+        mock_self = _mock_self_with_select()
+        mock_self.hass.states.get = lambda requested: State(
+            SELECT_CALIBRATION_ENTITY, "unavailable", {"options": ["-3k", "0k", "3k"]}
+        )
+
+        with patch(
+            "custom_components.better_thermostat.adapters.base.asyncio.sleep",
+            AsyncMock(),
+        ):
+            await base.wait_for_calibration_entity_or_timeout(
+                mock_self, ENTITY_ID, SELECT_CALIBRATION_ENTITY
+            )
+
+        assert _selected_option(mock_self) == "0k"
 
 
 class TestNoOffsetChannelReportsFalse:
@@ -197,3 +360,95 @@ class TestNoOffsetChannelReportsFalse:
         assert result is False
         mock_self.hass.services.async_call.assert_not_awaited()
         assert mock_self.real_trvs[ENTITY_ID].last_calibration is None
+
+
+def _deconz_thermostat(reported=0):
+    """Build a thermostat whose deCONZ TRV reports ``reported`` as its offset.
+
+    Parameters
+    ----------
+    reported : int
+        The value the deCONZ integration publishes on the climate entity,
+        which is the ``config/offset`` of the deCONZ resource itself.
+
+    Returns
+    -------
+    MagicMock
+        A stand-in for the Better Thermostat climate entity instance.
+    """
+    mock_self = _mock_self(calibration_entity=None)
+    mock_self.hass.states.get = lambda requested: State(
+        ENTITY_ID, "heat", {"offset": reported}
+    )
+    return mock_self
+
+
+def _written_config(mock_self):
+    """The payload the recorded deCONZ configure call carried."""
+    return mock_self.hass.services.async_call.await_args.args[2]["data"]
+
+
+class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
+    """deCONZ carries a thermostat's offset in hundredths of a degree.
+
+    ``config/offset`` sits in the same resource as ``heatsetpoint`` and the
+    measured temperature and shares their encoding, so 250 is 2.5 K. The
+    configure service hands the payload to the REST API unaltered, and the
+    API scales it down to the 0.1 K steps the device itself takes; a plain
+    Kelvin float therefore arrives a hundred times too small and leaves the
+    device uncalibrated. The same scale governs the read, because the
+    attribute the integration publishes is that resource value.
+    """
+
+    @pytest.mark.parametrize(
+        ("kelvin", "expected"),
+        [(0.0, 0), (0.5, 50), (2.5, 250), (-2.5, -250), (-6.0, -600)],
+    )
+    @pytest.mark.asyncio
+    async def test_the_write_carries_the_offset_deconz_expects(self, kelvin, expected):
+        """What goes on the wire is the Kelvin request in deCONZ's units."""
+        mock_self = _mock_self()
+
+        await deconz.set_offset(mock_self, ENTITY_ID, kelvin)
+
+        assert _written_config(mock_self) == {"offset": expected}
+
+    @pytest.mark.asyncio
+    async def test_the_recorded_command_stays_in_kelvin(self):
+        """The scale belongs to the wire, not to the TRV record.
+
+        Every comparison the control cycle makes against ``last_calibration``
+        is in Kelvin, so the value stored there is the one that was asked for.
+        """
+        mock_self = _mock_self()
+
+        await deconz.set_offset(mock_self, ENTITY_ID, -2.0)
+
+        assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.0
+
+    @pytest.mark.parametrize(
+        ("reported", "expected"), [(0, 0.0), (250, 2.5), (-250, -2.5), (-600, -6.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_the_read_answers_in_kelvin(self, reported, expected):
+        """A device resting at 2.5 K reports 250 and reads back as 2.5."""
+        assert (
+            await deconz.get_current_offset(_deconz_thermostat(reported), ENTITY_ID)
+            == expected
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_write_and_the_read_share_one_scale(self):
+        """A device echoing the write back reports the offset that was sent.
+
+        The control cycle compares the two every run, so a read and a write
+        that disagreed on the scale would leave them permanently apart and
+        re-assert the offset for as long as the TRV is calibrated.
+        """
+        writing = _mock_self()
+        await deconz.set_offset(writing, ENTITY_ID, -2.0)
+        echoed = _written_config(writing)["offset"]
+
+        assert await deconz.get_current_offset(
+            _deconz_thermostat(echoed), ENTITY_ID
+        ) == pytest.approx(-2.0)

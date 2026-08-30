@@ -450,6 +450,120 @@ class TestExternalTemperatureWriteSelectsTheSensor:
         ]
 
 
+VALVE_OPENING = "number.trv1_valve_opening_degree"
+VALVE_CLOSING = "number.trv1_valve_closing_degree"
+VALVE_GENERIC = "number.trv1_valve_position"
+
+WRITE_REFUSALS = [
+    HomeAssistantError("device did not answer"),
+    ServiceValidationError("value is out of range"),
+    OSError("connection reset"),
+]
+WRITE_REFUSAL_IDS = ["unreachable", "out_of_range", "transport"]
+
+
+def _valve_number(entity_id, translation_key=None):
+    """A number entity on the TRV's device that the valve write can pick up."""
+    return _registry_entry(entity_id, domain="number", translation_key=translation_key)
+
+
+class TestValveWriteTheDeviceRefuses:
+    """A refused valve write is reported, not raised.
+
+    Batteries sleep, devices go out of reach, an integration reloads its
+    config entry, and a number entity may declare a narrower range than the
+    percentage handed to it. All of these answer a blocking service call with
+    a ``HomeAssistantError``. Raising it strands the caller in two ways: the
+    complement of a written opening degree never goes out, leaving the valve
+    on a range nobody asked for, and the deferred half of the de-sticking bump
+    runs in a background task where nothing is left to catch it.
+    """
+
+    @staticmethod
+    def _trvzb_carrying(monkeypatch, numbers):
+        """A TRVZB whose device carries the given number entities."""
+        trv = _registry_entry(ENTITY, domain="climate")
+        registry = MagicMock()
+        registry.async_get.return_value = trv
+        registry.entities.values.return_value = [trv, *numbers]
+        monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
+
+        mock_self = _make_self()
+        mock_self.in_maintenance = False
+        mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRVZB")}
+        mock_self.hass.async_create_background_task = lambda coro, name=None: (
+            asyncio.ensure_future(coro)
+        )
+        return mock_self
+
+    @pytest.mark.parametrize(
+        "refused_entity", [VALVE_OPENING, VALVE_CLOSING], ids=["opening", "closing"]
+    )
+    @pytest.mark.parametrize("refusal", WRITE_REFUSALS, ids=WRITE_REFUSAL_IDS)
+    @pytest.mark.asyncio
+    async def test_the_refusal_is_reported_as_a_declined_write(
+        self, monkeypatch, refused_entity, refusal
+    ):
+        """Either degree may be refused; both yield False."""
+        mock_self = self._trvzb_carrying(
+            monkeypatch,
+            [
+                _valve_number(VALVE_OPENING, "valve_opening_degree"),
+                _valve_number(VALVE_CLOSING, "valve_closing_degree"),
+            ],
+        )
+
+        async def _refuse(_domain, _service, data, **_kwargs):
+            if data["entity_id"] == refused_entity:
+                raise refusal
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse)
+
+        assert (
+            await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30) is False
+        )
+
+    @pytest.mark.parametrize("refusal", WRITE_REFUSALS, ids=WRITE_REFUSAL_IDS)
+    @pytest.mark.asyncio
+    async def test_a_refused_fallback_write_is_reported_too(self, monkeypatch, refusal):
+        """A device naming neither degree is written through the same handler."""
+        mock_self = self._trvzb_carrying(monkeypatch, [_valve_number(VALVE_GENERIC)])
+        mock_self.hass.services.async_call = AsyncMock(side_effect=refusal)
+
+        assert (
+            await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30) is False
+        )
+
+    @pytest.mark.parametrize("refusal", WRITE_REFUSALS, ids=WRITE_REFUSAL_IDS)
+    @pytest.mark.asyncio
+    async def test_a_refused_deferred_write_does_not_strand_its_task(
+        self, monkeypatch, refusal
+    ):
+        """The write carrying the requested position has no caller left.
+
+        The de-sticking bump has already driven the valve further open by the
+        time it goes out, and the commanded position is recorded as taken. An
+        error escaping the background task leaves the valve on the bump.
+        """
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self = self._trvzb_carrying(
+            monkeypatch, [_valve_number(VALVE_OPENING, "valve_opening_degree")]
+        )
+        mock_self.real_trvs[ENTITY].last_valve_percent = 40
+
+        async def _refuse(_domain, _service, data, **_kwargs):
+            if data["value"] == 30:
+                raise refusal
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = mock_self.real_trvs[ENTITY].extra["_trvzb_valve_bump_task"]
+        await asyncio.wait([task])
+
+        assert task.exception() is None
+
+
 class TestExternalTemperatureWriteTheDeviceRefuses:
     """A refused write is reported, not raised.
 

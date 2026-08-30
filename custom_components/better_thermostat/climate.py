@@ -153,6 +153,7 @@ from .utils.helpers import (
     get_device_model,
     get_hvac_bt_mode,
     is_reasonable_temperature,
+    member_counts_as_off,
     normalize_hvac_mode,
     normalize_step,
     reported_setpoint_step_celsius,
@@ -676,7 +677,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.version = VERSION
         self.last_change = dt_util.now() - timedelta(hours=2)
         self.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
-        self.last_internal_sensor_change = dt_util.now() - timedelta(hours=2)
         self._temp_lock = asyncio.Lock()
         self.bt_update_lock = False
         self.startup_running = True
@@ -1813,10 +1813,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # if hvac mode could not be restored, turn heat off
         _LOGGER.debug("better_thermostat %s: checking hvac mode...", self.device_name)
         if self.bt_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
-            # OFF is filtered out, so a non-empty list means at least one child
-            # is running -> adopt HEAT; otherwise (all OFF or none) stay OFF.
-            current_hvac_modes = [x.state for x in states if x.state != HVACMode.OFF]
-            if current_hvac_modes:
+            # A room is off only when every one of its heads is off, and it
+            # heats as soon as one head heats — the same rule the runtime event
+            # path applies, read through the same predicate so the two cannot
+            # drift apart. A head that never reports "off" is off at its own
+            # minimum setpoint, which is why the bare state is not enough.
+            heating_members = [
+                x for x in states if not member_counts_as_off(self, x.entity_id, x)
+            ]
+            if heating_members:
                 self.bt_hvac_mode = HVACMode.HEAT
             else:
                 self.bt_hvac_mode = HVACMode.OFF
@@ -2384,13 +2389,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
         # quick availability check - only critical entities needed for maintenance
         try:
-            # The degraded-mode annunciation updates first: it has to keep
-            # reporting a lost room sensor even while an unavailable TRV
-            # aborts the tick.
+            # The degraded-mode annunciation has to keep reporting a lost
+            # room sensor, and the repair issues have to stay current, but
+            # neither decides this run. A head that reports nothing gets no
+            # snapshot and stays out of the exercise; the valves that do
+            # answer still need theirs, and a valve left unmoved for a season
+            # is what this tick exists to prevent.
             await check_and_update_degraded_mode(self)
-            ok = await check_critical_entities(self)
-            if ok is False:
-                return
+            await check_critical_entities(self)
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance availability check failed; "
@@ -2466,13 +2472,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except KeyError, TypeError:
                     pass
 
-            # Build snapshots (skips TRVs with state=None)
+            # Build snapshots. A TRV that publishes no state, or one whose
+            # state names no mode to restore, gets none and stays out of the
+            # run below.
             infos = build_trv_snapshots(
                 self.real_trvs, trvs, self.hass.states.get, self.device_name
             )
             serviced_ids = {info.entity_id for info in infos}
 
-            # Release guard for TRVs that were skipped (state=None)
+            # Release guard for the TRVs that got no snapshot
             for trv_id in trvs:
                 if trv_id not in serviced_ids:
                     try:
@@ -3955,6 +3963,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Terminate the startup retry loop so an entity whose dependencies
         # never became available does not keep polling after unload.
         self.startup_running = False
+        # The plateau timer is scheduled on hass, not on the entity, so a
+        # pending one outlives the unload and would write the external
+        # temperature to TRVs this entity no longer drives. Awaiting the
+        # workers below yields to the loop, which is long enough for a due
+        # timer to fire, so it goes first.
+        if self.plateau_timer_cancel is not None:
+            self.plateau_timer_cancel()
+            self.plateau_timer_cancel = None
         if self._control_task:
             self._control_task.cancel()
             try:

@@ -421,6 +421,32 @@ def test_controller_drives_simulated_plant_toward_setpoint() -> None:
     assert abs(last_T_room - 21.0) < 1.0
 
 
+def test_governor_uses_the_disturbance_estimate_of_the_current_cycle(
+    monkeypatch,
+) -> None:
+    """Governor and QP judge a setpoint on the same disturbance estimate."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=0.0, T_room_C=20.0, T_target_C=21.0, T_outdoor_C=5.0)
+
+    seen: list[float] = []
+    governor_update = controller.governor.update
+
+    def _record(*, D_hat_K_per_min: float, **kwargs: float) -> float:
+        seen.append(D_hat_K_per_min)
+        return governor_update(D_hat_K_per_min=D_hat_K_per_min, **kwargs)
+
+    def _observe(innovation_K: float, dt_s: float) -> float:
+        controller.dob.D_hat_K_per_min = 0.05
+        return 0.05
+
+    controller.dob.D_hat_K_per_min = -99.0
+    monkeypatch.setattr(controller.governor, "update", _record)
+    monkeypatch.setattr(controller.dob, "update", _observe)
+    controller.step(t_s=300.0, T_room_C=20.0, T_target_C=21.0, T_outdoor_C=5.0)
+
+    assert seen == [0.05]
+
+
 def test_malformed_snapshot_values_are_rejected(caplog) -> None:
     """Non-numeric persisted values drop the whole snapshot, not the process."""
     bogus = {"v": SNAPSHOT_VERSION, "last_u": "junk"}

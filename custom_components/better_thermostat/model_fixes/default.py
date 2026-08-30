@@ -2,6 +2,11 @@
 
 These helpers implement safe no-op defaults for devices that do not
 require specific quirks.
+
+There is no ``override_set_valve`` among them. Callers probe for that
+one with ``getattr`` and read a hit as "this model drives its valve
+itself", so an implementation here would claim valve support for every
+device without a quirk file of its own.
 """
 
 from __future__ import annotations
@@ -65,11 +70,6 @@ async def override_set_temperature(self, entity_id, temperature):
     return False
 
 
-async def override_set_valve(self, entity_id, percent: int):
-    """Do not override valve by default."""
-    return False
-
-
 async def initial_tweak(self, entity_id):
     """Run initial tweaks for the device."""
     entity_registry = er.async_get(self.hass)
@@ -94,7 +94,11 @@ async def initial_tweak(self, entity_id):
                     cal_entity,
                 )
                 await self.hass.services.async_call(
-                    "number", "set_value", {"entity_id": cal_entity, "value": 0}
+                    "number",
+                    "set_value",
+                    {"entity_id": cal_entity, "value": 0},
+                    blocking=True,
+                    context=self.context,
                 )
             except Exception as e:
                 _LOGGER.warning(
@@ -127,7 +131,11 @@ async def initial_tweak(self, entity_id):
                             )
                             service = "turn_on" if child_lock_setting else "turn_off"
                             await self.hass.services.async_call(
-                                "switch", service, {"entity_id": cl_entity}
+                                "switch",
+                                service,
+                                {"entity_id": cl_entity},
+                                blocking=True,
+                                context=self.context,
                             )
                     elif domain == "lock":
                         target_lock = (
@@ -145,7 +153,11 @@ async def initial_tweak(self, entity_id):
                             )
                             service = "lock" if child_lock_setting else "unlock"
                             await self.hass.services.async_call(
-                                "lock", service, {"entity_id": cl_entity}
+                                "lock",
+                                service,
+                                {"entity_id": cl_entity},
+                                blocking=True,
+                                context=self.context,
                             )
                 except Exception as e:
                     _LOGGER.warning(
@@ -171,7 +183,11 @@ async def initial_tweak(self, entity_id):
                         win_entity,
                     )
                     await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": win_entity}
+                        "switch",
+                        "turn_off",
+                        {"entity_id": win_entity},
+                        blocking=True,
+                        context=self.context,
                     )
             except Exception as e:
                 _LOGGER.warning(
@@ -196,7 +212,11 @@ async def initial_tweak(self, entity_id):
                         away_entity,
                     )
                     await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": away_entity}
+                        "switch",
+                        "turn_off",
+                        {"entity_id": away_entity},
+                        blocking=True,
+                        context=self.context,
                     )
             except Exception as e:
                 _LOGGER.warning(
