@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
@@ -1068,4 +1069,110 @@ class TestRestoreLeavesAnUnmovedModeAlone:
             device_name="Test",
             cycle_sleep=0,
         )
+        mode_fn.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRVs whose state cannot be read
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _unreadable_ha_state(state: str):
+    """A TRV state carrying no attributes, as an offline device publishes."""
+    return SimpleNamespace(state=state, attributes={})
+
+
+class TestUnreadableTrvStates:
+    """A TRV reporting ``unavailable`` or ``unknown`` names nothing to restore."""
+
+    @pytest.mark.parametrize("reported", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    def test_the_snapshot_leaves_it_out(self, reported, caplog):
+        """No snapshot is taken, and the skip says which state caused it."""
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
+            result = build_trv_snapshots(
+                trvs, ["climate.trv1"], lambda _: _unreadable_ha_state(reported), "Test"
+            )
+        assert result == []
+        assert f"maintenance skip climate.trv1 (reports {reported}" in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reported", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    async def test_a_full_run_writes_nothing_to_it(self, reported):
+        """It is neither driven nor restored, so nothing is written to it.
+
+        The run writes back what a snapshot names, and a TRV without a
+        readable state names neither a mode nor a setpoint.
+        """
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        infos = build_trv_snapshots(
+            trvs, ["climate.trv1"], lambda _: _unreadable_ha_state(reported), "Test"
+        )
+        valve_fn = AsyncMock(return_value=True)
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=valve_fn,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        valve_fn.assert_not_awaited()
+        temp_fn.assert_not_awaited()
+        mode_fn.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_trv_that_drops_out_mid_run_gets_its_snapshot_state_back(self):
+        """A TRV readable at the snapshot is restored to what it reported then.
+
+        Going offline during the cycle changes nothing about the target:
+        the snapshot names a real mode and a real setpoint, and both are
+        written back.
+        """
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        infos = build_trv_snapshots(
+            trvs, ["climate.trv1"], lambda _: _ha_state("heat", 21.0), "Test"
+        )
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports(STATE_UNAVAILABLE),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
+        mode_fn.assert_awaited_once_with("climate.trv1", "heat")
+
+    @pytest.mark.asyncio
+    async def test_a_trv_that_comes_back_before_the_restore_keeps_its_mode(self):
+        """Back in the mode the snapshot was taken in, only the setpoint moves."""
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        infos = build_trv_snapshots(
+            trvs, ["climate.trv1"], lambda _: _ha_state("heat", 21.0), "Test"
+        )
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
         mode_fn.assert_not_awaited()
