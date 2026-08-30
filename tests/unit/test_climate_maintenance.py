@@ -39,7 +39,7 @@ def bt():
     mock.bt_hvac_mode = HVACMode.HEAT
     mock.real_trvs = {"climate.trv": {}}
     mock.hass = MagicMock()
-    mock.hass.async_create_background_task = MagicMock()
+    mock._spawn_owned = MagicMock()
     mock.clock = MagicMock()
     mock.clock.now.return_value = _NOW
     mock.clock.monotonic.return_value = 1000.0
@@ -48,15 +48,29 @@ def bt():
 
 
 @pytest.mark.asyncio
-async def test_critical_entities_unavailable_returns_early(bt):
-    """When critical entities are unavailable, nothing is scheduled or dispatched."""
+async def test_one_unreadable_head_does_not_cost_the_others_their_exercise(bt):
+    """Availability is reported, not obeyed: the readable valves still run.
+
+    `check_critical_entities` rejects a room as soon as one head reports
+    `unavailable` or `unknown` — the same two states the snapshot step
+    filters on. Returning on it means a single flaky head suspends the
+    exercise for every healthy valve in the room, for as long as it stays
+    flaky, and the snapshot filter never gets to do its job.
+    """
+    critical = AsyncMock(return_value=False)
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=False)),
+        patch(f"{_CLIMATE}.check_critical_entities", critical),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    assert bt.next_valve_maintenance is None
-    bt.hass.async_create_background_task.assert_not_called()
+
+    # Still consulted, so the repair issues it raises and clears stay current.
+    critical.assert_awaited_once_with(bt)
+    bt._spawn_owned.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -70,7 +84,7 @@ async def test_availability_check_exception_returns(bt):
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -82,7 +96,7 @@ async def test_already_in_maintenance_returns(bt):
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -94,7 +108,7 @@ async def test_not_due_yet_returns(bt):
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -108,7 +122,7 @@ async def test_window_open_postpones_one_hour(bt):
     ):
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(hours=1)
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -125,7 +139,7 @@ async def test_hvac_off_still_runs_maintenance(bt, mode_attr):
         ),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    bt.hass.async_create_background_task.assert_called_once()
+    bt._spawn_owned.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -139,7 +153,7 @@ async def test_window_open_still_postpones_while_off(bt):
     ):
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(hours=1)
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -152,7 +166,7 @@ async def test_no_enabled_trvs_schedules_far_future(bt):
     ):
         await BetterThermostat._maintenance_tick(bt)
     assert bt.next_valve_maintenance == _NOW + timedelta(days=7)
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -201,7 +215,7 @@ async def test_due_and_enabled_dispatches_maintenance(bt):
         ),
     ):
         await BetterThermostat._maintenance_tick(bt)
-    bt.hass.async_create_background_task.assert_called_once()
+    bt._spawn_owned.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

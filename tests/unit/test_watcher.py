@@ -87,9 +87,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("sensor.test", "unavailable")
 
         result = is_entity_available(mock_hass, "sensor.test")
         assert result is False
@@ -100,9 +98,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unknown"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("sensor.test", "unknown")
 
         result = is_entity_available(mock_hass, "sensor.test")
         assert result is False
@@ -113,9 +109,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "21.5"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("sensor.temperature", "21.5")
 
         result = is_entity_available(mock_hass, "sensor.temperature")
         assert result is True
@@ -126,9 +120,7 @@ class TestIsEntityAvailable:
             is_entity_available,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "on"
-        mock_hass.states.get.return_value = mock_state
+        mock_hass.states.get.return_value = State("binary_sensor.window", "on")
 
         result = is_entity_available(mock_hass, "binary_sensor.window")
         assert result is True
@@ -1400,14 +1392,11 @@ class TestAwaitOptionalSensors:
 
         def mock_get(entity_id):
             nonlocal call_count
-            state = MagicMock()
             if entity_id == "sensor.outdoor_temp":
                 call_count += 1
                 # Unavailable on first call, available from second onwards
-                state.state = "unavailable" if call_count <= 1 else "15.0"
-            else:
-                state.state = "20.0"
-            return state
+                return State(entity_id, "unavailable" if call_count <= 1 else "15.0")
+            return State(entity_id, "20.0")
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 

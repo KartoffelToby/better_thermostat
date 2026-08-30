@@ -26,6 +26,7 @@ def _make_self():
         window_id="binary_sensor.window",
         hass=MagicMock(),
         async_set_context=MagicMock(),
+        _spawn_owned=MagicMock(),
     )
     # ``_trigger_window_change`` delegates to the shared contact dispatcher;
     # bind it so the stand-in resolves the method call.
@@ -61,7 +62,7 @@ async def test_window_event_is_dispatched_regardless_of_availability(reading):
     with _patch_checks():
         await BetterThermostat._trigger_window_change(bt, _event(reading))
 
-    bt.hass.async_create_background_task.assert_called_once()
+    bt._spawn_owned.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -74,4 +75,4 @@ async def test_event_without_new_state_is_dropped():
     with _patch_checks():
         await BetterThermostat._trigger_window_change(bt, event)
 
-    bt.hass.async_create_background_task.assert_not_called()
+    bt._spawn_owned.assert_not_called()

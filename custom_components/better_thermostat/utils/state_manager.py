@@ -38,6 +38,7 @@ import math
 from typing import Any, get_args, get_type_hints
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 
 from .calibration.mpc import MpcState
@@ -111,6 +112,12 @@ class MpcV2ReidRuntime:
 _LOGGER = logging.getLogger(__name__)
 
 CURRENT_VERSION = 1
+
+# Container version of the file an unreadable store is set aside in. The
+# payload is kept verbatim and never read back by this module, so this
+# version stays put when ``CURRENT_VERSION`` moves and no migration ever
+# rewrites a set-aside copy.
+QUARANTINE_VERSION = 1
 
 # State dataclasses (only those NOT owned by a controller module)
 
@@ -287,6 +294,33 @@ def _within(value: float, bounds: tuple[float, float]) -> bool:
     return low <= value <= high
 
 
+def finite_or_none(value: Any) -> float | None:
+    """Return *value* as a finite float, or ``None`` when it is not one.
+
+    A missing value, one ``float()`` refuses, and NaN or infinity all
+    collapse to ``None``. Non-finite numbers carry no usable learning, and
+    keeping one would only feed the same unusable value back into the next
+    calculation that reads it.
+
+    Parameters
+    ----------
+    value : Any
+        the value to read, from a store or a caller
+
+    Returns
+    -------
+    float | None
+        the value as a finite float, or None when it is not one
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except TypeError, ValueError, OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
     """Let a stored null through, unless the declared type forbids one.
 
@@ -426,7 +460,9 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
     return state
 
 
-def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
+def deserialize_mpc_v2(
+    raw: dict[str, Any], *, key: str | None = None
+) -> MpcV2StateData | None:
     """Deserialize a single MPC v2 state dict; ``None`` if the entry is corrupt.
 
     A non-finite float in ``last_percent``, ``last_compute_ts`` or
@@ -445,6 +481,19 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
     empty default in its place — the very shape described above. Only a
     store this integration did not write can hold one: what it saves is
     always a mapping.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+
+    Returns
+    -------
+    MpcV2StateData | None
+        the parsed entry, or None when it is corrupt
     """
     state = MpcV2StateData()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
@@ -460,6 +509,15 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData | None:
         except _PoisonedState:
             return None
         except TypeError, ValueError, OverflowError:
+            # The field keeps the default a first start leaves there. Saying
+            # so here is the only chance: the caller hands the parsed entry
+            # on, where a default and a value the store lost look alike.
+            _LOGGER.warning(
+                "MPC v2 stored %s for %s is not a usable number, continuing without it",
+                attr,
+                key or "an unnamed state entry",
+                exc_info=True,
+            )
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -599,7 +657,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     if isinstance(mpc_v2_raw, Mapping):
         for key, state_dict in mpc_v2_raw.items():
             if isinstance(state_dict, dict):
-                mpc_v2 = deserialize_mpc_v2(state_dict)
+                mpc_v2 = deserialize_mpc_v2(state_dict, key=key)
                 if mpc_v2 is not None:
                     state.mpc_v2[key] = mpc_v2
 
@@ -625,28 +683,9 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
 
     thermal_raw = raw.get("thermal", {})
     if isinstance(thermal_raw, dict):
-        heating_power = thermal_raw.get("heating_power")
-        heat_loss_rate = thermal_raw.get("heat_loss_rate")
-        try:
-            heating_power = float(heating_power) if heating_power is not None else None
-            if heating_power is not None and not math.isfinite(heating_power):
-                heating_power = None
-        except TypeError, ValueError, OverflowError:
-            heating_power = None
-        if heating_power is not None and not math.isfinite(heating_power):
-            heating_power = None
-        try:
-            heat_loss_rate = (
-                float(heat_loss_rate) if heat_loss_rate is not None else None
-            )
-            if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
-                heat_loss_rate = None
-        except TypeError, ValueError, OverflowError:
-            heat_loss_rate = None
-        if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
-            heat_loss_rate = None
         state.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=finite_or_none(thermal_raw.get("heating_power")),
+            heat_loss_rate=finite_or_none(thermal_raw.get("heat_loss_rate")),
         )
 
     filters_raw = raw.get("filters", {})
@@ -666,6 +705,21 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     # state owned by the preset number entities.
 
     return state
+
+
+def _store_key(entry_id: str) -> str:
+    """Return the Store key holding one config entry's runtime state."""
+    return f"{DOMAIN}_{entry_id}_state"
+
+
+def _quarantine_key(entry_id: str) -> str:
+    """Return the Store key an unreadable runtime state is set aside under.
+
+    The suffix matches the one Home Assistant's own Store appends when it
+    finds a storage file it cannot parse, so both kinds of damaged file sit
+    next to each other under recognizable names.
+    """
+    return f"{_store_key(entry_id)}.corrupt"
 
 
 # Migration
@@ -703,8 +757,9 @@ class StateManager:
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         self._store: Store[dict[str, Any]] = Store(
-            hass, CURRENT_VERSION, f"{DOMAIN}_{entry_id}_state"
+            hass, CURRENT_VERSION, _store_key(entry_id)
         )
+        self._hass = hass
         self._entry_id = entry_id
         self._state = RuntimeState()
         # Live MPC v2 controllers, held in memory across cycles. The persisted
@@ -726,7 +781,8 @@ class StateManager:
         entry_id : str
             Config entry identifier whose store file is removed.
         """
-        await Store(hass, CURRENT_VERSION, f"{DOMAIN}_{entry_id}_state").async_remove()
+        await Store(hass, CURRENT_VERSION, _store_key(entry_id)).async_remove()
+        await Store(hass, QUARANTINE_VERSION, _quarantine_key(entry_id)).async_remove()
 
     # -- Public properties ---------------------------------------------------
 
@@ -767,7 +823,7 @@ class StateManager:
         if live is None:
             persisted = self._state.mpc_v2.get(key)
             live = (
-                import_mpc_v2_state(asdict(persisted), params)
+                import_mpc_v2_state(asdict(persisted), params, key=key)
                 if persisted is not None
                 else MpcV2State()
             )
@@ -794,7 +850,7 @@ class StateManager:
             exported = export_mpc_v2_state(live)
             if exported is None:
                 continue
-            persistable = deserialize_mpc_v2(exported)
+            persistable = deserialize_mpc_v2(exported, key=key)
             if persistable is not None:
                 self._state.mpc_v2[key] = persistable
 
@@ -830,7 +886,11 @@ class StateManager:
         for live_key in list(self._mpc_v2_live):
             live = self._mpc_v2_live.pop(live_key)
             exported = export_mpc_v2_state(live)
-            persistable = deserialize_mpc_v2(exported) if exported is not None else None
+            persistable = (
+                deserialize_mpc_v2(exported, key=live_key)
+                if exported is not None
+                else None
+            )
             if persistable is not None:
                 self._state.mpc_v2[live_key] = persistable
             else:
@@ -946,16 +1006,9 @@ class StateManager:
         cannot be persisted and reloaded; this mirrors the finite handling in
         ``clamped_thermal()``.
         """
-
-        def _finite_or_none(value: float | None) -> float | None:
-            try:
-                return value if value is not None and math.isfinite(value) else None
-            except TypeError:
-                return None
-
         self.thermal = ThermalStats(
-            heating_power=_finite_or_none(heating_power),
-            heat_loss_rate=_finite_or_none(heat_loss_rate),
+            heating_power=finite_or_none(heating_power),
+            heat_loss_rate=finite_or_none(heat_loss_rate),
         )
 
     @property
@@ -968,6 +1021,10 @@ class StateManager:
     ) -> None:
         """Record the entity-held filter state before a save.
 
+        Non-finite samples (NaN/inf) are dropped to ``None`` for the same
+        reason ``record_thermal`` drops them: the store's encoder writes
+        them back as null, so a bad reading would be persisted and reloaded.
+
         Parameters
         ----------
         external_temp_ema : float | None
@@ -976,7 +1033,8 @@ class StateManager:
             Estimated room-temperature slope.
         """
         self._state.filters = FilterState(
-            external_temp_ema=external_temp_ema, temp_slope=temp_slope
+            external_temp_ema=finite_or_none(external_temp_ema),
+            temp_slope=finite_or_none(temp_slope),
         )
         self._dirty = True
 
@@ -1036,6 +1094,41 @@ class StateManager:
 
         self._store.async_delay_save(_data_to_save, delay_s)
 
+    async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
+        """Set an unreadable store aside before defaults take its place.
+
+        The defaults this entity falls back to are written over the live
+        store on its next save, so without a copy the only record of what a
+        user's installation had learned is gone. The copy is taken once:
+        a second unreadable load must not overwrite the first copy, which is
+        the one still holding the accumulated state.
+
+        Parameters
+        ----------
+        raw : dict[str, Any]
+            The store payload that could not be deserialized.
+        """
+        key = _quarantine_key(self._entry_id)
+        quarantine: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
+        try:
+            if await quarantine.async_load() is not None:
+                return
+            await quarantine.async_save(raw)
+        except HomeAssistantError, OSError:
+            _LOGGER.warning(
+                "better_thermostat [%s]: could not set the unreadable state "
+                "aside as %s",
+                self._entry_id,
+                key,
+                exc_info=True,
+            )
+            return
+        _LOGGER.warning(
+            "better_thermostat [%s]: unreadable state kept as %s for recovery",
+            self._entry_id,
+            key,
+        )
+
     async def load(self) -> None:
         """Load state from HA Store.  Applies migrations if needed."""
         raw = await self._store.async_load()
@@ -1060,6 +1153,7 @@ class StateManager:
                 self._entry_id,
                 exc_info=True,
             )
+            await self._quarantine_unreadable_state(raw)
             self._state = RuntimeState()
             self._dirty = False
             return

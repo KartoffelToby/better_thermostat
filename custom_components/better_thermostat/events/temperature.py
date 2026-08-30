@@ -15,6 +15,7 @@ import math
 from time import monotonic
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
@@ -88,6 +89,16 @@ def temperature_filter_lock(self) -> asyncio.Lock:
 
     Everything that writes the room temperature to the TRVs takes this
     lock: the sensor readings, the plateau timer and the keepalive tick.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    asyncio.Lock
+            the entity's own lock, created on first use
     """
     lock = getattr(self, "_temperature_filter_lock", None)
     if lock is None:
@@ -155,27 +166,49 @@ async def _commit_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Write the value used by BT (self.cur_temp) to the TRV
+    # Write the value used by BT (self.cur_temp) to the TRV. The heads are
+    # read from `real_trvs`, which is what carries the quirks the write goes
+    # through: an id from anywhere else resolves to no TRV and no write.
+    entity_ids: list[str] = []
     try:
-        trv_ids = list(self.real_trvs.keys())
-        if not trv_ids and hasattr(self, "entity_ids"):
-            trv_ids = list(self.entity_ids or [])
-        for trv_id in trv_ids:
-            _trv = self.real_trvs.get(trv_id) if hasattr(self, "real_trvs") else None
+        entity_ids = list(self.real_trvs.keys())
+    except (AttributeError, TypeError) as exc:
+        _LOGGER.warning(
+            "better_thermostat %s: no TRV list to write external_temperature to: %s",
+            self.device_name,
+            exc,
+        )
+    for entity_id in entity_ids:
+        try:
+            _trv = self.real_trvs.get(entity_id)
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                await quirks.maybe_set_external_temperature(
+                    self, entity_id, self.cur_temp
+                )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
                     self.device_name,
-                    trv_id,
+                    entity_id,
                 )
-    except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
-        _LOGGER.debug(
-            "better_thermostat %s: external_temperature write to TRV failed (non critical)",
-            self.device_name,
-        )
+        except (
+            HomeAssistantError,
+            OSError,
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            # A device that refuses the value keeps its old one; the other TRVs
+            # still get the reading, and the control cycle below runs on it.
+            _LOGGER.warning(
+                "better_thermostat %s: external_temperature write to %s failed: %s",
+                self.device_name,
+                entity_id,
+                exc,
+            )
     # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
     # Still mark that a control cycle is needed after maintenance so we immediately
     # resume with the latest temperature.
@@ -276,6 +309,12 @@ async def trigger_temperature_change(self, event):
             },
         )
         return
+
+    # A plausible reading clears the repair issue an implausible one raised,
+    # so a sensor that recovers does not leave the warning standing.
+    ir.async_delete_issue(
+        self.hass, DOMAIN, f"invalid_external_temperature_{self.device_name}"
+    )
 
     _now = dt_util.now()
     try:

@@ -14,10 +14,12 @@ Covers:
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import asdict
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.json import json_bytes, prepare_save_json
 from homeassistant.util.json import json_loads
 import pytest
@@ -919,6 +921,33 @@ class TestDeserializeMpcV2:
         assert state.last_compute_ts == 100.0
 
     @pytest.mark.asyncio
+    async def test_a_value_the_store_lost_is_named_on_the_way_in(self, caplog):
+        """The load path is where an unreadable field is still recognisable.
+
+        Past this point the field carries the default a first start leaves
+        there, and a value the store lost looks exactly like one it never
+        held. The rehydration downstream is handed the default and has
+        nothing left to report.
+        """
+        mock_hass = AsyncMock()
+        mock_store = AsyncMock()
+        mock_store.async_load.return_value = {
+            "version": 1,
+            "mpc_v2": {"uid:climate.hall:t21.0": {"last_compute_ts": "bad"}},
+        }
+        with patch(f"{_SM}.Store", return_value=mock_store):
+            mgr = StateManager(mock_hass, "unreadable_field")
+        with caplog.at_level(logging.DEBUG):
+            await mgr.load()
+
+        reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(reports) == 1
+        assert "last_compute_ts" in reports[0].getMessage()
+        assert "uid:climate.hall:t21.0" in reports[0].getMessage()
+        # The entry survives; only the field it could not read stays default.
+        assert mgr.state.mpc_v2["uid:climate.hall:t21.0"].last_compute_ts == 0.0
+
+    @pytest.mark.asyncio
     async def test_a_poisoned_key_comes_back_without_a_controller(self):
         """Dropping the key is what makes the restart a cold one.
 
@@ -1129,9 +1158,9 @@ class TestStateManagerLoadSave:
         """
         mgr, mock_store = self._make_manager_with_store()
         mock_store.async_load.return_value = {"version": 1, "mpc": {"k": {}}}
-        with patch(
-            "custom_components.better_thermostat.utils.state_manager._deserialize",
-            side_effect=TypeError("poisoned"),
+        with (
+            patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")),
+            patch(f"{_SM}.Store", return_value=AsyncMock()),
         ):
             await mgr.load()
 
@@ -1551,3 +1580,155 @@ class TestFilterState:
         restored = _deserialize(raw)
         assert restored.filters.external_temp_ema is None
         assert restored.filters.temp_slope is None
+
+    def test_non_finite_samples_are_not_recorded(self):
+        """A NaN or infinite sample is dropped where it is handed in.
+
+        The store writes both back as null, so recording one would report a
+        filter value the next start silently cannot restore.
+        """
+        mgr = _make_manager()
+        mgr.record_filters(float("nan"), float("inf"))
+        assert mgr.filters.external_temp_ema is None
+        assert mgr.filters.temp_slope is None
+
+        mgr.record_filters(20.5, 0.0012)
+        assert mgr.filters.external_temp_ema == 20.5
+        assert mgr.filters.temp_slope == 0.0012
+
+
+# ---------------------------------------------------------------------------
+# Unreadable store handling
+# ---------------------------------------------------------------------------
+
+_LIVE_STORE_KEY = "better_thermostat_test_entry_state"
+_SET_ASIDE_KEY = "better_thermostat_test_entry_state.corrupt"
+
+
+@contextmanager
+def _stores_by_key():
+    """Patch Store so every construction is recorded under its storage key.
+
+    A store nobody has written yet loads as ``None``, which is what Home
+    Assistant returns for a missing storage file.
+    """
+    stores: dict[str, AsyncMock] = {}
+
+    def _store_for(_hass, _version, key):
+        if key not in stores:
+            store = AsyncMock()
+            store.async_load = AsyncMock(return_value=None)
+            stores[key] = store
+        return stores[key]
+
+    with patch(f"{_SM}.Store", side_effect=_store_for):
+        yield stores
+
+
+class TestUnreadableStoreIsKeptForRecovery:
+    """An unreadable store is copied aside before defaults take its place.
+
+    Falling back to defaults is deliberate -- startup must not die over a
+    damaged file -- but the next save writes those defaults over the live
+    store, so without a copy the only record of what an installation had
+    learned is gone.
+    """
+
+    @pytest.mark.asyncio
+    async def test_copy_carries_the_content_that_could_not_be_read(self):
+        """The set-aside copy holds the payload verbatim."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": 1,
+                "mpc": {"k1": {"gain_est": 0.5}},
+            }
+            with patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")):
+                await mgr.load()
+
+        copy = stores[_SET_ASIDE_KEY]
+        copy.async_save.assert_awaited_once()
+        assert copy.async_save.await_args[0][0] == {
+            "version": 1,
+            "mpc": {"k1": {"gain_est": 0.5}},
+        }
+
+    @pytest.mark.asyncio
+    async def test_defaults_still_replace_the_unreadable_state(self):
+        """Setting the copy aside does not change the fallback behaviour."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
+            with patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")):
+                await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert mgr.dirty is False
+
+    @pytest.mark.asyncio
+    async def test_an_earlier_copy_is_not_overwritten(self):
+        """The first copy is the one still holding the accumulated state."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
+            earlier = AsyncMock()
+            earlier.async_load = AsyncMock(
+                return_value={"version": 1, "mpc": {"k1": {"gain_est": 0.9}}}
+            )
+            stores[_SET_ASIDE_KEY] = earlier
+            with patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")):
+                await mgr.load()
+
+        earlier.async_save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_readable_store_leaves_no_copy(self):
+        """Nothing is set aside when the store deserializes."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": 1,
+                "mpc": {"k1": {"gain_est": 0.5}},
+            }
+            await mgr.load()
+
+        assert _SET_ASIDE_KEY not in stores
+        assert mgr.state.mpc["k1"].gain_est == 0.5
+
+    @pytest.mark.asyncio
+    async def test_an_empty_store_leaves_no_copy(self):
+        """A first start has nothing to preserve."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            await mgr.load()
+
+        assert _SET_ASIDE_KEY not in stores
+
+    @pytest.mark.asyncio
+    async def test_a_failed_copy_still_lets_startup_continue(self, caplog):
+        """A storage error while copying is reported, not raised."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
+            with (
+                caplog.at_level(logging.WARNING, logger=_SM),
+                patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")),
+            ):
+                stores[_SET_ASIDE_KEY] = AsyncMock()
+                stores[_SET_ASIDE_KEY].async_load = AsyncMock(return_value=None)
+                stores[_SET_ASIDE_KEY].async_save = AsyncMock(
+                    side_effect=HomeAssistantError("disk full")
+                )
+                await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert "could not set the unreadable state aside" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_removing_the_entry_removes_the_copy_too(self):
+        """A deleted config entry leaves neither file behind."""
+        with _stores_by_key() as stores:
+            await StateManager.async_remove_store(AsyncMock(), "test_entry")
+
+        stores[_LIVE_STORE_KEY].async_remove.assert_awaited_once()
+        stores[_SET_ASIDE_KEY].async_remove.assert_awaited_once()

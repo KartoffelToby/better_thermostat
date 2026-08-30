@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from dataclasses import asdict, replace
 import json
+import logging
 import math
 
 import numpy as np
@@ -81,6 +82,60 @@ def test_max_opening_pct_is_honoured() -> None:
     assert out.valve_percent <= 40
 
 
+def _step_returning(fraction: float):
+    """Wrap ``MpcV2Controller.step`` so it reports a fixed valve fraction.
+
+    The optimiser cannot be steered onto an exact half percent from the
+    outside, so the percent conversion is exercised by pinning the fraction
+    the controller hands back while its diagnostics stay real.
+    """
+    real_step = MpcV2Controller.step
+
+    def fixed_step(self, *args: object, **kwargs: object):
+        _u, diagnostics = real_step(self, *args, **kwargs)
+        return fraction, diagnostics
+
+    return fixed_step
+
+
+@pytest.mark.parametrize(
+    ("fraction", "expected"),
+    [
+        pytest.param(0.005, 1, id="0.5-percent"),
+        pytest.param(0.025, 3, id="2.5-percent"),
+        pytest.param(0.045, 5, id="4.5-percent"),
+        pytest.param(0.125, 13, id="12.5-percent"),
+        # The four half percents below 1.0 whose double sits under the half:
+        # 0.285 * 100.0 is 28.499999999999996, so a bare `+ 0.5` sends them
+        # down and the contract above would hold for most halves but not all.
+        pytest.param(0.145, 15, id="14.5-percent-below-its-half"),
+        pytest.param(0.285, 29, id="28.5-percent-below-its-half"),
+        pytest.param(0.565, 57, id="56.5-percent-below-its-half"),
+        pytest.param(0.575, 58, id="57.5-percent-below-its-half"),
+        pytest.param(0.1234, 12, id="rounds-down"),
+        pytest.param(0.1256, 13, id="rounds-up"),
+        pytest.param(0.0, 0, id="closed"),
+        pytest.param(1.0, 100, id="wide-open"),
+    ],
+)
+def test_valve_percent_rounds_half_up(
+    monkeypatch, fraction: float, expected: int
+) -> None:
+    """A fraction landing exactly between two percents opens the wider one."""
+    monkeypatch.setattr(MpcV2Controller, "step", _step_returning(fraction))
+    out, _ = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
+    assert out is not None
+    assert out.valve_percent == expected
+
+
+def test_fractional_max_opening_pct_is_never_exceeded(monkeypatch) -> None:
+    """A cap of 55.9 % admits 55 %, never a rounded-up 56 %."""
+    monkeypatch.setattr(MpcV2Controller, "step", _step_returning(1.0))
+    out, _ = compute_mpc_v2(_baseline_input(max_opening_pct=55.9), MpcV2Params(), None)
+    assert out is not None
+    assert out.valve_percent == 55
+
+
 def test_diagnostics_exposed() -> None:
     """The output exposes the core observer diagnostics as typed fields."""
     out, _ = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
@@ -143,6 +198,36 @@ def test_snapshot_round_trip_preserves_last_u() -> None:
     assert fresh._last_u == state.controller._last_u
     assert fresh._initialised is True
     np.testing.assert_allclose(fresh.kalman.x_hat, state.controller.kalman.x_hat)
+
+
+def test_a_fixed_step_keeps_the_configured_horizon_grid() -> None:
+    """With adaptive stepping off the QP keeps the step size it was given."""
+    params = MpcV2Params()
+    params.qp.adaptive_step_s = False
+    params.qp.step_s = 90.0
+
+    controller = MpcV2Controller(params)
+
+    assert controller.params.qp.step_s == 90.0
+    assert controller.plant_coarse.dt_s == 90.0
+
+
+def test_a_command_before_the_first_step_records_no_history() -> None:
+    """Nothing has been planned yet, so there is no entry to overwrite.
+
+    `set_command_u` and `set_applied_u` amend the command the last cycle
+    planned. Called on a controller that has never stepped, they must clamp the
+    value and leave the empty history alone rather than index into it.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.set_command_u(1.5)
+    assert controller._last_u == 1.0
+
+    controller.set_applied_u(-0.4)
+
+    assert controller._last_u == 0.0
+    assert list(controller._u_history) == []
 
 
 def test_make_plant_prior_defaults_when_no_input() -> None:
@@ -355,6 +440,29 @@ def test_export_state_without_controller_returns_none() -> None:
     assert export_mpc_v2_state(MpcV2State()) is None
 
 
+def test_unreadable_snapshot_is_reported_at_warning(monkeypatch, caplog) -> None:
+    """A snapshot that cannot be rehydrated is louder than an absent one.
+
+    Both cases boot a fresh controller, so without a WARNING carrying the
+    exception a corrupt store looks exactly like a first start.
+    """
+
+    def raise_on_restore(self, snap: ControllerSnapshot) -> None:
+        raise RuntimeError("snapshot payload is inconsistent")
+
+    monkeypatch.setattr(MpcV2Controller, "restore_snapshot", raise_on_restore)
+    payload = {"snapshot": {"v": SNAPSHOT_VERSION, "x_hat": [20.0, 21.0]}}
+
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state(payload, MpcV2Params())
+
+    assert state.controller is None
+    reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(reports) == 1
+    assert reports[0].exc_info is not None
+    assert "snapshot payload is inconsistent" in caplog.text
+
+
 def test_non_finite_input_holds_last_command(caplog) -> None:
     """NaN/Inf in any sensor input must not poison the cached state."""
     state: MpcV2State | None = None
@@ -554,6 +662,34 @@ def test_wrong_shaped_covariance_is_ignored_on_restore() -> None:
     assert controller._last_u == 0.4  # scalar fields still restore
 
 
+def test_indefinite_covariance_is_refused_on_restore(caplog) -> None:
+    """A stored covariance with a negative eigenvalue must not reach the filter.
+
+    Folded into the Kalman gain it turns the innovation variance negative, and
+    the estimate runs away by orders of magnitude within a few cycles.
+    """
+    seed = [20.0, 21.0]
+    reference = MpcV2Controller(MpcV2Params())
+    reference.kalman.initialise(np.array(seed))
+
+    controller = MpcV2Controller(MpcV2Params())
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": seed, "kalman_P": [[-1.0, 0.0], [0.0, 1.0]]}
+    )
+    assert snap is not None
+    with caplog.at_level("WARNING"):
+        controller.restore_snapshot(snap)
+
+    np.testing.assert_array_equal(controller.kalman.P, reference.kalman.P)
+    assert any("covariance" in r.getMessage() for r in caplog.records)
+
+    for step in range(5):
+        controller.step(
+            t_s=1000.0 + 300.0 * step, T_room_C=20.0, T_target_C=21.0, T_outdoor_C=5.0
+        )
+        assert abs(float(controller.kalman.x_hat[0]) - 20.0) < 5.0
+
+
 # Snapshot shapes that carry no usable state vector of the controller's
 # dimension: absent, too short, or the right length but non-finite. ``None``
 # stands for a stored payload whose ``snapshot`` key is null or not a mapping
@@ -630,6 +766,55 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         out_fresh.diagnostics.T_room_hat
     )
     assert out_restored.valve_percent == out_fresh.valve_percent
+
+
+@pytest.mark.parametrize(
+    ("attr", "stored", "fallback"),
+    [
+        pytest.param("last_percent", "forty-two", None, id="unparsable-text"),
+        pytest.param("last_compute_ts", 10**400, 0.0, id="wider-than-a-float"),
+        pytest.param("created_ts", {"nested": 1}, 0.0, id="wrong-type"),
+        # `float()` takes all three of these, so nothing raises on the way in
+        # and the field would carry a value no later calculation survives.
+        pytest.param("last_compute_ts", "NaN", 0.0, id="not-a-number"),
+        pytest.param("created_ts", "Infinity", 0.0, id="infinite"),
+        pytest.param("last_percent", "1e999", None, id="overflows-to-infinite"),
+    ],
+)
+def test_unusable_stored_scalar_is_reported_at_warning(
+    caplog, attr: str, stored: object, fallback: float | None
+) -> None:
+    """A stored scalar that cannot be parsed is named instead of dropped.
+
+    The field falls back to the value a first start leaves there, so the two
+    are told apart by the report rather than by the resulting state.
+    """
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state({attr: stored}, key="uid:climate.hall:t21.0")
+
+    assert getattr(state, attr) == fallback
+    reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(reports) == 1
+    assert reports[0].exc_info is not None
+    assert attr in reports[0].getMessage()
+    assert "uid:climate.hall:t21.0" in reports[0].getMessage()
+
+
+def test_usable_stored_scalars_restore_without_a_report(caplog) -> None:
+    """The values the store actually writes rehydrate silently."""
+    payload = {
+        "last_percent": 42.0,
+        "last_compute_ts": 1_700_000_000.0,
+        "created_ts": 1_699_000_000.0,
+    }
+
+    with caplog.at_level(logging.DEBUG):
+        state = import_mpc_v2_state(payload, key="uid:climate.hall:t21.0")
+
+    assert state.last_percent == 42.0
+    assert state.last_compute_ts == 1_700_000_000.0
+    assert state.created_ts == 1_699_000_000.0
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
 @pytest.mark.parametrize(

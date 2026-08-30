@@ -19,9 +19,10 @@ from custom_components.better_thermostat.events.door import (
     door_queue,
     trigger_door_change,
 )
+from custom_components.better_thermostat.utils.const import DOMAIN
 
-_DOOR = "custom_components.better_thermostat.events.door"
-_LOGBOOK = f"{_DOOR}.async_fire_logbook_entry"
+_CONTACT = "custom_components.better_thermostat.events.contact"
+_LOGBOOK = f"{_CONTACT}.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", door_open=False, open_delay=0, close_delay=0):
@@ -170,9 +171,9 @@ class TestTriggerDoorChange:
             bt.clock.advance(seconds)
 
         with (
-            patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep),
+            patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep),
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_DOOR}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -185,10 +186,33 @@ class TestTriggerDoorChange:
     async def test_unrecognized_state_raises_an_issue(self):
         """Garbage sensor values raise a repair issue and queue nothing."""
         bt = _make_bt(sensor_state="banana")
-        with patch(f"{_DOOR}.ir.async_create_issue") as issue:
+        with patch(f"{_CONTACT}.ir.async_create_issue") as issue:
             await trigger_door_change(bt, _event("banana"))
         issue.assert_called_once()
         assert bt.door_queue_task.empty()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["on", "off", "unknown", "unavailable"])
+    async def test_recognized_state_clears_the_issue(self, reading):
+        """A readable value withdraws the repair issue garbage raised.
+
+        'off', 'unknown' and 'unavailable' all resolve to the committed
+        closed state, so the clearing has to happen before the event is
+        dropped as a repeat: a sensor recovering to the state it already
+        had is exactly the case that would leave the warning standing.
+        """
+        bt = _make_bt(sensor_state="banana")
+        with (
+            patch(f"{_CONTACT}.ir.async_create_issue"),
+            patch(f"{_CONTACT}.ir.async_delete_issue") as delete,
+        ):
+            await trigger_door_change(bt, _event("banana"))
+            delete.assert_not_called()
+
+            bt.hass.states.get.return_value.state = reading
+            await trigger_door_change(bt, _event(reading))
+
+        delete.assert_called_once_with(bt.hass, DOMAIN, "invalid_door_state_Test BT")
 
     @pytest.mark.asyncio
     async def test_missing_sensor_state_returns_early(self):
@@ -196,6 +220,19 @@ class TestTriggerDoorChange:
         bt = _make_bt()
         bt.hass.states.get.return_value = None
         await trigger_door_change(bt, _event("on"))
+        assert bt.door_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_unset_door_id_is_never_looked_up(self):
+        """A thermostat without a door sensor never probes the state machine.
+
+        ``hass.states.get(None)`` raises instead of returning None, so the
+        entity id has to be checked before it is used as a lookup key.
+        """
+        bt = _make_bt()
+        bt.door_id = None
+        await trigger_door_change(bt, _event("on"))
+        bt.hass.states.get.assert_not_called()
         assert bt.door_queue_task.empty()
 
 
@@ -249,7 +286,7 @@ class TestDoorQueue:
         async def fake_sleep(seconds):
             bt.clock.advance(seconds)
 
-        with patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep):
+        with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)
 
         assert bt.kernel_state.door.phase == WindowPhase.CLOSED
@@ -284,7 +321,7 @@ class TestDoorQueue:
             # The user raises the delay while the first wait runs.
             bt.door_delay = 30
 
-        with patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep):
+        with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)
 
         assert slept == [5, 25]
@@ -305,7 +342,7 @@ class TestDoorQueue:
         async def fake_sleep(seconds):
             bt.clock.advance(seconds)
 
-        with patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep):
+        with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)
 
         assert bt.kernel_state.door.phase == WindowPhase.OPEN
@@ -343,9 +380,9 @@ class TestDoorQueue:
                 bt.clock.advance(seconds)
 
         with (
-            patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep),
+            patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep),
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_DOOR}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -371,9 +408,9 @@ class TestDoorQueue:
             bt.clock.advance(seconds)
 
         with (
-            patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep),
+            patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep),
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_DOOR}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -396,7 +433,7 @@ class TestDoorQueue:
 
         with (
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_DOOR}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -426,7 +463,7 @@ async def test_cancellation_during_processing_propagates():
         entered_sleep.set()
         await asyncio.Future()  # cancelled by task cancellation
 
-    with patch(f"{_DOOR}.asyncio.sleep", side_effect=fake_sleep):
+    with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
         task = asyncio.create_task(door_queue(bt))
         await entered_sleep.wait()
         task.cancel()
