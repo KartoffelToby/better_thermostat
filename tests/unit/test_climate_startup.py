@@ -2370,6 +2370,18 @@ class TestFinalizeStartupBatteryScan:
 # ---------------------------------------------------------------------------
 
 
+def _two_heads():
+    """Both TRVs the mode tests name, registered as heads of the room.
+
+    Only a state whose entity is among the room's heads speaks for it, so a
+    second head has to exist for a two-state case to say anything.
+    """
+    return {
+        entity_id: Trv(entity_id=entity_id, calibration=1)
+        for entity_id in (TRV_ID, TRV_ID_2)
+    }
+
+
 class TestValidateHvacMode:
     """Tests for _validate_hvac_mode."""
 
@@ -2393,6 +2405,7 @@ class TestValidateHvacMode:
         """A room whose heads all heat comes up heating."""
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
         states = [
             _make_trv_state(TRV_ID, state="heat"),
             _make_trv_state(TRV_ID_2, state="heat"),
@@ -2408,6 +2421,7 @@ class TestValidateHvacMode:
         """
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
         states = [
             _make_trv_state(TRV_ID, state="off"),
             _make_trv_state(TRV_ID_2, state="heat"),
@@ -2434,6 +2448,29 @@ class TestValidateHvacMode:
             _make_trv_state(TRV_ID_2, state="heat", attrs=parked),
         ]
         BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+    def test_none_mode_a_cooler_is_not_a_head_of_the_room(self, bt):
+        """The cooler travels with the heads but does not vote on heating.
+
+        `_collect_trv_states` hands the same list to the temperature-range
+        calculation and to this check, and the cooler belongs in the first.
+        Counting it here brings a room whose every head is off back up in
+        HEAT after any restart that lost the mode — for as long as a cooler
+        stays configured.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
+        bt.cooler_entity_id = COOLER_ID
+        states = [
+            _make_trv_state(TRV_ID, state="off"),
+            _make_trv_state(TRV_ID_2, state="off"),
+            _make_cooler_state({ATTR_TEMPERATURE: 24.0}),
+        ]
+
+        BetterThermostat._validate_hvac_mode(bt, states)
+
         assert bt.bt_hvac_mode == HVACMode.OFF
 
     def test_none_mode_one_head_above_its_minimum_sets_heat(self, bt):

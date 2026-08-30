@@ -2192,8 +2192,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # path applies, read through the same predicate so the two cannot
             # drift apart. A head that never reports "off" is off at its own
             # minimum setpoint, which is why the bare state is not enough.
+            # The list carries the cooler as well, because the temperature
+            # range is derived from it too. It is no head of this room, so it
+            # is not asked whether the room is heating: `member_counts_as_off`
+            # answers "heating" for anything it does not find among the TRVs,
+            # and a configured cooler would bring the room back up in HEAT
+            # after every restart that lost the mode.
             heating_members = [
-                x for x in states if not member_counts_as_off(self, x.entity_id, x)
+                state
+                for state in states
+                if state.entity_id in self.real_trvs
+                and not member_counts_as_off(self, state.entity_id, state)
             ]
             if heating_members:
                 self.bt_hvac_mode = HVACMode.HEAT
