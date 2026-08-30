@@ -13,6 +13,7 @@ that depends on the device is derived from the profile it was built from.
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import timedelta
+from functools import partial
 from unittest.mock import patch
 
 from homeassistant.components.climate import HVACMode
@@ -250,7 +251,11 @@ def _recording_intervals(registered):
     real = climate_module.async_track_time_interval
 
     def _record(hass, action, interval, *args, **kwargs):
-        registered.append((getattr(action, "__name__", repr(action)), interval))
+        # Each tick reaches the tracker through a dispatcher that spawns the
+        # firing as work the entity owns, bound with ``partial``. What is on
+        # the interval is the tick that dispatcher runs.
+        tick = action.args[0] if isinstance(action, partial) else action
+        registered.append((getattr(tick, "__name__", repr(tick)), interval))
         return real(hass, action, interval, *args, **kwargs)
 
     with patch.object(climate_module, "async_track_time_interval", _record):

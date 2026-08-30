@@ -82,18 +82,32 @@ def _startup_bt(**overrides):
     return mock
 
 
+def _timer_target(registered):
+    """The coroutine function a registered timer callback runs.
+
+    Each tick goes to the tracker through a dispatcher that spawns the firing
+    as work the entity owns, bound with ``partial``, so the callable handed to
+    the tracker is that dispatcher rather than the tick itself. The set under
+    test is which tick runs on which interval, so the binding is unwrapped
+    here.
+    """
+    return registered.args[0]
+
+
 class _Registrations:
     """What one ``_finalize_startup`` run handed to the event helpers."""
 
     def __init__(self, intervals, state_changes, time_changes):
         self.intervals = Counter(
-            (call.args[1], call.args[2]) for call in intervals.call_args_list
+            (_timer_target(call.args[1]), call.args[2])
+            for call in intervals.call_args_list
         )
         self.state_changes = Counter(
             (tuple(call.args[1]), call.args[2]) for call in state_changes.call_args_list
         )
         self.time_changes = Counter(
-            (call.args[1], call.args[2:]) for call in time_changes.call_args_list
+            (_timer_target(call.args[1]), call.args[2:])
+            for call in time_changes.call_args_list
         )
 
 

@@ -179,6 +179,7 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt._owned_tasks = set()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
     trv.model_quirks = MagicMock()
@@ -309,6 +310,7 @@ class TestStartupUnloadBailout:
         bt._window_task = None
         bt._door_task = None
         bt.plateau_timer_cancel = None
+        bt._owned_tasks = set()
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
@@ -426,6 +428,260 @@ class TestPlateauTimerOnRemoval:
         await BetterThermostat.async_will_remove_from_hass(plateau_bt)
 
         assert order == ["timer", "worker"]
+
+
+# ---------------------------------------------------------------------------
+# 0c. background tasks the entity owns
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def owned_task_bt(bt, hass):
+    """A thermostat whose background tasks run on a real event loop.
+
+    Spawning and teardown are both under test here, so the helper that
+    starts a task runs for real while staying observable, and no queue
+    worker is started, leaving the teardown only the spawned work to
+    answer for.
+    """
+    bt.hass = hass
+    bt._control_task = None
+    bt._window_task = None
+    bt._door_task = None
+    bt.plateau_timer_cancel = None
+    bt.is_removed = False
+    bt._owned_tasks = set()
+    bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
+        bt, coro, name=name
+    )
+    return bt
+
+
+def _record_readings_into(entity, readings):
+    """Make the reading handler append to ``readings`` after one loop turn.
+
+    The turn matters: the handler has to be suspended, not finished, when
+    the removal starts, or there is nothing left for the removal to stop.
+    """
+
+    async def handle(event):
+        await asyncio.sleep(0)
+        readings.append(event)
+
+    entity._handle_temperature_reading = AsyncMock(side_effect=handle)
+
+
+class TestOwnedBackgroundTasks:
+    """Work the entity started must end when the entity is removed.
+
+    Home Assistant cancels background tasks when the core shuts down, not
+    when a single entity goes away, so an entity that unloads on its own
+    leaves them running. Several of them write to TRVs, and a write that
+    lands after the unload comes from a thermostat the user no longer has.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_dispatched_reading_reaches_the_handler(self, hass, owned_task_bt):
+        """A reading dispatched by a live entity is handled."""
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+        event = MagicMock()
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, event)
+        await hass.async_block_till_done()
+
+        assert readings == [event]
+
+    @pytest.mark.asyncio
+    async def test_removal_drops_a_reading_still_in_flight(self, hass, owned_task_bt):
+        """A reading dispatched before the removal must not be handled after it.
+
+        Handling it writes the room temperature to TRVs the entity has
+        already let go of, so the reading has to die with its entity.
+        """
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+        assert readings == []
+
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        await hass.async_block_till_done()
+
+        assert readings == []
+
+    @pytest.mark.asyncio
+    async def test_work_handed_over_after_the_removal_began_never_starts(
+        self, hass, owned_task_bt
+    ):
+        """A task started after the removal is not in the set the removal cancels.
+
+        The removal reads ``_owned_tasks`` once and cancels what it finds.
+        Anything added afterwards is invisible to it and goes on writing to
+        TRVs the entity has already let go of.
+        """
+        started = False
+
+        async def write_to_a_trv():
+            nonlocal started
+            started = True
+
+        # Home Assistant runs the on-remove callbacks, which set the flag,
+        # before it awaits async_will_remove_from_hass.
+        owned_task_bt.is_removed = True
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+
+        task = BetterThermostat._spawn_owned(
+            owned_task_bt, write_to_a_trv(), name="bt_late_write"
+        )
+        await hass.async_block_till_done()
+
+        assert task is None
+        assert started is False
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_dispatcher_suspended_across_the_removal_starts_nothing(
+        self, hass, owned_task_bt
+    ):
+        """A dispatcher that was mid-await when the removal ran spawns nothing.
+
+        Every dispatcher checks the entity, awaits its watcher checks and only
+        then hands work over. The removal fits in that gap, which makes the
+        dispatcher's own check stale by the time it spawns.
+        """
+        handled = []
+        in_the_watcher_check = asyncio.Event()
+        release_the_watcher_check = asyncio.Event()
+
+        async def suspend_until_released(entity):
+            in_the_watcher_check.set()
+            await release_the_watcher_check.wait()
+
+        async def handle_the_contact_change(entity, event):
+            handled.append(event)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.climate.check_and_update_degraded_mode",
+                side_effect=suspend_until_released,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.check_critical_entities",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            dispatch = hass.async_create_task(
+                BetterThermostat._trigger_contact_change(
+                    owned_task_bt, MagicMock(), handle_the_contact_change, "window"
+                )
+            )
+            await in_the_watcher_check.wait()
+
+            owned_task_bt.is_removed = True
+            await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+
+            release_the_watcher_check.set()
+            await dispatch
+            await hass.async_block_till_done()
+
+        assert handled == []
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_timer_firing_in_flight_is_cancelled_by_the_removal(
+        self, hass, owned_task_bt
+    ):
+        """A periodic tick already running when the entity goes must be stopped.
+
+        Unsubscribing an interval ends the next firing, not the one already
+        running. These ticks re-send setpoints and the external temperature,
+        so one that outlives the unload drives TRVs the entity has let go of.
+        """
+        reached_the_trv = False
+        writing = asyncio.Event()
+
+        async def keeps_writing(now):
+            writing.set()
+            await asyncio.sleep(0)
+            nonlocal reached_the_trv
+            reached_the_trv = True
+
+        BetterThermostat._start_owned_timer_work(
+            owned_task_bt, keeps_writing, "bt_test_tick", dt_util.utcnow()
+        )
+        await writing.wait()
+
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        await hass.async_block_till_done()
+
+        assert reached_the_trv is False
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_finished_task_stops_being_tracked(self, hass, owned_task_bt):
+        """Tracking must end when the work does.
+
+        A thermostat handles a reading every few seconds for months on end.
+        Holding on to every task it ever started would grow without bound
+        for the sake of a teardown that has nothing left to cancel.
+        """
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+        assert len(owned_task_bt._owned_tasks) == 1
+
+        await hass.async_block_till_done()
+        # The task drops itself from a callback the loop runs after it ends.
+        await asyncio.sleep(0)
+
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_removal_keeps_the_last_state_write(self, hass, owned_task_bt):
+        """The save the removal itself performs must not be cancelled with the rest.
+
+        It is the only record the next start has of the learned thermal
+        model and the target the user last set; dropping it silently resets
+        the thermostat to its defaults on the next restart.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_task_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+
+        # Home Assistant runs the registered removal callbacks after the
+        # entity's own teardown, so the save is written last.
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        assert readings == []
+        state_mgr.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -1611,6 +1867,58 @@ async def _run_finalize_startup(bt):
         patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
     ):
         await BetterThermostat._finalize_startup(bt)
+
+
+class TestStartupStopsOnceTheEntityIsGone:
+    """A startup interrupted by removal must not go on setting the room up.
+
+    Waiting for the optional sensors can run for the better part of a
+    minute, and the entity can be removed inside that window. Everything
+    after it belongs to a thermostat the user still has.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_removal_during_the_sensor_wait_ends_the_startup(self, bt):
+        """The degraded evaluation writes state, so it may not run after it.
+
+        `await_optional_sensors` gives up on its own once the removal
+        starts, and returns normally. Reading the removal only after the
+        steps below it lets a torn-down entity publish a degraded mode and
+        start a recheck that outlives the call.
+        """
+
+        async def removed_during_the_wait(_self):
+            _self.is_removed = True
+            return []
+
+        degraded = AsyncMock()
+        bt.is_removed = False
+        bt.all_trvs = None
+        bt.entity_ids = [TRV_ID]
+        bt._async_unsub_state_changed = None
+        bt._post_grace_recheck = MagicMock()
+        bt._external_temperature_keepalive = MagicMock()
+        bt._spawn_owned = MagicMock()
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.await_optional_sensors", removed_during_the_wait),
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", degraded),
+            patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
+            patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+            patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+        ):
+            await BetterThermostat._finalize_startup(bt)
+
+        degraded.assert_not_awaited()
+        # The critical-entity recheck is started before the wait; only the
+        # degraded one belongs to the steps this guard now covers.
+        started = [
+            call.kwargs.get("name", "") for call in bt._spawn_owned.call_args_list
+        ]
+        assert not any("post_grace_degraded" in name for name in started)
 
 
 class TestCoolerTargetReadAtListenerRegistration:
