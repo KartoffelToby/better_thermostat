@@ -66,7 +66,12 @@ class TestFilterByPrefix:
         assert "uid2:trv_a" not in result
 
     def test_non_dict_values_excluded(self) -> None:
-        """Entries whose value is not a dict are excluded even if key matches."""
+        """Only entries carrying a controller state survive the prefix filter.
+
+        The caller indexes into what comes back, so a string, a number or a
+        null under a matching key would reach it as a state to read and fail
+        at the first field access.
+        """
         raw = {
             "uid1:trv_a": {"gain_est": 0.5},
             "uid1:trv_b": "not_a_dict",
@@ -602,7 +607,12 @@ class TestMigrateV0Stores:
 
     @pytest.mark.asyncio
     async def test_all_stores_raise_no_crash(self) -> None:
-        """If all four stores raise exceptions, migration completes without crash."""
+        """An unreadable legacy store must not stop the migration.
+
+        The old stores are read once at startup. A user whose disk gave up
+        on one of them needs a thermostat that comes up regardless, on
+        defaults, rather than an integration that fails to load.
+        """
         mgr = _make_state_manager()
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 
@@ -730,7 +740,12 @@ class TestUnusableLegacyThermalValues:
 
     @pytest.mark.asyncio
     async def test_migration_is_saved_and_does_not_repeat(self) -> None:
-        """The unified store is written even when only a broken stat is left."""
+        """The migration records itself as done however little it salvaged.
+
+        Whether the old data was readable decides what gets carried over,
+        not whether the migration ran. Skipping the write for a store that
+        yielded nothing usable would re-run the whole scan on every start.
+        """
         mgr = _make_state_manager()
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 
