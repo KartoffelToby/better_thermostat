@@ -19,6 +19,18 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
 from custom_components.better_thermostat.trv import Trv
 
 
+def _answers_with(value):
+    """Answer every lookup with a real state carrying ``value``.
+
+    ``hass.states.get`` is asked for whichever entity the code under test
+    reaches for, so the stand-in is built per lookup rather than shared: one
+    ``State`` would carry a single entity id for all of them. A ``MagicMock``
+    in its place answers any attribute at all, so a field read by the wrong
+    name still comes back with something.
+    """
+    return lambda entity_id: State(entity_id, value)
+
+
 @pytest.fixture
 def mock_hass():
     """Create a mock Home Assistant instance."""
@@ -49,7 +61,13 @@ def mock_bt_instance(mock_hass):
     }
     bt.devices_errors = []
     # A MagicMock would answer .get() with another MagicMock, which the
-    # battery retry pause compares against a timestamp.
+    # battery reader would take for the entity id of a battery entity and the
+    # retry pause would compare against a timestamp. No battery entity is
+    # mapped by default.
+    bt.devices_states = {
+        "climate.trv_1": {"battery": None, "battery_id": None},
+        "climate.trv_2": {"battery": None, "battery_id": None},
+    }
     bt._next_battery_read = {}
     bt._degraded_warning_emitted = False
     bt._critical_grace_until = None
@@ -281,9 +299,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             result = await check_critical_entities(mock_bt_instance)
@@ -297,9 +313,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             result = await check_critical_entities(mock_bt_instance)
@@ -314,9 +328,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unknown"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             result = await check_critical_entities(mock_bt_instance)
@@ -342,9 +354,7 @@ class TestCheckCriticalEntities:
         for trv in mock_bt_instance.real_trvs.values():
             trv.model_quirks = zwa021
             trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
-        mock_state = MagicMock()
-        mock_state.state = "unknown"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
             result = await check_critical_entities(mock_bt_instance)
@@ -362,9 +372,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
         mock_bt_instance._critical_grace_until = (
             mock_bt_instance.clock.now() + timedelta(minutes=2)
         )
@@ -385,9 +393,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
         # Grace expired one minute ago
         mock_bt_instance._critical_grace_until = (
             mock_bt_instance.clock.now() - timedelta(minutes=1)
@@ -417,9 +423,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
         mock_bt_instance._critical_grace_until = (
             mock_bt_instance.clock.now() - timedelta(minutes=1)
         )
@@ -446,9 +450,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
         # Simulate a previously raised error
         mock_bt_instance.devices_errors = ["climate.trv_1", "climate.trv_2"]
 
@@ -469,9 +471,7 @@ class TestCheckCriticalEntities:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
         mock_bt_instance.devices_errors = []
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
@@ -491,9 +491,8 @@ class TestCheckCriticalEntities:
         )
 
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == "climate.trv_1" else "heat"
-            return state
+            value = "unavailable" if entity_id == "climate.trv_1" else "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
         mock_bt_instance._critical_grace_until = (
@@ -523,9 +522,7 @@ class TestCheckCriticalEntitiesBattery:
 
     @staticmethod
     def _make_available(mock_bt_instance):
-        state = MagicMock()
-        state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
         mock_bt_instance.devices_errors = []
         return mock_bt_instance
 
@@ -748,12 +745,11 @@ class TestCheckAndUpdateDegradedMode:
         )
 
         def mock_get(entity_id):
-            state = MagicMock()
             if entity_id == "binary_sensor.window":
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -780,12 +776,11 @@ class TestCheckAndUpdateDegradedMode:
         mock_bt_instance.door_id = "binary_sensor.door"
 
         def mock_get(entity_id):
-            state = MagicMock()
             if entity_id == "binary_sensor.door":
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -817,9 +812,8 @@ class TestCheckAndUpdateDegradedMode:
             trv.current_temperature = 21.0
 
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable"
-            return state
+            value = "unavailable"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -838,9 +832,7 @@ class TestCheckAndUpdateDegradedMode:
             check_and_update_degraded_mode,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             result = await check_and_update_degraded_mode(mock_bt_instance)
@@ -857,12 +849,11 @@ class TestCheckAndUpdateDegradedMode:
         )
 
         def mock_get(entity_id):
-            state = MagicMock()
             if entity_id == "sensor.room_temp":
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1034,9 +1025,8 @@ class TestDegradedModeGracePeriod:
     @staticmethod
     def _mock_get_with_unavailable(unavailable_id):
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == unavailable_id else "20.0"
-            return state
+            value = "unavailable" if entity_id == unavailable_id else "20.0"
+            return State(entity_id, value)
 
         return mock_get
 
@@ -1135,9 +1125,7 @@ class TestDegradedModeGracePeriod:
         )
 
         # All sensors are available now
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
         # Mock was previously set to degraded silently during grace
         mock_bt_instance.kernel_state = replace(
             mock_bt_instance.kernel_state,
@@ -1164,9 +1152,7 @@ class TestDegradedModeGracePeriod:
             check_and_update_degraded_mode,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
         mock_bt_instance.degraded_mode = True
         mock_bt_instance._degraded_warning_emitted = True
 
@@ -1224,9 +1210,8 @@ class TestCoolerDegradedMode:
         """Build a states.get side effect where one entity is unavailable."""
 
         def mock_get(entity_id):
-            state = MagicMock()
-            state.state = "unavailable" if entity_id == unavailable_id else "20.0"
-            return state
+            value = "unavailable" if entity_id == unavailable_id else "20.0"
+            return State(entity_id, value)
 
         return mock_get
 
@@ -1289,9 +1274,7 @@ class TestCoolerDegradedMode:
         )
 
         mock_bt_instance.cooler_entity_id = self.COOLER
-        available = MagicMock()
-        available.state = "cool"
-        mock_bt_instance.hass.states.get.return_value = available
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("cool")
         mock_bt_instance._degraded_warning_emitted = True
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
@@ -1353,9 +1336,7 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "20.0"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
 
         sleep_calls = []
 
@@ -1407,9 +1388,7 @@ class TestAwaitOptionalSensors:
         mock_bt_instance.outdoor_sensor = None
         mock_bt_instance.weather_entity = None
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1471,9 +1450,7 @@ class TestAwaitOptionalSensors:
         mock_bt_instance.humidity_sensor_entity_id = None
         mock_bt_instance.weather_entity = None
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1497,9 +1474,7 @@ class TestAwaitOptionalSensors:
         )
 
         # All sensors permanently unavailable
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1531,9 +1506,7 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1561,17 +1534,16 @@ class TestAwaitOptionalSensors:
 
         def mock_get(entity_id):
             nonlocal outdoor_calls
-            state = MagicMock()
             if entity_id == "sensor.outdoor_temp":
                 outdoor_calls += 1
                 # Comes online after first sleep
-                state.state = "unavailable" if outdoor_calls <= 1 else "12.0"
+                value = "unavailable" if outdoor_calls <= 1 else "12.0"
             elif entity_id == "weather.home":
                 # Stays unavailable forever
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1604,17 +1576,16 @@ class TestAwaitOptionalSensors:
 
         def mock_get(entity_id):
             nonlocal get_count
-            state = MagicMock()
             if entity_id == "sensor.outdoor_temp":
                 get_count += 1
                 # With delays=(2, 4):
                 # loop check 1: get_count=1 → unavailable → sleep(2)
                 # loop check 2: get_count=2 → unavailable → sleep(4)
                 # final check:  get_count=3 → available
-                state.state = "unavailable" if get_count <= 2 else "10.0"
+                value = "unavailable" if get_count <= 2 else "10.0"
             else:
-                state.state = "20.0"
-            return state
+                value = "20.0"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1665,9 +1636,9 @@ class TestAwaitOptionalSensors:
         mock_bt_instance.humidity_sensor_entity_id = None
         mock_bt_instance.weather_entity = None
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"  # never comes online
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with(
+            "unavailable"
+        )  # never comes online
 
         sleep_calls = []
 
@@ -1713,9 +1684,7 @@ class TestAwaitCriticalEntities:
             await_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
 
         sleep_calls = []
 
@@ -1764,14 +1733,13 @@ class TestAwaitCriticalEntities:
 
         def mock_get(entity_id):
             nonlocal call_count
-            state = MagicMock()
             if entity_id == "climate.trv_1":
                 call_count += 1
                 # Unavailable on first call, available from second onwards
-                state.state = "unavailable" if call_count <= 1 else "heat"
+                value = "unavailable" if call_count <= 1 else "heat"
             else:
-                state.state = "heat"
-            return state
+                value = "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1796,9 +1764,9 @@ class TestAwaitCriticalEntities:
         )
 
         mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"  # never comes online
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with(
+            "unavailable"
+        )  # never comes online
 
         sleep_calls = []
 
@@ -1826,9 +1794,7 @@ class TestAwaitCriticalEntities:
 
         mock_bt_instance.real_trvs = {"climate.trv_1": Trv(entity_id="climate.trv_1")}
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         sleep_calls = []
 
@@ -1873,17 +1839,16 @@ class TestAwaitCriticalEntities:
 
         def mock_get(entity_id):
             nonlocal trv1_calls
-            state = MagicMock()
             if entity_id == "climate.trv_1":
                 trv1_calls += 1
                 # Comes online after first sleep
-                state.state = "unavailable" if trv1_calls <= 1 else "heat"
+                value = "unavailable" if trv1_calls <= 1 else "heat"
             elif entity_id == "climate.trv_2":
                 # Stays unavailable forever
-                state.state = "unavailable"
+                value = "unavailable"
             else:
-                state.state = "heat"
-            return state
+                value = "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1913,15 +1878,14 @@ class TestAwaitCriticalEntities:
 
         def mock_get(entity_id):
             nonlocal get_count
-            state = MagicMock()
             if entity_id == "climate.trv_1":
                 get_count += 1
                 # With delays=(2, 4): unavailable for the two loop checks,
                 # available on the final check.
-                state.state = "unavailable" if get_count <= 2 else "heat"
+                value = "unavailable" if get_count <= 2 else "heat"
             else:
-                state.state = "heat"
-            return state
+                value = "heat"
+            return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
 
@@ -1950,9 +1914,7 @@ class TestBatteryStatusCalls:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "heat"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
         # Battery still unpopulated -> the initial refresh must fire.
         mock_bt_instance.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": None},
@@ -1978,9 +1940,7 @@ class TestBatteryStatusCalls:
             check_critical_entities,
         )
 
-        mock_state = MagicMock()
-        mock_state.state = "unavailable"
-        mock_bt_instance.hass.states.get.return_value = mock_state
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             with patch(
