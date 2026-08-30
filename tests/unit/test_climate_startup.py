@@ -1337,13 +1337,16 @@ class _AdvancingClock:
     """
 
     def __init__(self, loop):
+        """Start at the loop's own reading with nothing charged to it yet."""
         self._loop_time = loop.time
         self._elapsed = 0.0
 
     def time(self) -> float:
+        """The loop's reading plus everything the slept delays have charged."""
         return self._loop_time() + self._elapsed
 
     async def sleep(self, delay, result=None):
+        """Charge the delay to the clock and hand control back at once."""
         if delay and delay > 0:
             self._elapsed += delay
         await _real_asyncio_sleep(0)
@@ -1358,6 +1361,7 @@ def _trv_refusing_every_write(attempts: list[str]):
     trv.max_temp = 30.0
 
     async def refuse(_self, entity_id, _temperature):
+        """Record the attempt and fail it the way an unreachable TRV does."""
         attempts.append(entity_id)
         raise HomeAssistantError("TRV is not reachable")
 
@@ -1454,6 +1458,11 @@ class TestStartupControlSync:
         writer = _trv_refusing_every_write(attempts)
 
         async def control_by_writing(_self, entity_id, cycle=None):
+            """Stand in for the control call with the setpoint write alone.
+
+            The retry ladder under test sits in the write, so the rest of a
+            control cycle would only add work the budget is not about.
+            """
             return await delegate_set_temperature(writer, entity_id, 21.0)
 
         with (
