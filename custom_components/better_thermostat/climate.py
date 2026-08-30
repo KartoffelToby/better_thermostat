@@ -809,11 +809,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         name : str
             Task name Home Assistant records for diagnostics.
 
+        A removed entity starts nothing. ``async_will_remove_from_hass`` takes
+        one snapshot of ``_owned_tasks`` and cancels what is in it; a task
+        started afterwards is not in that snapshot and would keep writing to
+        TRVs. Callers reach here after awaiting, so their own removal checks
+        can be stale by the time they spawn, and the check belongs here.
+
         Returns
         -------
-        asyncio.Task
-            The running task, held in ``_owned_tasks`` until it finishes.
+        asyncio.Task or None
+            The running task, held in ``_owned_tasks`` until it finishes, or
+            ``None`` when the entity is already removed.
         """
+        if self.is_removed:
+            coro.close()
+            return None
         task = self.hass.async_create_background_task(coro, name=name)
         self._owned_tasks.add(task)
         task.add_done_callback(self._owned_tasks.discard)
