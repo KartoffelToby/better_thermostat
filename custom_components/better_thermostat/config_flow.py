@@ -48,6 +48,8 @@ from .utils.const import (
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
     CONF_TOLERANCE,
     CONF_VALVE_MAINTENANCE,
@@ -55,6 +57,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DEFAULT_CALIBRATION_MODE,
+    TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
     CalibrationType,
     MpcV2PlantPreset,
@@ -68,6 +71,54 @@ CONFIG_WALKTHROUGH_URL = (
     "https://better-thermostat.org/setup/configuration-walkthrough/"
 )
 
+
+# The dropdown offers whole degrees Celsius. Bounds are stored as strings, the
+# way the target temperature step is, so one reader covers both.
+_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE = {"auto": TARGET_TEMP_BOUND_AUTO} | {
+    f"min_max_{degree}": f"{float(degree)}" for degree in range(41)
+}
+_TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR = {
+    value: key for key, value in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE.items()
+}
+
+
+def _resolve_min_max_selector_token(value: str | float | None) -> str:
+    """Return the selector token for a stored bound or for a submitted token.
+
+    Parameters
+    ----------
+    value :
+            a stored bound such as ``"25.0"`` or a selector token such as
+            ``"min_max_25"``
+
+    Returns
+    -------
+    str
+            the matching selector token, or ``"auto"`` when nothing matches
+    """
+    key = str(value)
+    if key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE:
+        return key
+    return _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR.get(key, "auto")
+
+
+TEMP_MIN_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        # Stable selector tokens keep labels translatable without changing stored values.
+        options=list(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
+        mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="target_temp_min",
+    )
+)
+
+TEMP_MAX_SELECTOR = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        # Stable selector tokens keep labels translatable without changing stored values.
+        options=list(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
+        mode=selector.SelectSelectorMode.DROPDOWN,
+        translation_key="target_temp_max",
+    )
+)
 
 _TARGET_TEMP_STEP_SELECTOR_TO_VALUE = {
     "auto_legacy": "0.0",
@@ -145,6 +196,8 @@ PRESET_SELECTOR = selector.SelectSelector(
 _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
+    CONF_TARGET_TEMP_MIN: TARGET_TEMP_BOUND_AUTO,
+    CONF_TARGET_TEMP_MAX: TARGET_TEMP_BOUND_AUTO,
     CONF_TARGET_TEMP_STEP: "0.0",
 }
 
@@ -441,10 +494,14 @@ def _build_user_fields(
             )
         default = resolve(key)
         if key == CONF_HEATER and isinstance(default, list):
+            # The stored entry holds a bundle per thermostat, while a form
+            # rebuilt after a validation error carries the plain entity ids the
+            # user submitted. Both have to survive into the selector, or the
+            # redisplayed form loses the thermostats the user had picked.
             default = [
-                item.get("trv")
+                item.get("trv") if isinstance(item, dict) else item
                 for item in default
-                if isinstance(item, dict) and item.get("trv")
+                if (item.get("trv") if isinstance(item, dict) else item)
             ]
         if key == CONF_HEATER and not default:
             default = None
@@ -533,6 +590,15 @@ def _build_user_fields(
         default=tolerance_default,
     )
 
+    for bound_key, bound_selector in (
+        (CONF_TARGET_TEMP_MIN, TEMP_MIN_SELECTOR),
+        (CONF_TARGET_TEMP_MAX, TEMP_MAX_SELECTOR),
+    ):
+        bound_default = resolve(bound_key, _USER_FIELD_DEFAULTS[bound_key])
+        if bound_default is not None:
+            bound_default = _resolve_min_max_selector_token(bound_default)
+        add_field(bound_key, bound_selector, default=bound_default)
+
     target_step_default = resolve(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
@@ -551,7 +617,11 @@ def _build_user_fields(
 
 
 def _normalize_user_submission(
-    user_input: dict[str, Any], *, mode: str, base: Mapping[str, Any] | None = None
+    user_input: dict[str, Any],
+    *,
+    mode: str,
+    base: Mapping[str, Any] | None = None,
+    errors: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
@@ -642,6 +712,31 @@ def _normalize_user_submission(
             normalized[CONF_TOLERANCE] = float(tolerance)
         except TypeError, ValueError:
             normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+
+    for bound_key in (CONF_TARGET_TEMP_MIN, CONF_TARGET_TEMP_MAX):
+        bound = user_input.get(
+            bound_key, normalized.get(bound_key, _USER_FIELD_DEFAULTS[bound_key])
+        )
+        bound_token = str(bound)
+        bound_from_selector = bound_token in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
+        if bound_from_selector:
+            bound = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[bound_token]
+        if bound is None or (bound == "" and not bound_from_selector):
+            bound = _USER_FIELD_DEFAULTS[bound_key]
+        normalized[bound_key] = str(bound)
+
+    if errors is not None:
+        try:
+            lower_bound = float(normalized[CONF_TARGET_TEMP_MIN])
+            upper_bound = float(normalized[CONF_TARGET_TEMP_MAX])
+        except ValueError:
+            pass
+        else:
+            # A bound left on auto imposes no limit, and an entry whose two
+            # bounds are equal pins the setpoint to a single value on purpose.
+            auto = float(TARGET_TEMP_BOUND_AUTO)
+            if auto not in (lower_bound, upper_bound) and lower_bound > upper_bound:
+                errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
 
     target_step = user_input.get(
         CONF_TARGET_TEMP_STEP,
@@ -850,7 +945,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("ConfigFlow user step received input: %s", user_input)
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="create", base=current
+                    user_input, mode="create", base=current, errors=errors
                 )
             except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
@@ -861,7 +956,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "no_name"
 
             heaters = normalized.get(CONF_HEATER) or []
-            if "base" not in errors:
+            if not heaters:
+                errors[CONF_HEATER] = "no_heater"
+
+            if not errors:
                 self.heater_entity_id = list(heaters)
                 self.trv_bundle = []
                 for trv in self.heater_entity_id:
@@ -1014,60 +1112,73 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_user(self, user_input=None):
         """Handle the user step."""
+        errors: dict[str, str] = {}
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="update", base=self._config_entry.data
+                    user_input,
+                    mode="update",
+                    base=self._config_entry.data,
+                    errors=errors,
                 )
             except Exception as err:
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
             self.updated_config = normalized
-            self.trv_bundle = []
 
-            # Get the list of heaters from the normalized input
-            heaters = normalized.get(CONF_HEATER, [])
+            if not errors:
+                self.trv_bundle = []
 
-            # Create a map of existing TRV configs by TRV ID
-            existing_trvs = {
-                trv.get("trv"): trv
-                for trv in self._config_entry.data.get(CONF_HEATER, [])
-                if isinstance(trv, dict) and trv.get("trv")
-            }
+                # Get the list of heaters from the normalized input
+                heaters = normalized.get(CONF_HEATER, [])
 
-            for heater_item in heaters:
-                if isinstance(heater_item, dict):
-                    trv_id = heater_item.get("trv")
-                else:
-                    trv_id = heater_item
+                # Create a map of existing TRV configs by TRV ID
+                existing_trvs = {
+                    trv.get("trv"): trv
+                    for trv in self._config_entry.data.get(CONF_HEATER, [])
+                    if isinstance(trv, dict) and trv.get("trv")
+                }
 
-                if not trv_id:
-                    continue
+                for heater_item in heaters:
+                    if isinstance(heater_item, dict):
+                        trv_id = heater_item.get("trv")
+                    else:
+                        trv_id = heater_item
 
-                if trv_id in existing_trvs:
-                    # Use existing config for this TRV
-                    trv_copy = copy.deepcopy(existing_trvs[trv_id])
-                    trv_copy["adapter"] = None
-                    self.trv_bundle.append(trv_copy)
-                else:
-                    # This is a new TRV added during edit
-                    integration = await get_trv_intigration(self, trv_id)
-                    self.trv_bundle.append(
-                        {
-                            "trv": trv_id,
-                            "integration": integration,
-                            "model": await get_device_model(self, trv_id),
-                            "adapter": await load_adapter(self, integration, trv_id),
-                        }
+                    if not trv_id:
+                        continue
+
+                    if trv_id in existing_trvs:
+                        # Use existing config for this TRV
+                        trv_copy = copy.deepcopy(existing_trvs[trv_id])
+                        trv_copy["adapter"] = None
+                        self.trv_bundle.append(trv_copy)
+                    else:
+                        # This is a new TRV added during edit
+                        integration = await get_trv_intigration(self, trv_id)
+                        self.trv_bundle.append(
+                            {
+                                "trv": trv_id,
+                                "integration": integration,
+                                "model": await get_device_model(self, trv_id),
+                                "adapter": await load_adapter(
+                                    self, integration, trv_id
+                                ),
+                            }
+                        )
+
+                _LOGGER.debug(
+                    "OptionsFlow user step built trv bundle: %s", self.trv_bundle
+                )
+
+                if self.trv_bundle:
+                    return await self.async_step_advanced(
+                        None, self.trv_bundle[0], self.updated_config
                     )
 
-            _LOGGER.debug("OptionsFlow user step built trv bundle: %s", self.trv_bundle)
-
-            return await self.async_step_advanced(
-                None, self.trv_bundle[0], self.updated_config
-            )
+                errors[CONF_HEATER] = "no_heater"
 
         fields = _build_user_fields(
             mode="update", current=self._config_entry.data, user_input=user_input
@@ -1076,6 +1187,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(fields),
+            errors=errors,
             last_step=False,
             description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
         )

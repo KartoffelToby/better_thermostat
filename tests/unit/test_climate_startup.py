@@ -105,6 +105,8 @@ def bt():
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
     mock.bt_target_temp = 21.0
+    mock.bt_target_temp_min = None
+    mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
     mock._configured_target_temp_step = None
     mock.bt_target_cooltemp = None

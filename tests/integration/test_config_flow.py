@@ -31,6 +31,9 @@ from custom_components.better_thermostat.utils.const import (
     CONF_PRESETS,
     CONF_SENSOR,
     CONF_SENSOR_WINDOW,
+    CONF_TARGET_TEMP_MAX,
+    CONF_TARGET_TEMP_MIN,
+    TARGET_TEMP_BOUND_AUTO,
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.preset_manager import (
@@ -472,3 +475,137 @@ async def test_a_settled_options_pass_that_changes_nothing_leaves_the_entry_alon
 
     assert reloads == []
     assert hass.data[DOMAIN][entry.entry_id]["climate"] is before
+
+
+async def test_a_configured_range_holds_the_thermostat_below_what_its_device_allows(
+    hass, fake_trv
+):
+    """A range set in the flow reaches the thermostat the entry brings up.
+
+    The device offers 5 to 30 degrees, and the point of configuring a range is
+    to hand the room a narrower one than that. Storing the two bounds is only
+    half of it: what the user sees is the span the climate entity publishes,
+    so this ends on the entity's own limits.
+    """
+    set_room_sensor(hass, 19.0)
+
+    await _run_create_flow(
+        hass,
+        _user_step_input(
+            TRV_ID,
+            **{CONF_TARGET_TEMP_MIN: "min_max_16", CONF_TARGET_TEMP_MAX: "min_max_24"},
+        ),
+    )
+
+    entry = _only_entry(hass)
+    assert entry.data[CONF_TARGET_TEMP_MIN] == "16.0"
+    assert entry.data[CONF_TARGET_TEMP_MAX] == "24.0"
+
+    bt = await wait_for_startup(hass, entry)
+    assert (bt.min_temp, bt.max_temp) == (16.0, 24.0)
+    state = hass.states.get(BT_ENTITY)
+    assert (state.attributes["min_temp"], state.attributes["max_temp"]) == (16.0, 24.0)
+
+
+async def test_the_options_form_offers_the_range_the_entry_runs_on(hass, fake_trv):
+    """Reopening the settings shows the bounds the entry was configured with.
+
+    The form speaks in selector tokens while the entry stores degrees, so a
+    pre-fill that does not translate back sends the user's own configuration
+    to the handler as "auto" the next time they touch anything else.
+    """
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(
+        hass, _user_step_input(TRV_ID, **{CONF_TARGET_TEMP_MIN: "min_max_16"})
+    )
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+
+    form = await hass.config_entries.options.async_init(entry.entry_id)
+    offered = (
+        form_default(form, CONF_TARGET_TEMP_MIN),
+        form_default(form, CONF_TARGET_TEMP_MAX),
+    )
+    hass.config_entries.options.async_abort(form["flow_id"])
+    await click_through_the_options(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert offered == ("min_max_16", "auto")
+    assert entry.data[CONF_TARGET_TEMP_MIN] == "16.0"
+
+
+@pytest.mark.parametrize("flow", ["create", "options"])
+async def test_a_minimum_above_the_maximum_is_sent_back_to_the_user(
+    hass, fake_trv, flow
+):
+    """An inverted range does not reach the entry; the form comes back.
+
+    A minimum above the maximum leaves no temperature the user could ask for,
+    so both flows have to stop on their first step. The redisplayed form still
+    has to carry the thermostats that were picked, or correcting the range
+    means selecting every device again.
+    """
+    set_room_sensor(hass, 19.0)
+    inverted = _user_step_input(
+        TRV_ID,
+        **{CONF_TARGET_TEMP_MIN: "min_max_25", CONF_TARGET_TEMP_MAX: "min_max_20"},
+    )
+
+    if flow == "create":
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], inverted
+        )
+    else:
+        await _run_create_flow(hass, _user_step_input(TRV_ID))
+        entry = _only_entry(hass)
+        await wait_for_startup(hass, entry)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], inverted
+        )
+        assert entry.data[CONF_TARGET_TEMP_MIN] == TARGET_TEMP_BOUND_AUTO
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "user", result
+    assert result["errors"] == {CONF_TARGET_TEMP_MIN: "target_temp_min_above_max"}
+    assert form_default(result, CONF_HEATER) == [TRV_ID]
+    assert form_default(result, CONF_TARGET_TEMP_MIN) == "min_max_25"
+
+
+@pytest.mark.parametrize("flow", ["create", "options"])
+async def test_a_submission_without_a_thermostat_is_sent_back_to_the_user(
+    hass, fake_trv, flow
+):
+    """Emptying the thermostat field returns the form instead of failing.
+
+    An entity selector accepts an empty list, and there is nothing for Better
+    Thermostat to control without a thermostat, so the step has to say so. The
+    options flow reaches the same place from the other side: the devices it
+    was given resolved to no bundle at all.
+    """
+    set_room_sensor(hass, 19.0)
+    without_a_thermostat = _user_step_input(TRV_ID) | {CONF_HEATER: []}
+
+    if flow == "create":
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], without_a_thermostat
+        )
+    else:
+        await _run_create_flow(hass, _user_step_input(TRV_ID))
+        entry = _only_entry(hass)
+        await wait_for_startup(hass, entry)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], without_a_thermostat
+        )
+        assert _stored_trv(entry)["trv"] == TRV_ID
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "user", result
+    assert result["errors"] == {CONF_HEATER: "no_heater"}

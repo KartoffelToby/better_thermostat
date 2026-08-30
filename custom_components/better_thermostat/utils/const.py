@@ -71,6 +71,11 @@ CONF_PRESETS: Final = "presets"
 CONF_INTEGRATION: Final = "integration"
 CONF_NO_SYSTEM_MODE_OFF: Final = "no_off_system_mode"
 CONF_TOLERANCE: Final = "tolerance"
+CONF_TARGET_TEMP_MIN: Final = "target_temp_min"
+CONF_TARGET_TEMP_MAX: Final = "target_temp_max"
+# Stored value of a target temperature bound that is left to the controlled
+# entities instead of being pinned to a degree.
+TARGET_TEMP_BOUND_AUTO: Final = "-1.0"
 CONF_TARGET_TEMP_STEP: Final = "target_temp_step"
 
 SUPPORT_FLAGS: Final = (
