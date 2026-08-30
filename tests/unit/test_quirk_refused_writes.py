@@ -117,6 +117,17 @@ class TestTheBoschRoomThermostatsDeclineARefusedSetpoint:
         host.hass.services.async_call.assert_awaited_once()
 
 
+def _services_called(host):
+    """The service names the host was actually asked for.
+
+    A refusal mocked as an ``AsyncMock`` side effect raises only once the
+    service is awaited, so a quirk that returns ``False`` without writing
+    anything satisfies the return-value assertion on its own. Naming the
+    service closes that gap.
+    """
+    return [call.args[1] for call in host.hass.services.async_call.await_args_list]
+
+
 class TestTheTuyaValveDeclinesARefusedCommand:
     """TV02-Zigbee writes the mode and the setpoint itself.
 
@@ -133,6 +144,7 @@ class TestTheTuyaValveDeclinesARefusedCommand:
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         assert await TV02.override_set_hvac_mode(host, ENTITY_ID, "heat") is False
+        assert "set_hvac_mode" in _services_called(host)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
@@ -147,6 +159,7 @@ class TestTheTuyaValveDeclinesARefusedCommand:
         host.hass.services.async_call = AsyncMock(side_effect=_refuse_the_setpoint)
 
         assert await TV02.override_set_temperature(host, ENTITY_ID, 21.0) is False
+        assert "set_temperature" in _services_called(host)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
@@ -211,6 +224,7 @@ class TestTheZWaveValveDeclinesARefusedCommand:
         answered = await zwa021_quirk.override_set_hvac_mode(host, ENTITY_ID, "heat")
 
         assert answered is False
+        assert "set_value" in _services_called(host)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
@@ -225,6 +239,7 @@ class TestTheZWaveValveDeclinesARefusedCommand:
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         assert await zwa021_quirk.override_set_valve(host, ENTITY_ID, 50) is False
+        assert "set_value" in _services_called(host)
 
 
 class TestTheEurotronicModeSelectReportsARefusedOption:
@@ -272,6 +287,7 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
             answered = await spzb0001_quirk.check_operation_mode(host, ENTITY_ID, "1")
 
         assert answered is False
+        assert "select_option" in _services_called(host)
 
     @pytest.mark.asyncio
     async def test_the_option_is_written_and_waited_for(self):
@@ -303,7 +319,15 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
     async def test_a_refused_option_does_not_end_the_startup_tweak(self, refusal):
-        """The startup path runs this write among others."""
+        """A refused mode option must not escape `initial_tweak`.
+
+        The mode select is written during startup, ahead of the rest of the
+        TRV's initialisation. A refusal that propagated would take the
+        calibration setup, the valve channel and the first setpoint down
+        with it, leaving the device on whatever it woke up with. The device
+        keeping its old mode is a smaller loss than the TRV never being set
+        up at all, so the tweak answers None and the startup carries on.
+        """
         host = _host(
             state=State("select.trv_trv_mode", "2"),
             model="SPZB0001",
@@ -317,6 +341,7 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
             lambda hass: self._registry_holding_a_mode_select(),
         ):
             assert await spzb0001_quirk.initial_tweak(host, ENTITY_ID) is None
+        assert "select_option" in _services_called(host)
 
 
 # Everything a quirk module may define that puts a command on a device,
@@ -382,7 +407,11 @@ class TestNoQuirkLetsARefusalEscape:
         if inspect.iscoroutine(answer):
             answer = await answer
 
+        # `isinstance(answer, bool)` would take True as well, and a quirk
+        # that swallows the refusal and reports success is exactly what this
+        # sweep exists to catch. The refusal contract names one answer, so
+        # the assertion names it too.
         if expected is type(None):
             assert answer is None
         else:
-            assert isinstance(answer, expected)
+            assert answer is False

@@ -180,10 +180,22 @@ def plateau_bt(bt, hass):
     bt.pending_since = None
     bt.plateau_timer_cancel = None
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
-    trv = MagicMock()
-    trv.model_quirks = MagicMock()
-    trv.model_quirks.maybe_set_external_temperature = AsyncMock()
-    bt.real_trvs = {TRV_ID: trv}
+    # Production holds Trv objects here. A MagicMock in their place answers
+    # every attribute read, so a member field the code under test asks for
+    # by the wrong name still comes back with something.
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock()
+    bt.real_trvs = {
+        TRV_ID: Trv(
+            entity_id=TRV_ID,
+            calibration=1,
+            integration="generic_thermostat",
+            adapter=None,
+            model_quirks=quirks,
+            model="SomeModel",
+            advanced={},
+        )
+    }
     return bt
 
 
