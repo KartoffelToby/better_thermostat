@@ -94,7 +94,11 @@ async def initial_tweak(self, entity_id):
                     cal_entity,
                 )
                 await self.hass.services.async_call(
-                    "number", "set_value", {"entity_id": cal_entity, "value": 0}
+                    "number",
+                    "set_value",
+                    {"entity_id": cal_entity, "value": 0},
+                    blocking=True,
+                    context=self.context,
                 )
             except Exception as e:
                 _LOGGER.warning(
@@ -127,7 +131,11 @@ async def initial_tweak(self, entity_id):
                             )
                             service = "turn_on" if child_lock_setting else "turn_off"
                             await self.hass.services.async_call(
-                                "switch", service, {"entity_id": cl_entity}
+                                "switch",
+                                service,
+                                {"entity_id": cl_entity},
+                                blocking=True,
+                                context=self.context,
                             )
                     elif domain == "lock":
                         target_lock = (
@@ -145,7 +153,11 @@ async def initial_tweak(self, entity_id):
                             )
                             service = "lock" if child_lock_setting else "unlock"
                             await self.hass.services.async_call(
-                                "lock", service, {"entity_id": cl_entity}
+                                "lock",
+                                service,
+                                {"entity_id": cl_entity},
+                                blocking=True,
+                                context=self.context,
                             )
                 except Exception as e:
                     _LOGGER.warning(
@@ -171,7 +183,11 @@ async def initial_tweak(self, entity_id):
                         win_entity,
                     )
                     await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": win_entity}
+                        "switch",
+                        "turn_off",
+                        {"entity_id": win_entity},
+                        blocking=True,
+                        context=self.context,
                     )
             except Exception as e:
                 _LOGGER.warning(
@@ -196,7 +212,11 @@ async def initial_tweak(self, entity_id):
                         away_entity,
                     )
                     await self.hass.services.async_call(
-                        "switch", "turn_off", {"entity_id": away_entity}
+                        "switch",
+                        "turn_off",
+                        {"entity_id": away_entity},
+                        blocking=True,
+                        context=self.context,
                     )
             except Exception as e:
                 _LOGGER.warning(

@@ -509,3 +509,49 @@ class TestAdoptionRunsEveryStep:
             ("switch", "turn_off", {"entity_id": WINDOW_SWITCH}),
             ("switch", "turn_off", {"entity_id": AWAY_SWITCH}),
         ]
+
+    @pytest.mark.asyncio
+    async def test_every_step_waits_for_the_device_to_answer(self):
+        """A refusal only reaches the caller when the call blocks.
+
+        `ServiceRegistry.async_call` defaults to fire-and-forget and runs a
+        failing handler in a background task. Without `blocking=True` the
+        `except` around each step here can never see a device refuse, so the
+        warnings below it would never be reached and adoption would report a
+        device brought into a known state it never took.
+        """
+        thermostat = _thermostat(
+            child_lock=True,
+            states={
+                CHILD_LOCK_SWITCH: STATE_OFF,
+                WINDOW_SWITCH: STATE_ON,
+                AWAY_SWITCH: STATE_ON,
+            },
+        )
+
+        await _run_tweak(
+            thermostat,
+            calibration=CALIBRATION_ENTITY,
+            child_lock=CHILD_LOCK_SWITCH,
+            window=WINDOW_SWITCH,
+            away=AWAY_SWITCH,
+        )
+
+        waited = [
+            (call.kwargs.get("blocking"), call.kwargs.get("context"))
+            for call in thermostat.hass.services.async_call.await_args_list
+        ]
+        assert waited == [(True, thermostat.context)] * 4
+
+    @pytest.mark.asyncio
+    async def test_a_lock_step_waits_for_the_device_to_answer(self):
+        """The lock branch is the one step the equipped-device run does not take."""
+        thermostat = _thermostat(
+            child_lock=True, states={CHILD_LOCK_LOCK: LockState.UNLOCKED}
+        )
+
+        await _run_tweak(thermostat, child_lock=CHILD_LOCK_LOCK)
+
+        call = thermostat.hass.services.async_call.await_args_list[0]
+        assert call.kwargs["blocking"] is True
+        assert call.kwargs["context"] is thermostat.context
