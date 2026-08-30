@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 import logging
+import math
 from typing import Any
 
 from .controller import ControllerSnapshot, MpcV2Controller
@@ -115,7 +116,15 @@ def import_mpc_v2_state(
         value = payload.get(attr)
         if value is not None:
             try:
-                setattr(state, attr, float(value))
+                number = float(value)
+                # `float()` takes "NaN", "Infinity" and anything that
+                # overflows to one, and the contract above says an unusable
+                # field keeps its default. A non-finite command or timestamp
+                # poisons every calculation that reads it afterwards, so it
+                # goes down the same refusal path as an unreadable one.
+                if not math.isfinite(number):
+                    raise ValueError(f"{attr} is not finite: {value!r}")
+                setattr(state, attr, number)
             except TypeError, ValueError, OverflowError:
                 # The field keeps the default a first start leaves there, so
                 # a value the store lost is indistinguishable from one it

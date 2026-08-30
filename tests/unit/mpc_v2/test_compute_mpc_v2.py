@@ -639,6 +639,11 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         pytest.param("last_percent", "forty-two", None, id="unparsable-text"),
         pytest.param("last_compute_ts", 10**400, 0.0, id="wider-than-a-float"),
         pytest.param("created_ts", {"nested": 1}, 0.0, id="wrong-type"),
+        # `float()` takes all three of these, so nothing raises on the way in
+        # and the field would carry a value no later calculation survives.
+        pytest.param("last_compute_ts", "NaN", 0.0, id="not-a-number"),
+        pytest.param("created_ts", "Infinity", 0.0, id="infinite"),
+        pytest.param("last_percent", "1e999", None, id="overflows-to-infinite"),
     ],
 )
 def test_unusable_stored_scalar_is_reported_at_warning(
