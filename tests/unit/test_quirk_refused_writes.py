@@ -215,7 +215,12 @@ class TestTheZWaveValveDeclinesARefusedCommand:
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio
     async def test_a_refused_valve_write_is_declined(self, refusal):
-        """A position that never reached the valve is not one to record."""
+        """A refused position must not be recorded as the valve's own.
+
+        The recorded position is what the next cycle compares against, so
+        storing one the device declined would make the difference look
+        settled and stop the retry.
+        """
         host = self._direct_valve_host()
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 

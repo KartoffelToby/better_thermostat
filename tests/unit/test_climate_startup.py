@@ -1117,7 +1117,12 @@ class TestInitializeTrvCalibrationFallback:
     async def test_offset_read_that_times_out_leaves_the_offset_at_zero(
         self, bt, caplog
     ):
-        """An offset a timed-out read never delivered lands at 0."""
+        """A device that does not answer leaves the offset where it started.
+
+        The startup has to reach a defined calibration one way or another:
+        carrying an unanswered read forward as an offset would apply a
+        correction the device was never asked about.
+        """
         bt = self._offset_trv_bt(bt)
         caplog.set_level(logging.WARNING)
 

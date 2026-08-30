@@ -1624,7 +1624,13 @@ class TestAwaitCriticalEntities:
         assert sleep_calls == [2, 4, 8], "Should sleep through all delays"
 
     def test_default_delays_increasing_and_total_roughly_90s(self):
-        """Default critical delays are increasing and sum to roughly 90 s."""
+        """The wait is long enough for a slow integration and no longer.
+
+        A cloud-backed valve can take most of a minute to publish after a
+        restart, so the ladder has to outlast that; stretching it further
+        only delays the repair issue for a device that is genuinely gone.
+        The steps grow so the early passes are cheap.
+        """
         from custom_components.better_thermostat.utils.watcher import (
             DEFAULT_CRITICAL_ENTITY_DELAYS,
         )
