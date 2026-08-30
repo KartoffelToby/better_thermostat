@@ -25,7 +25,7 @@ from custom_components.better_thermostat.events.temperature import (
     trigger_temperature_change,
 )
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP
+from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
 
 SENSOR_ID = "sensor.external_temp"
 
@@ -68,9 +68,6 @@ def mock_bt():
 
     # Serialisation of concurrent readings
     bt._temperature_filter_lock = None
-
-    # Anti-flicker state
-    bt.flicker_candidate = None
 
     # Maintenance
     bt.in_maintenance = False
@@ -784,6 +781,32 @@ class TestEdgeCasesAndRobustness:
         mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_plausible_reading_clears_the_issue(self, mock_bt):
+        """A value back in range withdraws the repair issue.
+
+        Without this the warning about an implausible reading survives the
+        sensor's recovery and the user has to dismiss it by hand.
+        """
+        module = "custom_components.better_thermostat.events.temperature"
+
+        with (
+            patch(f"{module}.ir.async_create_issue"),
+            patch(f"{module}.ir.async_delete_issue") as mock_delete_issue,
+        ):
+            await trigger_temperature_change(
+                mock_bt, _make_event(State(SENSOR_ID, "127.0"))
+            )
+            mock_delete_issue.assert_not_called()
+
+            await trigger_temperature_change(
+                mock_bt, _make_event(State(SENSOR_ID, "21.0"))
+            )
+
+        mock_delete_issue.assert_called_once_with(
+            mock_bt.hass, DOMAIN, "invalid_external_temperature_Test Thermostat"
+        )
+
+    @pytest.mark.asyncio
     async def test_avm_off_marker_rejected(self, mock_bt):
         """AVM Fritz!DECT 126.5 °C (OFF marker) must not update cur_temp."""
         mock_bt.cur_temp = 20.0
@@ -1082,8 +1105,8 @@ class TestArrivalOrder:
         mock_bt._handle_temperature_reading = lambda event: (
             BetterThermostat._handle_temperature_reading(mock_bt, event)
         )
-        mock_bt.hass.async_create_background_task = lambda coro, name=None: (
-            handlers.append(asyncio.ensure_future(coro))
+        mock_bt._spawn_owned = lambda coro, *, name: handlers.append(
+            asyncio.ensure_future(coro)
         )
 
     @pytest.mark.asyncio

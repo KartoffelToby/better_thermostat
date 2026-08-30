@@ -921,6 +921,33 @@ class TestDeserializeMpcV2:
         assert state.last_compute_ts == 100.0
 
     @pytest.mark.asyncio
+    async def test_a_value_the_store_lost_is_named_on_the_way_in(self, caplog):
+        """The load path is where an unreadable field is still recognisable.
+
+        Past this point the field carries the default a first start leaves
+        there, and a value the store lost looks exactly like one it never
+        held. The rehydration downstream is handed the default and has
+        nothing left to report.
+        """
+        mock_hass = AsyncMock()
+        mock_store = AsyncMock()
+        mock_store.async_load.return_value = {
+            "version": 1,
+            "mpc_v2": {"uid:climate.hall:t21.0": {"last_compute_ts": "bad"}},
+        }
+        with patch(f"{_SM}.Store", return_value=mock_store):
+            mgr = StateManager(mock_hass, "unreadable_field")
+        with caplog.at_level(logging.DEBUG):
+            await mgr.load()
+
+        reports = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(reports) == 1
+        assert "last_compute_ts" in reports[0].getMessage()
+        assert "uid:climate.hall:t21.0" in reports[0].getMessage()
+        # The entry survives; only the field it could not read stays default.
+        assert mgr.state.mpc_v2["uid:climate.hall:t21.0"].last_compute_ts == 0.0
+
+    @pytest.mark.asyncio
     async def test_a_poisoned_key_comes_back_without_a_controller(self):
         """Dropping the key is what makes the restart a cold one.
 

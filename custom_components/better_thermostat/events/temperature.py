@@ -310,6 +310,12 @@ async def trigger_temperature_change(self, event):
         )
         return
 
+    # A plausible reading clears the repair issue an implausible one raised,
+    # so a sensor that recovers does not leave the warning standing.
+    ir.async_delete_issue(
+        self.hass, DOMAIN, f"invalid_external_temperature_{self.device_name}"
+    )
+
     _now = dt_util.now()
     try:
         _age = (_now - self.last_external_sensor_change).total_seconds()

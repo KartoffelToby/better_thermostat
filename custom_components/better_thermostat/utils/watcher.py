@@ -54,6 +54,12 @@ UNAVAILABLE_STATES = (STATE_UNAVAILABLE, None, "missing", "unavail", "unavailabl
 # climate entity describes.
 UNKNOWN_STATES = (STATE_UNKNOWN, "unknown")
 
+# Seconds a battery entity that had nothing to report is left alone before it
+# is read again. Both availability checks run on nearly every event, so
+# without the pause an entity that publishes no level would cost a state
+# lookup and an entity state write on every one of them.
+BATTERY_REREAD_DELAY_SECONDS = 300.0
+
 
 def is_entity_available(hass, entity, state_unknown_as_available: bool = False) -> bool:
     """Check if an entity is available without side effects.
@@ -104,33 +110,56 @@ def is_trv_available(self, entity_id: str) -> bool:
     )
 
 
-async def get_battery_status(self, entity):
+def get_battery_status(self, entity) -> None:
     """Read a battery entity for a device and update internal state.
 
     Uses the provided mapping stored in `self.devices_states`.
+
+    A battery entity that is itself unavailable, or that has not published a
+    level yet, has nothing worth storing: the placeholder would take the place
+    of a reading, and since a stored reading is what stops later passes from
+    asking again, the level would never be read again. The stored slot is left
+    untouched in that case and the read is retried once
+    ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity : str
+        Entity ID of the device whose battery entity is read
     """
-    if entity in self.devices_states:
-        battery_id = self.devices_states[entity].get("battery_id")
-        if battery_id is not None:
-            new_battery = self.hass.states.get(battery_id)
-            if new_battery is not None:
-                battery = new_battery.state
-                self.devices_states[entity] = {
-                    "battery": battery,
-                    "battery_id": battery_id,
-                }
-                self.async_write_ha_state()
-                return
+    info = self.devices_states.get(entity)
+    if info is None:
+        return
+    battery_id = info.get("battery_id")
+    if battery_id is None:
+        return
+
+    battery_state = self.hass.states.get(battery_id)
+    level = None if battery_state is None else battery_state.state
+    if level in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        self._next_battery_read[entity] = (
+            self.clock.monotonic() + BATTERY_REREAD_DELAY_SECONDS
+        )
+        return
+
+    self._next_battery_read.pop(entity, None)
+    self.devices_states[entity] = {"battery": level, "battery_id": battery_id}
+    self.async_write_ha_state()
 
 
-def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
-    """Queue a battery read for an available entity, but only when it says something new.
+def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
+    """Read an available entity's battery, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    a background task plus an entity state write. A battery value is only
-    ever new on the first pass after startup, while it is still unpopulated,
-    or when the entity has just come back from an outage, so those are the
-    passes that read it.
+    an entity state write. A battery value is only ever new on the first pass
+    after startup, while it is still unpopulated, or when the entity has just
+    come back from an outage, so those are the passes that read it.
+
+    An unpopulated reading can also mean that the battery entity itself had
+    nothing to report, which would otherwise put a read on every pass, so
+    those retries wait out ``BATTERY_REREAD_DELAY_SECONDS``.
 
     Parameters
     ----------
@@ -148,10 +177,21 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
         # get_battery_status to read.
         return
 
-    if recovered or info.get("battery") is None:
-        self.hass.async_create_background_task(
-            get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
-        )
+    # Coming back from an outage is the one moment worth reading whatever the
+    # earlier passes found, so neither reason to skip applies to it.
+    if not recovered:
+        retry_at = self._next_battery_read.get(entity)
+        if retry_at is not None:
+            # A retry is pending because the battery entity had nothing to
+            # report. Whatever level is stored is the one from before that,
+            # so holding a level is not a reason to skip here — only the
+            # wait is, or the reading would stay stale until the next outage.
+            if self.clock.monotonic() < retry_at:
+                return
+        elif info.get("battery") is not None:
+            return
+
+    get_battery_status(self, entity)
 
 
 def get_optional_sensors(self) -> list:
@@ -278,7 +318,7 @@ async def check_critical_entities(self) -> bool:
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
             ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
-            schedule_battery_refresh(self, entity, recovered=recovered)
+            refresh_battery_reading(self, entity, recovered=recovered)
     return all_available
 
 
@@ -489,7 +529,7 @@ async def check_and_update_degraded_mode(self) -> bool:
                 entity,
             )
         else:
-            schedule_battery_refresh(
+            refresh_battery_reading(
                 self, entity, recovered=entity in previously_unavailable
             )
 
@@ -497,14 +537,18 @@ async def check_and_update_degraded_mode(self) -> bool:
     sensor_available = is_entity_available(self.hass, self.sensor_entity_id)
     if not sensor_available:
         unavailable.append(self.sensor_entity_id)
-        _LOGGER.warning(
-            "better_thermostat %s: Room temperature sensor %s unavailable, "
-            "falling back to TRV internal temperature",
-            self.device_name,
-            self.sensor_entity_id,
-        )
+        if self.sensor_entity_id not in previously_unavailable:
+            # The fallback lasts as long as the outage does, while this check
+            # runs on every trigger, so the warning follows the transition
+            # into the outage rather than repeating for its whole length.
+            _LOGGER.warning(
+                "better_thermostat %s: Room temperature sensor %s unavailable, "
+                "falling back to TRV internal temperature",
+                self.device_name,
+                self.sensor_entity_id,
+            )
     else:
-        schedule_battery_refresh(
+        refresh_battery_reading(
             self,
             self.sensor_entity_id,
             recovered=self.sensor_entity_id in previously_unavailable,

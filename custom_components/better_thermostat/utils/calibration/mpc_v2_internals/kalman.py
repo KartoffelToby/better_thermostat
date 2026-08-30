@@ -24,12 +24,27 @@ motion into a fictitious disturbance.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
 from ._types import FloatArray
 from .plant import PlantModelRC2
+
+# Bounds (in °C², the unit of the covariance entries) for the two invariants a
+# stored covariance has to satisfy: symmetry and positive semi-definiteness.
+# The recursion holds symmetry exactly and the JSON round-trip is lossless, so
+# any measurable off-diagonal gap marks a corrupt payload. A genuinely
+# semi-definite matrix, on the other hand, can produce a slightly negative
+# smallest eigenvalue from the decomposition's own round-off.
+_MAX_COVARIANCE_ASYMMETRY_C2 = 1e-9
+_MIN_COVARIANCE_EIGENVALUE_C2 = -1e-9
+
+
+def _symmetric_part(P: FloatArray) -> FloatArray:
+    """Return ``½·(P + Pᵀ)``, the symmetric part of a square matrix."""
+    return (P + P.T) * 0.5
 
 
 @dataclass
@@ -119,8 +134,47 @@ class KalmanObserver:
         s = float((self.C @ P_pred @ self.C.T + self.R)[0, 0])
         K = P_pred @ self.C.T * (1.0 / max(s, 1e-12))
         self.x_hat = x_pred + (K.flatten() * innovation)
-        self.P = (np.eye(2) - K @ self.C) @ P_pred
+        # ``(I - K·C)·P_pred`` is symmetric in exact arithmetic only; the
+        # floating-point product drifts a little off the diagonal every step.
+        # Keeping just the symmetric part holds the invariant exactly, so the
+        # covariance that gets persisted is still a covariance on restore.
+        self.P = _symmetric_part((np.eye(2) - K @ self.C) @ P_pred)
         return self.x_hat.copy()
+
+    def restore_covariance(self, stored: Sequence[Sequence[float]]) -> bool:
+        """Adopt a persisted covariance and report whether it was usable.
+
+        A matrix qualifies when it is square in the filter's dimension,
+        finite, symmetric and positive semi-definite. An indefinite one makes
+        the innovation variance ``S`` negative; the guarded reciprocal in
+        :meth:`update` then yields a gain around ``1e12`` and the state
+        estimate diverges within a few cycles. A rejected matrix leaves the
+        current covariance untouched, so the observer keeps its construction
+        default and simply re-learns.
+
+        Parameters
+        ----------
+        stored : Sequence[Sequence[float]]
+            Covariance rows as read back from persistent storage.
+
+        Returns
+        -------
+        bool
+            ``True`` when the covariance was adopted.
+        """
+        try:
+            P = np.asarray(stored, dtype=float)
+        except TypeError, ValueError:
+            return False
+        if P.shape != self.P.shape or not bool(np.all(np.isfinite(P))):
+            return False
+        symmetric = _symmetric_part(P)
+        if float(np.max(np.abs(P - symmetric))) > _MAX_COVARIANCE_ASYMMETRY_C2:
+            return False
+        if float(np.min(np.linalg.eigvalsh(symmetric))) < _MIN_COVARIANCE_EIGENVALUE_C2:
+            return False
+        self.P = symmetric
+        return True
 
     def innovation(
         self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
