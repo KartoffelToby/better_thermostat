@@ -449,6 +449,7 @@ def owned_task_bt(bt, hass):
     bt._window_task = None
     bt._door_task = None
     bt.plateau_timer_cancel = None
+    bt.is_removed = False
     bt._owned_tasks = set()
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
@@ -508,6 +509,84 @@ class TestOwnedBackgroundTasks:
         await hass.async_block_till_done()
 
         assert readings == []
+
+    @pytest.mark.asyncio
+    async def test_work_handed_over_after_the_removal_began_never_starts(
+        self, hass, owned_task_bt
+    ):
+        """A task started after the removal is not in the set the removal cancels.
+
+        The removal reads ``_owned_tasks`` once and cancels what it finds.
+        Anything added afterwards is invisible to it and goes on writing to
+        TRVs the entity has already let go of.
+        """
+        started = False
+
+        async def write_to_a_trv():
+            nonlocal started
+            started = True
+
+        # Home Assistant runs the on-remove callbacks, which set the flag,
+        # before it awaits async_will_remove_from_hass.
+        owned_task_bt.is_removed = True
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+
+        task = BetterThermostat._spawn_owned(
+            owned_task_bt, write_to_a_trv(), name="bt_late_write"
+        )
+        await hass.async_block_till_done()
+
+        assert task is None
+        assert started is False
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_dispatcher_suspended_across_the_removal_starts_nothing(
+        self, hass, owned_task_bt
+    ):
+        """A dispatcher that was mid-await when the removal ran spawns nothing.
+
+        Every dispatcher checks the entity, awaits its watcher checks and only
+        then hands work over. The removal fits in that gap, which makes the
+        dispatcher's own check stale by the time it spawns.
+        """
+        handled = []
+        in_the_watcher_check = asyncio.Event()
+        release_the_watcher_check = asyncio.Event()
+
+        async def suspend_until_released(entity):
+            in_the_watcher_check.set()
+            await release_the_watcher_check.wait()
+
+        async def handle_the_contact_change(entity, event):
+            handled.append(event)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.climate.check_and_update_degraded_mode",
+                side_effect=suspend_until_released,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.check_critical_entities",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            dispatch = hass.async_create_task(
+                BetterThermostat._trigger_contact_change(
+                    owned_task_bt, MagicMock(), handle_the_contact_change, "window"
+                )
+            )
+            await in_the_watcher_check.wait()
+
+            owned_task_bt.is_removed = True
+            await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+
+            release_the_watcher_check.set()
+            await dispatch
+            await hass.async_block_till_done()
+
+        assert handled == []
+        assert owned_task_bt._owned_tasks == set()
 
     @pytest.mark.asyncio
     async def test_a_finished_task_stops_being_tracked(self, hass, owned_task_bt):

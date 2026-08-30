@@ -1023,7 +1023,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     def _spawn_owned(
         self, coro: Coroutine[Any, Any, Any], *, name: str
-    ) -> asyncio.Task[Any]:
+    ) -> asyncio.Task[Any] | None:
         """Start a background task that ends when this entity is removed.
 
         Home Assistant cancels background tasks at core shutdown, not when a
@@ -1040,11 +1040,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         name : str
             The name Home Assistant labels the task with.
 
+        A removed entity starts nothing. ``async_will_remove_from_hass`` takes
+        one snapshot of ``_owned_tasks`` and cancels what is in it; a task
+        started afterwards is not in that snapshot and would keep writing to
+        TRVs. Callers reach here after awaiting, so their own removal checks
+        can be stale by the time they spawn, and the check belongs here.
+
         Returns
         -------
-        asyncio.Task
-            The started task.
+        asyncio.Task or None
+            The started task, or ``None`` when the entity is already removed.
         """
+        if self.is_removed:
+            coro.close()
+            return None
         task = self.hass.async_create_background_task(coro, name=name)
         self._owned_tasks.add(task)
         task.add_done_callback(self._owned_tasks.discard)
