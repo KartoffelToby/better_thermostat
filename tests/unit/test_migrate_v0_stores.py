@@ -679,3 +679,71 @@ class TestUnreadableLegacyStoreIsTraced:
             )
 
         assert "not imported" not in caplog.text
+
+
+class TestUnusableLegacyThermalValues:
+    """A legacy thermal value that is not a finite number costs only itself.
+
+    Letting the parse error out aborts the thermal import before it can
+    mark anything as imported, so the migration is never saved and runs
+    again on every start -- while the value that could be read is dropped
+    along with the one that could not.
+    """
+
+    def test_unparsable_value_still_completes_the_migration(self, caplog) -> None:
+        """A value float() refuses is imported as unset, the rest is kept."""
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.WARNING, logger=_MIGRATE_LOGGER):
+            _import_legacy_data(
+                mgr, thermal_data={"heating_power": "n/a", "heat_loss_rate": 0.01}
+            )
+
+        assert mgr.thermal.heating_power is None
+        assert mgr.thermal.heat_loss_rate == pytest.approx(0.01)
+        assert "heating_power" in caplog.text
+        assert "not a finite number" in caplog.text
+
+    def test_non_finite_value_is_imported_as_unset(self) -> None:
+        """NaN and infinity are as unusable as a value float() refuses."""
+        mgr = _make_state_manager()
+
+        _import_legacy_data(
+            mgr,
+            thermal_data={"heating_power": float("nan"), "heat_loss_rate": "Infinity"},
+        )
+
+        assert mgr.thermal.heating_power is None
+        assert mgr.thermal.heat_loss_rate is None
+
+    def test_readable_values_are_not_reported(self, caplog) -> None:
+        """Nothing is logged when both statistics parse."""
+        mgr = _make_state_manager()
+
+        with caplog.at_level(logging.WARNING, logger=_MIGRATE_LOGGER):
+            _import_legacy_data(
+                mgr, thermal_data={"heating_power": 1200.0, "heat_loss_rate": 0.03}
+            )
+
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_migration_is_saved_and_does_not_repeat(self) -> None:
+        """The unified store is written even when only a broken stat is left."""
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        thermal_store = _make_mock_store({"entry1": {"heating_power": "n/a"}})
+        empty_store = _make_mock_store(None)
+        store_iter = iter([empty_store, empty_store, empty_store, thermal_store])
+
+        with patch(
+            "custom_components.better_thermostat.utils.migrate_v0_stores.Store",
+            side_effect=lambda _hass, _ver, _key: next(store_iter),
+        ):
+            await migrate_v0_stores(
+                AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
+            )
+
+        mgr.save.assert_awaited_once()

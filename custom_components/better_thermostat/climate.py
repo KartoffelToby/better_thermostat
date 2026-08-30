@@ -43,7 +43,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import Context, State, callback
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import (
     device_registry as dr,
     entity_platform,
@@ -977,17 +977,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # repair issue while slow integrations finish initializing.
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
-        self.control_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+        self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
             maxsize=1
         )
         if self.window_id is not None:
-            self.window_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
+            self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
                 maxsize=1
             )
         if self.door_id is not None:
-            self.door_queue_task: asyncio.Queue[BetterThermostat] = asyncio.Queue(
-                maxsize=1
-            )
+            self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
         self._control_task = None
         self._window_task = None
         self._door_task = None
@@ -1388,16 +1386,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                                 self.device_name,
                                 trv_id,
                             )
-                    except OSError, RuntimeError, AttributeError, TypeError:
-                        _LOGGER.debug(
-                            "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
+                    except (
+                        HomeAssistantError,
+                        OSError,
+                        RuntimeError,
+                        AttributeError,
+                        TypeError,
+                    ) as exc:
+                        # A device that refuses the write does not hold back the
+                        # others, and the value is re-sent on the next tick.
+                        _LOGGER.warning(
+                            "better_thermostat %s: external_temperature keepalive write failed for %s: %s",
                             self.device_name,
                             trv_id,
+                            exc,
                         )
-        except OSError, RuntimeError, AttributeError, TypeError:
-            _LOGGER.debug(
-                "better_thermostat %s: external_temperature keepalive encountered an error",
+        except (
+            HomeAssistantError,
+            OSError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+        ) as exc:
+            _LOGGER.warning(
+                "better_thermostat %s: external_temperature keepalive failed: %s",
                 self.device_name,
+                exc,
             )
 
     async def _trigger_humidity_change(self, event):
@@ -2725,12 +2739,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Periodic maintenance tick: runs valve exercise when due and enabled."""
         # quick availability check - only critical entities needed for maintenance
         try:
-            # The degradation ladder advances first: it must keep stepping
-            # even while an unavailable TRV aborts the tick.
+            # The ladder has to keep stepping and the repair issues have to
+            # stay current, but neither decides this run. A head that reports
+            # nothing gets no snapshot and stays out of the exercise; the
+            # valves that do answer still need theirs, and a valve left
+            # unmoved for a season is what this tick exists to prevent.
             await check_and_update_degraded_mode(self)
-            ok = await check_critical_entities(self)
-            if ok is False:
-                return
+            await check_critical_entities(self)
         except Exception:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance availability check failed; "
@@ -2814,13 +2829,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except KeyError, TypeError:
                     pass
 
-            # Build snapshots (skips TRVs with state=None)
+            # Build snapshots. A TRV that publishes no state, or one whose
+            # state names no mode to restore, gets none and stays out of the
+            # run below.
             infos = build_trv_snapshots(
                 self.real_trvs, trvs, self.hass.states.get, self.device_name
             )
             serviced_ids = {info.entity_id for info in infos}
 
-            # Release guard for TRVs that were skipped (state=None)
+            # Release guard for the TRVs that got no snapshot
             for trv_id in trvs:
                 if trv_id not in serviced_ids:
                     try:
@@ -4066,7 +4083,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             old_preset = self.preset_mgr.mode
             new_temp = self.preset_mgr.activate(
-                preset_mode, self.bt_target_temp, self.min_temp, self.max_temp
+                preset_mode,
+                current_target_temp=self.bt_target_temp,
+                min_temp=self.min_temp,
+                max_temp=self.max_temp,
             )
             self.kernel_state = replace(
                 self.kernel_state,
