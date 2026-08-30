@@ -898,9 +898,18 @@ class TestEdgeCasesAndRobustness:
         # With fallback _age=999999, _interval_ok=True → accepted
         assert mock_bt.cur_temp == 21.0
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="the external sensor's debounce interval is raised to 600s as soon "
+        "as any configured TRV is HomematicIP",
+    )
     @pytest.mark.asyncio
-    async def test_multiple_homematicip_trvs_any_sets_600s(self, mock_bt):
-        """If ANY TRV is HomematicIP, 600s debounce applies."""
+    async def test_room_sensor_debounce_survives_a_homematicip_trv(self, mock_bt):
+        """Accept a room sensor reading once the sensor's own interval elapsed.
+
+        The debounce interval belongs to the external sensor, which is not a
+        TRV, so a HomematicIP head in the same group does not lengthen it.
+        """
         mock_bt.all_trvs = [
             {"advanced": {CONF_HOMEMATICIP: False}},
             {"advanced": {CONF_HOMEMATICIP: True}},
@@ -911,8 +920,7 @@ class TestEdgeCasesAndRobustness:
 
         await trigger_temperature_change(mock_bt, event)
 
-        # 30s < 600s → rejected because one TRV is HomematicIP
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.cur_temp == 21.0
 
 
 # ---------------------------------------------------------------------------

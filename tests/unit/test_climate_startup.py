@@ -184,10 +184,22 @@ def plateau_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt._owned_tasks = set()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
-    trv = MagicMock()
-    trv.model_quirks = MagicMock()
-    trv.model_quirks.maybe_set_external_temperature = AsyncMock()
-    bt.real_trvs = {TRV_ID: trv}
+    # Production holds Trv objects here. A MagicMock in their place answers
+    # every attribute read, so a member field the code under test asks for
+    # by the wrong name still comes back with something.
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock()
+    bt.real_trvs = {
+        TRV_ID: Trv(
+            entity_id=TRV_ID,
+            calibration=1,
+            integration="generic_thermostat",
+            adapter=None,
+            model_quirks=quirks,
+            model="SomeModel",
+            advanced={},
+        )
+    }
     return bt
 
 
@@ -1440,7 +1452,12 @@ class TestInitializeTrvCalibrationFallback:
     async def test_offset_read_that_times_out_leaves_the_offset_at_zero(
         self, bt, caplog
     ):
-        """An offset a timed-out read never delivered lands at 0."""
+        """A device that does not answer leaves the offset where it started.
+
+        The startup has to reach a defined calibration one way or another:
+        carrying an unanswered read forward as an offset would apply a
+        correction the device was never asked about.
+        """
         bt = self._offset_trv_bt(bt)
         caplog.set_level(logging.WARNING)
 

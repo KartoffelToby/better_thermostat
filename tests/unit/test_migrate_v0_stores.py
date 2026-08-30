@@ -66,7 +66,14 @@ class TestFilterByPrefix:
         assert "uid2:trv_a" not in result
 
     def test_non_dict_values_excluded(self) -> None:
-        """Entries whose value is not a dict are excluded even if key matches."""
+        """Only entries carrying a controller state survive the prefix filter.
+
+        The return type promises `dict[str, dict[str, Any]]`, and the three
+        callers hand the result straight to the deserializers. Those check
+        the value again before reading it, so a stray string costs nothing
+        today; what it would cost is the promise, which is the only reason
+        the callers may be written the way they are.
+        """
         raw = {
             "uid1:trv_a": {"gain_est": 0.5},
             "uid1:trv_b": "not_a_dict",
@@ -602,7 +609,12 @@ class TestMigrateV0Stores:
 
     @pytest.mark.asyncio
     async def test_all_stores_raise_no_crash(self) -> None:
-        """If all four stores raise exceptions, migration completes without crash."""
+        """An unreadable legacy store must not stop the migration.
+
+        The old stores are read once at startup. A user whose disk gave up
+        on one of them needs a thermostat that comes up regardless, on
+        defaults, rather than an integration that fails to load.
+        """
         mgr = _make_state_manager()
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 
@@ -690,8 +702,14 @@ class TestUnusableLegacyThermalValues:
     along with the one that could not.
     """
 
-    def test_unparsable_value_still_completes_the_migration(self, caplog) -> None:
-        """A value float() refuses is imported as unset, the rest is kept."""
+    def test_an_unparsable_statistic_does_not_take_its_neighbour(self, caplog) -> None:
+        """The import keeps every statistic it can read and reports the rest.
+
+        Both statistics arrive from the same legacy entry. Letting one that
+        `float()` refuses end the import would drop the readable one with
+        it, and the user would lose a heat-loss rate because a heating
+        power was corrupt.
+        """
         mgr = _make_state_manager()
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 
@@ -729,8 +747,18 @@ class TestUnusableLegacyThermalValues:
         assert caplog.text == ""
 
     @pytest.mark.asyncio
-    async def test_migration_is_saved_and_does_not_repeat(self) -> None:
-        """The unified store is written even when only a broken stat is left."""
+    async def test_a_store_that_yielded_nothing_usable_is_still_saved(self) -> None:
+        """Reaching a legacy entry counts as an import, whatever it parsed to.
+
+        The write is what carries the migration's result forward. Making it
+        depend on the values parsing would throw away the knowledge that the
+        entry was seen at all.
+
+        The write alone does not make the migration a one-off. The next
+        start skips only when the unified state holds data, and an entry
+        that parsed to nothing leaves it empty, so this case still runs the
+        scan again.
+        """
         mgr = _make_state_manager()
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 

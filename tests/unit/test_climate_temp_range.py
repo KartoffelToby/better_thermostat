@@ -111,7 +111,12 @@ def test_configured_bounds_widen_the_range_the_children_allow(bt):
 
 
 def test_configured_bounds_apply_without_any_child_state(bt):
-    """A configured range holds even when no device reported bounds."""
+    """The range a user configured is the answer, with no device to ask.
+
+    The bounds are resolved while the entity is being built, so a room whose
+    heads have not reported yet still has to come up with the range its
+    owner set rather than with the defaults.
+    """
     bt.bt_target_temp_min = 16.0
     bt.bt_target_temp_max = 24.0
 

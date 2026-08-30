@@ -89,7 +89,11 @@ class TestWhatIsWorthRetrying:
 
     @pytest.mark.asyncio
     async def test_a_missing_attribute_is_handed_back_on_the_first_attempt(self):
-        """An attribute the object never grows is not waited for."""
+        """A missing attribute is a programming error, not a busy device.
+
+        Retrying it spends the whole backoff budget before the traceback
+        arrives, which buries the line that names the real defect.
+        """
         attempts = []
 
         @async_retry(retries=5)
