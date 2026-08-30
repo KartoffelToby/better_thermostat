@@ -1760,6 +1760,58 @@ async def _run_finalize_startup(bt):
         await BetterThermostat._finalize_startup(bt)
 
 
+class TestStartupStopsOnceTheEntityIsGone:
+    """A startup interrupted by removal must not go on setting the room up.
+
+    Waiting for the optional sensors can run for the better part of a
+    minute, and the entity can be removed inside that window. Everything
+    after it belongs to a thermostat the user still has.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_removal_during_the_sensor_wait_ends_the_startup(self, bt):
+        """The degraded evaluation writes state, so it may not run after it.
+
+        `await_optional_sensors` gives up on its own once the removal
+        starts, and returns normally. Reading the removal only after the
+        steps below it lets a torn-down entity publish a degraded mode and
+        start a recheck that outlives the call.
+        """
+
+        async def removed_during_the_wait(_self):
+            _self.is_removed = True
+            return []
+
+        degraded = AsyncMock()
+        bt.is_removed = False
+        bt.all_trvs = None
+        bt.entity_ids = [TRV_ID]
+        bt._async_unsub_state_changed = None
+        bt._post_grace_recheck = MagicMock()
+        bt._external_temperature_keepalive = MagicMock()
+        bt._spawn_owned = MagicMock()
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.await_optional_sensors", removed_during_the_wait),
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", degraded),
+            patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
+            patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+            patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+        ):
+            await BetterThermostat._finalize_startup(bt)
+
+        degraded.assert_not_awaited()
+        # The critical-entity recheck is started before the wait; only the
+        # degraded one belongs to the steps this guard now covers.
+        started = [
+            call.kwargs.get("name", "") for call in bt._spawn_owned.call_args_list
+        ]
+        assert not any("post_grace_degraded" in name for name in started)
+
+
 class TestCoolerTargetReadAtListenerRegistration:
     """The cool target is re-read once the cooler subscription is live.
 

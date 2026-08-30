@@ -2537,6 +2537,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # DEBUG and the HA repair issue is deferred — slow cloud integrations
         # get time to come online before the user sees a warning.
         await await_optional_sensors(self)
+        # That wait can run for the better part of a minute and gives the
+        # entity up on its own once the removal starts, so the removal is
+        # read here rather than after the two steps below: a degraded-mode
+        # evaluation writes entity state, and the recheck outlives the call
+        # that starts it.
+        if self.is_removed:
+            return
         await check_and_update_degraded_mode(self)
 
         self._spawn_owned(
