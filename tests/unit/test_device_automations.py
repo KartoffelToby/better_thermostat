@@ -14,8 +14,11 @@ registries so the functions under test run against genuine
 from __future__ import annotations
 
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_ENTITY_ID, CONF_TYPE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.condition import async_numeric_state
+from homeassistant.helpers.template import Template
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat import DOMAIN
@@ -28,25 +31,40 @@ from custom_components.better_thermostat.device_condition import (
     async_get_conditions,
 )
 from custom_components.better_thermostat.device_trigger import (
+    CLASSIC_VALUE_TEMPLATES,
     TRIGGER_TYPES,
     async_get_triggers,
 )
+from custom_components.better_thermostat.utils.const import CONF_HUMIDITY
+
+# The two shapes a config entry takes when it names no humidity sensor. An
+# entry created without one never carries the key; clearing the selector in
+# the options flow writes it back as None, because `_normalize` keeps every
+# optional key the form submitted. Both have to read as "no humidity".
+NO_HUMIDITY_ENTRIES = ({}, {CONF_HUMIDITY: None})
 
 
-def _create_device(hass: HomeAssistant) -> dr.DeviceEntry:
+def _create_device(
+    hass: HomeAssistant, *, entry_data: dict | None = None
+) -> dr.DeviceEntry:
     """Register a device attached to a mock config entry.
 
     Parameters
     ----------
     hass : HomeAssistant
         The Home Assistant test instance.
+    entry_data : dict or None
+        The config entry data. Defaults to an entry naming a humidity sensor,
+        because the two humidity triggers are only offered when one is named.
 
     Returns
     -------
     dr.DeviceEntry
         The registered device entry.
     """
-    config_entry = MockConfigEntry(domain=DOMAIN)
+    if entry_data is None:
+        entry_data = {CONF_HUMIDITY: "sensor.room_humidity"}
+    config_entry = MockConfigEntry(domain=DOMAIN, data=entry_data)
     config_entry.add_to_hass(hass)
     device_registry = dr.async_get(hass)
     return device_registry.async_get_or_create(
@@ -84,7 +102,13 @@ def _register_entity(
     """
     entity_registry = er.async_get(hass)
     return entity_registry.async_get_or_create(
-        domain, platform, unique_id, device_id=device.id
+        domain,
+        platform,
+        unique_id,
+        device_id=device.id,
+        config_entry=hass.config_entries.async_get_entry(
+            next(iter(device.config_entries))
+        ),
     )
 
 
@@ -103,6 +127,51 @@ async def test_get_triggers_lists_all_types_for_bt_climate_entity(
         assert trigger[CONF_DOMAIN] == DOMAIN
         assert trigger[CONF_DEVICE_ID] == device.id
         assert trigger[CONF_ENTITY_ID] == entity.entity_id
+
+
+@pytest.mark.parametrize("entry_data", NO_HUMIDITY_ENTRIES, ids=("absent", "none"))
+async def test_get_triggers_omits_the_humidity_pair_without_that_sensor(
+    hass: HomeAssistant, entry_data: dict
+) -> None:
+    """A thermostat with no humidity sensor publishes no humidity to watch.
+
+    Offering the two triggers anyway gives the user an automation that
+    attaches and then never fires, which reads as a broken automation rather
+    than a missing sensor. Both entry shapes count as no sensor.
+    """
+    device = _create_device(hass, entry_data=entry_data)
+    entity = _register_entity(hass, device)
+    hass.states.async_set(entity.entity_id, "heat")
+
+    triggers = await async_get_triggers(hass, device.id)
+
+    assert {trigger[CONF_TYPE] for trigger in triggers} == TRIGGER_TYPES - {
+        "humidity_high",
+        "current_humidity_changed",
+    }
+
+
+@pytest.mark.parametrize("trigger_type", sorted(CLASSIC_VALUE_TEMPLATES), ids=str)
+async def test_a_value_trigger_stays_quiet_once_its_sensor_is_gone(
+    hass: HomeAssistant, trigger_type: str
+) -> None:
+    """A lost sensor makes the trigger not fire, not report a broken automation.
+
+    Home Assistant drops these attributes from the state while they hold no
+    value, so a sensor that goes unavailable takes the quantity the automation
+    watches with it. The trigger has to read that as "nothing to compare",
+    because the alternative is a conversion error logged on every single state
+    change for as long as the sensor stays away.
+    """
+    template = Template(CLASSIC_VALUE_TEMPLATES[trigger_type], hass)
+    without_the_attribute = State("climate.bt", "heat", {})
+
+    assert (
+        async_numeric_state(
+            hass, without_the_attribute, above=25.0, value_template=template
+        )
+        is False
+    )
 
 
 async def test_get_triggers_skips_entity_without_state(hass: HomeAssistant) -> None:

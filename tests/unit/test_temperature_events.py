@@ -69,9 +69,6 @@ def mock_bt():
     # Serialisation of concurrent readings
     bt._temperature_filter_lock = None
 
-    # Anti-flicker state
-    bt.flicker_candidate = None
-
     # Maintenance
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False

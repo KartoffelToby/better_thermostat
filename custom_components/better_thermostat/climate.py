@@ -895,7 +895,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             hours=randint(1, 24 * 5)
         )
         self.cur_temp = None
-        self._current_humidity: float | None = 0.0
+        self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
         self.bt_target_temp_min: float | None = _configured_temperature_bound(
@@ -1025,7 +1025,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._slope_periodic_last_ts = None
 
         # Anti-flicker state
-        self.flicker_candidate = None
         self.plateau_timer_cancel = None
         self.last_change_direction = 0
         self.prev_stable_temp = None
@@ -1878,14 +1877,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     e,
                 )
 
-        if self.humidity_sensor_entity_id is not None:
+        # The startup humidity is read here and nowhere else, so the guard
+        # below is the only one deciding what the entity publishes until the
+        # sensor's first state change arrives.
+        if self.humidity_sensor_entity_id is None:
+            self._current_humidity = None
+        else:
             self.all_entities.append(self.humidity_sensor_entity_id)
             _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
-            if _hum_state is not None and _hum_state.state not in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
-            ):
+            if _hum_state is None:
+                _LOGGER.warning(
+                    "better_thermostat %s: Humidity sensor %s not found or not ready",
+                    self.device_name,
+                    self.humidity_sensor_entity_id,
+                )
+                self._current_humidity = None
+            elif _hum_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+                self._current_humidity = None
+            else:
                 # An unreadable value leaves the humidity unknown. 0 % is a
                 # reading a room can publish, so coercing to it would pass a
                 # missing measurement off as a measured one.
@@ -2223,25 +2232,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if self.last_main_hvac_mode is None:
             self.last_main_hvac_mode = self.bt_hvac_mode
-
-        _LOGGER.debug(
-            "better_thermostat %s: checking humidity sensor...", self.device_name
-        )
-        if self.humidity_sensor_entity_id is not None:
-            _hum_state = self.hass.states.get(self.humidity_sensor_entity_id)
-            if _hum_state is None:
-                _LOGGER.warning(
-                    "better_thermostat %s: Humidity sensor %s not found or not ready",
-                    self.device_name,
-                    self.humidity_sensor_entity_id,
-                )
-                self._current_humidity = 0
-            else:
-                self._current_humidity = convert_to_float(
-                    str(_hum_state.state), self.device_name, "startup()"
-                )
-        else:
-            self._current_humidity = 0.0
 
         if self.bt_hvac_mode not in (HVACMode.OFF, HVACMode.HEAT_COOL, HVACMode.HEAT):
             self.bt_hvac_mode = HVACMode.HEAT
@@ -3354,7 +3344,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     @property
     def current_humidity(self) -> float | None:
         """Return the current humidity if supported."""
-        return self._current_humidity if hasattr(self, "_current_humidity") else None
+        return self._current_humidity
 
     @property
     def bt_hvac_mode(self) -> HVACMode | None:
