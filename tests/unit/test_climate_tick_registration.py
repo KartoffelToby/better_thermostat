@@ -63,9 +63,19 @@ async def _run_finalize_startup(bt):
     return track_interval
 
 
+def _timer_target(registered):
+    """The coroutine function a registered timer callback runs.
+
+    Each tick reaches the tracker through a dispatcher that spawns the firing
+    as work the entity owns, bound with ``partial``, so the callable handed to
+    the tracker is that dispatcher rather than the tick itself.
+    """
+    return registered.args[0]
+
+
 def _registered_callbacks(track_interval, bt):
     """Extract the callbacks registered via async_track_time_interval."""
-    return [call.args[1] for call in track_interval.call_args_list]
+    return [_timer_target(call.args[1]) for call in track_interval.call_args_list]
 
 
 @pytest.mark.asyncio
