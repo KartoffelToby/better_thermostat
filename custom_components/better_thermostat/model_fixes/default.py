@@ -52,11 +52,6 @@ async def override_set_temperature(
     return False
 
 
-async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -> bool:
-    """Do not override valve by default."""
-    return False
-
-
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
     entity_registry = er.async_get(self.hass)
