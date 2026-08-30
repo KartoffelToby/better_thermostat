@@ -51,6 +51,7 @@ from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from . import DOMAIN
+from .utils.const import CONF_HUMIDITY
 from .utils.helpers import is_bt_climate_entity
 
 # All supported trigger types
@@ -96,6 +97,19 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     }
 )
 
+# The value each classic trigger compares against its threshold.
+#
+# Home Assistant publishes these attributes only while they hold a value, so a
+# sensor that goes unavailable takes the attribute with it. Reading through
+# ``get`` renders ``None``, which the numeric-state trigger treats as "nothing
+# to compare"; a plain attribute lookup renders the empty string and makes it
+# log a conversion error on every state change for as long as the sensor is
+# away.
+CLASSIC_VALUE_TEMPLATES = {
+    "current_temperature_changed": "{{ state.attributes.get('current_temperature') }}",
+    "current_humidity_changed": "{{ state.attributes.get('current_humidity') }}",
+}
+
 # Default threshold values
 DEFAULT_HUMIDITY_THRESHOLD = 60.0  # %
 DEFAULT_BATTERY_THRESHOLD = 20.0  # %
@@ -124,6 +138,19 @@ async def async_get_triggers(
             CONF_ENTITY_ID: entry.entity_id,
         }
 
+        # A thermostat configured without a humidity sensor publishes no
+        # humidity, so the two triggers that watch it would attach to an
+        # automation and never fire. `entry.data` is the same place the
+        # climate entity reads the sensor from.
+        config_entry = (
+            hass.config_entries.async_get_entry(entry.config_entry_id)
+            if entry.config_entry_id
+            else None
+        )
+        watches_humidity = bool(
+            (config_entry.data if config_entry else {}).get(CONF_HUMIDITY)
+        )
+
         # Purpose-specific triggers (primary – shown first in the UI)
         primary_types = [
             "heating_active",
@@ -139,7 +166,9 @@ async def async_get_triggers(
             )
 
         # Purpose-specific triggers (secondary – sensor / diagnostic info)
-        secondary_types = ["humidity_high", "battery_low"]
+        secondary_types = ["battery_low"]
+        if watches_humidity:
+            secondary_types.insert(0, "humidity_high")
         for trigger_type in secondary_types:
             triggers.append(
                 {**base, CONF_TYPE: trigger_type, "metadata": {"secondary": True}}
@@ -158,13 +187,16 @@ async def async_get_triggers(
                     CONF_TYPE: "current_temperature_changed",
                     "metadata": {"secondary": True},
                 },
+            ]
+        )
+        if watches_humidity:
+            triggers.append(
                 {
                     **base,
                     CONF_TYPE: "current_humidity_changed",
                     "metadata": {"secondary": True},
-                },
-            ]
-        )
+                }
+            )
 
     return triggers
 
@@ -411,12 +443,7 @@ async def async_attach_trigger(
         )
 
     # Classic triggers: current_temperature_changed / current_humidity_changed
-    if trigger_type == "current_temperature_changed":
-        template = "{{ state.attributes.current_temperature }}"
-    else:
-        template = "{{ state.attributes.current_humidity }}"
-
-    numeric_config = _build_numeric(template)
+    numeric_config = _build_numeric(CLASSIC_VALUE_TEMPLATES[trigger_type])
     numeric_config = await numeric_state_trigger.async_validate_trigger_config(
         hass, numeric_config
     )

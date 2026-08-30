@@ -24,7 +24,7 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 
 # How many (file, rule) exemptions the list may hold. Lower it as entries
 # leave; raising it is the one way the backlog grows, and says so in the diff.
-EXEMPTION_CEILING = 41
+EXEMPTION_CEILING = 39
 
 GLOB_CHARACTERS = "*?["
 

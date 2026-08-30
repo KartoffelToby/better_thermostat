@@ -22,6 +22,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperat
 from homeassistant.core import State
 import pytest
 
+from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -193,6 +194,59 @@ class TestCheckSystemMode:
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
+    async def test_unknown_state_treated_as_done(self):
+        """An entity saying nothing leaves its device unaccounted for."""
+        mock_self, _ = self._mock_self(
+            live_state=STATE_UNKNOWN, last_hvac_mode=HVACMode.HEAT
+        )
+
+        result = await check_system_mode(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
+
+    @pytest.mark.asyncio
+    async def test_a_model_that_cannot_report_its_mode_confirms_at_once(self, caplog):
+        """A mode the entity does not describe is confirmed, not waited out.
+
+        The device reports ``unknown`` for as long as it holds the
+        manufacturer mode, so its state can never equal the mode that was
+        written. Polling for a match it will never make would hold the
+        write open for the whole confirmation budget and then warn about a
+        device doing exactly what it was told.
+        """
+        mock_self, _ = self._mock_self(
+            live_state=STATE_UNKNOWN, last_hvac_mode=HVACMode.HEAT
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.model_quirks = zwa021
+        trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
+
+        slept = []
+        original_sleep = asyncio.sleep
+
+        async def mock_sleep(duration):
+            slept.append(duration)
+            await original_sleep(0)
+
+        import custom_components.better_thermostat.utils.controlling as controlling_module
+
+        original_sleep_func = controlling_module.asyncio.sleep
+        controlling_module.asyncio.sleep = mock_sleep
+        try:
+            with caplog.at_level(logging.WARNING):
+                result = await check_system_mode(mock_self, "climate.trv1")
+        finally:
+            controlling_module.asyncio.sleep = original_sleep_func
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
+        # No second of the confirmation budget is spent, and nothing is
+        # reported about a device that answered as designed.
+        assert slept.count(1) == 0
+        assert "did not confirm" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_missing_state_treated_as_done(self):
         """A missing TRV state ends the wait and still sets the flag."""
         mock_self, _ = self._mock_self(live_state=None, last_hvac_mode=HVACMode.HEAT)
@@ -245,6 +299,80 @@ class TestCheckTargetTemperature:
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_state_treated_as_done(self):
+        """An entity saying nothing leaves its device unaccounted for."""
+        mock_state = Mock()
+        mock_state.state = STATE_UNKNOWN
+        mock_state.attributes = {"temperature": 18.0}
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
+        }
+
+        result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
+
+    @pytest.mark.asyncio
+    async def test_a_model_reporting_unknown_while_driven_is_waited_for(self):
+        """The setpoint write is confirmed, not abandoned as an outage.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds, so reading it
+        as gone would end every confirmation wait before it began.
+        """
+        mock_state = Mock()
+        mock_state.state = STATE_UNKNOWN
+        mock_state.attributes = {"temperature": 18.0}
+
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = mock_state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {"last_temperature": 21.0, "target_temp_received": False},
+            )
+        }
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.model_quirks = zwa021
+        trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
+
+        slept = []
+        original_sleep = asyncio.sleep
+
+        async def mock_sleep(duration):
+            slept.append(duration)
+            if duration == 1:
+                mock_state.attributes = {"temperature": 21.0}
+            await original_sleep(0)
+
+        import custom_components.better_thermostat.utils.controlling as controlling_module
+
+        original_sleep_func = controlling_module.asyncio.sleep
+        controlling_module.asyncio.sleep = mock_sleep
+        try:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+        finally:
+            controlling_module.asyncio.sleep = original_sleep_func
+
+        assert result is True
+        assert slept.count(1) == 1
 
     @pytest.mark.asyncio
     async def test_step_grid_written_value_confirms_against_read_grid(self):

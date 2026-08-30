@@ -1,9 +1,9 @@
 """Tests for the per-module coverage floors.
 
 The floors are the thing that notices when a change leaves code uncovered, so
-the check itself has to be right about three cases: a module that held its
-level passes, one that dropped fails, and one nobody has measured yet does not
-count as a regression.
+the check itself has to be right about four cases: a module that held its
+level passes, one that dropped fails, one that vanished from the report fails
+too, and one nobody has measured yet does not count as a regression.
 """
 
 import importlib.util
@@ -78,6 +78,69 @@ def test_check_fails_when_a_module_drops(floors, tmp_path, capsys):
     output = capsys.readouterr().out
     assert MODULE in output
     assert OTHER not in output.split("dropped below")[-1]
+
+
+def test_check_fails_when_a_recorded_module_is_missing_from_the_report(
+    floors, tmp_path, capsys
+):
+    """A floor nothing measures is not being held, so its absence has to fail.
+
+    Passing here would retire a module's floor the moment the module stopped
+    being measured, and the run would still report that every floor holds.
+    """
+    floors.update(_report(tmp_path, **{MODULE: 88.7, OTHER: 93.0}))
+
+    assert floors.check(_report(tmp_path, **{MODULE: 88.7})) == 1
+
+    output = capsys.readouterr().out
+    assert OTHER in output
+    assert "hold their floor" not in output
+
+
+def test_the_missing_module_failure_names_the_re_record_path(floors, tmp_path, capsys):
+    """Re-recording is the only legitimate exit, so the failure has to name it.
+
+    A module that really was deleted or renamed has to leave the floors file
+    somehow; a reader who is not told which command does that will edit the
+    file by hand or stop trusting the gate.
+    """
+    floors.update(_report(tmp_path, **{MODULE: 88.7, OTHER: 93.0}))
+
+    floors.check(_report(tmp_path, **{MODULE: 88.7}))
+
+    assert "coverage_floors.py update" in capsys.readouterr().out
+
+
+def test_check_counts_every_recorded_floor_when_it_reports_success(
+    floors, tmp_path, capsys
+):
+    """The success line may only be claimed once every recorded floor was measured.
+
+    Its count is the number a reader takes as the size of the guarded set, so
+    a run that compared fewer modules than it names is worse than no report.
+    """
+    floors.update(_report(tmp_path, **{MODULE: 88.7, OTHER: 93.0}))
+
+    assert floors.check(_report(tmp_path, **{MODULE: 90.0, OTHER: 93.0})) == 0
+
+    assert "all 2 modules hold their floor" in capsys.readouterr().out
+
+
+def test_update_drops_the_floor_of_a_module_the_report_no_longer_covers(
+    floors, tmp_path
+):
+    """Re-recording has to accept the very report the check rejects.
+
+    Both modes read the same report, so a missing module must stay a finding
+    of the check alone — if update refused it too, a deleted module would
+    leave the floors file unfixable by the tool that owns it.
+    """
+    floors.update(_report(tmp_path, **{MODULE: 88.7, OTHER: 93.0}))
+
+    assert floors.update(_report(tmp_path, **{MODULE: 88.7})) == 0
+
+    recorded = json.loads(floors.FLOORS_FILE.read_text(encoding="utf-8"))
+    assert recorded == {MODULE: 88.7}
 
 
 def test_a_module_without_a_floor_is_not_a_regression(floors, tmp_path, capsys):

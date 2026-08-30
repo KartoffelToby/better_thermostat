@@ -18,9 +18,10 @@ from custom_components.better_thermostat.events.window import (
     trigger_window_change,
     window_queue,
 )
+from custom_components.better_thermostat.utils.const import DOMAIN
 
-_WINDOW = "custom_components.better_thermostat.events.window"
-_LOGBOOK = f"{_WINDOW}.async_fire_logbook_entry"
+_CONTACT = "custom_components.better_thermostat.events.contact"
+_LOGBOOK = f"{_CONTACT}.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay=0):
@@ -173,9 +174,9 @@ class TestTriggerWindowChange:
             bt.clock.advance(seconds)
 
         with (
-            patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep),
+            patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep),
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_WINDOW}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -188,10 +189,33 @@ class TestTriggerWindowChange:
     async def test_unrecognized_state_raises_an_issue(self):
         """Garbage sensor values raise a repair issue and queue nothing."""
         bt = _make_bt(sensor_state="banana")
-        with patch(f"{_WINDOW}.ir.async_create_issue") as issue:
+        with patch(f"{_CONTACT}.ir.async_create_issue") as issue:
             await trigger_window_change(bt, _event("banana"))
         issue.assert_called_once()
         assert bt.window_queue_task.empty()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["on", "off", "unknown", "unavailable"])
+    async def test_recognized_state_clears_the_issue(self, reading):
+        """A readable value withdraws the repair issue garbage raised.
+
+        'off', 'unknown' and 'unavailable' all resolve to the committed
+        closed state, so the clearing has to happen before the event is
+        dropped as a repeat: a sensor recovering to the state it already
+        had is exactly the case that would leave the warning standing.
+        """
+        bt = _make_bt(sensor_state="banana")
+        with (
+            patch(f"{_CONTACT}.ir.async_create_issue"),
+            patch(f"{_CONTACT}.ir.async_delete_issue") as delete,
+        ):
+            await trigger_window_change(bt, _event("banana"))
+            delete.assert_not_called()
+
+            bt.hass.states.get.return_value.state = reading
+            await trigger_window_change(bt, _event(reading))
+
+        delete.assert_called_once_with(bt.hass, DOMAIN, "invalid_window_state_Test BT")
 
     @pytest.mark.asyncio
     async def test_missing_sensor_state_returns_early(self):
@@ -199,6 +223,19 @@ class TestTriggerWindowChange:
         bt = _make_bt()
         bt.hass.states.get.return_value = None
         await trigger_window_change(bt, _event("on"))
+        assert bt.window_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_unset_window_id_is_never_looked_up(self):
+        """A thermostat without a window sensor never probes the state machine.
+
+        ``hass.states.get(None)`` raises instead of returning None, so the
+        entity id has to be checked before it is used as a lookup key.
+        """
+        bt = _make_bt()
+        bt.window_id = None
+        await trigger_window_change(bt, _event("on"))
+        bt.hass.states.get.assert_not_called()
         assert bt.window_queue_task.empty()
 
 
@@ -252,7 +289,7 @@ class TestWindowQueue:
         async def fake_sleep(seconds):
             bt.clock.advance(seconds)
 
-        with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+        with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)
 
         assert bt.kernel_state.window.phase == WindowPhase.CLOSED
@@ -287,7 +324,7 @@ class TestWindowQueue:
             # The user raises the delay while the first wait runs.
             bt.window_delay = 30
 
-        with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+        with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)
 
         assert slept == [5, 25]
@@ -308,7 +345,7 @@ class TestWindowQueue:
         async def fake_sleep(seconds):
             bt.clock.advance(seconds)
 
-        with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+        with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)
 
         assert bt.kernel_state.window.phase == WindowPhase.OPEN
@@ -346,9 +383,9 @@ class TestWindowQueue:
                 bt.clock.advance(seconds)
 
         with (
-            patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep),
+            patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep),
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_WINDOW}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -374,9 +411,9 @@ class TestWindowQueue:
             bt.clock.advance(seconds)
 
         with (
-            patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep),
+            patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep),
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_WINDOW}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -399,7 +436,7 @@ class TestWindowQueue:
 
         with (
             patch(_LOGBOOK, new_callable=AsyncMock) as logbook,
-            patch(f"{_WINDOW}.request_control_cycle") as kick,
+            patch(f"{_CONTACT}.request_control_cycle") as kick,
         ):
             await _run_queue_once(bt)
 
@@ -429,7 +466,7 @@ async def test_cancellation_during_processing_propagates():
         entered_sleep.set()
         await asyncio.Future()  # cancelled by task cancellation
 
-    with patch(f"{_WINDOW}.asyncio.sleep", side_effect=fake_sleep):
+    with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
         task = asyncio.create_task(window_queue(bt))
         await entered_sleep.wait()
         task.cancel()

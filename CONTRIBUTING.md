@@ -397,6 +397,10 @@ which holds the level each module is at today. A change that leaves one of them
 less covered than it was fails the build; a module nobody has measured yet has
 nothing to fall below and passes.
 
+A recorded module the report does not cover fails the build as well. A floor
+nothing measures holds nothing back, so a module that was deleted or renamed
+has to be re-recorded rather than leave its floor behind unenforced.
+
 The floors are per module rather than one number for the project because a
 single project-wide threshold is bought back by adding tests where they are
 easiest to write, and every user-visible bug this project has had came from a

@@ -132,10 +132,21 @@ def compute_mpc_v2(
         T_rad_C=inp.trv_temp_C,
     )
 
-    percent_int = round(max(0.0, min(1.0, u)) * 100.0)
+    # Round half up. The built-in ``round`` is half to even, so it sends every
+    # second exact half percent down (12.5 → 12) and the next one up (13.5 →
+    # 14), which quantises the valve command lopsidedly.
+    #
+    # Scaling first is not exact: a fraction that denotes a half percent can
+    # land a hair below it, because 0.285 is held as 0.28499999999999998 and
+    # times 100 that is 28.499999999999996. Snapping to the nearest
+    # micro-percent makes "half" mean half before the half-up step decides,
+    # and leaves every fraction that is not one where it was.
+    percent_int = int(round(max(0.0, min(1.0, u)) * 100.0, 6) + 0.5)
     if inp.max_opening_pct is not None:
         # The cap is a percent by contract; clamp it into 0..100 here so an
         # out-of-range value from a caller cannot widen or invert the limit.
+        # ``int`` floors the clamped cap, which is the largest whole percent a
+        # fractional cap still admits.
         percent_int = min(percent_int, int(max(0.0, min(100.0, inp.max_opening_pct))))
 
     # This is the bounded command requested this cycle.  It is replaced by the
