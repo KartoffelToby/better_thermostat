@@ -983,6 +983,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._async_unsub_state_changed = None
         self.all_entities = []
         self.devices_states = {}
+        # Monotonic time per entity before which its battery entity, having
+        # reported no level, is not read again.
+        self._next_battery_read: dict[str, float] = {}
         self.devices_errors = []
         # Degraded mode: thermostat continues operating with some sensors unavailable
         self.unavailable_sensors = []

@@ -57,6 +57,11 @@ def _startup_bt():
     mock.outdoor_sensor = None
     mock.weather_entity = None
     mock.unavailable_sensors = []
+    # Real containers, not MagicMock attributes: the battery path reads both
+    # and a MagicMock answers every lookup with a truthy stand-in, which
+    # sends it down branches this mock never meant to exercise.
+    mock.devices_states = {}
+    mock._next_battery_read = {}
     mock._degraded_warning_emitted = False
     mock._degraded_grace_until = None
     mock._async_unsub_state_changed = None
