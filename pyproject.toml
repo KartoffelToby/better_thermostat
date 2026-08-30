@@ -195,20 +195,12 @@ matches = "custom_components/better_thermostat/events/cooler.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/events/door.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/events/temperature.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/events/trv.py"
 errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/events/window.py"
-errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/model_fixes/model_quirks.py"

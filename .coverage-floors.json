@@ -36,6 +36,7 @@
   "custom_components/better_thermostat/device_trigger.py": 78.7,
   "custom_components/better_thermostat/diagnostics.py": 100.0,
   "custom_components/better_thermostat/events/__init__.py": 100.0,
+  "custom_components/better_thermostat/events/contact.py": 98.5,
   "custom_components/better_thermostat/events/cooler.py": 100.0,
   "custom_components/better_thermostat/events/door.py": 98.2,
   "custom_components/better_thermostat/events/temperature.py": 93.3,
