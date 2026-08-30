@@ -19,7 +19,9 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
     parse_hvac_mode,
 )
+from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationType
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 
 
@@ -169,6 +171,30 @@ class TestTrvReportedBuilding:
         bt.hass.states.get.return_value = None
         snapshot = build_snapshot(bt)
         assert snapshot.trvs["climate.trv"].available is False
+
+    def test_unknown_state_marks_trv_unavailable(self):
+        """An entity saying nothing leaves its device unaccounted for."""
+        bt = _make_bt()
+        bt.hass.states.get.return_value = State("climate.trv", "unknown")
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].available is False
+
+    def test_a_model_that_reports_unknown_while_driven_stays_available(self):
+        """Addressing drops an unavailable TRV, so this one has to be present.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds. Read as the
+        absence it means everywhere else, the device would be dropped from
+        the addressed set and never written to again.
+        """
+        bt = _make_bt()
+        bt.real_trvs["climate.trv"].model_quirks = zwa021
+        bt.real_trvs["climate.trv"].advanced = {
+            "calibration": CalibrationType.DIRECT_VALVE_BASED
+        }
+        bt.hass.states.get.return_value = State("climate.trv", "unknown")
+        snapshot = build_snapshot(bt)
+        assert snapshot.trvs["climate.trv"].available is True
 
     def test_unparseable_values_become_none(self):
         """Garbage in the real_trvs entry degrades to None, not a crash."""

@@ -35,6 +35,7 @@ from custom_components.better_thermostat.events.trv import convert_outbound_stat
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
+    trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
@@ -1919,16 +1920,28 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
     """
     _timeout = 0
     _real_trv = self.real_trvs[entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or (_trv_state.state == STATE_UNKNOWN and not state_unknown_as_available)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_system_mode",
                 self.device_name,
                 entity_id,
             )
             break
-        if _trv_state.state == _real_trv.last_hvac_mode:
+        # A device whose quirk reads `unknown` as operating cannot report the
+        # mode back: the mode it is in is not one the climate entity
+        # describes. Waiting for a match it will never make would hold the
+        # write open for the full confirmation budget and then warn about a
+        # device that is doing exactly what it was told.
+        if _trv_state.state == _real_trv.last_hvac_mode or (
+            _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
+        ):
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
@@ -1972,9 +1985,14 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     """
     _timeout = 0
     _real_trv = self.real_trvs[entity_id]
+    state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
-        if _trv_state is None or _trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if (
+            _trv_state is None
+            or _trv_state.state == STATE_UNAVAILABLE
+            or (_trv_state.state == STATE_UNKNOWN and not state_unknown_as_available)
+        ):
             _LOGGER.debug(
                 "better_thermostat %s: %s became unavailable during check_target_temperature",
                 self.device_name,

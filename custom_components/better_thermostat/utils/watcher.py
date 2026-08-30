@@ -24,6 +24,9 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     step as control_mode_step,
     step_ladder as control_mode_step_ladder,
 )
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    trv_state_unknown_as_available,
+)
 from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
 
 from .const import DOMAIN
@@ -44,15 +47,12 @@ STARTUP_DEGRADED_GRACE_PERIOD = timedelta(minutes=5)
 STARTUP_CRITICAL_GRACE_PERIOD = timedelta(minutes=2)
 
 # States considered unavailable
-UNAVAILABLE_STATES = (
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    None,
-    "missing",
-    "unknown",
-    "unavail",
-    "unavailable",
-)
+UNAVAILABLE_STATES = (STATE_UNAVAILABLE, None, "missing", "unavail", "unavailable")
+
+# Held apart from the above because a TRV can report ``unknown`` while it is
+# reachable and taking commands: the mode it is driven through is not one its
+# climate entity describes.
+UNKNOWN_STATES = (STATE_UNKNOWN, "unknown")
 
 # Seconds a battery entity that had nothing to report is left alone before it
 # is read again. Both availability checks run on nearly every event, so
@@ -61,7 +61,7 @@ UNAVAILABLE_STATES = (
 BATTERY_REREAD_DELAY_SECONDS = 300.0
 
 
-def is_entity_available(hass, entity) -> bool:
+def is_entity_available(hass, entity, state_unknown_as_available: bool = False) -> bool:
     """Check if an entity is available without side effects.
 
     Parameters
@@ -70,6 +70,10 @@ def is_entity_available(hass, entity) -> bool:
         Home Assistant instance
     entity : str
         Entity ID to check
+    state_unknown_as_available : bool
+        Whether an ``unknown`` state counts as available. Only a model
+        whose quirk says so passes True here; by default an entity that
+        says nothing leaves its device unaccounted for.
 
     Returns
     -------
@@ -81,7 +85,29 @@ def is_entity_available(hass, entity) -> bool:
     entity_states = hass.states.get(entity)
     if entity_states is None:
         return False
-    return entity_states.state not in UNAVAILABLE_STATES
+    if state_unknown_as_available:
+        return entity_states.state not in UNAVAILABLE_STATES
+    return entity_states.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
+
+
+def is_trv_available(self, entity_id: str) -> bool:
+    """Check if a TRV is available, its model's reading of ``unknown`` included.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to check
+
+    Returns
+    -------
+    bool
+        True if the TRV exists and is in a state it can be driven in
+    """
+    return is_entity_available(
+        self.hass, entity_id, trv_state_unknown_as_available(self, entity_id)
+    )
 
 
 def get_battery_status(self, entity) -> None:
@@ -112,7 +138,7 @@ def get_battery_status(self, entity) -> None:
 
     battery_state = self.hass.states.get(battery_id)
     level = None if battery_state is None else battery_state.state
-    if level in UNAVAILABLE_STATES:
+    if level in UNAVAILABLE_STATES + UNKNOWN_STATES:
         self._next_battery_read[entity] = (
             self.clock.monotonic() + BATTERY_REREAD_DELAY_SECONDS
         )
@@ -248,7 +274,7 @@ async def check_critical_entities(self) -> bool:
 
     all_available = True
     for entity in critical:
-        if not is_entity_available(self.hass, entity):
+        if not is_trv_available(self, entity):
             if in_grace:
                 _LOGGER.debug(
                     "better_thermostat %s: Critical entity %s is unavailable "
@@ -440,7 +466,7 @@ async def await_critical_entities(
         pending = [
             eid
             for eid in get_critical_entities(self)
-            if not is_entity_available(self.hass, eid)
+            if not is_trv_available(self, eid)
         ]
         if not pending:
             _LOGGER.debug(
@@ -465,9 +491,7 @@ async def await_critical_entities(
 
     # Final check after the last sleep
     pending = [
-        eid
-        for eid in get_critical_entities(self)
-        if not is_entity_available(self.hass, eid)
+        eid for eid in get_critical_entities(self) if not is_trv_available(self, eid)
     ]
     if not pending:
         _LOGGER.debug(
@@ -544,7 +568,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     trv_temp_ok = any(
         isinstance(trv.current_temperature, (int, float))
         and math.isfinite(float(trv.current_temperature))
-        and is_entity_available(self.hass, entity_id)
+        and is_trv_available(self, entity_id)
         for entity_id, trv in self.real_trvs.items()
     )
     self.kernel_state = replace(

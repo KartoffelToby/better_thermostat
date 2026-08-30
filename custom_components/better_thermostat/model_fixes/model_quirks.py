@@ -12,7 +12,33 @@ from types import ModuleType
 
 from homeassistant.helpers.importlib import async_import_module
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+
 _LOGGER = logging.getLogger(__name__)
+
+# Model strings that no quirk module of their own answers for, mapped to the
+# module that drives them instead. The Eurotronic Spirit Z and the Aeotec
+# ZWA021 are one device sold under two names, so one module covers both.
+_QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021"}
+
+
+def get_model_quirks_name(model: str | None) -> str:
+    """Return the name of the quirk module a device model is driven by.
+
+    Parameters
+    ----------
+    model : str | None
+        Model string the device registry reports, or None while the model
+        is undetermined.
+
+    Returns
+    -------
+    str
+        Module name to load: the model itself, unless another model's
+        module answers for it.
+    """
+    model_str = str(model) if model is not None else ""
+    return _QUIRK_MODULE_ALIASES.get(model_str, model_str)
 
 
 async def load_model_quirks(self, model, entity_id) -> ModuleType:
@@ -22,7 +48,7 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
     """
 
     # Normalize model to a safe module suffix
-    model_str = str(model) if model is not None else ""
+    model_str = get_model_quirks_name(model)
     # Replace path separators and any non-alphanumeric/underscore with underscore
     model_sanitized = (
         re.sub(r"[^A-Za-z0-9_-]+", "_", model_str.replace("/", "_")).strip("_")
@@ -66,6 +92,38 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
             raise
 
     return self.model_quirks
+
+
+def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether a TRV is operating while its state reads ``unknown``.
+
+    A device driven through a thermostat mode its climate entity does not
+    describe reports ``unknown`` for as long as that mode holds, while it
+    stays reachable and takes commands. Only the model's own quirk module
+    knows that, so the answer comes from there; for every other device an
+    entity that says nothing leaves the device unaccounted for.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV whose state reads ``unknown``
+
+    Returns
+    -------
+    bool
+        True when ``unknown`` is this model's way of reporting an
+        operating device
+    """
+    quirks = getattr(self.real_trvs.get(entity_id), "model_quirks", None)
+    # The record holds the loaded quirk module, and only a loaded module can
+    # answer; anything else is read the way an unquirked device is.
+    if not isinstance(quirks, ModuleType):
+        return False
+    if not hasattr(quirks, "trv_state_unknown_as_available"):
+        return False
+    return bool(quirks.trv_state_unknown_as_available(self, entity_id))
 
 
 def fix_local_calibration(self, entity_id, offset):

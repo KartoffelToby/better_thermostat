@@ -59,6 +59,7 @@ OPTIONAL = (
     "override_set_valve",
     "initial_tweak",
     "maybe_set_external_temperature",
+    "trv_state_unknown_as_available",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -72,6 +73,7 @@ CALL_CONTRACT = {
     "override_set_temperature": ((21.0,), bool),
     "override_set_valve": ((50,), bool),
     "initial_tweak": ((), type(None)),
+    "trv_state_unknown_as_available": ((), bool),
 }
 
 

@@ -21,6 +21,26 @@ _LOGGER = logging.getLogger(__name__)
 VALVE_MAINTENANCE_INTERVAL_HOURS = 168  # Default: 7 days
 
 
+def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether the TRV is operating while its state reads ``unknown``.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records.
+        Unused by the default policy.
+    entity_id : str
+        Entity ID of the TRV being judged. Unused by the default policy.
+
+    Returns
+    -------
+    bool
+        False: an entity that says nothing about its device leaves the
+        device unaccounted for.
+    """
+    return False
+
+
 def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Return the given local calibration offset unchanged."""
     return offset
