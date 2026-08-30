@@ -24,6 +24,7 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.valve_maintenance import (
     MaintenanceTrvInfo,
@@ -52,6 +53,7 @@ def _trv(
     min_temp: float = 5,
     quirks: object | None = None,
     valve_entity: str | None = None,
+    valve_writable: bool | None = True,
     calibration: str | None = None,
 ) -> Trv:
     """Build a ``real_trvs[entity_id]`` entry for testing."""
@@ -63,6 +65,7 @@ def _trv(
             "min_temp": min_temp,
             "model_quirks": quirks,
             "valve_position_entity": valve_entity,
+            "valve_position_writable": valve_writable,
         },
     )
 
@@ -304,6 +307,39 @@ class TestBuildTrvSnapshots:
         }
         result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
         assert result[0].use_direct_valve is True
+
+    @pytest.mark.parametrize("writable", [False, None])
+    def test_a_valve_entity_that_cannot_be_written_is_not_direct(self, writable):
+        """Discovery reports the entity; only writability makes it a channel.
+
+        A direct cycle writes valve percentages and skips the setpoint
+        sweep altogether, so reading a position the device only reports
+        would turn the whole run into a no-op.
+        """
+        trvs = {
+            "trv1": _trv(
+                maintenance=True,
+                valve_entity="number.valve",
+                valve_writable=writable,
+                calibration="direct_valve_based",
+            )
+        }
+        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        assert result[0].use_direct_valve is False
+
+    def test_a_model_without_a_valve_quirk_is_not_direct(self):
+        """A model with no quirk file of its own runs on the default one.
+
+        That module drives no valve, so a device on it has no valve
+        channel to run a direct cycle through.
+        """
+        trvs = {
+            "trv1": _trv(
+                maintenance=True, quirks=default_quirk, calibration="direct_valve_based"
+            )
+        }
+        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        assert result[0].use_direct_valve is False
 
     def test_wake_mode_from_enum_repr_capabilities(self):
         """An off TRV spelling its capabilities as ``HVACMode.*`` still wakes."""
