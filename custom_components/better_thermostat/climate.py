@@ -8,6 +8,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import replace
 from datetime import datetime, timedelta
+from functools import partial
 import json
 import logging
 import math
@@ -1058,6 +1059,33 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._owned_tasks.add(task)
         task.add_done_callback(self._owned_tasks.discard)
         return task
+
+    @callback
+    def _start_owned_timer_work(
+        self, coro_fn: Callable[[Any], Coroutine[Any, Any, Any]], name: str, now: Any
+    ) -> None:
+        """Run one firing of a periodic timer as work this entity owns.
+
+        Handing an async callback to ``async_track_time_interval`` lets Home
+        Assistant run it in a task of its own. Unsubscribing the timer on
+        removal ends the next firing, not the one already running, and these
+        callbacks write setpoints, calibration offsets and the external
+        temperature. Spawning each firing through ``_spawn_owned`` puts it in
+        the set the removal cancels.
+
+        Registrations bind the first two parameters with ``partial``, which
+        Home Assistant unwraps when it classifies the job.
+
+        Parameters
+        ----------
+        coro_fn : collections.abc.Callable
+            The coroutine function this timer runs.
+        name : str
+            Task name prefix; the device name is appended.
+        now : datetime.datetime
+            The firing time Home Assistant passes in.
+        """
+        self._spawn_owned(coro_fn(now), name=f"{name}_{self.device_name}")
 
     async def async_added_to_hass(self):
         """Run when entity about to be added.
@@ -2536,7 +2564,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Add listener
         if self.outdoor_sensor is not None:
             self.async_on_remove(
-                async_track_time_change(self.hass, self._trigger_time, 5, 0, 0)
+                async_track_time_change(
+                    self.hass,
+                    partial(
+                        self._start_owned_timer_work,
+                        self._trigger_time,
+                        "bt_outdoor_tick",
+                    ),
+                    5,
+                    0,
+                    0,
+                )
             )
 
         # Wait for optional sensors with increasing retry delays before
@@ -2570,7 +2608,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self.async_on_remove(
             async_track_time_interval(
-                self.hass, self._trigger_check_weather, timedelta(hours=1)
+                self.hass,
+                partial(
+                    self._start_owned_timer_work,
+                    self._trigger_check_weather,
+                    "bt_weather_tick",
+                ),
+                timedelta(hours=1),
             )
         )
 
@@ -2614,7 +2658,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
-                self._trigger_time if recomputes else self._availability_tick,
+                partial(
+                    self._start_owned_timer_work,
+                    self._trigger_time if recomputes else self._availability_tick,
+                    "bt_periodic_tick",
+                ),
                 timedelta(minutes=5),
             )
         )
@@ -2639,7 +2687,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             self.async_on_remove(
                 async_track_time_interval(
-                    self.hass, self._maintenance_tick, timedelta(minutes=5)
+                    self.hass,
+                    partial(
+                        self._start_owned_timer_work,
+                        self._maintenance_tick,
+                        "bt_maintenance_tick",
+                    ),
+                    timedelta(minutes=5),
                 )
             )
             _LOGGER.debug(
@@ -2758,7 +2812,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
-                self._external_temperature_keepalive,
+                partial(
+                    self._start_owned_timer_work,
+                    self._external_temperature_keepalive,
+                    "bt_ext_temp_keepalive",
+                ),
                 EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
             )
         )
@@ -2766,14 +2824,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.debug("better_thermostat %s: starting EMA timer...", self.device_name)
         self.async_on_remove(
             async_track_time_interval(
-                self.hass, self._async_update_ema_periodic, timedelta(minutes=1)
+                self.hass,
+                partial(
+                    self._start_owned_timer_work,
+                    self._async_update_ema_periodic,
+                    "bt_ema_tick",
+                ),
+                timedelta(minutes=1),
             )
         )
         # Periodic reconciliation: heal lost writes by re-converging the
         # devices onto the kernel's intent.
         self.async_on_remove(
             async_track_time_interval(
-                self.hass, self._reconcile_tick, timedelta(minutes=5)
+                self.hass,
+                partial(
+                    self._start_owned_timer_work,
+                    self._reconcile_tick,
+                    "bt_reconcile_tick",
+                ),
+                timedelta(minutes=5),
             )
         )
         _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
