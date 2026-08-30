@@ -105,6 +105,8 @@ def bt():
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
     mock.bt_target_temp = 21.0
+    mock.bt_target_temp_min = None
+    mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
     mock._configured_target_temp_step = None
     mock.bt_target_cooltemp = None
@@ -713,6 +715,19 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = State(HUMIDITY_ID, "55.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert HUMIDITY_ID in bt.all_entities
+
+    def test_unreadable_humidity_stays_unknown(self, bt):
+        """A humidity that does not parse is not reported as 0 %.
+
+        0 % is a reading a room can publish, so a sensor whose value cannot be
+        read has to stay unknown instead of being answered with a number.
+        """
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = State(HUMIDITY_ID, "not-a-number")
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt._current_humidity is None
 
     def test_ema_initialized_with_cur_temp(self, bt):
         """Test Ema initialized with cur temp."""
@@ -2067,6 +2082,21 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         # humidity should be re-read
         assert bt._current_humidity is not None
+
+    def test_unreadable_humidity_stays_unknown(self, bt):
+        """The humidity re-read keeps an unparsable reading unknown.
+
+        This pass runs after the sensors are initialized and decides the value
+        the entity publishes, so coercing it to 0 % here would present a
+        missing measurement as a measured one.
+        """
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        bt.hass.states.get.return_value = State(HUMIDITY_ID, STATE_UNAVAILABLE)
+        states = [_make_trv_state()]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt._current_humidity is None
 
     def test_humidity_sensor_none_sets_zero(self, bt):
         """Test Humidity sensor none sets zero."""

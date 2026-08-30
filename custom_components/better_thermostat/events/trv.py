@@ -267,7 +267,7 @@ async def trigger_trv_change(self, event):
             str(val_pos), self.device_name, "trv_event"
         )
 
-    if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
+    if mapped_state in (HVACMode.OFF, HVACMode.HEAT):
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode
             _LOGGER.debug(
@@ -524,7 +524,6 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     """
     _new_local_calibration = None
     _new_heating_setpoint = None
-    _new_valve_position = None
     advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
@@ -618,8 +617,6 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
         }
         if _new_local_calibration is not None:
             _payload["local_temperature_calibration"] = _new_local_calibration
-        if _new_valve_position is not None:
-            _payload["valve_position"] = _new_valve_position
         return _payload
     except Exception as e:
         _LOGGER.exception(

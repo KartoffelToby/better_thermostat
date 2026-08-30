@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
 import logging
+import math
 
 import numpy as np
 import pytest
@@ -765,3 +766,76 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         out_fresh.diagnostics.T_room_hat
     )
     assert out_restored.valve_percent == out_fresh.valve_percent
+
+
+@pytest.mark.parametrize(
+    "cycle_s", [120.0, 300.0], ids=["cycle-under-replan-step", "cycle-over-replan-step"]
+)
+def test_restored_snapshot_reproduces_the_uninterrupted_command_sequence(
+    cycle_s: float,
+) -> None:
+    """A restart mid-run must not change a single later valve command.
+
+    The snapshot is the controller's whole memory, so a controller resumed
+    from one has to issue exactly the commands the uninterrupted controller
+    would have issued for the remaining inputs. Both cadences are driven
+    because they reach different parts of that memory: cycles longer than the
+    MPC re-plan interval re-plan on every one, while shorter cycles hand back
+    the held command in between and so depend on the stored re-plan deadline
+    as well.
+
+    The outdoor temperature sits just under the setpoint, which puts the
+    steady-state valve fraction below the governor's safety margin. That is
+    the regime in which the governed reference stays pinned to the room
+    temperature of the very first cycle, so a restart that re-seeds it from a
+    later reading diverges. The plant carries a valve command delay, which
+    brings the replayed command history into the comparison too.
+    """
+    params = MpcV2Params()
+    params.plant = replace(params.plant, valve_command_delay_s=900.0)
+    T_target_C, T_outdoor_C = 19.0, 18.0
+    steps, resume_at = 40, 17
+
+    # Only an infeasible setpoint leaves the governed reference observable;
+    # a transparent governor carries no state for the snapshot to lose.
+    plant = PlantModelRC2(params.plant, dt_s=params.qp.step_s)
+    assert (
+        plant.steady_input(T_target_C, T_outdoor_C)
+        < params.governor.u_min + params.governor.safety_margin
+    )
+
+    def room_temperature(cycle: int) -> float:
+        """A room cooling off slowly, with a small ripple on top."""
+        return 19.2 - 0.02 * cycle + 0.15 * math.sin(cycle / 4.0)
+
+    def drive(controller: MpcV2Controller, cycles: range) -> list[float]:
+        return [
+            controller.step(
+                t_s=1000.0 + cycle_s * cycle,
+                T_room_C=room_temperature(cycle),
+                T_target_C=T_target_C,
+                T_outdoor_C=T_outdoor_C,
+            )[0]
+            for cycle in cycles
+        ]
+
+    uninterrupted = drive(MpcV2Controller(params), range(steps))
+    # A command resting on a rail would match no matter what the restore
+    # dropped. Rounding folds away commands that are all but zero and differ
+    # only in their last bits, so the count below is of real valve positions.
+    assert len({round(command, 6) for command in uninterrupted}) >= steps // 4
+    assert max(uninterrupted) - min(uninterrupted) > 0.1 * (
+        params.qp.u_max - params.qp.u_min
+    )
+
+    interrupted = MpcV2Controller(params)
+    before_restart = drive(interrupted, range(resume_at))
+    stored = json.loads(json.dumps(asdict(interrupted.export_snapshot())))
+    snapshot = ControllerSnapshot.from_mapping(stored)
+    assert snapshot is not None
+
+    resumed = MpcV2Controller(params)
+    resumed.restore_snapshot(snapshot)
+    after_restart = drive(resumed, range(resume_at, steps))
+
+    assert before_restart + after_restart == uninterrupted

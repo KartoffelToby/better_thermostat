@@ -59,6 +59,8 @@ def bt():
     mock.cooler_entity_id = COOLER_ID
     mock.bt_min_temp = None
     mock.bt_max_temp = None
+    mock.bt_target_temp_min = None
+    mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
     mock._configured_target_temp_step = None
     mock.bt_target_temp = 21.0

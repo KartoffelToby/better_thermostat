@@ -62,6 +62,93 @@ def test_reset_drops_internal_reference() -> None:
     assert gov.state() is None
 
 
+def _highest_feasible_reference(
+    plant: PlantModelRC2, params: GovernorParams, T_outdoor_C: float, above_C: float
+) -> float:
+    """Return the warmest reference the plant can still hold within its bounds.
+
+    ``steady_input`` grows monotonically with the reference, so the feasible
+    band has a single upper edge. Bisecting the plant model locates it without
+    restating the plant algebra in the test; ``above_C`` is a reference known
+    to be past the edge.
+    """
+    lo, hi = T_outdoor_C, above_C
+    for _ in range(100):
+        mid = 0.5 * (lo + hi)
+        if plant.steady_input(mid, T_outdoor_C) <= params.u_max - params.safety_margin:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def test_reference_tracks_a_feasibility_limit_that_moves_every_step() -> None:
+    """The reference follows the plant's authority up as the weather releases it.
+
+    A setpoint the plant can never hold keeps the governor engaged for the
+    whole run, so nothing but the governor decides the reference. Warming
+    outdoor air lifts the feasibility limit a little on every step, and the
+    sequence has to ride it: never falling back, never passing the user
+    setpoint, staying feasible against the outdoor temperature of its own
+    step, and closing to within one bisection resolution of that step's limit.
+    """
+    params = GovernorParams()
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    gov = ScalarReferenceGovernor(plant, params)
+    T_sp, T_room_C, steps = 40.0, 19.0, 200
+    outdoors_C = [16.0 * step / (steps - 1) for step in range(steps)]
+
+    references = [
+        gov.update(T_sp=T_sp, T_outdoor_C=T_outdoor_C, T_room_now=T_room_C)
+        for T_outdoor_C in outdoors_C
+    ]
+    limits_C = [
+        _highest_feasible_reference(plant, params, T_outdoor_C, T_sp)
+        for T_outdoor_C in outdoors_C
+    ]
+    # Each step bisects a fraction of the distance from the previous reference
+    # to the setpoint, which never exceeds the distance from the seed, so the
+    # reference lands within this much of the limit it searched against.
+    resolution_K = (T_sp - T_room_C) / 2**params.bisection_iters
+
+    # A reference that stalls after two steps would satisfy everything below
+    # without ever tracking anything.
+    assert len(set(references)) > steps // 2
+    assert references == sorted(references)
+    assert all(reference <= T_sp for reference in references)
+    assert all(
+        plant.steady_input(reference, T_outdoor_C)
+        <= params.u_max - params.safety_margin
+        for reference, T_outdoor_C in zip(references, outdoors_C, strict=True)
+    )
+    assert all(
+        limit_C - reference < resolution_K
+        for reference, limit_C in zip(references, limits_C, strict=True)
+    )
+
+
+def test_lowered_setpoint_is_handed_back_unshaped() -> None:
+    """Asking for less heat needs no shaping, so the setpoint passes straight through.
+
+    The governor exists to keep the implied steady-state input inside the
+    actuator's range, and closing the valve further is always available. From
+    a settled warmer reference the first update therefore has to return the
+    new setpoint itself, and every later one has to keep returning it.
+    """
+    params = GovernorParams()
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    gov = ScalarReferenceGovernor(plant, params)
+    T_outdoor_C, T_start_C, T_sp = 16.0, 21.0, 17.0
+    gov.update(T_sp=T_start_C, T_outdoor_C=T_outdoor_C, T_room_now=T_start_C)
+
+    references = [
+        gov.update(T_sp=T_sp, T_outdoor_C=T_outdoor_C, T_room_now=T_start_C)
+        for _ in range(200)
+    ]
+
+    assert references == [T_sp] * 200
+
+
 def test_lowered_setpoint_is_reached_and_not_only_approached() -> None:
     """Lowering the setpoint in mild weather must reach the new target.
 

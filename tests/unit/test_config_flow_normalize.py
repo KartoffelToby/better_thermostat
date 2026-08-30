@@ -8,7 +8,10 @@ drop the previously stored value instead of silently keeping it.
 
 from homeassistant.const import CONF_NAME
 
-from custom_components.better_thermostat.config_flow import _normalize_user_submission
+from custom_components.better_thermostat.config_flow import (
+    _build_user_fields,
+    _normalize_user_submission,
+)
 from custom_components.better_thermostat.utils.const import (
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
@@ -133,3 +136,23 @@ def test_door_timeouts_default_to_zero_on_create():
     normalized = _normalize_user_submission(user_input, mode="create")
     assert normalized[CONF_DOOR_TIMEOUT] == 0
     assert normalized[CONF_DOOR_TIMEOUT_AFTER] == 0
+
+
+def test_heaters_are_preserved_when_the_form_is_redisplayed():
+    """A form rebuilt after a validation error keeps the thermostats picked.
+
+    A stored entry holds a bundle per thermostat, but a redisplayed form is
+    built from what the user submitted: plain entity ids. Reading only bundles
+    empties the selector, and the user loses the selection along with the
+    error message they were supposed to correct.
+    """
+    fields = _build_user_fields(
+        mode="create", current={CONF_HEATER: ["climate.trv", "climate.trv_2"]}
+    )
+
+    heater_marker = next(marker for marker in fields if marker == CONF_HEATER)
+
+    assert heater_marker.description["suggested_value"] == [
+        "climate.trv",
+        "climate.trv_2",
+    ]

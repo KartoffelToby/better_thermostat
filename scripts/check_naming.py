@@ -18,6 +18,14 @@ zone B and moves only with a migration, not with a rename. Where a rejected
 alias is the correct name after all, ``[[exception]]`` in `glossary.toml`
 records it together with the reason.
 
+Under `tests` a rejected spelling counts only once production has stopped using
+it. A test names the attribute it asserts on, so the spelling it carries is the
+production one and not a naming decision of its own; charging both files for
+one rename would make the backlog look larger than it is and would leave a new
+test file no room to name the field it covers. The coupling is what keeps the
+tests honest: the moment the last production site is renamed, every test still
+spelling the old name is over budget and has to follow.
+
 Three modes:
 
 ``check``
@@ -50,7 +58,9 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GLOSSARY_FILE = REPO_ROOT / "glossary.toml"
 BUDGET_FILE = REPO_ROOT / ".naming-budget.json"
-SCANNED = ("custom_components", "tests", "scripts")
+PRODUCTION_ROOT = "custom_components"
+TEST_ROOT = "tests"
+SCANNED = (PRODUCTION_ROOT, TEST_ROOT, "scripts")
 
 
 @dataclass(frozen=True)
@@ -147,19 +157,43 @@ def _identifiers(tree: ast.AST) -> list[tuple[str, int]]:
     return found
 
 
-def _scan(path: Path, glossary: Glossary) -> list[Finding]:
-    """Return every rejected alias used as an identifier in one file."""
+def _parse(path: Path) -> ast.Module:
+    """Return the parsed file, stopping on one the parser cannot read."""
     relative = path.relative_to(REPO_ROOT).as_posix()
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
+        return ast.parse(path.read_text(encoding="utf-8"), filename=relative)
     except SyntaxError as err:
         sys.exit(f"{relative}: {err}")
 
+
+def _production_spellings(glossary: Glossary) -> frozenset[str]:
+    """Return the rejected aliases the production tree still spells.
+
+    These are the names a test cannot avoid: it has to say `world.cur_temp` to
+    assert on the field production calls `cur_temp`. Such a use is a reader of
+    a name someone else chose, so it is not counted while that name exists, and
+    it becomes a finding as soon as the production spelling is gone.
+    """
+    return frozenset(
+        name
+        for path in sorted((REPO_ROOT / PRODUCTION_ROOT).rglob("*.py"))
+        for name, _ in _identifiers(_parse(path))
+        if name in glossary.aliases
+    )
+
+
+def _scan(path: Path, glossary: Glossary, production: frozenset[str]) -> list[Finding]:
+    """Return every rejected alias used as an identifier in one file."""
+    relative = path.relative_to(REPO_ROOT).as_posix()
+    mirrors_production = relative.startswith(f"{TEST_ROOT}/")
+
     seen: set[tuple[str, int]] = set()
     findings = []
-    for name, line in _identifiers(tree):
+    for name, line in _identifiers(_parse(path)):
         targets = glossary.aliases.get(name)
         if targets is None or (name, line) in seen:
+            continue
+        if mirrors_production and name in production:
             continue
         if any(relative.startswith(p) for p in glossary.exceptions.get(name, ())):
             continue
@@ -186,8 +220,14 @@ def _sources(paths: list[Path] | None) -> list[Path]:
 
 
 def _findings(paths: list[Path] | None, glossary: Glossary) -> list[Finding]:
-    """Return every finding across the requested paths."""
-    return [f for path in _sources(paths) for f in _scan(path, glossary)]
+    """Return every finding across the requested paths.
+
+    Production is read in full whatever the requested paths are, because a file
+    under `tests` is judged against the spellings production still carries and
+    a partial reading of them would invent findings.
+    """
+    production = _production_spellings(glossary)
+    return [f for path in _sources(paths) for f in _scan(path, glossary, production)]
 
 
 def _load_budget() -> dict[str, int]:
@@ -203,7 +243,10 @@ def _load_budget() -> dict[str, int]:
 def check(paths: list[Path] | None) -> int:
     """Compare today's findings against the budget. Return an exit code."""
     glossary = _load_glossary()
-    counts = Counter(f.path for f in _findings(paths, glossary))
+    findings: dict[str, list[Finding]] = {}
+    for finding in _findings(paths, glossary):
+        findings.setdefault(finding.path, []).append(finding)
+    counts = Counter({path: len(found) for path, found in findings.items()})
     budget = _load_budget()
 
     over = sorted(
@@ -212,7 +255,7 @@ def check(paths: list[Path] | None) -> int:
         if count > budget.get(path, 0)
     )
     for path, count, allowed in over:
-        for finding in _scan(REPO_ROOT / path, glossary):
+        for finding in findings[path]:
             print(finding)
         print(f"over budget: {path} {count} rejected names, budget {allowed}\n")
 
