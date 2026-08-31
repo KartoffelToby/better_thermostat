@@ -20,12 +20,6 @@ def _adapter_id(adapter):
 
 
 @pytest.fixture
-def anyio_backend():
-    """Configure anyio to use asyncio backend for async tests."""
-    return "asyncio"
-
-
-@pytest.fixture
 def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
@@ -51,7 +45,6 @@ def mock_bt_instance(mock_hass):
 class TestDeconzAdapter:
     """Tests for deCONZ adapter None handling."""
 
-    @pytest.mark.anyio
     async def test_get_info_returns_false_when_state_is_none(self, mock_bt_instance):
         """Test that get_info returns support_offset=False when state is None."""
         from custom_components.better_thermostat.adapters.deconz import get_info
@@ -62,7 +55,6 @@ class TestDeconzAdapter:
 
         assert result == {"support_offset": False, "support_valve": False}
 
-    @pytest.mark.anyio
     async def test_get_info_returns_true_when_offset_exists(self, mock_bt_instance):
         """Test that get_info returns support_offset=True when offset attribute exists."""
         from custom_components.better_thermostat.adapters.deconz import get_info
@@ -88,7 +80,6 @@ class TestBoundsOfAnEntityThatDeclaresNone:
     """
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
-    @pytest.mark.anyio
     async def test_step_of_a_stateless_entity(self, adapter, mock_bt_instance):
         """An entity that reports nothing publishes no granularity."""
         mock_bt_instance.hass.states.get.return_value = None
@@ -98,7 +89,6 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         assert result == 1.0
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
-    @pytest.mark.anyio
     async def test_min_of_a_stateless_entity(self, adapter, mock_bt_instance):
         """An entity that reports nothing publishes no lower bound."""
         mock_bt_instance.hass.states.get.return_value = None
@@ -108,7 +98,6 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         assert result == -10.0
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
-    @pytest.mark.anyio
     async def test_max_of_a_stateless_entity(self, adapter, mock_bt_instance):
         """An entity that reports nothing publishes no upper bound."""
         mock_bt_instance.hass.states.get.return_value = None
@@ -118,7 +107,6 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         assert result == 10.0
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
-    @pytest.mark.anyio
     async def test_step_without_a_calibration_entity(self, adapter, mock_bt_instance):
         """A TRV discovery found no entity for gets the same answer."""
         mock_bt_instance.real_trvs = {
@@ -132,7 +120,6 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         assert result == 1.0
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
-    @pytest.mark.anyio
     async def test_step_comes_from_the_entity_when_it_publishes_one(
         self, adapter, mock_bt_instance
     ):
