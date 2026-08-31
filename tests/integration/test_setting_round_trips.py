@@ -15,6 +15,12 @@ learned heating power is the thermostat's own accumulated knowledge, and a
 restart that drops it costs a day of relearning. The window state is read back
 off the sensor rather than persisted, and a thermostat that comes up believing
 a standing-open window is shut heats into it until the sensor next changes.
+
+The last test in the file stands outside the matrix. A room with a cooler has
+a second place its targets could come from — the cooler's own setpoint — and
+the matrix cannot tell that source apart from the saved state, because a cooler
+that kept what was written to it answers with the same value. That test moves
+the device off the value first.
 """
 
 from collections.abc import Callable
@@ -30,6 +36,7 @@ from .conftest import (
     BT_ENTITY,
     DOMAIN,
     WINDOW_ID,
+    build_devices,
     click_through_the_options,
     make_entry,
     set_room_sensor,
@@ -37,13 +44,30 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV
+from .device_profiles import (
+    COOLER_ID,
+    GENERIC_HEAT_TRV,
+    SEPARATE_COOLER,
+    DeviceProfile,
+    RoleScenario,
+)
 
 PRESETS = ["comfort", "eco"]
 
 # A learned power far enough from the 0.01 the tracker starts on that a
 # thermostat falling back cannot be mistaken for one that restored.
 LEARNED_HEATING_POWER = 0.042
+
+# The pair a room with a cooler is put on. Both are off the values such a
+# thermostat comes up on by itself, and they are far enough apart that the rule
+# keeping the cooling target above the heating one leaves them alone.
+HEATING_TARGET_OF_THE_PAIR = 19.0
+COOLING_TARGET_OF_THE_PAIR = 26.0
+
+# The setpoint the cooler is turned to while the thermostat is down. It is one
+# the thermostat did not choose, which is what makes it visible: a restart that
+# reads the cooling target off the device comes back on this value.
+COOLER_SETPOINT_TURNED_BY_HAND = 21.0
 
 
 async def _call(hass, service, data):
@@ -81,6 +105,22 @@ async def _configure_heating_power(hass, bt):
     bt.schedule_save_state(delay_s=0)
     bt.async_write_ha_state()
     await hass.async_block_till_done()
+
+
+async def _configure_the_temperature_range(hass, bt):
+    """Set the pair a room with a cooler is driven by.
+
+    A thermostat with a cooler configured takes a heating and a cooling target
+    together, and publishes them as the two bounds of a range.
+    """
+    await _call(
+        hass,
+        "set_temperature",
+        {
+            "target_temp_low": HEATING_TARGET_OF_THE_PAIR,
+            "target_temp_high": COOLING_TARGET_OF_THE_PAIR,
+        },
+    )
 
 
 async def _configure_window_open(hass, bt):
@@ -126,6 +166,10 @@ class Setting:
         Entry data written on top of what ``make_entry`` builds.
     prepare
         Callable publishing world state the entry needs before it is set up.
+    room
+        The devices the entry drives. A setting that only exists in a room with
+        a cooler names the role scenario carrying one; the rest run against the
+        plain head.
     """
 
     name: str
@@ -136,7 +180,26 @@ class Setting:
     entry_options: dict[str, Any] = field(default_factory=dict)
     entry_data: dict[str, Any] = field(default_factory=dict)
     prepare: Callable | None = None
+    room: DeviceProfile | RoleScenario = GENERIC_HEAT_TRV
 
+
+HEATING_TARGET_BESIDE_A_COOLER = Setting(
+    name="heating_target_beside_a_cooler",
+    configure=_configure_the_temperature_range,
+    read=_read("target_temp_low"),
+    expected=HEATING_TARGET_OF_THE_PAIR,
+    default=5.0,
+    room=SEPARATE_COOLER,
+)
+
+COOLING_TARGET_BESIDE_A_COOLER = Setting(
+    name="cooling_target_beside_a_cooler",
+    configure=_configure_the_temperature_range,
+    read=_read("target_temp_high"),
+    expected=COOLING_TARGET_OF_THE_PAIR,
+    default=24.0,
+    room=SEPARATE_COOLER,
+)
 
 SETTINGS = [
     Setting(
@@ -168,6 +231,8 @@ SETTINGS = [
         expected=LEARNED_HEATING_POWER,
         default=0.01,
     ),
+    HEATING_TARGET_BESIDE_A_COOLER,
+    COOLING_TARGET_BESIDE_A_COOLER,
     Setting(
         name="window_open",
         configure=_configure_window_open,
@@ -185,12 +250,20 @@ def setting_id(setting: Setting) -> str:
     return setting.name
 
 
+def _profiles_of(room: DeviceProfile | RoleScenario) -> list[DeviceProfile]:
+    """Return the device profiles a room description registers."""
+    if isinstance(room, RoleScenario):
+        return [room.trv] + ([room.cooler] if room.cooler is not None else [])
+    return [room]
+
+
 async def _entry_up(hass, setting: Setting):
     """Bring up an entry wired for ``setting`` and return it with its entity."""
+    await build_devices(hass, *_profiles_of(setting.room))
     set_room_sensor(hass, 18.0)
     if setting.prepare is not None:
         setting.prepare(hass)
-    data = dict(make_entry(GENERIC_HEAT_TRV, **setting.entry_options).data)
+    data = dict(make_entry(setting.room, **setting.entry_options).data)
     data.update(setting.entry_data)
     entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
     await setup_entry(hass, entry)
@@ -206,9 +279,7 @@ async def _thermostat_on(hass, setting: Setting):
 
 
 @pytest.mark.parametrize("setting", SETTINGS, ids=setting_id)
-async def test_the_case_can_tell_a_restore_from_a_default(
-    hass, fake_trv, setting: Setting
-):
+async def test_the_case_can_tell_a_restore_from_a_default(hass, setting: Setting):
     """A case configured to the default value proves nothing, and is caught here.
 
     This is the guard behind every other test in the file. A round-trip test
@@ -224,7 +295,7 @@ async def test_the_case_can_tell_a_restore_from_a_default(
 
 
 @pytest.mark.parametrize("setting", SETTINGS, ids=setting_id)
-async def test_setting_survives_a_reload(hass, fake_trv, setting: Setting):
+async def test_setting_survives_a_reload(hass, setting: Setting):
     """Reloading the entry leaves the setting where the user put it."""
     entry = await _thermostat_on(hass, setting)
 
@@ -236,7 +307,7 @@ async def test_setting_survives_a_reload(hass, fake_trv, setting: Setting):
 
 
 @pytest.mark.parametrize("setting", SETTINGS, ids=setting_id)
-async def test_setting_survives_an_unload_and_setup(hass, fake_trv, setting: Setting):
+async def test_setting_survives_an_unload_and_setup(hass, setting: Setting):
     """A restart brings the setting back from what was persisted before it.
 
     Unloading and setting the entry up again is the restart path: the entity is
@@ -255,7 +326,7 @@ async def test_setting_survives_an_unload_and_setup(hass, fake_trv, setting: Set
 
 
 @pytest.mark.parametrize("setting", SETTINGS, ids=setting_id)
-async def test_setting_survives_the_options_form(hass, fake_trv, setting: Setting):
+async def test_setting_survives_the_options_form(hass, setting: Setting):
     """Opening the settings and changing nothing leaves the setting alone."""
     entry = await _thermostat_on(hass, setting)
 
@@ -263,3 +334,37 @@ async def test_setting_survives_the_options_form(hass, fake_trv, setting: Settin
     await wait_for_startup(hass, entry)
 
     assert setting.read(hass) == setting.expected
+
+
+async def test_the_saved_pair_outranks_the_setpoint_the_cooler_reports(hass):
+    """The cooling target comes back from the saved state, not from the device.
+
+    A cooling target that no saved state supplies is filled from the cooler's
+    own setpoint, which is the only value available for it. That makes the
+    device the authority whenever the restore leaves the target unset, so a
+    cooler somebody turned by hand — or an air conditioner that came back on
+    its factory setpoint — decides what the room cools to. The pair the user
+    set is the pair the thermostat published, and it is the pair that returns.
+    """
+    entry = await _thermostat_on(hass, COOLING_TARGET_BESIDE_A_COOLER)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {ATTR_ENTITY_ID: COOLER_ID, "temperature": COOLER_SETPOINT_TURNED_BY_HAND},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert (
+        hass.states.get(COOLER_ID).attributes["temperature"]
+        == COOLER_SETPOINT_TURNED_BY_HAND
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert _read("target_temp_high")(hass) == COOLING_TARGET_OF_THE_PAIR
+    assert _read("target_temp_low")(hass) == HEATING_TARGET_OF_THE_PAIR
