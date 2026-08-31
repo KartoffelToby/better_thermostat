@@ -25,6 +25,7 @@ reviews:
     # ("auto reviews disabled on non-default branch").
     base_branches:
       - "develop"
+      - "1.9"
 
     # PRs are opened as draft by default and marked ready later, so review them
     # while still draft — except genuine work-in-progress (see keywords below).
