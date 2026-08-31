@@ -192,9 +192,9 @@ def _is_a_quirk_module(node, holders=frozenset()):
 
     Only the wrappers the shell actually puts around one are unwrapped:
     an ``await``, a guard against a missing TRV, a fallback chain. What
-    a quirk function *returns* is not a quirk module, so a call only
-    counts when it is the loader, and a bare name only when it was bound
-    from one of these in the first place.
+    a quirk function *returns* is not a quirk module, so a call counts
+    only when it is the loader or the attribute lookup itself, and a bare
+    name only when it was bound from one of these in the first place.
     """
     if isinstance(node, ast.Await):
         return _is_a_quirk_module(node.value, holders)
@@ -215,7 +215,18 @@ def _is_a_quirk_module(node, holders=frozenset()):
             if isinstance(called, ast.Attribute)
             else getattr(called, "id", None)
         )
-        return name == QUIRK_LOADER
+        if name == QUIRK_LOADER:
+            return True
+        # ``getattr(trv, "model_quirks", None)`` reaches the same attribute as
+        # ``trv.model_quirks``; the shell spells it that way wherever the
+        # record it reads from may be absent, and the dispatch that writes the
+        # valve is one of those places.
+        return (
+            name == "getattr"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == QUIRK_ATTRIBUTE
+        )
     return False
 
 

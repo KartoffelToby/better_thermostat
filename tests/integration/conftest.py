@@ -183,7 +183,7 @@ class SimulatedClimate(ClimateEntity):
         if profile.has_device_registry_entry:
             self._attr_unique_id = f"{_object_id(profile.entity_id)}_climate"
             self._attr_device_info = DeviceInfo(
-                identifiers=_device_identifiers(profile)
+                identifiers=_device_identifiers(profile), model=profile.model
             )
         if profile.offset_channel is OffsetChannel.ECOSYSTEM_SERVICE:
             # The ecosystem adapter reads the current offset off the climate
@@ -260,7 +260,9 @@ class _SimulatedNumber(NumberEntity):
     def __init__(self, profile: DeviceProfile, suffix: str):
         """Attach the entity to the profile's device."""
         self._attr_unique_id = f"{_object_id(profile.entity_id)}_{suffix}"
-        self._attr_device_info = DeviceInfo(identifiers=_device_identifiers(profile))
+        self._attr_device_info = DeviceInfo(
+            identifiers=_device_identifiers(profile), model=profile.model
+        )
         self.set_value_calls: list[float] = []
         self.drop_next_write = False
 
@@ -380,6 +382,10 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         for p in profiles
     ):
         raise ValueError("a number channel needs has_device_registry_entry=True")
+    # The model rides on the device registry entry too, and a profile that
+    # lost it would run as an unquirked device with nothing saying so.
+    if not with_device and any(p.model is not None for p in profiles):
+        raise ValueError("a device model needs has_device_registry_entry=True")
 
     # The system unit is captured into the entity at entry setup and is the
     # fallback behind every unit resolution, so it has to be in place before

@@ -19,6 +19,9 @@ from typing import Any, Protocol, runtime_checkable
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    quirk_writes_valve,
+)
 from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 
@@ -173,7 +176,7 @@ class Trv:
 
     def capabilities(self) -> TrvCapabilities:
         """Effective capabilities: adapter declaration ∩ discovered surface."""
-        quirk_valve = callable(getattr(self.model_quirks, "override_set_valve", None))
+        quirk_valve = quirk_writes_valve(self.model_quirks)
         offset_entity = self.local_temperature_calibration_entity is not None
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 

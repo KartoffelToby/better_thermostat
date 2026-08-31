@@ -94,6 +94,28 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
     return self.model_quirks
 
 
+def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
+    """Answer whether a model's own quirk drives that model's valve.
+
+    A quirk module carrying ``override_set_valve`` reaches the valve through
+    the entities its device family exposes, which is a channel of the model
+    and not of the ecosystem the device happens to be paired through. So the
+    answer holds for every adapter, including the generic one a device
+    without an adapter of its own falls back to.
+
+    Parameters
+    ----------
+    model_quirks : ModuleType | None
+        Quirk module loaded for a TRV, or None where none is loaded.
+
+    Returns
+    -------
+    bool
+        True when the module carries a callable ``override_set_valve``.
+    """
+    return callable(getattr(model_quirks, "override_set_valve", None))
+
+
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     """Answer whether a TRV is operating while its state reads ``unknown``.
 
