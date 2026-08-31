@@ -1,3 +1,3 @@
 {
-  "9c7a0de083b066ffc32b0dba0feeb84d28bf8846": "The same defect is fixed on both lines in different places. The development line orders the degraded-mode annunciation ahead of the critical-entity check in every handler, and reaches the handlers through a state machine the maintenance line does not have, so the two test files share no line."
+  "1fbab97df0f62da4273afbaca133a4f146ab4ed7": "The same fix exists on both lines in different shapes. The development line owns its background tasks through _spawn_owned/_owned_tasks in climate.py; the maintenance-line commit wraps the same mechanism in handler docstrings and startup tests whose surroundings the development line's structure does not share, so those markers find no textual match."
 }
