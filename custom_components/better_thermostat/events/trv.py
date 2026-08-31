@@ -37,6 +37,7 @@ from custom_components.better_thermostat.utils.helpers import (
     device_offers_mode,
     dual_role_entity_id,
     get_device_model,
+    get_hvac_bt_mode,
     group_all_members_off,
     is_reasonable_temperature,
     last_sent_cooler_temperature,
@@ -290,7 +291,12 @@ async def trigger_trv_change(self, event):
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))
             ):
-                self.bt_hvac_mode = mapped_state
+                # The decoded mode is the instance-level spelling of the
+                # device's demand; get_hvac_bt_mode() re-expresses it in the
+                # spelling this instance publishes, which is HEAT_COOL for a
+                # room with a cooler. The service path stores the mode the
+                # same way.
+                self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, mapped_state))
 
     # The previous state only answers whether the TRV was publishing a setpoint
     # at all, so it is read without clamping or echo detection.

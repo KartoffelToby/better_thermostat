@@ -49,6 +49,9 @@ def mock_bt():
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
+    # A room without a cooler spells its heat demand HEAT; ``_bind_cooler_hvac_mode``
+    # replaces this with HEAT_COOL for a room that has one.
+    bt.map_on_hvac_mode = HVACMode.HEAT
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
@@ -1302,6 +1305,84 @@ class TestHvacModeUpdate:
         assert outcomes[0] == outcomes[1]
 
 
+class TestKnobOperatedMode:
+    """A user turning the device off and on again at its own knob."""
+
+    @staticmethod
+    async def _report(bt, mode):
+        """Route one reported device mode through the event handler.
+
+        The remap is not patched out here: the decoding of the device's own
+        spelling is what these tests are about.
+        """
+        previous = bt.real_trvs[ENTITY_ID].hvac_mode
+        trv_state = _make_state(state_str=mode)
+        bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            bt, new_state=trv_state, old_state=_make_state(state_str=previous)
+        )
+        await trigger_trv_change(bt, event)
+
+    @staticmethod
+    def _stamp_written_mode(bt, mode):
+        """Record the mode a control cycle put on the wire.
+
+        ``last_hvac_mode`` is written by the control cycle, and the handler
+        reads it to tell a device echoing Better Thermostat's own command
+        from a device a user has just operated.
+        """
+        bt.real_trvs[ENTITY_ID].last_hvac_mode = mode
+
+    @pytest.mark.asyncio
+    async def test_a_heat_only_device_switched_off_and_on_ends_on_heat(self, mock_bt):
+        """Both directions of the knob reach the cache and the entity.
+
+        The device offers off and heat only, the overwhelmingly common shape.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert trv.hvac_modes == [HVACMode.OFF, HVACMode.HEAT]
+        trv.hvac_mode = "heat"
+        self._stamp_written_mode(mock_bt, "heat")
+
+        await self._report(mock_bt, "off")
+
+        assert trv.hvac_mode == "off"
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+
+        self._stamp_written_mode(mock_bt, "off")
+
+        await self._report(mock_bt, "heat")
+
+        assert trv.hvac_mode == "heat"
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_a_room_with_a_cooler_follows_the_knob_as_heat_cool(self, mock_bt):
+        """The entity of a room with a cooler spells the adopted mode HEAT_COOL.
+
+        The device names the same demand heat; the instance publishes the mode
+        its own list carries.
+        """
+        _bind_cooler_hvac_mode(mock_bt)
+        mock_bt.cooler_entity_id = "climate.cooler"
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "heat"
+        self._stamp_written_mode(mock_bt, "heat")
+
+        await self._report(mock_bt, "off")
+
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        assert mock_bt.hvac_mode == HVACMode.OFF
+
+        self._stamp_written_mode(mock_bt, "off")
+
+        await self._report(mock_bt, "heat")
+
+        assert trv.hvac_mode == "heat"
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT_COOL
+        assert mock_bt.hvac_mode == HVACMode.HEAT_COOL
+
+
 # ---------------------------------------------------------------------------
 # 5. Target temperature adoption
 # ---------------------------------------------------------------------------
@@ -2281,6 +2362,57 @@ class TestConvertInboundStates:
             result = convert_inbound_states(mock_bt, ENTITY_ID, state)
         assert result == HVACMode.HEAT
 
+    @pytest.mark.parametrize(
+        ("hvac_modes", "reported"),
+        [
+            pytest.param([HVACMode.OFF, HVACMode.HEAT], "heat", id="heat_only"),
+            pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO], "heat", id="heat_and_auto"
+            ),
+            pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
+                "heat",
+                id="both_spellings",
+            ),
+            pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT_COOL], "heat_cool", id="heat_cool_only"
+            ),
+        ],
+    )
+    def test_a_reported_heating_mode_is_carried_through(
+        self, mock_bt, hvac_modes, reported
+    ):
+        """A device reporting that it heats yields HEAT, not nothing.
+
+        The remap runs for real here: its result is the only thing this
+        function judges, and a value it does not carry on leaves the whole
+        mode adoption downstream without an input.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = list(hvac_modes)
+        state = _make_state(state_str=reported)
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.HEAT
+
+    @pytest.mark.parametrize(
+        "hvac_modes",
+        [
+            pytest.param([HVACMode.OFF, HVACMode.HEAT], id="heat_only"),
+            pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO], id="heat_and_auto"
+            ),
+            pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL], id="both_spellings"
+            ),
+            pytest.param([HVACMode.OFF, HVACMode.HEAT_COOL], id="heat_cool_only"),
+        ],
+    )
+    def test_a_reported_off_is_carried_through(self, mock_bt, hvac_modes):
+        """The off direction reaches the entity for every offered set."""
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = list(hvac_modes)
+        state = _make_state(state_str="off")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
+
     def test_unsupported_mode_returns_none(self, mock_bt):
         """Return None for unsupported HVAC modes like COOL."""
         state = _make_state(state_str="cool")
@@ -2633,6 +2765,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Grouped Thermostat"
     bt.bt_hvac_mode = bt_hvac_mode
+    bt.map_on_hvac_mode = HVACMode.HEAT
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
