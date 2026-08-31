@@ -1836,7 +1836,6 @@ class TestGroupedTrvCalibration:
     flag can get stuck at False, blocking future calibration updates.
     """
 
-    @pytest.mark.anyio
     async def test_confirmed_command_releases_flag_and_writes_new_intent(
         self, mock_bt_grouped
     ):
@@ -1880,7 +1879,6 @@ class TestGroupedTrvCalibration:
             mock_set_offset.assert_awaited_once_with(mock_bt_grouped, entity_id, 3.0)
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
-    @pytest.mark.anyio
     async def test_calibration_sent_when_received_true_and_differs(
         self, mock_bt_grouped
     ):
@@ -1918,7 +1916,6 @@ class TestGroupedTrvCalibration:
             mock_set_offset.assert_called_once_with(mock_bt_grouped, entity_id, 3.0)
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
-    @pytest.mark.anyio
     @pytest.mark.parametrize(
         "step,reported,released",
         [(0.5, 2.2, True), (0.5, 2.3, False), (1.0, 2.5, True)],
@@ -1965,7 +1962,6 @@ class TestGroupedTrvCalibration:
 
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is released
 
-    @pytest.mark.anyio
     async def test_calibration_tolerance_outside_half_degree(self, mock_bt_grouped):
         """Test that calibration outside 0.5 degree tolerance is not matching."""
         entity_id = "climate.trv_3"
