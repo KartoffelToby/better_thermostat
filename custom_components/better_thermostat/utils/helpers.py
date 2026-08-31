@@ -527,11 +527,13 @@ def mode_remap(
         if inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
     if not _offers_heat_cool and _offers_heat:
-        # entity only supports HEAT, but not HEAT_COOL - need to translate
+        # entity only supports HEAT, but not HEAT_COOL - need to translate.
+        # Only the outbound direction needs it: HEAT is already the
+        # instance-level spelling of the heating demand, which is what
+        # get_hvac_bt_mode() re-expresses as HEAT_COOL for a room with a
+        # cooler.
         if not inbound and hvac_mode == HVACMode.HEAT_COOL:
             return HVACMode.HEAT
-        if inbound and hvac_mode == HVACMode.HEAT:
-            return HVACMode.HEAT_COOL
 
     if hvac_mode == HVACMode.AUTO:
         # The mode is annunciated once per offered set, like the clamp does it,
