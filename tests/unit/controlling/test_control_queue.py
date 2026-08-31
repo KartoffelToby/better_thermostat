@@ -5,7 +5,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import control_queue
+
+
+def _tracked_trv(entity_id: str) -> Trv:
+    """Build the record the entity keeps for one controlled TRV."""
+    return Trv.from_legacy_dict(entity_id, {})
 
 
 class TestControlQueue:
@@ -287,9 +293,8 @@ class TestControlQueue:
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.cooler_entity_id = None
         mock_self.real_trvs = {
-            "climate.trv1": {},
-            "climate.trv2": {},
-            "climate.trv3": {},
+            entity_id: _tracked_trv(entity_id)
+            for entity_id in ("climate.trv1", "climate.trv2", "climate.trv3")
         }
 
         queue = asyncio.Queue()
@@ -327,7 +332,10 @@ class TestControlQueue:
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.calculate_heat_loss = AsyncMock()
         mock_self.cooler_entity_id = None
-        mock_self.real_trvs = {"climate.trv1": {}, "climate.trv2": {}}
+        mock_self.real_trvs = {
+            entity_id: _tracked_trv(entity_id)
+            for entity_id in ("climate.trv1", "climate.trv2")
+        }
 
         queue = asyncio.Queue()
         mock_self.control_queue_task = queue
@@ -375,7 +383,7 @@ class TestControlQueue:
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.calculate_heat_loss = AsyncMock()
         mock_self.cooler_entity_id = None
-        mock_self.real_trvs = {"climate.trv1": {}}
+        mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
 
         queue = asyncio.Queue(maxsize=10)
         mock_self.control_queue_task = queue
@@ -415,7 +423,7 @@ class TestControlQueue:
         mock_self.startup_running = False
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.cooler_entity_id = None
-        mock_self.real_trvs = {"climate.trv1": {}}
+        mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
 
         # Create queue with maxsize=1
         queue = asyncio.Queue(maxsize=1)
