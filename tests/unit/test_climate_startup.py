@@ -1838,6 +1838,30 @@ class TestRestoreState:
         assert bt.bt_target_cooltemp == 20.5
 
     @pytest.mark.asyncio
+    async def test_a_saved_fahrenheit_range_restores_as_celsius(self, bt):
+        """A saved range is read in the unit Home Assistant wrote it in.
+
+        Better Thermostat reports its own targets in Celsius, and Home
+        Assistant converts an entity's targets into the system unit on the way
+        into the state it saves. On a Fahrenheit installation the pair comes
+        back as Fahrenheit, so reading it as Celsius would restore the room to
+        a target the configured range has to bound away.
+        """
+        bt = self._cooling_bt(bt, 16.0, 30.0)
+        bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TARGET_TEMP_LOW: 68.0, ATTR_TARGET_TEMP_HIGH: 73.4}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 20.0
+        assert bt.bt_target_cooltemp == 23.0
+
+    @pytest.mark.asyncio
     async def test_restores_heating_power_clamped(self, bt):
         """Test Restores heating power clamped."""
         old = MagicMock()
