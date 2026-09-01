@@ -221,8 +221,10 @@ def refresh_cached_trv_modes(self) -> None:
     for the whole length of a control cycle, and a cycle runs for seconds
     while the adapters wait for their writes to be confirmed. A device that
     changes mode inside that window leaves behind a cache naming a mode it no
-    longer holds, and every setpoint the user presses on it afterwards is
-    turned away as coming from a device that is off.
+    longer holds, which would turn away every setpoint the user presses on it
+    as coming from a device that is off. The caller runs this at the end of
+    the cycle, before it releases ``ignore_states``, so the cache is out of
+    step only for as long as the handler is standing down.
 
     The observational cache is the only thing that moves here. The mode of
     the Better Thermostat entity stays where it is: a device mode reported
