@@ -218,7 +218,7 @@ def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
 
 
 async def _quirk_valve_support(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow, entity_id: str
+    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
 ) -> bool:
     """Answer whether this TRV's model quirk drives its valve.
 
@@ -228,8 +228,9 @@ async def _quirk_valve_support(
 
     Parameters
     ----------
-    flow : config_entries.ConfigFlow | config_entries.OptionsFlow
-        The flow the probe runs in, supplying Home Assistant access.
+    flow : ConfigFlow | OptionsFlowHandler
+        The flow the probe runs in, supplying Home Assistant access and the
+        instance name the model lookup logs against.
     entity_id : str
         Entity ID of the TRV to probe.
 
@@ -249,7 +250,7 @@ async def _quirk_valve_support(
 
 
 async def _load_adapter_info(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
+    flow: ConfigFlow | OptionsFlowHandler,
     integration: str | None,
     entity_id: str | None,
     *,
@@ -798,8 +799,7 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
-    trv_config: dict[str, Any] | None,
+    flow: ConfigFlow | OptionsFlowHandler, trv_config: dict[str, Any] | None
 ) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
