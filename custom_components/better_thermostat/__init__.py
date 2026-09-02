@@ -103,11 +103,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up everything this Better Thermostat instance left behind.
 
     Repair-registry issues are scoped by ``device_name`` or by individual
-    ``entity_id`` and persist in HA's issue registry until explicitly
-    deleted, so they have to be cleaned up here to avoid stale warnings
-    after a config entry is gone. The reload lock and the recorded
-    entity-id names outlive the entry's unload by design, so removal is
-    where they are dropped.
+    ``entity_id`` and persist until explicitly deleted; the unified state
+    store is a per-entry file that would otherwise be orphaned. The reload
+    lock and the recorded entity-id names outlive the entry's unload by
+    design, so removal is where they are dropped.
 
     Parameters
     ----------
@@ -116,8 +115,22 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     entry : ConfigEntry
         The config entry being removed.
     """
+    # Runtime import: config_flow and the three device-automation modules
+    # execute this package for DOMAIN alone, on installs that may have no
+    # entry set up. A module-level import would put the state store, and the
+    # calibration models and numpy behind it, on those paths.
+    from .utils.state_manager import StateManager  # noqa: PLC0415
+
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
     hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
+
+    try:
+        await StateManager.async_remove_store(hass, entry.entry_id)
+    except Exception:
+        _LOGGER.exception(
+            "better_thermostat: failed to remove state store for entry %s",
+            entry.entry_id,
+        )
 
     device_name = entry.data.get(CONF_NAME, entry.title)
 

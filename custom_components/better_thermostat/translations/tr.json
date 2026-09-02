@@ -8,7 +8,6 @@
           "name": "Ad",
           "thermostat": "Gerçek termostat",
           "cooler": "Soğutma cihazı (isteğe bağlı)",
-          "min_cooler_resend_interval": "Tekrarlanan soğutucu komutları arasındaki minimum saniye (0 = devre dışı)",
           "temperature_sensor": "Sıcaklık sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere sensörü",
@@ -58,8 +57,8 @@
       "no_name": "Lütfen bir ad girin.",
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
-      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
+      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
     },
     "abort": {
@@ -120,13 +119,8 @@
       }
     },
     "error": {
-      "failed": "Bir şeyler yanlış gitti.",
-      "no_name": "Lütfen bir ad girin.",
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
-      "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
-      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
-      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır."
     }
   },
   "issues": {
@@ -143,7 +137,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensör hatası: {sensors} düşük performans modunda çalışıyor",
-      "description": "Better Thermostat, bazı sensörler kullanılamadığı için düşük performans modunda çalışıyor: {sensors}\n\nTermostat azaltılmış işlevsellikle çalışmaya devam edecektir. Örneğin:\n- Oda sıcaklık sensörü kullanılamıyorsa, bunun yerine TRV'nin dahili sensörü kullanılacaktır.\n- Pencere sensörleri kullanılamıyorsa, pencereler kapalı kabul edilir.\n- Dış ortam/hava durumu sensörleri kullanılamıyorsa, ısıtma her zaman etkin olacaktır.\n\nEtkilenen cihazların pil veya bağlantı sorunları olup olmadığını kontrol edin."
+      "description": "Better Thermostat, bazı sensörler kullanılamadığı için düşük işlevli modda çalışıyor: {sensors}\n\nTermostat kontrol etmeye devam eder ve kademeli olarak işlevini azaltır:\n- Oda sıcaklık sensörü kullanılamıyorsa, yerine TRV iç sıcaklıklarının ortalaması kullanılır.\n- Ne oda sensörü ne de herhangi bir TRV sıcaklığı kullanılabilir durumdaysa, termostat ayarlamayı durdurur ve son komut verilen durumu korur; donma koruması etkin kalır.\n- Pencere sensörü kullanılamıyorsa, pencere kapalı kabul edilir ve ısıtma devam eder; kaybolan bir sensör ısıtmayı durdurmamalıdır.\n- Dış/hava durumu sensörleri kullanılamıyorsa, ısıtma etkin kalır.\n\nEtkilenen cihazlarda pil veya bağlantı sorunu olup olmadığını kontrol edin. Tüm sensörler yeniden kullanılabilir olduğunda bu sorun kendiliğinden giderilir."
     },
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
@@ -476,6 +470,18 @@
       },
       "mpc_ka": {
         "name": "MPC yalıtımı (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 sanal sıcaklık"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 bağlaşım"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 bozucu etki"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 oda zaman sabiti"
       },
       "pid_kp": {
         "name": "PID Kp"

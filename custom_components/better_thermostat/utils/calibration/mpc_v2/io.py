@@ -24,6 +24,10 @@ class MpcV2Input:
     window_open: bool = False
     heating_allowed: bool = True
     max_opening_pct: float | None = None
+    # Last valve opening confirmed by the adapter or reported by the device.
+    # It is deliberately the previous applied input, not this cycle's MPC
+    # recommendation: writes can be deferred or fail after computation.
+    applied_valve_pct: float | None = None
     bt_name: str | None = None
     entity_id: str | None = None
 

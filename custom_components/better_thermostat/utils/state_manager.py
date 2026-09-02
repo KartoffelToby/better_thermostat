@@ -2,8 +2,7 @@
 
 Replaces four separate HA Store files with a single versioned store per
 config entry. The StateManager owns all runtime state that must survive
-a Home Assistant restart (calibration models, thermal stats, learned
-presets).
+a Home Assistant restart (calibration models, thermal stats, filters).
 
 Usage in climate.py
 -------------------
@@ -36,9 +35,10 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import logging
 import math
-from typing import Any
+from typing import Any, get_args, get_type_hints
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 
 from .calibration.mpc import MpcState
@@ -48,6 +48,8 @@ from .calibration.mpc_v2 import (
     export_mpc_v2_state,
     import_mpc_v2_state,
 )
+from .calibration.mpc_v2.reid import ReidBuffer
+from .calibration.mpc_v2_internals.plant import GAIN_HEATER_BOUNDS, TAU_ROOM_BOUNDS_MIN
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
 from .const import (
@@ -77,9 +79,45 @@ class MpcV2StateData:
     snapshot: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class MpcV2ReidData:
+    """Persisted result of an accepted offline re-identification.
+
+    Carries the fitted plant-prior components plus the validation metrics
+    of the accepting fit; the sample buffer that produced it is in-memory
+    only and never persisted.
+    """
+
+    tau_room_min: float = 0.0
+    gain_heater: float = 0.0
+    fitted_ts: float = 0.0
+    rmse_prior_K: float = 0.0
+    rmse_fit_K: float = 0.0
+    n_segments: int = 0
+
+
+@dataclass
+class MpcV2ReidRuntime:
+    """In-memory collection/scheduling state for one MPC key.
+
+    Lost on restart by design: the buffer refills within a day and the
+    attempt timer simply starts over.
+    """
+
+    buffer: ReidBuffer = field(default_factory=ReidBuffer)
+    last_fit_attempt_ts: float = 0.0
+    fit_inflight: bool = False
+
+
 _LOGGER = logging.getLogger(__name__)
 
 CURRENT_VERSION = 1
+
+# Container version of the file an unreadable store is set aside in. The
+# payload is kept verbatim and never read back by this module, so this
+# version stays put when ``CURRENT_VERSION`` moves and no migration ever
+# rewrites a set-aside copy.
+QUARANTINE_VERSION = 1
 
 # State dataclasses (only those NOT owned by a controller module)
 
@@ -93,6 +131,22 @@ class ThermalStats:
 
 
 @dataclass
+class FilterState:
+    """Runtime filter state that should survive a restart.
+
+    Attributes
+    ----------
+    external_temp_ema : float | None
+        Exponential moving average of the external temperature.
+    temp_slope : float | None
+        Estimated room-temperature slope.
+    """
+
+    external_temp_ema: float | None = None
+    temp_slope: float | None = None
+
+
+@dataclass
 class RuntimeState:
     """Complete runtime state for one BetterThermostat config entry.
 
@@ -103,26 +157,33 @@ class RuntimeState:
     version: int = CURRENT_VERSION
     mpc: dict[str, MpcState] = field(default_factory=dict)
     mpc_v2: dict[str, MpcV2StateData] = field(default_factory=dict)
+    mpc_v2_reid: dict[str, MpcV2ReidData] = field(default_factory=dict)
     pid: dict[str, PIDState] = field(default_factory=dict)
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
-    presets: dict[str, float] = field(default_factory=dict)
+    filters: FilterState = field(default_factory=FilterState)
+    # Learned preset temperatures are user input and live in the preset
+    # number entities (RestoreEntity is correct for genuine UI state);
+    # they are deliberately not duplicated here.
 
 
 # Serialization helpers
 
-# Fields that should be coerced to int during deserialization.
-_INT_FIELDS = frozenset(
+# Integer fields that tally occurrences, so a stored value is only usable
+# when it is a non-negative integer the store can write back.
+_COUNT_FIELDS = frozenset(
     {
         "dead_zone_hits",
         "loss_learn_count",
         "gain_learn_count",
         "profile_samples",
         "consecutive_insufficient_heat",
-        "last_delta_sign",
-        "last_error_sign",
     }
 )
+
+# Integer fields that record which way a quantity last moved, so a negative
+# value is meaningful and only the storable range applies.
+_SIGN_FIELDS = frozenset({"last_delta_sign", "last_error_sign"})
 
 # Fields that should be coerced to bool during deserialization.
 _BOOL_FIELDS = frozenset(
@@ -136,6 +197,25 @@ _BOOL_FIELDS = frozenset(
 
 # Fields that should be coerced to str during deserialization.
 _STR_FIELDS = frozenset({"trv_profile"})
+
+
+def _nullable_fields(cls: Any) -> frozenset[str]:
+    """Return the names of *cls*'s fields whose declared type admits ``None``.
+
+    Read off the declarations rather than listed by hand, so the set
+    still matches once a field's type changes.
+    """
+    hints = get_type_hints(cls)
+    return frozenset(
+        name for name in cls.__dataclass_fields__ if type(None) in get_args(hints[name])
+    )
+
+
+_MPC_NULLABLE_FIELDS = _nullable_fields(MpcState)
+_MPC_V2_NULLABLE_FIELDS = _nullable_fields(MpcV2StateData)
+_MPC_V2_REID_NULLABLE_FIELDS = _nullable_fields(MpcV2ReidData)
+_PID_NULLABLE_FIELDS = _nullable_fields(PIDState)
+_TPI_NULLABLE_FIELDS = _nullable_fields(TpiState)
 
 
 def _make_json_safe(obj: Any) -> Any:
@@ -164,50 +244,280 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     return _make_json_safe(data)
 
 
+class _PoisonedState(ValueError):
+    """A stored entry carries a mathematical anomaly (NaN/inf)."""
+
+
+# Home Assistant's JSON encoder writes an integer only inside the 64-bit
+# range orjson supports and raises TypeError on anything wider. The Store's
+# write path turns that TypeError into a SerializationError, which the Store
+# catches and only logs, so a single unstorable integer anywhere in the
+# state leaves the config entry's file unwritten without failing the save.
+_MIN_STORED_INT = -(2**63)
+_MAX_STORED_INT = 2**64 - 1
+
+
+def _stored_int(value: Any) -> int:
+    """Return *value* as an integer the store can write back.
+
+    A JSON number wider than 64 bits is parsed as a float, and ``int()``
+    turns it into an arbitrary-precision integer that the encoder refuses.
+    Those raise ``ValueError`` here, so a caller handles them like any
+    other field ``int()`` cannot make sense of.
+    """
+    number = int(value)
+    if not _MIN_STORED_INT <= number <= _MAX_STORED_INT:
+        raise ValueError("integer outside the storable range")
+    return number
+
+
+def _stored_count(value: Any) -> int:
+    """Return *value* as a storable, non-negative tally.
+
+    A tally cannot be negative, so a negative value is as unusable as one
+    the store could not write back or one that is not an integer at all;
+    all three restore as 0.
+    """
+    try:
+        count = _stored_int(value)
+    except TypeError, ValueError, OverflowError:
+        return 0
+    return max(count, 0)
+
+
+def _within(value: float, bounds: tuple[float, float]) -> bool:
+    """Return whether *value* lies inside *bounds*, inclusive at both ends.
+
+    A NaN answers ``False`` on both comparisons, so it reads as outside.
+    """
+    low, high = bounds
+    return low <= value <= high
+
+
+def finite_or_none(value: Any) -> float | None:
+    """Return *value* as a finite float, or ``None`` when it is not one.
+
+    A missing value, one ``float()`` refuses, and NaN or infinity all
+    collapse to ``None``. Non-finite numbers carry no usable learning, and
+    keeping one would only feed the same unusable value back into the next
+    calculation that reads it.
+
+    Parameters
+    ----------
+    value : Any
+        the value to read, from a store or a caller
+
+    Returns
+    -------
+    float | None
+        the value as a finite float, or None when it is not one
+    """
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except TypeError, ValueError, OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
+    """Let a stored null through, unless the declared type forbids one.
+
+    A null where a number is declared is how a non-finite value gets back
+    out of a file this module wrote: the store's encoder writes NaN and
+    infinity as ``null``. Where anything else is declared it is simply a
+    value that cannot be held. Neither leaves anything usable, so the
+    entry gets the disposal :func:`_finite_or_poison` gives corrupt math.
+
+    *nullable* names the fields whose declared type admits a ``None``. An
+    empty set means the caller is parsing a place no ``None`` may reach at
+    all, such as an element of a collection declared to hold numbers.
+    """
+    if attr in nullable:
+        return
+    _LOGGER.warning(
+        "better_thermostat: %s in stored %s state is null, which its declared "
+        "type cannot hold; discarding that entry's stored values",
+        attr,
+        kind,
+    )
+    raise _PoisonedState(attr)
+
+
+def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
+    """Parse one stored float; a non-finite number poisons the entry.
+
+    Wrong types merely skip the field (schema evolution), but NaN or
+    infinity means the entry's math is corrupt — the rest of it cannot be
+    trusted either, so the caller keeps none of the entry's stored values
+    and the learning they carried starts over.
+    """
+    number = float(value)
+    if not math.isfinite(number):
+        _LOGGER.warning(
+            "better_thermostat: non-finite %s in stored %s state; "
+            "discarding that entry's stored values",
+            attr,
+            kind,
+        )
+        raise _PoisonedState(attr)
+    return number
+
+
+def _finite_element(value: Any, attr: str, kind: str) -> float:
+    """Parse one number stored inside a collection field.
+
+    ``recent_errors`` and the bins of ``perf_curve`` are declared to hold
+    plain numbers, and the field guards rule only on the collection
+    itself. A null among its numbers is the same saved NaN a null in a
+    numeric field is — the store's encoder writes both that way — and
+    costs the entry its stored values just as one does.
+    """
+    if value is None:
+        _null_or_poison(attr, kind, frozenset())
+    return _finite_or_poison(value, attr, kind)
+
+
+def _finite_perf_curve(
+    value: Mapping[Any, Any], kind: str
+) -> dict[str, dict[str, float]]:
+    """Copy a stored performance curve, parsing every statistic in it.
+
+    What the offending value is decides what it costs. A bin that is not a
+    mapping of statistics, or a statistic ``float()`` refuses outright such
+    as ``"later"``, raises one of the errors the caller skips a field on:
+    the curve is lost and the rest of the entry survives. A statistic that
+    is null or parses as a non-finite number raises :class:`_PoisonedState`
+    instead — the bins are declared to hold plain numbers, so either one is
+    corrupt math, and the entry keeps none of its stored values.
+    """
+    curve: dict[str, dict[str, float]] = {}
+    for label, stats in value.items():
+        if not isinstance(stats, Mapping):
+            raise TypeError("perf_curve bin is not a mapping of statistics")
+        curve[label] = {
+            name: _finite_element(stat, "perf_curve statistic", kind)
+            for name, stat in stats.items()
+        }
+    return curve
+
+
 def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
-    """Deserialize a single MPC state dict into an MpcState dataclass."""
+    """Deserialize a single MPC state dict into an MpcState dataclass.
+
+    A non-finite number in a float field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math. That
+    covers the numbers inside ``perf_curve`` and ``recent_errors`` as well
+    as the float fields themselves. This state's integer fields are all
+    tallies and are read as counts instead, so a value ``int()`` cannot
+    make sense of — ``"NaN"`` and ``"Infinity"`` among them, the spellings
+    a stored file delivers a non-finite number in — restores as 0 and
+    leaves the rest of the entry standing.
+
+    A stored ``null`` rejects the entry wherever the declared type has no
+    ``None``, the tallies included, because that is the shape a saved NaN
+    comes back in.
+    """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
         if attr not in raw:
             continue
         value = raw[attr]
-        if value is None:
-            setattr(state, attr, None)
-            continue
-        if attr == "perf_curve" and isinstance(value, Mapping):
-            setattr(state, attr, dict(value))
-            continue
-        if attr == "recent_errors" and isinstance(value, (list, tuple)):
-            # MpcState.recent_errors is a deque(maxlen=20).
-            setattr(state, attr, deque(value, maxlen=20))
-            continue
         try:
-            if attr in _INT_FIELDS:
-                setattr(state, attr, int(value))
+            if value is None:
+                _null_or_poison(attr, "mpc", _MPC_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            elif attr == "perf_curve" and isinstance(value, Mapping):
+                setattr(state, attr, _finite_perf_curve(value, "mpc"))
+            elif attr == "recent_errors" and isinstance(value, (list, tuple)):
+                # MpcState.recent_errors is a deque(maxlen=20).
+                setattr(
+                    state,
+                    attr,
+                    deque(
+                        (
+                            _finite_element(item, "recent_errors element", "mpc")
+                            for item in value
+                        ),
+                        maxlen=20,
+                    ),
+                )
+            elif attr in _COUNT_FIELDS:
+                setattr(state, attr, _stored_count(value))
+            elif attr in _SIGN_FIELDS:
+                setattr(state, attr, _stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                number = float(value)
-                if not math.isfinite(number):
-                    continue
-                setattr(state, attr, number)
+                setattr(state, attr, _finite_or_poison(value, attr, "mpc"))
+        except _PoisonedState:
+            return MpcState()
         except TypeError, ValueError, OverflowError:
             continue
     return state
 
 
-def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
-    """Deserialize a single MPC v2 state dict into MpcV2StateData."""
+def deserialize_mpc_v2(
+    raw: dict[str, Any], *, key: str | None = None
+) -> MpcV2StateData | None:
+    """Deserialize a single MPC v2 state dict; ``None`` if the entry is corrupt.
+
+    A non-finite float in ``last_percent``, ``last_compute_ts`` or
+    ``created_ts`` rejects the whole entry, ``snapshot`` included: the
+    observer state in it was exported by the same controller whose command
+    or timestamp went corrupt. Returning ``None`` keeps the key out of the
+    restored state, which is what makes the restart a cold one: an entry
+    left in place with an empty ``snapshot`` would still rehydrate into a
+    controller and count as initialised, so its Kalman estimate would stay
+    at the construction default rather than being seeded from the first
+    measurement.
+
+    Those three are the only fields parsed; ``outdoor_fallback_logged`` and
+    ``snapshot`` are read past that loop and reach no guard. A ``snapshot``
+    that is null or not a mapping therefore keeps the entry and leaves the
+    empty default in its place — the very shape described above. Only a
+    store this integration did not write can hold one: what it saves is
+    always a mapping.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+
+    Returns
+    -------
+    MpcV2StateData | None
+        the parsed entry, or None when it is corrupt
+    """
     state = MpcV2StateData()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
-        value = raw.get(attr)
-        if value is None:
+        if attr not in raw:
             continue
+        value = raw[attr]
         try:
-            setattr(state, attr, float(value))
+            if value is None:
+                _null_or_poison(attr, "mpc_v2", _MPC_V2_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            else:
+                setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2"))
+        except _PoisonedState:
+            return None
         except TypeError, ValueError, OverflowError:
+            # The field keeps the default a first start leaves there. Saying
+            # so here is the only chance: the caller hands the parsed entry
+            # on, where a default and a value the store lost look alike.
+            _LOGGER.warning(
+                "MPC v2 stored %s for %s is not a usable number, continuing without it",
+                attr,
+                key or "an unnamed state entry",
+                exc_info=True,
+            )
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -216,46 +526,118 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
     return state
 
 
+def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
+    """Deserialize a persisted re-identification result; None if malformed.
+
+    Returning ``None`` leaves the entry out of the restored state, so the
+    plant-prior lookup moves on: to another stored result sharing this
+    entity's key prefix, and failing that to the heat-loss-derived prior.
+
+    Three checks reject an entry. A NaN or infinity in one of the five
+    float fields; a stored ``null`` in any of the six, since none of them
+    is declared to hold one; and a ``tau_room_min`` or ``gain_heater``
+    outside :data:`TAU_ROOM_BOUNDS_MIN` / :data:`GAIN_HEATER_BOUNDS`,
+    inclusive at both ends, since those two are the pair that seeds the
+    prior and the plant's room dynamics divide by ``tau_room_min``.
+
+    The magnitude check rejects rather than clamps: this deserialiser's
+    contract is that a corrupt entry is left out so the lookup moves on to
+    the heat-loss-derived prior, whereas clamping would present a nonsense
+    stored value as a learned result sitting at the edge of the band.
+
+    A float field that does not parse keeps its default, which leaves the
+    entry usable as the schema grows. ``n_segments`` is metadata: a value
+    that is not a storable count falls back to 0 and the entry survives —
+    except a null, which is refused there as in every other field.
+    """
+    state = MpcV2ReidData()
+    for attr in MpcV2ReidData.__dataclass_fields__:
+        if attr not in raw:
+            continue
+        value = raw[attr]
+        try:
+            if value is None:
+                _null_or_poison(attr, "mpc_v2_reid", _MPC_V2_REID_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            elif attr == "n_segments":
+                setattr(state, attr, _stored_count(value))
+            else:
+                setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2_reid"))
+        except _PoisonedState:
+            return None
+        except TypeError, ValueError, OverflowError:
+            continue
+    # A result whose fitted components lie outside the plausible band cannot
+    # seed a plant prior. The band is two-sided on both: too small a
+    # ``tau_room_min`` and the room dynamics blow up, too large and they
+    # freeze, and either rail pins the commanded valve.
+    if not _within(state.tau_room_min, TAU_ROOM_BOUNDS_MIN):
+        return None
+    if not _within(state.gain_heater, GAIN_HEATER_BOUNDS):
+        return None
+    return state
+
+
 def deserialize_pid(raw: dict[str, Any]) -> PIDState:
-    """Deserialize a single PID state dict into a PIDState dataclass."""
+    """Deserialize a single PID state dict into a PIDState dataclass.
+
+    A non-finite number in a float field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math. This
+    state's two integer fields record a direction and are read as integers
+    instead, so a value ``int()`` cannot make sense of — ``"NaN"`` and
+    ``"Infinity"`` among them, the spellings a stored file delivers a
+    non-finite number in — keeps its default and leaves the rest of the
+    entry standing.
+
+    A stored ``null`` rejects the entry wherever the field's type has no
+    ``None``, because that is the shape a saved NaN comes back in; both
+    direction fields are declared ``int | None`` and keep theirs.
+    """
     state = PIDState()
     for attr in PIDState.__dataclass_fields__:
         if attr not in raw:
             continue
         value = raw[attr]
-        if value is None:
-            setattr(state, attr, None)
-            continue
         try:
-            if attr in _INT_FIELDS:
-                setattr(state, attr, int(value))
+            if value is None:
+                _null_or_poison(attr, "pid", _PID_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            elif attr in _COUNT_FIELDS:
+                setattr(state, attr, _stored_count(value))
+            elif attr in _SIGN_FIELDS:
+                setattr(state, attr, _stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
-                number = float(value)
-                if not math.isfinite(number):
-                    continue
-                setattr(state, attr, number)
+                setattr(state, attr, _finite_or_poison(value, attr, "pid"))
+        except _PoisonedState:
+            return PIDState()
         except TypeError, ValueError, OverflowError:
             continue
     return state
 
 
 def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
-    """Deserialize a single TPI state dict into a TpiState dataclass."""
+    """Deserialize a single TPI state dict into a TpiState dataclass.
+
+    A non-finite numeric field rejects the whole entry: learning
+    restarts from defaults rather than continuing on corrupt math. A
+    stored ``null`` counts as one wherever the field's type has no
+    ``None``, because that is the shape a saved NaN comes back in.
+    """
     state = TpiState()
     for attr in TpiState.__dataclass_fields__:
         if attr not in raw:
             continue
         value = raw[attr]
-        if value is None:
-            setattr(state, attr, None)
-            continue
         try:
-            number = float(value)
-            if not math.isfinite(number):
-                continue
-            setattr(state, attr, number)
+            if value is None:
+                _null_or_poison(attr, "tpi", _TPI_NULLABLE_FIELDS)
+                setattr(state, attr, None)
+            else:
+                setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
+        except _PoisonedState:
+            return TpiState()
         except TypeError, ValueError, OverflowError:
             continue
     return state
@@ -275,7 +657,17 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     if isinstance(mpc_v2_raw, Mapping):
         for key, state_dict in mpc_v2_raw.items():
             if isinstance(state_dict, dict):
-                state.mpc_v2[key] = deserialize_mpc_v2(state_dict)
+                mpc_v2 = deserialize_mpc_v2(state_dict, key=key)
+                if mpc_v2 is not None:
+                    state.mpc_v2[key] = mpc_v2
+
+    mpc_v2_reid_raw = raw.get("mpc_v2_reid", {})
+    if isinstance(mpc_v2_reid_raw, Mapping):
+        for key, state_dict in mpc_v2_reid_raw.items():
+            if isinstance(state_dict, dict):
+                reid = deserialize_mpc_v2_reid(state_dict)
+                if reid is not None:
+                    state.mpc_v2_reid[key] = reid
 
     pid_raw = raw.get("pid", {})
     if isinstance(pid_raw, Mapping):
@@ -291,35 +683,43 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
 
     thermal_raw = raw.get("thermal", {})
     if isinstance(thermal_raw, dict):
-        heating_power = thermal_raw.get("heating_power")
-        heat_loss_rate = thermal_raw.get("heat_loss_rate")
-        try:
-            heating_power = float(heating_power) if heating_power is not None else None
-            if heating_power is not None and not math.isfinite(heating_power):
-                heating_power = None
-        except TypeError, ValueError, OverflowError:
-            heating_power = None
-        try:
-            heat_loss_rate = (
-                float(heat_loss_rate) if heat_loss_rate is not None else None
-            )
-            if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
-                heat_loss_rate = None
-        except TypeError, ValueError, OverflowError:
-            heat_loss_rate = None
         state.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=finite_or_none(thermal_raw.get("heating_power")),
+            heat_loss_rate=finite_or_none(thermal_raw.get("heat_loss_rate")),
         )
 
-    presets_raw = raw.get("presets", {})
-    if isinstance(presets_raw, dict):
-        for name, temp in presets_raw.items():
+    filters_raw = raw.get("filters", {})
+    if isinstance(filters_raw, dict):
+        for attr in ("external_temp_ema", "temp_slope"):
+            value = filters_raw.get(attr)
+            if value is None:
+                continue
             try:
-                state.presets[str(name)] = float(temp)
+                number = float(value)
             except TypeError, ValueError, OverflowError:
                 continue
+            if math.isfinite(number):
+                setattr(state.filters, attr, number)
+
+    # A legacy "presets" section is ignored: preset temperatures are UI
+    # state owned by the preset number entities.
 
     return state
+
+
+def _store_key(entry_id: str) -> str:
+    """Return the Store key holding one config entry's runtime state."""
+    return f"{DOMAIN}_{entry_id}_state"
+
+
+def _quarantine_key(entry_id: str) -> str:
+    """Return the Store key an unreadable runtime state is set aside under.
+
+    The suffix matches the one Home Assistant's own Store appends when it
+    finds a storage file it cannot parse, so both kinds of damaged file sit
+    next to each other under recognizable names.
+    """
+    return f"{_store_key(entry_id)}.corrupt"
 
 
 # Migration
@@ -337,7 +737,7 @@ def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
     raw.setdefault("pid", {})
     raw.setdefault("tpi", {})
     raw.setdefault("thermal", {})
-    raw.setdefault("presets", {})
+    raw.setdefault("filters", {})
     return raw
 
 
@@ -357,14 +757,32 @@ class StateManager:
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         self._store: Store[dict[str, Any]] = Store(
-            hass, CURRENT_VERSION, f"{DOMAIN}_{entry_id}_state"
+            hass, CURRENT_VERSION, _store_key(entry_id)
         )
+        self._hass = hass
         self._entry_id = entry_id
         self._state = RuntimeState()
         # Live MPC v2 controllers, held in memory across cycles. The persisted
         # ``_state.mpc_v2`` snapshots are folded in only at save time.
         self._mpc_v2_live: dict[str, MpcV2State] = {}
+        # Re-identification sample buffers and scheduling flags, in-memory only.
+        self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
         self._dirty = False
+        self._delay_save_pending = False
+
+    @staticmethod
+    async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
+        """Delete the per-entry store file when its config entry is removed.
+
+        Parameters
+        ----------
+        hass : HomeAssistant
+            The Home Assistant instance.
+        entry_id : str
+            Config entry identifier whose store file is removed.
+        """
+        await Store(hass, CURRENT_VERSION, _store_key(entry_id)).async_remove()
+        await Store(hass, QUARANTINE_VERSION, _quarantine_key(entry_id)).async_remove()
 
     # -- Public properties ---------------------------------------------------
 
@@ -405,7 +823,7 @@ class StateManager:
         if live is None:
             persisted = self._state.mpc_v2.get(key)
             live = (
-                import_mpc_v2_state(asdict(persisted), params)
+                import_mpc_v2_state(asdict(persisted), params, key=key)
                 if persisted is not None
                 else MpcV2State()
             )
@@ -421,12 +839,81 @@ class StateManager:
         """Fold live MPC v2 controllers into the persistable snapshot.
 
         Runs at save time only; the per-cycle path keeps the live controller in
-        memory and never serialises it.
+        memory and never serialises it. An export the deserialiser rejects
+        leaves the key's stored entry as it was, so a corrupt ``last_percent``,
+        ``last_compute_ts`` or ``created_ts`` does not overwrite the entry
+        already stored. That is all the rejection buys: ``snapshot`` is
+        copied verbatim, so a non-finite number in the observer state does
+        reach the file, where the encoder writes it as ``null``.
         """
         for key, live in self._mpc_v2_live.items():
             exported = export_mpc_v2_state(live)
-            if exported is not None:
-                self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+            if exported is None:
+                continue
+            persistable = deserialize_mpc_v2(exported, key=key)
+            if persistable is not None:
+                self._state.mpc_v2[key] = persistable
+
+    def get_mpc_v2_reid(self, key: str) -> MpcV2ReidData | None:
+        """Return the persisted re-identification result for a key, if any."""
+        return self._state.mpc_v2_reid.get(key)
+
+    def get_mpc_v2_reid_runtime(self, key: str) -> MpcV2ReidRuntime:
+        """Return the in-memory re-ID collection state, building it on first use."""
+        runtime = self._mpc_v2_reid_live.get(key)
+        if runtime is None:
+            runtime = MpcV2ReidRuntime()
+            self._mpc_v2_reid_live[key] = runtime
+        return runtime
+
+    def adopt_mpc_v2_reid(self, key: str, data: MpcV2ReidData) -> None:
+        """Adopt a validated re-identification result, bumplessly.
+
+        The plant prior describes the room, so every cached live controller
+        of this instance is stale after adoption — regardless of which
+        target bucket it is keyed under. Each one is exported into the
+        persisted snapshot and then dropped, so the next
+        :meth:`get_mpc_v2_live` for that key rebuilds the controller with
+        the new plant prior while restoring the observer state (Kalman,
+        DOB, integral, last command) from the snapshot — no cold start.
+        The result is stored under ``key``.
+
+        When ``key`` is the shared, target-independent ``{uid}:reid`` key,
+        this instance's obsolete per-bucket result entries are removed:
+        the shared key wins every read, so they are dead weight that could
+        only resurrect stale data through the legacy fallback lookup.
+        """
+        for live_key in list(self._mpc_v2_live):
+            live = self._mpc_v2_live.pop(live_key)
+            exported = export_mpc_v2_state(live)
+            persistable = (
+                deserialize_mpc_v2(exported, key=live_key)
+                if exported is not None
+                else None
+            )
+            if persistable is not None:
+                self._state.mpc_v2[live_key] = persistable
+            else:
+                # No observer state to carry over: the controller had none to
+                # export, or what it exported was rejected. The rebuild with
+                # the new prior falls back to the last stored snapshot (or a
+                # cold start). Rare, but log it so a lost transfer is
+                # diagnosable.
+                _LOGGER.debug(
+                    "MPC v2 re-identification adopt for %s: live controller had "
+                    "no usable state to carry over; rebuild will not be bumpless",
+                    live_key,
+                )
+        self._state.mpc_v2_reid[key] = data
+        if key.endswith(":reid"):
+            uid_prefix = key[: -len("reid")]
+            for legacy_key in [
+                k
+                for k in self._state.mpc_v2_reid
+                if k != key and k.startswith(uid_prefix)
+            ]:
+                del self._state.mpc_v2_reid[legacy_key]
+        self._dirty = True
 
     def get_pid(self, key: str) -> PIDState:
         """Get or create PID state for a key."""
@@ -476,17 +963,6 @@ class StateManager:
         self._state.thermal = value
         self._dirty = True
 
-    @property
-    def presets(self) -> dict[str, float]:
-        """Return learned preset temperatures."""
-        return self._state.presets
-
-    @presets.setter
-    def presets(self, value: dict[str, float]) -> None:
-        """Set learned preset temperatures and mark dirty."""
-        self._state.presets = value
-        self._dirty = True
-
     def mark_dirty(self) -> None:
         """Manually mark state as needing persistence."""
         self._dirty = True
@@ -504,18 +980,18 @@ class StateManager:
         heating_power: float | None = None
         if thermal.heating_power is not None:
             try:
-                heating_power = clamp(
-                    float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
-                )
+                number = float(thermal.heating_power)
+                if math.isfinite(number):
+                    heating_power = clamp(number, MIN_HEATING_POWER, MAX_HEATING_POWER)
             except TypeError, ValueError, OverflowError:
                 heating_power = None
 
         heat_loss_rate: float | None = None
         if thermal.heat_loss_rate is not None:
             try:
-                heat_loss_rate = clamp(
-                    float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
-                )
+                number = float(thermal.heat_loss_rate)
+                if math.isfinite(number):
+                    heat_loss_rate = clamp(number, MIN_HEAT_LOSS, MAX_HEAT_LOSS)
             except TypeError, ValueError, OverflowError:
                 heat_loss_rate = None
 
@@ -530,19 +1006,128 @@ class StateManager:
         cannot be persisted and reloaded; this mirrors the finite handling in
         ``clamped_thermal()``.
         """
-
-        def _finite_or_none(value: float | None) -> float | None:
-            try:
-                return value if value is not None and math.isfinite(value) else None
-            except TypeError:
-                return None
-
         self.thermal = ThermalStats(
-            heating_power=_finite_or_none(heating_power),
-            heat_loss_rate=_finite_or_none(heat_loss_rate),
+            heating_power=finite_or_none(heating_power),
+            heat_loss_rate=finite_or_none(heat_loss_rate),
         )
 
+    @property
+    def filters(self) -> FilterState:
+        """Return the persisted runtime filter state."""
+        return self._state.filters
+
+    def record_filters(
+        self, external_temp_ema: float | None, temp_slope: float | None
+    ) -> None:
+        """Record the entity-held filter state before a save.
+
+        Non-finite samples (NaN/inf) are dropped to ``None`` for the same
+        reason ``record_thermal`` drops them: the store's encoder writes
+        them back as null, so a bad reading would be persisted and reloaded.
+
+        Parameters
+        ----------
+        external_temp_ema : float | None
+            Exponential moving average of the external temperature.
+        temp_slope : float | None
+            Estimated room-temperature slope.
+        """
+        self._state.filters = FilterState(
+            external_temp_ema=finite_or_none(external_temp_ema),
+            temp_slope=finite_or_none(temp_slope),
+        )
+        self._dirty = True
+
     # -- Load / Save ---------------------------------------------------------
+
+    def schedule_delay_save(self, pre_save=None, delay_s: float = 15.0) -> None:
+        """Schedule a coalesced disk write through the Store.
+
+        The Store flushes a pending delayed save on Home Assistant's
+        final-write event, so the data survives a normal shutdown.
+        While a save is pending, further calls are no-ops instead of
+        resetting the timer: ``pre_save`` and the serialization run at
+        write time, so the earliest deadline already covers later
+        changes — and a steady trigger stream cannot starve the save.
+
+        Parameters
+        ----------
+        pre_save : callable or None
+            Optional callback invoked at write time to refresh the state
+            before serialization.
+        delay_s : float
+            Coalescing window in seconds before the disk write fires.
+        """
+        if self._delay_save_pending:
+            return
+        self._delay_save_pending = True
+
+        def _data_to_save() -> dict[str, Any]:
+            self._delay_save_pending = False
+            pre_save_failed = False
+            if pre_save is not None:
+                try:
+                    pre_save()
+                except Exception:
+                    _LOGGER.exception(
+                        "better_thermostat [%s]: pre-save callback failed",
+                        self._entry_id,
+                    )
+                    pre_save_failed = True
+                    self._dirty = True
+            try:
+                self._sync_mpc_v2_live()
+            except Exception:
+                _LOGGER.exception(
+                    "better_thermostat [%s]: MPC v2 live-state sync failed",
+                    self._entry_id,
+                )
+                pre_save_failed = True
+                self._dirty = True
+            data = _serialize(self._state)
+            # Keep ``_dirty`` set when pre-save or the live-state sync
+            # failed so ``save_if_dirty`` retries instead of acknowledging
+            # an out-of-sync snapshot.
+            if not pre_save_failed:
+                self._dirty = False
+            return data
+
+        self._store.async_delay_save(_data_to_save, delay_s)
+
+    async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
+        """Set an unreadable store aside before defaults take its place.
+
+        The defaults this entity falls back to are written over the live
+        store on its next save, so without a copy the only record of what a
+        user's installation had learned is gone. The copy is taken once:
+        a second unreadable load must not overwrite the first copy, which is
+        the one still holding the accumulated state.
+
+        Parameters
+        ----------
+        raw : dict[str, Any]
+            The store payload that could not be deserialized.
+        """
+        key = _quarantine_key(self._entry_id)
+        quarantine: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
+        try:
+            if await quarantine.async_load() is not None:
+                return
+            await quarantine.async_save(raw)
+        except HomeAssistantError, OSError:
+            _LOGGER.warning(
+                "better_thermostat [%s]: could not set the unreadable state "
+                "aside as %s",
+                self._entry_id,
+                key,
+                exc_info=True,
+            )
+            return
+        _LOGGER.warning(
+            "better_thermostat [%s]: unreadable state kept as %s for recovery",
+            self._entry_id,
+            key,
+        )
 
     async def load(self) -> None:
         """Load state from HA Store.  Applies migrations if needed."""
@@ -568,6 +1153,7 @@ class StateManager:
                 self._entry_id,
                 exc_info=True,
             )
+            await self._quarantine_unreadable_state(raw)
             self._state = RuntimeState()
             self._dirty = False
             return
@@ -585,6 +1171,8 @@ class StateManager:
         """Persist current state to HA Store unconditionally."""
         self._sync_mpc_v2_live()
         data = _serialize(self._state)
+        # async_save cancels a pending delayed write inside the Store.
+        self._delay_save_pending = False
         await self._store.async_save(data)
         self._dirty = False
         _LOGGER.debug(

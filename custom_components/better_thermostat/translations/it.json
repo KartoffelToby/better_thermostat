@@ -8,7 +8,6 @@
           "name": "Nome",
           "thermostat": "Il termostato reale",
           "cooler": "Il dispositivo di raffreddamento (opzionale)",
-          "min_cooler_resend_interval": "Secondi minimi tra comandi ripetuti al raffreddatore (0 = disattivato)",
           "temperature_sensor": "Sensore di temperatura",
           "humidity_sensor": "Sensore di umidità",
           "window_sensors": "Sensore finestra",
@@ -58,8 +57,8 @@
       "no_name": "Per favore inserisci un nome.",
       "no_heater": "Seleziona almeno un vero termostato.",
       "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
-      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
       "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto.",
+      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
       "no_data": "Nessun dato ricevuto. Riprova."
     },
     "abort": {
@@ -120,13 +119,8 @@
       }
     },
     "error": {
-      "failed": "Qualcosa è andato storto.",
-      "no_name": "Per favore inserisci un nome.",
       "no_heater": "Seleziona almeno un vero termostato.",
-      "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
-      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
-      "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto.",
-      "no_data": "Nessun dato ricevuto. Riprova."
+      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima."
     }
   },
   "issues": {
@@ -143,7 +137,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - errore sensore: {sensors} in modalità degradata",
-      "description": "Better Thermostat è in modalità degradata perché alcuni sensori non sono disponibili: {sensors}\n\nIl termostato continuerà a funzionare con funzionalità ridotte. Ad esempio:\n- Se il sensore di temperatura ambiente non è disponibile, verrà utilizzato il sensore interno del TRV.\n- Se i sensori delle finestre non sono disponibili, le finestre vengono considerate chiuse.\n- Se i sensori esterni/meteo non sono disponibili, il riscaldamento sarà sempre attivo.\n\nVerifica se i dispositivi interessati hanno problemi di batteria o di connettività."
+      "description": "Better Thermostat è in modalità degradata perché alcuni sensori non sono disponibili: {sensors}\n\nIl termostato continua a regolare e si degrada gradualmente:\n- Se il sensore di temperatura ambiente non è disponibile, viene sostituito dalla media delle temperature interne dei TRV.\n- Se né il sensore ambiente né alcuna temperatura dei TRV è utilizzabile, il termostato smette di regolare e mantiene l'ultimo stato comandato; la protezione antigelo resta attiva.\n- Se il sensore della finestra non è disponibile, la finestra è considerata chiusa e il riscaldamento continua; un sensore perso non deve fermare il riscaldamento.\n- Se i sensori esterni/meteo non sono disponibili, il riscaldamento resta attivo.\n\nVerifica se i dispositivi interessati hanno problemi di batteria o di connettività. Questo problema si risolve da solo una volta che tutti i sensori sono di nuovo disponibili."
     },
     "invalid_window_state": {
       "title": "BT: {name} - stato del sensore finestra non valido",
@@ -476,6 +470,18 @@
       },
       "mpc_ka": {
         "name": "Isolamento MPC (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "Temperatura virtuale MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Accoppiamento MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Disturbo MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Costante di tempo del locale MPC v2"
       },
       "pid_kp": {
         "name": "PID Kp"

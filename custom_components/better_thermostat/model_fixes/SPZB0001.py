@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import logging
 
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 from ..utils.const import CalibrationType
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Clamp local calibration to safe bounds for SPZB0001 devices."""
     if offset > 5:
         offset = 5
@@ -24,10 +27,31 @@ def fix_local_calibration(self, entity_id, offset):
     return offset
 
 
-async def check_operation_mode(self, entity_id, goal: str = "1"):
-    """Return a possibly adjusted valve calibration for SPZB0001.
+async def check_operation_mode(
+    self: ModelFixHost, entity_id: str, goal: str = "1"
+) -> bool:
+    """Put the device's TRV mode select onto ``goal``.
 
-    Currently a no-op.
+    Finds the ``select`` entity carrying the TRV mode on the same device as
+    ``entity_id`` and selects ``goal`` when it reads anything else. Direct
+    valve control depends on that mode, so a refused option is reported
+    rather than assumed to have taken effect.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Host providing Home Assistant access and the per-TRV records
+    entity_id : str
+        Entity ID of the climate entity identifying the device
+    goal : str
+        Option the TRV mode select is to carry
+
+    Returns
+    -------
+    bool
+        True once the mode reads ``goal`` or the switch to it went through.
+        False when the registry entry, the mode select or its state is
+        missing, or when the device refused the option.
     """
 
     entity_registry = er.async_get(self.hass)
@@ -67,14 +91,31 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
             goal,
             val.state,
         )
-        await self.hass.services.async_call(
-            "select", "select_option", {"entity_id": target_entity, "option": goal}
-        )
+        try:
+            await self.hass.services.async_call(
+                "select",
+                "select_option",
+                {"entity_id": target_entity, "option": goal},
+                blocking=True,
+                context=self.context,
+            )
+        except (HomeAssistantError, OSError) as ex:
+            # A device whose mode select does not carry this option, or
+            # that is out of reach, keeps the mode it has. Direct valve
+            # control depends on that mode, so the caller is told the
+            # switch did not happen instead of assuming it did.
+            _LOGGER.warning(
+                "better_thermostat %s: SPZB0001 TRV mode write to %s failed: %s",
+                self.device_name,
+                target_entity,
+                ex,
+            )
+            return False
 
     return True
 
 
-async def initial_tweak(self, entity_id):
+async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
     _calibration_type = self.real_trvs[entity_id].advanced.get(
         "calibration", CalibrationType.TARGET_TEMP_BASED
@@ -85,7 +126,9 @@ async def initial_tweak(self, entity_id):
         await check_operation_mode(self, entity_id, goal="2")
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Return a possibly adjusted target temperature for SPZB0001.
 
     Currently a no-op.
@@ -93,11 +136,15 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     return temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: str
+) -> bool:
     """Do not override HVAC mode for SPZB0001 devices."""
     return False
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Do not override temperature sets for SPZB0001 devices."""
     return False

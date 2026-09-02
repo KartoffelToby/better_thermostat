@@ -1,0 +1,20 @@
+{
+  "custom_components/better_thermostat/adapters/base.py": 1,
+  "custom_components/better_thermostat/adapters/delegate.py": 7,
+  "custom_components/better_thermostat/adapters/zwave_js.py": 1,
+  "custom_components/better_thermostat/calibration.py": 2,
+  "custom_components/better_thermostat/climate.py": 28,
+  "custom_components/better_thermostat/events/temperature.py": 1,
+  "custom_components/better_thermostat/events/trv.py": 2,
+  "custom_components/better_thermostat/model_fixes/default.py": 4,
+  "custom_components/better_thermostat/sensor.py": 5,
+  "custom_components/better_thermostat/switch.py": 1,
+  "custom_components/better_thermostat/utils/calibration/mpc.py": 1,
+  "custom_components/better_thermostat/utils/calibration/mpc_v2/state.py": 1,
+  "custom_components/better_thermostat/utils/calibration/pid.py": 5,
+  "custom_components/better_thermostat/utils/controlling.py": 4,
+  "custom_components/better_thermostat/utils/helpers.py": 6,
+  "custom_components/better_thermostat/utils/migrate_v0_stores.py": 4,
+  "custom_components/better_thermostat/utils/state_manager.py": 1,
+  "custom_components/better_thermostat/utils/valve_maintenance.py": 3
+}

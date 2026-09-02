@@ -5,7 +5,9 @@ ignore_states MUST always be released (even on error), otherwise the control
 loop can stall.  Also covers the re-entry guard, reschedule, and control kick.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,6 +15,12 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.maintenance import (
+    MaintenancePhase,
+    MaintenanceState,
+    start_run,
+)
 from custom_components.better_thermostat.trv import Trv
 
 _CLIMATE = "custom_components.better_thermostat.climate"
@@ -27,7 +35,11 @@ def bt():
     mock.in_maintenance = False
     mock.ignore_states = False
     mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+    mock.clock = MagicMock()
+    mock.clock.monotonic.return_value = 1000.0
+    mock.kernel_state = KernelState()
     mock.bt_hvac_mode = HVACMode.HEAT
+    mock._control_needed_after_maintenance = False
     mock.hass = MagicMock()
     mock.control_queue_task = MagicMock()
     return mock
@@ -40,8 +52,13 @@ def _snapshots():
 
 @pytest.mark.asyncio
 async def test_reentry_guard(bt):
-    """A run while already in maintenance returns without doing work."""
-    bt.in_maintenance = True
+    """A run while the region is RUNNING returns without doing work."""
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        maintenance=start_run(
+            MaintenanceState(phase=MaintenancePhase.DUE), now_monotonic=900.0
+        ),
+    )
     with patch(f"{_CLIMATE}.build_trv_snapshots") as snap:
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     snap.assert_not_called()
@@ -90,3 +107,69 @@ async def test_no_control_kick_when_off(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     bt.control_queue_task.put_nowait.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_deferred_control_kicks_even_when_off(bt):
+    """A control request deferred during maintenance is honored, even in OFF."""
+    bt.bt_hvac_mode = HVACMode.OFF
+    bt._control_needed_after_maintenance = True
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
+    assert bt._control_needed_after_maintenance is False
+
+
+@pytest.mark.asyncio
+async def test_control_kick_skipped_without_a_queue(bt):
+    """Without a control queue the run finishes; the periodic tick catches up."""
+    bt.control_queue_task = None
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    assert bt.in_maintenance is False
+    assert bt.ignore_states is False
+
+
+@pytest.mark.asyncio
+async def test_failing_control_kick_is_traced(bt, caplog):
+    """A control-kick failure other than a missing queue is recorded."""
+    with (
+        caplog.at_level(logging.DEBUG, logger=_CLIMATE),
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock()),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        patch(
+            f"{_CLIMATE}.request_control_cycle",
+            MagicMock(side_effect=RuntimeError("boom")),
+        ),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+    assert "control cycle request after maintenance failed" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_failing_control_kick_does_not_mask_the_run(bt):
+    """The run's own failure is what the caller sees, not the kick's."""
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(
+            f"{_CLIMATE}.run_valve_maintenance",
+            AsyncMock(side_effect=ValueError("unreachable TRV")),
+        ),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+        patch(
+            f"{_CLIMATE}.request_control_cycle",
+            MagicMock(side_effect=RuntimeError("boom")),
+        ),
+        pytest.raises(ValueError, match="unreachable TRV"),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])

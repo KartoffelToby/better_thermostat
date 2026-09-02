@@ -18,6 +18,15 @@ import numpy as np
 
 from ._types import FloatArray
 
+# Plausible band for the two identifiable prior components, as
+# ``(lower, upper)`` and inclusive at both ends. ``tau_room_min`` divides the
+# room dynamics below and ``gain_heater`` scales the radiator drive, so a
+# value outside these bands drives the commanded valve to one rail. Every
+# producer and consumer of a prior — the offline fit, the heat-loss
+# derivation, the restore gate — refers to these two tuples.
+TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
+GAIN_HEATER_BOUNDS = (0.5, 5.0)
+
 
 @dataclass
 class PlantParams:
@@ -78,7 +87,7 @@ class PlantModelRC2:
         )
 
     def linearised_AB(
-        self, T_outdoor_C: float, T_rad_op_C: float
+        self, T_outdoor_C: float, T_rad_op_C: float, dt_s: float | None = None
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         """Return ``(A, B, d)`` for ``x_{k+1} = A·x + B·u + d``.
 
@@ -87,16 +96,30 @@ class PlantModelRC2:
         ``u·(T_water − T_rad)`` term — we evaluate at ``T_rad_op_C``.
         """
         p = self.params
-        dt_min = self.dt_min
+        # The MPC optimiser deliberately uses a fixed coarse grid, while the
+        # observer must advance by the *actual* elapsed time between sensor
+        # updates. A direct Euler step over a long sensor gap destabilises the
+        # faster radiator state, so compose nominal-sized substeps into one
+        # equivalent affine transition instead.
+        total_s = self.dt_s if dt_s is None else max(0.0, dt_s)
+        n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
+        dt_min = (total_s / n_steps) / 60.0
         a_rad_room = dt_min / p.tau_rad_min
         a_rad_rad = 1.0 - dt_min / p.tau_rad_min
         b_rad = dt_min * p.gain_heater * (p.T_water_C - T_rad_op_C) / p.tau_rad_min
         a_room_room = 1.0 - dt_min * (p.coupling_rad_room + 1.0) / p.tau_room_min
         a_room_rad = dt_min * p.coupling_rad_room / p.tau_room_min
         d_room = dt_min * T_outdoor_C / p.tau_room_min
-        A = np.array([[a_room_room, a_room_rad], [a_rad_room, a_rad_rad]])
-        B = np.array([[0.0], [b_rad]])
-        d = np.array([d_room, 0.0])
+        A_step = np.array([[a_room_room, a_room_rad], [a_rad_room, a_rad_rad]])
+        B_step = np.array([[0.0], [b_rad]])
+        d_step = np.array([d_room, 0.0])
+        A = np.eye(self.state_dim)
+        B = np.zeros((self.state_dim, 1))
+        d = np.zeros(self.state_dim)
+        for _ in range(n_steps):
+            B = A_step @ B + B_step
+            d = A_step @ d + d_step
+            A = A_step @ A
         return A, B, d
 
     def steady_radiator_temp(

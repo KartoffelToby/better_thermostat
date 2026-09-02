@@ -718,357 +718,357 @@ condition: []
 action:
   - choose:
 
-    # ════════════════════════════════════════════════════════════════════════
-    # SLOT 1 fired
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id:
-            - slot1_weekday
-            - slot1_saturday
-            - slot1_sunday
-        - condition: template
-          value_template: "{{ trigger.id.split('_')[1] == day_type }}"
-        - condition: template
-          value_template: "{{ not schedule_paused }}"
-      sequence:
-        - choose:
-            # ── Nobody home → vacation preset ────────────────────────────────
-            - conditions:
-                - condition: template
-                  value_template: "{{ enable_presence_mode and not anyone_home }}"
-              sequence:
-                - service: climate.set_preset_mode
-                  data:
-                    preset_mode: "{{ vacation_preset }}"
-                  target: !input thermostat_target
-                - if:
-                    - condition: template
-                      value_template: "{{ enable_notify and notify_target != '' }}"
-                  then:
-                    - service: "{{ notify_target }}"
-                      data:
-                        title: "BT Schedule – Slot 1 (nobody home)"
-                        message: >
-                          ⏰ {{ now().strftime('%H:%M') }} – Slot 1 skipped:
-                          nobody home. Applied '{{ vacation_preset }}' preset.
-          # ── Normal schedule ───────────────────────────────────────────────
-          default:
-            - service: climate.set_preset_mode
-              data:
-                preset_mode: "{{ preset_slot1 }}"
-              target: !input thermostat_target
-            - if:
-                - condition: template
-                  value_template: "{{ enable_notify and notify_target != '' }}"
-              then:
-                - service: "{{ notify_target }}"
-                  data:
-                    title: "BT Schedule – Slot 1"
-                    message: >
-                      ⏰ {{ now().strftime('%H:%M') }} –
-                      {% if day_type == 'saturday' %}Saturday
-                      {% elif day_type == 'sunday' %}Sunday
-                      {% else %}Weekday{% endif %}
-                      Slot 1: preset '{{ preset_slot1 }}' applied.
+      # ════════════════════════════════════════════════════════════════════════
+      # SLOT 1 fired
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id:
+              - slot1_weekday
+              - slot1_saturday
+              - slot1_sunday
+          - condition: template
+            value_template: "{{ trigger.id.split('_')[1] == day_type }}"
+          - condition: template
+            value_template: "{{ not schedule_paused }}"
+        sequence:
+          - choose:
+              # ── Nobody home → vacation preset ────────────────────────────────
+              - conditions:
+                  - condition: template
+                    value_template: "{{ enable_presence_mode and not anyone_home }}"
+                sequence:
+                  - service: climate.set_preset_mode
+                    data:
+                      preset_mode: "{{ vacation_preset }}"
+                    target: !input thermostat_target
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_notify and notify_target != '' }}"
+                    then:
+                      - service: "{{ notify_target }}"
+                        data:
+                          title: "BT Schedule – Slot 1 (nobody home)"
+                          message: >
+                            ⏰ {{ now().strftime('%H:%M') }} – Slot 1 skipped:
+                            nobody home. Applied '{{ vacation_preset }}' preset.
+            # ── Normal schedule ───────────────────────────────────────────────
+            default:
+              - service: climate.set_preset_mode
+                data:
+                  preset_mode: "{{ preset_slot1 }}"
+                target: !input thermostat_target
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_notify and notify_target != '' }}"
+                then:
+                  - service: "{{ notify_target }}"
+                    data:
+                      title: "BT Schedule – Slot 1"
+                      message: >
+                        ⏰ {{ now().strftime('%H:%M') }} –
+                        {% if day_type == 'saturday' %}Saturday
+                        {% elif day_type == 'sunday' %}Sunday
+                        {% else %}Weekday{% endif %}
+                        Slot 1: preset '{{ preset_slot1 }}' applied.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # SLOT 2 fired
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id:
-            - slot2_weekday
-            - slot2_saturday
-            - slot2_sunday
-        - condition: template
-          value_template: "{{ trigger.id.split('_')[1] == day_type }}"
-        - condition: template
-          value_template: "{{ not schedule_paused }}"
-      sequence:
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: "{{ enable_presence_mode and not anyone_home }}"
-              sequence:
-                - service: climate.set_preset_mode
-                  data:
-                    preset_mode: "{{ vacation_preset }}"
-                  target: !input thermostat_target
-                - if:
-                    - condition: template
-                      value_template: "{{ enable_notify and notify_target != '' }}"
-                  then:
-                    - service: "{{ notify_target }}"
-                      data:
-                        title: "BT Schedule – Slot 2 (nobody home)"
-                        message: >
-                          ⏰ {{ now().strftime('%H:%M') }} – Slot 2 skipped:
-                          nobody home. Applied '{{ vacation_preset }}' preset.
-          default:
-            - service: climate.set_preset_mode
-              data:
-                preset_mode: "{{ preset_slot2 }}"
-              target: !input thermostat_target
-            - if:
-                - condition: template
-                  value_template: "{{ enable_notify and notify_target != '' }}"
-              then:
-                - service: "{{ notify_target }}"
-                  data:
-                    title: "BT Schedule – Slot 2"
-                    message: >
-                      ⏰ {{ now().strftime('%H:%M') }} –
-                      {% if day_type == 'saturday' %}Saturday
-                      {% elif day_type == 'sunday' %}Sunday
-                      {% else %}Weekday{% endif %}
-                      Slot 2: preset '{{ preset_slot2 }}' applied.
+      # ════════════════════════════════════════════════════════════════════════
+      # SLOT 2 fired
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id:
+              - slot2_weekday
+              - slot2_saturday
+              - slot2_sunday
+          - condition: template
+            value_template: "{{ trigger.id.split('_')[1] == day_type }}"
+          - condition: template
+            value_template: "{{ not schedule_paused }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ enable_presence_mode and not anyone_home }}"
+                sequence:
+                  - service: climate.set_preset_mode
+                    data:
+                      preset_mode: "{{ vacation_preset }}"
+                    target: !input thermostat_target
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_notify and notify_target != '' }}"
+                    then:
+                      - service: "{{ notify_target }}"
+                        data:
+                          title: "BT Schedule – Slot 2 (nobody home)"
+                          message: >
+                            ⏰ {{ now().strftime('%H:%M') }} – Slot 2 skipped:
+                            nobody home. Applied '{{ vacation_preset }}' preset.
+            default:
+              - service: climate.set_preset_mode
+                data:
+                  preset_mode: "{{ preset_slot2 }}"
+                target: !input thermostat_target
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_notify and notify_target != '' }}"
+                then:
+                  - service: "{{ notify_target }}"
+                    data:
+                      title: "BT Schedule – Slot 2"
+                      message: >
+                        ⏰ {{ now().strftime('%H:%M') }} –
+                        {% if day_type == 'saturday' %}Saturday
+                        {% elif day_type == 'sunday' %}Sunday
+                        {% else %}Weekday{% endif %}
+                        Slot 2: preset '{{ preset_slot2 }}' applied.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # SLOT 3 fired
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id:
-            - slot3_weekday
-            - slot3_saturday
-            - slot3_sunday
-        - condition: template
-          value_template: "{{ trigger.id.split('_')[1] == day_type }}"
-        - condition: template
-          value_template: "{{ not schedule_paused }}"
-      sequence:
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: "{{ enable_presence_mode and not anyone_home }}"
-              sequence:
-                - service: climate.set_preset_mode
-                  data:
-                    preset_mode: "{{ vacation_preset }}"
-                  target: !input thermostat_target
-                - if:
-                    - condition: template
-                      value_template: "{{ enable_notify and notify_target != '' }}"
-                  then:
-                    - service: "{{ notify_target }}"
-                      data:
-                        title: "BT Schedule – Slot 3 (nobody home)"
-                        message: >
-                          ⏰ {{ now().strftime('%H:%M') }} – Slot 3 skipped:
-                          nobody home. Applied '{{ vacation_preset }}' preset.
-          default:
-            - service: climate.set_preset_mode
-              data:
-                preset_mode: "{{ preset_slot3 }}"
-              target: !input thermostat_target
-            - if:
-                - condition: template
-                  value_template: "{{ enable_notify and notify_target != '' }}"
-              then:
-                - service: "{{ notify_target }}"
-                  data:
-                    title: "BT Schedule – Slot 3"
-                    message: >
-                      ⏰ {{ now().strftime('%H:%M') }} –
-                      {% if day_type == 'saturday' %}Saturday
-                      {% elif day_type == 'sunday' %}Sunday
-                      {% else %}Weekday{% endif %}
-                      Slot 3: preset '{{ preset_slot3 }}' applied.
+      # ════════════════════════════════════════════════════════════════════════
+      # SLOT 3 fired
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id:
+              - slot3_weekday
+              - slot3_saturday
+              - slot3_sunday
+          - condition: template
+            value_template: "{{ trigger.id.split('_')[1] == day_type }}"
+          - condition: template
+            value_template: "{{ not schedule_paused }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ enable_presence_mode and not anyone_home }}"
+                sequence:
+                  - service: climate.set_preset_mode
+                    data:
+                      preset_mode: "{{ vacation_preset }}"
+                    target: !input thermostat_target
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_notify and notify_target != '' }}"
+                    then:
+                      - service: "{{ notify_target }}"
+                        data:
+                          title: "BT Schedule – Slot 3 (nobody home)"
+                          message: >
+                            ⏰ {{ now().strftime('%H:%M') }} – Slot 3 skipped:
+                            nobody home. Applied '{{ vacation_preset }}' preset.
+            default:
+              - service: climate.set_preset_mode
+                data:
+                  preset_mode: "{{ preset_slot3 }}"
+                target: !input thermostat_target
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_notify and notify_target != '' }}"
+                then:
+                  - service: "{{ notify_target }}"
+                    data:
+                      title: "BT Schedule – Slot 3"
+                      message: >
+                        ⏰ {{ now().strftime('%H:%M') }} –
+                        {% if day_type == 'saturday' %}Saturday
+                        {% elif day_type == 'sunday' %}Sunday
+                        {% else %}Weekday{% endif %}
+                        Slot 3: preset '{{ preset_slot3 }}' applied.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # SLOT 4 fired
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id:
-            - slot4_weekday
-            - slot4_saturday
-            - slot4_sunday
-        - condition: template
-          value_template: "{{ trigger.id.split('_')[1] == day_type }}"
-        - condition: template
-          value_template: "{{ not schedule_paused }}"
-      sequence:
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: "{{ enable_presence_mode and not anyone_home }}"
-              sequence:
-                - service: climate.set_preset_mode
-                  data:
-                    preset_mode: "{{ vacation_preset }}"
-                  target: !input thermostat_target
-                - if:
-                    - condition: template
-                      value_template: "{{ enable_notify and notify_target != '' }}"
-                  then:
-                    - service: "{{ notify_target }}"
-                      data:
-                        title: "BT Schedule – Slot 4 (nobody home)"
-                        message: >
-                          ⏰ {{ now().strftime('%H:%M') }} – Slot 4 skipped:
-                          nobody home. Applied '{{ vacation_preset }}' preset.
-          default:
-            - service: climate.set_preset_mode
-              data:
-                preset_mode: "{{ preset_slot4 }}"
-              target: !input thermostat_target
-            - if:
-                - condition: template
-                  value_template: "{{ enable_notify and notify_target != '' }}"
-              then:
-                - service: "{{ notify_target }}"
-                  data:
-                    title: "BT Schedule – Slot 4"
-                    message: >
-                      ⏰ {{ now().strftime('%H:%M') }} –
-                      {% if day_type == 'saturday' %}Saturday
-                      {% elif day_type == 'sunday' %}Sunday
-                      {% else %}Weekday{% endif %}
-                      Slot 4: preset '{{ preset_slot4 }}' applied.
+      # ════════════════════════════════════════════════════════════════════════
+      # SLOT 4 fired
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id:
+              - slot4_weekday
+              - slot4_saturday
+              - slot4_sunday
+          - condition: template
+            value_template: "{{ trigger.id.split('_')[1] == day_type }}"
+          - condition: template
+            value_template: "{{ not schedule_paused }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ enable_presence_mode and not anyone_home }}"
+                sequence:
+                  - service: climate.set_preset_mode
+                    data:
+                      preset_mode: "{{ vacation_preset }}"
+                    target: !input thermostat_target
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_notify and notify_target != '' }}"
+                    then:
+                      - service: "{{ notify_target }}"
+                        data:
+                          title: "BT Schedule – Slot 4 (nobody home)"
+                          message: >
+                            ⏰ {{ now().strftime('%H:%M') }} – Slot 4 skipped:
+                            nobody home. Applied '{{ vacation_preset }}' preset.
+            default:
+              - service: climate.set_preset_mode
+                data:
+                  preset_mode: "{{ preset_slot4 }}"
+                target: !input thermostat_target
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_notify and notify_target != '' }}"
+                then:
+                  - service: "{{ notify_target }}"
+                    data:
+                      title: "BT Schedule – Slot 4"
+                      message: >
+                        ⏰ {{ now().strftime('%H:%M') }} –
+                        {% if day_type == 'saturday' %}Saturday
+                        {% elif day_type == 'sunday' %}Sunday
+                        {% else %}Weekday{% endif %}
+                        Slot 4: preset '{{ preset_slot4 }}' applied.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # HA STARTUP – apply the currently correct slot
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id: startup
-      sequence:
-        - delay:
-            seconds: 30   # wait for all entities to become available
-        - choose:
-            # Paused → do nothing
-            - conditions:
-                - condition: template
-                  value_template: "{{ schedule_paused }}"
-              sequence: []
-            # Nobody home → vacation preset
-            - conditions:
-                - condition: template
-                  value_template: "{{ enable_presence_mode and not anyone_home }}"
-              sequence:
-                - service: climate.set_preset_mode
-                  data:
-                    preset_mode: "{{ vacation_preset }}"
-                  target: !input thermostat_target
-                - if:
-                    - condition: template
-                      value_template: "{{ enable_notify and notify_target != '' }}"
-                  then:
-                    - service: "{{ notify_target }}"
-                      data:
-                        title: "BT Schedule – Startup recovery (nobody home)"
-                        message: >
-                          🔄 Startup: nobody home – applied '{{ vacation_preset }}' preset.
-          # Normal schedule resume
-          default:
-            - service: climate.set_preset_mode
-              data:
-                preset_mode: "{{ current_schedule_preset }}"
-              target: !input thermostat_target
-            - if:
-                - condition: template
-                  value_template: "{{ enable_notify and notify_target != '' }}"
-              then:
-                - service: "{{ notify_target }}"
-                  data:
-                    title: "BT Schedule – Startup recovery"
-                    message: >
-                      🔄 Startup: resumed Slot {{ active_slot }}
-                      ({{ current_schedule_preset }}) for
-                      {% if day_type == 'saturday' %}Saturday
-                      {% elif day_type == 'sunday' %}Sunday
-                      {% else %}weekday{% endif %}.
+      # ════════════════════════════════════════════════════════════════════════
+      # HA STARTUP – apply the currently correct slot
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: startup
+        sequence:
+          - delay:
+              seconds: 30   # wait for all entities to become available
+          - choose:
+              # Paused → do nothing
+              - conditions:
+                  - condition: template
+                    value_template: "{{ schedule_paused }}"
+                sequence: []
+              # Nobody home → vacation preset
+              - conditions:
+                  - condition: template
+                    value_template: "{{ enable_presence_mode and not anyone_home }}"
+                sequence:
+                  - service: climate.set_preset_mode
+                    data:
+                      preset_mode: "{{ vacation_preset }}"
+                    target: !input thermostat_target
+                  - if:
+                      - condition: template
+                        value_template: "{{ enable_notify and notify_target != '' }}"
+                    then:
+                      - service: "{{ notify_target }}"
+                        data:
+                          title: "BT Schedule – Startup recovery (nobody home)"
+                          message: >
+                            🔄 Startup: nobody home – applied '{{ vacation_preset }}' preset.
+            # Normal schedule resume
+            default:
+              - service: climate.set_preset_mode
+                data:
+                  preset_mode: "{{ current_schedule_preset }}"
+                target: !input thermostat_target
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_notify and notify_target != '' }}"
+                then:
+                  - service: "{{ notify_target }}"
+                    data:
+                      title: "BT Schedule – Startup recovery"
+                      message: >
+                        🔄 Startup: resumed Slot {{ active_slot }}
+                        ({{ current_schedule_preset }}) for
+                        {% if day_type == 'saturday' %}Saturday
+                        {% elif day_type == 'sunday' %}Sunday
+                        {% else %}weekday{% endif %}.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PAUSE SWITCH turned OFF → immediately re-apply current schedule slot
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id: pause_off
-        - condition: template
-          value_template: "{{ enable_pause_switch }}"
-        # The trigger fires when *any* selected switch goes off. Without this,
-        # turning one off would resume the schedule while another still holds
-        # the pause. `schedule_paused` reads every selected entity.
-        - condition: template
-          value_template: "{{ not schedule_paused }}"
-      sequence:
-        - choose:
-            - conditions:
-                - condition: template
-                  value_template: "{{ enable_presence_mode and not anyone_home }}"
-              sequence:
-                - service: climate.set_preset_mode
-                  data:
-                    preset_mode: "{{ vacation_preset }}"
-                  target: !input thermostat_target
-          default:
-            - service: climate.set_preset_mode
-              data:
-                preset_mode: "{{ current_schedule_preset }}"
-              target: !input thermostat_target
-            - if:
-                - condition: template
-                  value_template: "{{ enable_notify and notify_target != '' }}"
-              then:
-                - service: "{{ notify_target }}"
-                  data:
-                    title: "BT Schedule – Resumed"
-                    message: >
-                      ▶️ Schedule resumed – applied Slot {{ active_slot }}
-                      preset '{{ current_schedule_preset }}'.
+      # ════════════════════════════════════════════════════════════════════════
+      # PAUSE SWITCH turned OFF → immediately re-apply current schedule slot
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: pause_off
+          - condition: template
+            value_template: "{{ enable_pause_switch }}"
+          # The trigger fires when *any* selected switch goes off. Without this,
+          # turning one off would resume the schedule while another still holds
+          # the pause. `schedule_paused` reads every selected entity.
+          - condition: template
+            value_template: "{{ not schedule_paused }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ enable_presence_mode and not anyone_home }}"
+                sequence:
+                  - service: climate.set_preset_mode
+                    data:
+                      preset_mode: "{{ vacation_preset }}"
+                    target: !input thermostat_target
+            default:
+              - service: climate.set_preset_mode
+                data:
+                  preset_mode: "{{ current_schedule_preset }}"
+                target: !input thermostat_target
+              - if:
+                  - condition: template
+                    value_template: "{{ enable_notify and notify_target != '' }}"
+                then:
+                  - service: "{{ notify_target }}"
+                    data:
+                      title: "BT Schedule – Resumed"
+                      message: >
+                        ▶️ Schedule resumed – applied Slot {{ active_slot }}
+                        preset '{{ current_schedule_preset }}'.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PRESENCE: someone arrived home → apply current schedule slot
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id: arrived_home
-        - condition: template
-          value_template: "{{ enable_presence_mode and not schedule_paused }}"
-      sequence:
-        - service: climate.set_preset_mode
-          data:
-            preset_mode: "{{ current_schedule_preset }}"
-          target: !input thermostat_target
-        - if:
-            - condition: template
-              value_template: "{{ enable_notify and notify_target != '' }}"
-          then:
-            - service: "{{ notify_target }}"
-              data:
-                title: "BT Schedule – Welcome home"
-                message: >
-                  👋 Someone arrived – resumed Slot {{ active_slot }}
-                  preset '{{ current_schedule_preset }}'.
+      # ════════════════════════════════════════════════════════════════════════
+      # PRESENCE: someone arrived home → apply current schedule slot
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: arrived_home
+          - condition: template
+            value_template: "{{ enable_presence_mode and not schedule_paused }}"
+        sequence:
+          - service: climate.set_preset_mode
+            data:
+              preset_mode: "{{ current_schedule_preset }}"
+            target: !input thermostat_target
+          - if:
+              - condition: template
+                value_template: "{{ enable_notify and notify_target != '' }}"
+            then:
+              - service: "{{ notify_target }}"
+                data:
+                  title: "BT Schedule – Welcome home"
+                  message: >
+                    👋 Someone arrived – resumed Slot {{ active_slot }}
+                    preset '{{ current_schedule_preset }}'.
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PRESENCE: last person left → apply vacation preset
-    # ════════════════════════════════════════════════════════════════════════
-    - conditions:
-        - condition: trigger
-          id: left_home
-        - condition: template
-          value_template: "{{ enable_presence_mode and not schedule_paused }}"
-        # Double-check presence is truly away (re-evaluated after the 2-min delay).
-        # `anyone_home` reads every selected entity, so one person still home
-        # keeps the vacation preset from being applied.
-        - condition: template
-          value_template: "{{ not anyone_home }}"
-      sequence:
-        - service: climate.set_preset_mode
-          data:
-            preset_mode: "{{ vacation_preset }}"
-          target: !input thermostat_target
-        - if:
-            - condition: template
-              value_template: "{{ enable_notify and notify_target != '' }}"
-          then:
-            - service: "{{ notify_target }}"
-              data:
-                title: "BT Schedule – Nobody home"
-                message: >
-                  🚪 Everyone left – applied '{{ vacation_preset }}' preset
-                  until someone returns.
+      # ════════════════════════════════════════════════════════════════════════
+      # PRESENCE: last person left → apply vacation preset
+      # ════════════════════════════════════════════════════════════════════════
+      - conditions:
+          - condition: trigger
+            id: left_home
+          - condition: template
+            value_template: "{{ enable_presence_mode and not schedule_paused }}"
+          # Double-check presence is truly away (re-evaluated after the 2-min delay).
+          # `anyone_home` reads every selected entity, so one person still home
+          # keeps the vacation preset from being applied.
+          - condition: template
+            value_template: "{{ not anyone_home }}"
+        sequence:
+          - service: climate.set_preset_mode
+            data:
+              preset_mode: "{{ vacation_preset }}"
+            target: !input thermostat_target
+          - if:
+              - condition: template
+                value_template: "{{ enable_notify and notify_target != '' }}"
+            then:
+              - service: "{{ notify_target }}"
+                data:
+                  title: "BT Schedule – Nobody home"
+                  message: >
+                    🚪 Everyone left – applied '{{ vacation_preset }}' preset
+                    until someone returns.

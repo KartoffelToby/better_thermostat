@@ -25,8 +25,9 @@ from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
 
-from . import DOMAIN  # pylint: disable=unused-import
+from . import DOMAIN
 from .adapters.delegate import load_adapter
+from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -38,7 +39,6 @@ from .utils.const import (
     CONF_HEATER,
     CONF_HOMEMATICIP,
     CONF_HUMIDITY,
-    CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_MODEL,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_SYSTEM_MODE_OFF,
@@ -58,6 +58,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DEFAULT_CALIBRATION_MODE,
+    TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
     CalibrationType,
     MpcV2PlantPreset,
@@ -72,62 +73,23 @@ CONFIG_WALKTHROUGH_URL = (
 )
 
 
-_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE = {
-    "auto": "-1.0",
-    "min_max_0": "0.0",
-    "min_max_1": "1.0",
-    "min_max_2": "2.0",
-    "min_max_3": "3.0",
-    "min_max_4": "4.0",
-    "min_max_5": "5.0",
-    "min_max_6": "6.0",
-    "min_max_7": "7.0",
-    "min_max_8": "8.0",
-    "min_max_9": "9.0",
-    "min_max_10": "10.0",
-    "min_max_11": "11.0",
-    "min_max_12": "12.0",
-    "min_max_13": "13.0",
-    "min_max_14": "14.0",
-    "min_max_15": "15.0",
-    "min_max_16": "16.0",
-    "min_max_17": "17.0",
-    "min_max_18": "18.0",
-    "min_max_19": "19.0",
-    "min_max_20": "20.0",
-    "min_max_21": "21.0",
-    "min_max_22": "22.0",
-    "min_max_23": "23.0",
-    "min_max_24": "24.0",
-    "min_max_25": "25.0",
-    "min_max_26": "26.0",
-    "min_max_27": "27.0",
-    "min_max_28": "28.0",
-    "min_max_29": "29.0",
-    "min_max_30": "30.0",
-    "min_max_31": "31.0",
-    "min_max_32": "32.0",
-    "min_max_33": "33.0",
-    "min_max_34": "34.0",
-    "min_max_35": "35.0",
-    "min_max_36": "36.0",
-    "min_max_37": "37.0",
-    "min_max_38": "38.0",
-    "min_max_39": "39.0",
-    "min_max_40": "40.0",
+# The dropdown offers whole degrees Celsius. Bounds are stored as strings, the
+# way the target temperature step is, so one reader covers both.
+_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE = {"auto": TARGET_TEMP_BOUND_AUTO} | {
+    f"min_max_{degree}": f"{float(degree)}" for degree in range(41)
 }
 _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR = {
     value: key for key, value in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE.items()
 }
 
 
-def _resolve_min_max_selector_token(value: Any) -> str:
-    """Return the selector token for a stored bound value or a submitted token.
+def _resolve_min_max_selector_token(value: str | float | None) -> str:
+    """Return the selector token for a stored bound or for a submitted token.
 
     Parameters
     ----------
     value :
-            a stored value such as ``"25.0"`` or a selector token such as
+            a stored bound such as ``"25.0"`` or a selector token such as
             ``"min_max_25"``
 
     Returns
@@ -235,10 +197,9 @@ PRESET_SELECTOR = selector.SelectSelector(
 _USER_FIELD_DEFAULTS: dict[str, Any] = {
     CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
-    CONF_TARGET_TEMP_MIN: "-1.0",
-    CONF_TARGET_TEMP_MAX: "-1.0",
+    CONF_TARGET_TEMP_MIN: TARGET_TEMP_BOUND_AUTO,
+    CONF_TARGET_TEMP_MAX: TARGET_TEMP_BOUND_AUTO,
     CONF_TARGET_TEMP_STEP: "0.0",
-    CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
 
 
@@ -256,29 +217,70 @@ def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
     return bool(value)
 
 
+async def _quirk_valve_support(
+    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
+) -> bool:
+    """Answer whether this TRV's model quirk drives its valve.
+
+    The model comes from the device registry and its quirk is loaded the way
+    the running thermostat loads it, so the calibration strategies the flow
+    offers are the ones the write path can carry out.
+
+    Parameters
+    ----------
+    flow : ConfigFlow | OptionsFlowHandler
+        The flow the probe runs in, supplying Home Assistant access and the
+        instance name the model lookup logs against.
+    entity_id : str
+        Entity ID of the TRV to probe.
+
+    Returns
+    -------
+    bool
+        True when the TRV's model has a quirk of its own that writes the
+        valve, False when it has none and when the model cannot be read.
+    """
+    try:
+        model = await get_device_model(flow, entity_id)
+        quirks = await load_model_quirks(flow, model, entity_id)
+    except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
+        _LOGGER.debug("model quirk probe failed", exc_info=True)
+        return False
+    return quirk_writes_valve(quirks)
+
+
 async def _load_adapter_info(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
+    flow: ConfigFlow | OptionsFlowHandler,
     integration: str | None,
-    trv_id: str | None,
+    entity_id: str | None,
     *,
     existing_adapter: Any | None = None,
 ) -> tuple[Any | None, dict[str, Any]]:
     adapter = existing_adapter
     info: dict[str, Any] = {}
 
-    if integration and trv_id:
+    if integration and entity_id:
         if adapter is None:
             try:
-                adapter = await load_adapter(flow, integration, trv_id)
+                adapter = await load_adapter(flow, integration, entity_id)
             except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
-                # type: ignore[attr-defined]
-                info = await adapter.get_info(flow, trv_id)
+                info = await adapter.get_info(flow, entity_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
+
+    # A model quirk owns the valve of the devices it covers, whichever adapter
+    # serves the ecosystem they are paired through, so the adapter's answer is
+    # not the whole of the valve surface.
+    if (
+        entity_id
+        and not info.get("support_valve", False)
+        and await _quirk_valve_support(flow, entity_id)
+    ):
+        info = info | {"support_valve": True}
 
     return adapter, info
 
@@ -535,13 +537,14 @@ def _build_user_fields(
             )
         default = resolve(key)
         if key == CONF_HEATER and isinstance(default, list):
+            # The stored entry holds a bundle per thermostat, while a form
+            # rebuilt after a validation error carries the plain entity ids the
+            # user submitted. Both have to survive into the selector, or the
+            # redisplayed form loses the thermostats the user had picked.
             default = [
                 item.get("trv") if isinstance(item, dict) else item
                 for item in default
-                if (
-                    (isinstance(item, dict) and item.get("trv"))
-                    or (not isinstance(item, dict) and item)
-                )
+                if (item.get("trv") if isinstance(item, dict) else item)
             ]
         if key == CONF_HEATER and not default:
             default = None
@@ -556,22 +559,6 @@ def _build_user_fields(
 
     add_entity_selector(CONF_HEATER, domain="climate", multiple=True, required=True)
     add_entity_selector(CONF_COOLER, domain="climate", multiple=False)
-
-    # Only relevant once a cooler is configured, so keep it out of heat-only forms.
-    if resolve(CONF_COOLER):
-        resend_default = resolve(
-            CONF_MIN_COOLER_RESEND_INTERVAL,
-            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
-        )
-        try:
-            resend_default = int(resend_default)
-        except TypeError, ValueError:
-            resend_default = _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL]
-        add_field(
-            CONF_MIN_COOLER_RESEND_INTERVAL,
-            vol.All(vol.Coerce(int), vol.Range(min=0)),
-            default=resend_default,
-        )
 
     add_entity_selector(
         CONF_SENSOR,
@@ -646,19 +633,14 @@ def _build_user_fields(
         default=tolerance_default,
     )
 
-    target_min_default = resolve(
-        CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
-    )
-    if target_min_default is not None:
-        target_min_default = _resolve_min_max_selector_token(target_min_default)
-    add_field(CONF_TARGET_TEMP_MIN, TEMP_MIN_SELECTOR, default=target_min_default)
-
-    target_max_default = resolve(
-        CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
-    )
-    if target_max_default is not None:
-        target_max_default = _resolve_min_max_selector_token(target_max_default)
-    add_field(CONF_TARGET_TEMP_MAX, TEMP_MAX_SELECTOR, default=target_max_default)
+    for bound_key, bound_selector in (
+        (CONF_TARGET_TEMP_MIN, TEMP_MIN_SELECTOR),
+        (CONF_TARGET_TEMP_MAX, TEMP_MAX_SELECTOR),
+    ):
+        bound_default = resolve(bound_key, _USER_FIELD_DEFAULTS[bound_key])
+        if bound_default is not None:
+            bound_default = _resolve_min_max_selector_token(bound_default)
+        add_field(bound_key, bound_selector, default=bound_default)
 
     target_step_default = resolve(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
@@ -774,48 +756,30 @@ def _normalize_user_submission(
         except TypeError, ValueError:
             normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
 
-    target_min = user_input.get(
-        CONF_TARGET_TEMP_MIN,
-        normalized.get(
-            CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
-        ),
-    )
-    target_min_key = str(target_min)
-    target_min_from_selector = target_min_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
-    if target_min_from_selector:
-        target_min = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_min_key]
-    if target_min is None or (target_min == "" and not target_min_from_selector):
-        target_min = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]
+    for bound_key in (CONF_TARGET_TEMP_MIN, CONF_TARGET_TEMP_MAX):
+        bound = user_input.get(
+            bound_key, normalized.get(bound_key, _USER_FIELD_DEFAULTS[bound_key])
+        )
+        bound_token = str(bound)
+        bound_from_selector = bound_token in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
+        if bound_from_selector:
+            bound = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[bound_token]
+        if bound is None or (bound == "" and not bound_from_selector):
+            bound = _USER_FIELD_DEFAULTS[bound_key]
+        normalized[bound_key] = str(bound)
 
-    target_max = user_input.get(
-        CONF_TARGET_TEMP_MAX,
-        normalized.get(
-            CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
-        ),
-    )
-    target_max_key = str(target_max)
-    target_max_from_selector = target_max_key in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
-    if target_max_from_selector:
-        target_max = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[target_max_key]
-    if target_max is None or (target_max == "" and not target_max_from_selector):
-        target_max = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]
-
-    try:
-        target_min_value = float(target_min)
-        target_max_value = float(target_max)
-    except TypeError, ValueError:
-        pass
-    else:
-        if (
-            target_min_value != -1.0
-            and target_max_value != -1.0
-            and target_min_value > target_max_value
-        ):
-            if errors is not None:
+    if errors is not None:
+        try:
+            lower_bound = float(normalized[CONF_TARGET_TEMP_MIN])
+            upper_bound = float(normalized[CONF_TARGET_TEMP_MAX])
+        except ValueError:
+            pass
+        else:
+            # A bound left on auto imposes no limit, and an entry whose two
+            # bounds are equal pins the setpoint to a single value on purpose.
+            auto = float(TARGET_TEMP_BOUND_AUTO)
+            if auto not in (lower_bound, upper_bound) and lower_bound > upper_bound:
                 errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
-
-    normalized[CONF_TARGET_TEMP_MIN] = str(target_min)
-    normalized[CONF_TARGET_TEMP_MAX] = str(target_max)
 
     target_step = user_input.get(
         CONF_TARGET_TEMP_STEP,
@@ -831,31 +795,11 @@ def _normalize_user_submission(
         target_step = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     normalized[CONF_TARGET_TEMP_STEP] = str(target_step)
 
-    resend_interval = user_input.get(
-        CONF_MIN_COOLER_RESEND_INTERVAL,
-        normalized.get(
-            CONF_MIN_COOLER_RESEND_INTERVAL,
-            _USER_FIELD_DEFAULTS[CONF_MIN_COOLER_RESEND_INTERVAL],
-        ),
-    )
-    if resend_interval is None:
-        normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
-            CONF_MIN_COOLER_RESEND_INTERVAL
-        ]
-    else:
-        try:
-            normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = max(0, int(resend_interval))
-        except TypeError, ValueError:
-            normalized[CONF_MIN_COOLER_RESEND_INTERVAL] = _USER_FIELD_DEFAULTS[
-                CONF_MIN_COOLER_RESEND_INTERVAL
-            ]
-
     return normalized
 
 
 async def _prepare_advanced_context(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
-    trv_config: dict[str, Any] | None,
+    flow: ConfigFlow | OptionsFlowHandler, trv_config: dict[str, Any] | None
 ) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
@@ -903,8 +847,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
-    # Added to satisfy abstract base in newer HA versions
-    # type: ignore[override]
+    # Home Assistant's ConfigFlow raises NotImplementedError from this hook and
+    # calls it from `async_has_matching_flow`, so the override exists for HA
+    # rather than for any caller inside this integration. The parameter widens
+    # the base's `Self` because the flow HA hands over is any in-progress flow
+    # for the domain.
     def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
         """Return True if this flow matches an existing config flow (reconfigure)."""
         if (
@@ -1045,7 +992,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
                 raise
-
             self.data = normalized
             _LOGGER.debug("ConfigFlow user step normalized data: %s", normalized)
             if not normalized.get(CONF_NAME):
@@ -1226,8 +1172,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             if not errors:
                 self.trv_bundle = []
+
                 # Get the list of heaters from the normalized input
                 heaters = normalized.get(CONF_HEATER, [])
+
                 # Create a map of existing TRV configs by TRV ID
                 existing_trvs = {
                     trv.get("trv"): trv

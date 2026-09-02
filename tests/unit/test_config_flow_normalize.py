@@ -79,17 +79,6 @@ def test_cooler_retained_when_present_in_input():
     assert normalized[CONF_COOLER] == "climate.ac"
 
 
-def test_heaters_are_preserved_when_form_is_redisplayed():
-    """Previously selected entity IDs remain visible after a validation error."""
-    fields = _build_user_fields(
-        mode="create", current={CONF_HEATER: ["climate.trv", "climate.trv_2"]}
-    )
-
-    heater_key = next(key for key in fields if key.schema == CONF_HEATER)
-
-    assert heater_key.description["suggested_value"] == ["climate.trv", "climate.trv_2"]
-
-
 def test_cooler_updated_to_different_entity():
     """A changed cooler entity replaces the stored one."""
     user_input = {
@@ -147,3 +136,23 @@ def test_door_timeouts_default_to_zero_on_create():
     normalized = _normalize_user_submission(user_input, mode="create")
     assert normalized[CONF_DOOR_TIMEOUT] == 0
     assert normalized[CONF_DOOR_TIMEOUT_AFTER] == 0
+
+
+def test_heaters_are_preserved_when_the_form_is_redisplayed():
+    """A form rebuilt after a validation error keeps the thermostats picked.
+
+    A stored entry holds a bundle per thermostat, but a redisplayed form is
+    built from what the user submitted: plain entity ids. Reading only bundles
+    empties the selector, and the user loses the selection along with the
+    error message they were supposed to correct.
+    """
+    fields = _build_user_fields(
+        mode="create", current={CONF_HEATER: ["climate.trv", "climate.trv_2"]}
+    )
+
+    heater_marker = next(marker for marker in fields if marker == CONF_HEATER)
+
+    assert heater_marker.description["suggested_value"] == [
+        "climate.trv",
+        "climate.trv_2",
+    ]

@@ -1,7 +1,10 @@
 """Tests for the Trv domain object."""
 
+import importlib
+
 import pytest
 
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 
 
@@ -21,6 +24,7 @@ class TestTypedAccess:
         assert trv.calibration_received is True
         assert trv.ignore_trv_states is False
         assert trv.current_temperature is None
+        assert trv.last_calibration is None
         assert trv.last_calibration_requested is None
         assert trv.advanced == {}
         assert trv.extra == {}
@@ -30,8 +34,10 @@ class TestTypedAccess:
         trv = _make()
         trv.current_temperature = 21.5
         trv.ignore_trv_states = True
+        trv.hvac_action = "heating"
         assert trv.current_temperature == 21.5
         assert trv.ignore_trv_states is True
+        assert trv.hvac_action == "heating"
 
 
 class TestExtraScratchpad:
@@ -61,8 +67,8 @@ class TestExtraScratchpad:
         assert trv.advanced == {"child_lock": True}
         assert trv.extra == {"_quirk_scratch": 3}
 
-    def test_from_legacy_dict_maps_requested_calibration_onto_the_field(self):
-        """``last_calibration_requested`` is a typed field, not an extra."""
+    def test_from_legacy_dict_maps_the_requested_calibration(self):
+        """The pre-clamp offset intent is a typed field, not a scratch key."""
         trv = Trv.from_legacy_dict(
             "climate.trv",
             {"last_calibration": -3.0, "last_calibration_requested": -5.0},
@@ -71,21 +77,21 @@ class TestExtraScratchpad:
         assert trv.last_calibration_requested == -5.0
         assert trv.extra == {}
 
-    def test_from_legacy_dict_ignores_entity_id_key(self):
-        """A legacy ``entity_id`` key never collides with the argument."""
+    def test_from_legacy_dict_explicit_entity_id_wins(self):
+        """An ``entity_id`` key in the dict yields to the explicit argument."""
         trv = Trv.from_legacy_dict(
-            "climate.trv", {"entity_id": "climate.stale", "model": "TRVZB"}
+            "climate.trv", {"entity_id": "climate.stale", "current_temperature": 21.0}
         )
         assert trv.entity_id == "climate.trv"
-        assert trv.model == "TRVZB"
-        assert "entity_id" not in trv.extra
+        assert trv.current_temperature == 21.0
+        assert trv.extra == {}
 
-    def test_from_legacy_dict_merges_extra_dict(self):
-        """A legacy ``extra`` dict is flattened into ``extra``, not nested."""
+    def test_from_legacy_dict_merges_extra_key(self):
+        """An ``extra`` key is merged into the scratchpad, not nested under it."""
         trv = Trv.from_legacy_dict(
-            "climate.trv", {"extra": {"_seq": 7}, "_quirk_scratch": 3}
+            "climate.trv", {"extra": {"_quirk_scratch": 3}, "_other_scratch": 7}
         )
-        assert trv.extra == {"_seq": 7, "_quirk_scratch": 3}
+        assert trv.extra == {"_quirk_scratch": 3, "_other_scratch": 7}
 
     def test_from_legacy_dict_keeps_non_dict_extra_value(self):
         """A non-dict legacy ``extra`` value survives under the ``extra`` key."""
@@ -102,3 +108,136 @@ class TestExtraScratchpad:
     def test_truthiness(self):
         """A Trv instance is truthy (callers use ``entry or default``)."""
         assert bool(_make()) is True
+
+
+class TestTrvCapabilities:
+    """Capabilities derive from the discovered device surface."""
+
+    def test_bare_trv_has_no_write_capabilities(self):
+        """Without entities or quirks nothing is writable."""
+        caps = _make().capabilities()
+        assert caps.supports_offset_write is False
+        assert caps.supports_valve_write is False
+
+    def test_offset_capability_follows_the_calibration_entity(self):
+        """A local calibration entity enables offset writes."""
+        trv = _make()
+        trv.local_temperature_calibration_entity = "number.cal"
+        assert trv.capabilities().supports_offset_write is True
+
+    def test_valve_capability_from_writable_entity(self):
+        """A writable valve position entity enables valve writes."""
+        trv = _make()
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = True
+        assert trv.capabilities().supports_valve_write is True
+
+    def test_readonly_valve_entity_is_not_enough(self):
+        """A read-only valve entity does not enable valve writes."""
+        trv = _make()
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = False
+        assert trv.capabilities().supports_valve_write is False
+
+    def test_unknown_hvac_modes_disable_off(self):
+        """A TRV that never reported its modes is conservatively no-off.
+
+        BT then sends min temp instead of an OFF the device may not
+        support.
+        """
+        trv = _make()
+        assert trv.hvac_modes is None
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_off_in_hvac_modes_enables_off(self):
+        """A reported mode list containing off keeps the OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "off"]
+        assert trv.capabilities().supports_off_mode is True
+
+    def test_hvac_modes_without_off_disable_off(self):
+        """A reported mode list without off yields no OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "auto"]
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_off_offered_in_the_device_spelling_enables_off(self):
+        """A list naming its modes ``HVACMode.OFF`` still offers OFF.
+
+        The cached list holds the device's own spelling, so the capability
+        is decided on the normalized list.
+        """
+        trv = _make()
+        trv.hvac_modes = ["HVACMode.HEAT", "HVACMode.OFF"]
+        assert trv.capabilities().supports_off_mode is True
+
+    def test_no_off_in_the_device_spelling_disables_off(self):
+        """A device genuinely without OFF still yields no OFF capability."""
+        trv = _make()
+        trv.hvac_modes = ["HVACMode.HEAT", "HVACMode.AUTO"]
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_no_off_system_mode_config_disables_off(self):
+        """The explicit no_off_system_mode config wins over the mode list."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "off"]
+        trv.advanced = {"no_off_system_mode": True}
+        assert trv.capabilities().supports_off_mode is False
+
+    def test_valve_capability_from_quirk_override(self):
+        """A quirk-provided override_set_valve enables valve writes."""
+
+        class _Quirk:
+            @staticmethod
+            async def override_set_valve(bt, entity_id, pct):
+                return True
+
+        trv = _make()
+        trv.model_quirks = _Quirk()
+        assert trv.capabilities().supports_valve_write is True
+
+    def test_the_default_quirks_claim_no_valve_support(self):
+        """A model without a quirk file of its own gets the default module.
+
+        Every device whose model has no ``model_fixes/<model>.py`` loads
+        this module, so a valve override living in it would report valve
+        support for the entire long tail of TRVs.
+        """
+        trv = _make()
+        trv.model_quirks = default_quirk
+        trv.valve_position_entity = None
+        assert trv.capabilities().supports_valve_write is False
+
+    @pytest.mark.parametrize("model", ["TRVZB", "ZWA021"])
+    def test_a_model_that_drives_its_valve_keeps_the_capability(self, model):
+        """The modules that do command a valve still report one."""
+        trv = _make()
+        trv.model_quirks = importlib.import_module(
+            f"custom_components.better_thermostat.model_fixes.{model}"
+        )
+        assert trv.capabilities().supports_valve_write is True
+
+
+class TestModelQuirksProtocol:
+    """Every quirk module satisfies the structural quirk contract."""
+
+    def test_all_quirk_modules_satisfy_the_protocol(self):
+        """Each model_fixes module provides the full required surface."""
+        import importlib
+        import pkgutil
+
+        from custom_components.better_thermostat import model_fixes
+        from custom_components.better_thermostat.trv import ModelQuirks
+
+        checked = []
+        for info in pkgutil.iter_modules(model_fixes.__path__):
+            if info.name in ("model_quirks", "types"):
+                continue
+            module = importlib.import_module(
+                f"custom_components.better_thermostat.model_fixes.{info.name}"
+            )
+            assert isinstance(module, ModelQuirks), (
+                f"{info.name} is missing part of the quirk surface"
+            )
+            checked.append(info.name)
+        assert "default" in checked

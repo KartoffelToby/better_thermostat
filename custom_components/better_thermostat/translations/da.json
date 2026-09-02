@@ -8,7 +8,6 @@
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
           "cooler": "Køleenhed (valgfri)",
-          "min_cooler_resend_interval": "Minimum sekunder mellem gentagne kølekommandoer (0 = deaktiveret)",
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",
@@ -58,8 +57,8 @@
       "no_name": "Indtast venligst et navn.",
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_data": "Ingen data blev modtaget. Prøv venligst igen."
     },
     "abort": {
@@ -120,13 +119,8 @@
       }
     },
     "error": {
-      "failed": "Noget gik galt.",
-      "no_name": "Indtast venligst et navn.",
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
-      "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
-      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
-      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen."
     }
   },
   "issues": {
@@ -143,7 +137,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensorfejl: {sensors} kører i nedsat tilstand",
-      "description": "Better Thermostat kører i nedsat tilstand, fordi nogle sensorer ikke er tilgængelige: {sensors}\n\nTermostaten vil fortsætte med at fungere med reduceret funktionalitet. For eksempel:\n- Hvis rumtemperatursensoren ikke er tilgængelig, bruges TRV'ens interne sensor i stedet.\n- Hvis vinduesensorer ikke er tilgængelige, antages vinduer at være lukkede.\n- Hvis udendørs-/vejrsensorer ikke er tilgængelige, vil opvarmning altid være aktiveret.\n\nKontroller, om de berørte enheder har batteriproblemer eller forbindelsesproblemer."
+      "description": "Better Thermostat kører i nedsat tilstand, fordi nogle sensorer ikke er tilgængelige: {sensors}\n\nTermostaten fortsætter med at regulere og nedtrappes gradvist:\n- Hvis rumtemperatursensoren ikke er tilgængelig, erstattes den af gennemsnittet af TRV'ernes interne temperaturer.\n- Hvis hverken rumsensoren eller nogen TRV-temperatur kan bruges, stopper termostaten med at justere og bevarer den sidst kommanderede tilstand; frostbeskyttelsen forbliver aktiv.\n- Hvis vinduessensoren ikke er tilgængelig, antages vinduet at være lukket, og opvarmningen fortsætter; en mistet sensor må ikke stoppe opvarmningen.\n- Hvis udendørs-/vejrsensorer ikke er tilgængelige, forbliver opvarmningen aktiveret.\n\nKontrollér, om de berørte enheder har batteri- eller forbindelsesproblemer. Denne meddelelse forsvinder af sig selv, når alle sensorer er tilgængelige igen."
     },
     "invalid_window_state": {
       "title": "BT: {name} - ugyldig vinduesensortilstand",
@@ -476,6 +470,18 @@
       },
       "mpc_ka": {
         "name": "MPC-isolering (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2-virtuel temperatur"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2-kobling"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2-forstyrrelse"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2-rumtidskonstant"
       },
       "pid_kp": {
         "name": "PID Kp"

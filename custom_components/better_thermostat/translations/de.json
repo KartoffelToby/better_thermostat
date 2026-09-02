@@ -8,7 +8,6 @@
           "name": "Name",
           "thermostat": "Das reale Thermostat",
           "cooler": "Klimagerät AC (optional)",
-          "min_cooler_resend_interval": "Mindestsekunden zwischen wiederholten Klimagerät-Befehlen (0 = deaktiviert)",
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",
@@ -58,8 +57,8 @@
       "no_name": "Du musst einen Namen vergeben.",
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
-      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
     },
     "abort": {
@@ -120,13 +119,8 @@
       }
     },
     "error": {
-      "failed": "Ups, hier stimmt was nicht!",
-      "no_name": "Du musst einen Namen vergeben.",
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
-      "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
-      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
-      "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
-      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten."
     }
   },
   "issues": {
@@ -143,7 +137,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - Sensorfehler: {sensors} läuft im eingeschränkten Modus",
-      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat arbeitet mit reduzierter Funktionalität weiter. Zum Beispiel:\n- Wenn der Raumtemperatursensor nicht verfügbar ist, wird stattdessen der interne Sensor des TRV verwendet.\n- Wenn Fenstersensoren nicht verfügbar sind, wird angenommen, dass die Fenster geschlossen sind.\n- Wenn Außen-/Wettersensoren nicht verfügbar sind, wird die Heizung immer aktiviert sein.\n\nÜberprüfen Sie, ob die betroffenen Geräte Batterieprobleme oder Verbindungsprobleme haben."
+      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat regelt weiter und stuft sich kontrolliert herab:\n- Ist der Raumtemperatursensor nicht verfügbar, ersetzt der Mittelwert der TRV-internen Temperaturen den Messwert.\n- Sind weder Raumsensor noch eine TRV-Temperatur nutzbar, stoppt der Thermostat die Anpassungen und behält den zuletzt gesendeten Zustand bei; der Frostschutz bleibt aktiv.\n- Ist der Fenstersensor nicht verfügbar, gilt das Fenster als geschlossen und die Heizung läuft weiter; ein ausgefallener Sensor darf das Heizen nicht stoppen.\n- Sind Außen-/Wettersensoren nicht verfügbar, bleibt das Heizen aktiviert.\n\nPrüfen Sie, ob die betroffenen Geräte Batterie- oder Verbindungsprobleme haben. Diese Meldung verschwindet von selbst, sobald alle Sensoren wieder verfügbar sind."
     },
     "invalid_window_state": {
       "title": "BT: {name} - ungültiger Fenstersensor-Status",
@@ -476,6 +470,18 @@
       },
       "mpc_ka": {
         "name": "MPC-Isolierung (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 Virtuelle Temperatur"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 Kopplung"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 Störgröße"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 Raumzeitkonstante"
       },
       "pid_kp": {
         "name": "PID Kp"

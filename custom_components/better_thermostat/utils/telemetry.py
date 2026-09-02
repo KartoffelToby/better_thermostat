@@ -103,6 +103,34 @@ def _to_float(val: object) -> float | None:
             return None
 
 
+def _strict_json(payload: object, label: str) -> str | None:
+    """Serialize telemetry to strict JSON, or ``None`` when it cannot be.
+
+    ``allow_nan=False`` keeps NaN and infinity out of the result. Python's
+    encoder otherwise writes them as the bare literals ``NaN`` and
+    ``Infinity``, which no JSON parser accepts, so one non-finite sample
+    would make the whole attribute unreadable for every consumer. Omitting
+    that attribute leaves the others usable.
+
+    Parameters
+    ----------
+    payload : object
+        the telemetry to serialize
+    label : str
+        name of the attribute, used in the log line when serializing fails
+
+    Returns
+    -------
+    str | None
+        the JSON text, or None when the payload does not serialize
+    """
+    try:
+        return json.dumps(payload, allow_nan=False)
+    except TypeError, ValueError:
+        _LOGGER.exception("Error while serializing %s", label)
+        return None
+
+
 def _serialize_cycles(
     cycles: Sequence[Mapping[str, object]] | None,
     count_key: str,
@@ -112,11 +140,10 @@ def _serialize_cycles(
     """Serialize a cycle sequence to a count + last-entry JSON dict."""
     if not cycles:
         return {}
-    try:
-        return {count_key: len(cycles), last_key: json.dumps(cycles[-1])}
-    except TypeError, ValueError:
-        _LOGGER.exception("Error while serializing %s", label)
+    last = _strict_json(cycles[-1], label)
+    if last is None:
         return {}
+    return {count_key: len(cycles), last_key: last}
 
 
 def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
@@ -141,10 +168,9 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
     )
 
     if bt.last_heat_loss_stats:
-        try:
-            out[ATTR_STATE_HEAT_LOSS_STATS] = json.dumps(list(bt.last_heat_loss_stats))
-        except TypeError, ValueError:
-            _LOGGER.exception("Error while serializing heat loss stats")
+        stats = _strict_json(list(bt.last_heat_loss_stats), "heat loss stats")
+        if stats is not None:
+            out[ATTR_STATE_HEAT_LOSS_STATS] = stats
 
     out["heating_power_norm"] = bt.heating_power_normalized
 
@@ -165,7 +191,9 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
             continue
         bal_compact[trv] = {"valve%": bal.get("valve_percent")}
     if bal_compact:
-        out["calibration_balance"] = json.dumps(bal_compact)
+        balance = _strict_json(bal_compact, "calibration balance")
+        if balance is not None:
+            out["calibration_balance"] = balance
 
     return out
 
@@ -244,6 +272,8 @@ _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
     ("tau_room_min", "mpc_v2_tau_room_min", 1),
     ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
     ("group_valve_pct", "mpc_v2_group_valve_pct", 1),
+    ("reid_tau_room", "mpc_v2_reid_tau_room", 1),
+    ("reid_gain", "mpc_v2_reid_gain", 2),
 )
 
 

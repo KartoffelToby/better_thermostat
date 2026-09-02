@@ -1,0 +1,3 @@
+{
+  "1fbab97df0f62da4273afbaca133a4f146ab4ed7": "The same fix exists on both lines in different shapes. The development line owns its background tasks through _spawn_owned/_owned_tasks in climate.py; the maintenance-line commit wraps the same mechanism in handler docstrings and startup tests whose surroundings the development line's structure does not share, so those markers find no textual match."
+}

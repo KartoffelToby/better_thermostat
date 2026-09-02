@@ -264,3 +264,104 @@ class TestCollectPidDebugAttrs:
         bt = _bt_with_pid(["climate.a"], [{"model": "generic"}])
         out = collect_pid_debug_attrs(bt)
         assert out == {}
+
+
+# ---------------------------------------------------------------------------
+# Strict JSON in the emitted attributes
+# ---------------------------------------------------------------------------
+
+
+def _reject_constant(constant: str) -> object:
+    """Fail the parse on the literals only Python's decoder accepts."""
+    raise ValueError(f"not valid JSON: {constant}")
+
+
+def _parse_as_a_consumer_would(payload: str) -> object:
+    """Parse a serialized attribute the way a parser outside Python does."""
+    return json.loads(payload, parse_constant=_reject_constant)
+
+
+class TestNonFiniteValuesStayOutOfTheAttributes:
+    """A non-finite sample costs its own attribute, not every reader.
+
+    Python's encoder writes NaN and infinity as bare literals that no other
+    JSON parser accepts, so emitting one would leave the whole attribute
+    unreadable for dashboards, automations and diagnostics alike.
+    """
+
+    def _bt(self, **overrides):
+        """BT mock with all Protocol-required attrs set to safe defaults."""
+        bt = MagicMock()
+        bt.heating_cycles = None
+        bt.loss_cycles = None
+        bt.last_heat_loss_stats = None
+        bt.heating_power_normalized = None
+        bt.temp_slope = None
+        bt.real_trvs = {}
+        bt.__dict__.update(overrides)
+        return bt
+
+    def test_finite_cycle_parses_outside_python(self):
+        """A clean cycle survives a parser that rejects the bare literals."""
+        out = collect_cycle_telemetry(self._bt(heating_cycles=[{"slope": 0.25}]))
+        assert _parse_as_a_consumer_would(out["heating_cycle_last"]) == {"slope": 0.25}
+
+    def test_non_finite_heating_cycle_is_omitted(self):
+        """A NaN in the last heating cycle drops the cycle attributes."""
+        out = collect_cycle_telemetry(
+            self._bt(heating_cycles=[{"slope": 0.2}, {"slope": float("nan")}])
+        )
+        assert "heating_cycle_last" not in out
+        assert "heating_cycle_count" not in out
+
+    def test_infinite_loss_cycle_is_omitted(self):
+        """An infinity in the last loss cycle drops the loss cycle attributes."""
+        out = collect_cycle_telemetry(self._bt(loss_cycles=[{"loss": float("inf")}]))
+        assert "heat_loss_cycle_last" not in out
+        assert "heat_loss_cycle_count" not in out
+
+    def test_non_finite_heat_loss_stat_is_omitted(self):
+        """A NaN anywhere in the heat-loss stats drops that attribute."""
+        out = collect_cycle_telemetry(
+            self._bt(last_heat_loss_stats=[{"loss": 0.1}, {"loss": float("nan")}])
+        )
+        assert "heat_loss_stats" not in out
+
+    def test_other_attributes_survive_a_non_finite_cycle(self):
+        """Only the offending attribute is dropped."""
+        out = collect_cycle_telemetry(
+            self._bt(
+                heating_cycles=[{"slope": float("nan")}],
+                loss_cycles=[{"loss": 0.3}],
+                heating_power_normalized=0.8,
+            )
+        )
+        assert "heating_cycle_last" not in out
+        assert _parse_as_a_consumer_would(out["heat_loss_cycle_last"]) == {"loss": 0.3}
+        assert out["heating_power_norm"] == 0.8
+
+    def test_non_finite_valve_percent_is_omitted(self):
+        """A NaN valve percentage drops the calibration balance attribute."""
+        bt = self._bt(
+            real_trvs={
+                "climate.a": Trv.from_legacy_dict(
+                    "climate.a",
+                    {"calibration_balance": {"valve_percent": float("nan")}},
+                )
+            }
+        )
+        assert "calibration_balance" not in collect_balance_attrs(bt)
+
+    def test_finite_valve_percent_parses_outside_python(self):
+        """A clean balance survives a parser that rejects the bare literals."""
+        bt = self._bt(
+            real_trvs={
+                "climate.a": Trv.from_legacy_dict(
+                    "climate.a", {"calibration_balance": {"valve_percent": 42}}
+                )
+            }
+        )
+        out = collect_balance_attrs(bt)
+        assert _parse_as_a_consumer_would(out["calibration_balance"]) == {
+            "climate.a": {"valve%": 42}
+        }

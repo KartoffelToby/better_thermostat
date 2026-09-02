@@ -6,11 +6,17 @@ _restore_state, _validate_hvac_mode.
 """
 
 import asyncio
+from datetime import timedelta
 import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import PRESET_NONE, HVACMode
+from homeassistant.components.climate.const import (
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
+    PRESET_NONE,
+    HVACMode,
+)
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_UNAVAILABLE,
@@ -18,11 +24,22 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.better_thermostat.adapters.delegate import (
+    set_temperature as delegate_set_temperature,
+)
 from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
+)
+from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.events.temperature import (
+    PLATEAU_ACCEPT_WINDOW,
+    trigger_temperature_change,
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
@@ -30,11 +47,12 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
 )
-from custom_components.better_thermostat.utils.helpers import device_setpoint_step
+from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -44,6 +62,11 @@ WINDOW_ID = "binary_sensor.window"
 DOOR_ID = "binary_sensor.door"
 HUMIDITY_ID = "sensor.humidity"
 OUTDOOR_ID = "sensor.outdoor_temp"
+
+# The calibration code startup derives for a TRV whose offset lives on its own
+# calibration entity. Any code but 1 makes startup read the device's offset and
+# the bounds it accepts.
+LOCAL_CALIBRATION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -55,11 +78,32 @@ OUTDOOR_ID = "sensor.outdoor_temp"
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = MagicMock(spec=BetterThermostat)
+    mock.clock = MagicMock()
+    mock.kernel_state = KernelState()
+    mock._degraded_grace_until = None
+    mock.state_mgr = None
     mock.hass = MagicMock()
+    # climate entities publish no unit attribute, so every temperature read off
+    # a child state resolves through the system unit.
+    mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     mock.device_name = "Test BT"
     mock.sensor_entity_id = SENSOR_ID
-    mock.real_trvs = {TRV_ID: {"calibration": 1}}
+    # Production holds Trv objects here, not raw dicts: a fixture that maps to
+    # a dict passes attribute reads straight through MagicMock and hides
+    # whatever the code under test asks of a member.
+    mock.real_trvs = {
+        TRV_ID: Trv(
+            entity_id=TRV_ID,
+            calibration=1,
+            integration="generic_thermostat",
+            adapter=None,
+            model_quirks=None,
+            model="SomeModel",
+            advanced={},
+        )
+    }
     mock.cooler_entity_id = None
+    mock.outdoor_sensor = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
     mock.door_id = None
@@ -100,10 +144,68 @@ def bt():
     mock.preset_modes = ["none", "comfort", "eco"]
     mock.version = "1.0.0"
     mock.startup_running = True
+    # The seed is the one collaborator whose effect on the instance the cooler
+    # assertions read back, so it runs for real while staying observable, and so
+    # do the two rules it delegates to.
+    mock._seed_cool_target_from_cooler.side_effect = lambda log_source: (
+        BetterThermostat._seed_cool_target_from_cooler(mock, log_source)
+    )
+    mock._seed_cool_target.side_effect = lambda setpoint, entity_id: (
+        BetterThermostat._seed_cool_target(mock, setpoint, entity_id)
+    )
+    mock._enforce_cool_above_heat.side_effect = lambda **kwargs: (
+        BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
+    )
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
     return mock
+
+
+@pytest.fixture
+def plateau_bt(bt, hass):
+    """A thermostat whose plateau timer is scheduled on a real event loop.
+
+    The plateau path only exists once a reading has been accepted, so the
+    baseline reading is fed through the production handler rather than
+    assigned, and the TRV write the timer performs is observable on the
+    quirk the handler delegates to.
+    """
+    bt.hass = hass
+    bt.startup_running = False
+    bt._control_task = None
+    bt._window_task = None
+    bt._door_task = None
+    bt.control_queue_task = None
+    bt.in_maintenance = False
+    bt._control_needed_after_maintenance = False
+    bt.last_external_sensor_change = None
+    bt.prev_stable_temp = None
+    bt.last_change_direction = 0
+    bt.accum_delta = 0.0
+    bt.accum_dir = 0
+    bt.pending_temp = None
+    bt.pending_since = None
+    bt.plateau_timer_cancel = None
+    bt._owned_tasks = set()
+    bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
+    # Production holds Trv objects here. A MagicMock in their place answers
+    # every attribute read, so a member field the code under test asks for
+    # by the wrong name still comes back with something.
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock()
+    bt.real_trvs = {
+        TRV_ID: Trv(
+            entity_id=TRV_ID,
+            calibration=1,
+            integration="generic_thermostat",
+            adapter=None,
+            model_quirks=quirks,
+            model="SomeModel",
+            advanced={},
+        )
+    }
+    return bt
 
 
 def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
@@ -120,9 +222,37 @@ def _make_trv_state(entity_id=TRV_ID, state="heat", attrs=None):
     return State(entity_id, state, attributes=default_attrs)
 
 
+def _make_no_off_trv(entity_id):
+    """Build a Trv for a device that never reports "off".
+
+    ``min_temp`` is left empty on purpose: ``_initialize_trvs`` fills it only
+    after the startup mode is decided, so this is the shape the startup path
+    actually sees.
+    """
+    return Trv(
+        entity_id=entity_id,
+        calibration=None,
+        integration="generic_thermostat",
+        adapter=None,
+        model_quirks=None,
+        model="SomeModel",
+        advanced={"no_off_system_mode": True, "child_lock": False},
+    )
+
+
 def _make_sensor_state(temp="21.5", state_val=None):
     """Build a sensor State."""
     return State(SENSOR_ID, state_val or temp)
+
+
+def _make_cooler_state(attrs, state="cool"):
+    """Build a cooler State with the given setpoint attributes."""
+    return State(COOLER_ID, state, attributes=attrs)
+
+
+def _install_states(bt, states):
+    """Route ``bt.hass.states.get`` to a per-entity mapping."""
+    bt.hass.states.get.side_effect = states.get
 
 
 # ---------------------------------------------------------------------------
@@ -195,15 +325,383 @@ class TestStartupUnloadBailout:
 
     @pytest.mark.asyncio
     async def test_will_remove_from_hass_stops_startup_loop(self, bt):
-        """Unload clears startup_running so the loop condition terminates."""
+        """Unload stops the lifecycle so the loop condition terminates."""
         bt._control_task = None
         bt._window_task = None
         bt._door_task = None
-        bt.startup_running = True
+        bt.plateau_timer_cancel = None
+        bt._owned_tasks = set()
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
-        assert bt.startup_running is False
+        assert bt.kernel_state.lifecycle.startup_running is False
+
+
+# ---------------------------------------------------------------------------
+# 0b. what an unload has to withdraw from hass
+# ---------------------------------------------------------------------------
+
+
+# Half the significance threshold, so this reading reaches the TRVs through
+# the plateau timer and through no other accept path.
+SUB_THRESHOLD_TEMP = 20.05
+
+
+async def _feed_sensor_reading(entity, temperature):
+    """Deliver one external temperature reading to the event handler."""
+    event = MagicMock()
+    event.data = {"new_state": State(SENSOR_ID, str(temperature))}
+    await trigger_temperature_change(entity, event)
+
+
+def _external_temperature_writes(entity):
+    """Return the TRV write an accepted reading performs."""
+    return entity.real_trvs[TRV_ID].model_quirks.maybe_set_external_temperature
+
+
+async def _arm_plateau_timer(entity):
+    """Establish a baseline reading, then leave a plateau timer pending."""
+    await _feed_sensor_reading(entity, 20.0)
+    _external_temperature_writes(entity).assert_awaited_once()
+    _external_temperature_writes(entity).reset_mock()
+
+    # The accepted reading is a minute old, so the debounce interval the
+    # timer re-checks when it fires has long passed.
+    entity.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+
+    await _feed_sensor_reading(entity, SUB_THRESHOLD_TEMP)
+    assert entity.plateau_timer_cancel is not None
+    assert entity.pending_temp == SUB_THRESHOLD_TEMP
+    _external_temperature_writes(entity).assert_not_awaited()
+
+
+def _pass_the_plateau_window(hass):
+    """Advance the loop past the plateau window so a pending timer fires."""
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=PLATEAU_ACCEPT_WINDOW + 5)
+    )
+
+
+class TestPlateauTimerOnRemoval:
+    """A pending plateau timer must not outlive the entity that armed it.
+
+    The timer is scheduled on hass, so nothing about the unload stops it on
+    its own: it fires against the torn-down instance and writes to devices
+    the entity no longer drives.
+    """
+
+    @pytest.mark.asyncio
+    async def test_armed_timer_fires_while_the_entity_lives(self, hass, plateau_bt):
+        """The window elapsing accepts the reading and writes it to the TRV."""
+        await _arm_plateau_timer(plateau_bt)
+
+        _pass_the_plateau_window(hass)
+        await hass.async_block_till_done()
+
+        _external_temperature_writes(plateau_bt).assert_awaited_once_with(
+            plateau_bt, TRV_ID, SUB_THRESHOLD_TEMP
+        )
+
+    @pytest.mark.asyncio
+    async def test_armed_timer_writes_nothing_after_removal(self, hass, plateau_bt):
+        """Removal withdraws the timer, so the window passes without a write."""
+        await _arm_plateau_timer(plateau_bt)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        _pass_the_plateau_window(hass)
+        await hass.async_block_till_done()
+
+        _external_temperature_writes(plateau_bt).assert_not_awaited()
+        assert plateau_bt.plateau_timer_cancel is None
+
+    @pytest.mark.asyncio
+    async def test_the_timer_goes_before_the_workers_are_awaited(
+        self, hass, plateau_bt
+    ):
+        """Shutting the workers down yields, and a due timer fires in that gap.
+
+        Every `await` in the teardown hands the loop back, so a timer still
+        armed at that point gets its turn and writes to devices the entity is
+        in the middle of letting go of.
+        """
+        await _arm_plateau_timer(plateau_bt)
+        order = []
+        withdraw_timer = plateau_bt.plateau_timer_cancel
+
+        def record_timer_withdrawal():
+            order.append("timer")
+            withdraw_timer()
+
+        plateau_bt.plateau_timer_cancel = record_timer_withdrawal
+
+        async def never_finishes():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                order.append("worker")
+                raise
+
+        plateau_bt._control_task = hass.async_create_task(never_finishes())
+        await asyncio.sleep(0)
+
+        await BetterThermostat.async_will_remove_from_hass(plateau_bt)
+
+        assert order == ["timer", "worker"]
+
+
+# ---------------------------------------------------------------------------
+# 0c. background tasks the entity owns
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def owned_task_bt(bt, hass):
+    """A thermostat whose background tasks run on a real event loop.
+
+    Spawning and teardown are both under test here, so the helper that
+    starts a task runs for real while staying observable, and no queue
+    worker is started, leaving the teardown only the spawned work to
+    answer for.
+    """
+    bt.hass = hass
+    bt._control_task = None
+    bt._window_task = None
+    bt._door_task = None
+    bt.plateau_timer_cancel = None
+    bt.is_removed = False
+    bt._owned_tasks = set()
+    bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
+        bt, coro, name=name
+    )
+    return bt
+
+
+def _record_readings_into(entity, readings):
+    """Make the reading handler append to ``readings`` after one loop turn.
+
+    The turn matters: the handler has to be suspended, not finished, when
+    the removal starts, or there is nothing left for the removal to stop.
+    """
+
+    async def handle(event):
+        await asyncio.sleep(0)
+        readings.append(event)
+
+    entity._handle_temperature_reading = AsyncMock(side_effect=handle)
+
+
+class TestOwnedBackgroundTasks:
+    """Work the entity started must end when the entity is removed.
+
+    Home Assistant cancels background tasks when the core shuts down, not
+    when a single entity goes away, so an entity that unloads on its own
+    leaves them running. Several of them write to TRVs, and a write that
+    lands after the unload comes from a thermostat the user no longer has.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_dispatched_reading_reaches_the_handler(self, hass, owned_task_bt):
+        """A reading dispatched by a live entity is handled."""
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+        event = MagicMock()
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, event)
+        await hass.async_block_till_done()
+
+        assert readings == [event]
+
+    @pytest.mark.asyncio
+    async def test_removal_drops_a_reading_still_in_flight(self, hass, owned_task_bt):
+        """A reading dispatched before the removal must not be handled after it.
+
+        Handling it writes the room temperature to TRVs the entity has
+        already let go of, so the reading has to die with its entity.
+        """
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+        assert readings == []
+
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        await hass.async_block_till_done()
+
+        assert readings == []
+
+    @pytest.mark.asyncio
+    async def test_work_handed_over_after_the_removal_began_never_starts(
+        self, hass, owned_task_bt
+    ):
+        """A task started after the removal is not in the set the removal cancels.
+
+        The removal reads ``_owned_tasks`` once and cancels what it finds.
+        Anything added afterwards is invisible to it and goes on writing to
+        TRVs the entity has already let go of.
+        """
+        started = False
+
+        async def write_to_a_trv():
+            nonlocal started
+            started = True
+
+        # Home Assistant runs the on-remove callbacks, which set the flag,
+        # before it awaits async_will_remove_from_hass.
+        owned_task_bt.is_removed = True
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+
+        task = BetterThermostat._spawn_owned(
+            owned_task_bt, write_to_a_trv(), name="bt_late_write"
+        )
+        await hass.async_block_till_done()
+
+        assert task is None
+        assert started is False
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_dispatcher_suspended_across_the_removal_starts_nothing(
+        self, hass, owned_task_bt
+    ):
+        """A dispatcher that was mid-await when the removal ran spawns nothing.
+
+        Every dispatcher checks the entity, awaits its watcher checks and only
+        then hands work over. The removal fits in that gap, which makes the
+        dispatcher's own check stale by the time it spawns.
+        """
+        handled = []
+        in_the_watcher_check = asyncio.Event()
+        release_the_watcher_check = asyncio.Event()
+
+        async def suspend_until_released(entity):
+            in_the_watcher_check.set()
+            await release_the_watcher_check.wait()
+
+        async def handle_the_contact_change(entity, event):
+            handled.append(event)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.climate.check_and_update_degraded_mode",
+                side_effect=suspend_until_released,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.check_critical_entities",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            dispatch = hass.async_create_task(
+                BetterThermostat._trigger_contact_change(
+                    owned_task_bt, MagicMock(), handle_the_contact_change, "window"
+                )
+            )
+            await in_the_watcher_check.wait()
+
+            owned_task_bt.is_removed = True
+            await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+
+            release_the_watcher_check.set()
+            await dispatch
+            await hass.async_block_till_done()
+
+        assert handled == []
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_timer_firing_in_flight_is_cancelled_by_the_removal(
+        self, hass, owned_task_bt
+    ):
+        """A periodic tick already running when the entity goes must be stopped.
+
+        Unsubscribing an interval ends the next firing, not the one already
+        running. These ticks re-send setpoints and the external temperature,
+        so one that outlives the unload drives TRVs the entity has let go of.
+        """
+        reached_the_trv = False
+        writing = asyncio.Event()
+
+        async def keeps_writing(now):
+            writing.set()
+            await asyncio.sleep(0)
+            nonlocal reached_the_trv
+            reached_the_trv = True
+
+        BetterThermostat._start_owned_timer_work(
+            owned_task_bt, keeps_writing, "bt_test_tick", dt_util.utcnow()
+        )
+        await writing.wait()
+
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        await hass.async_block_till_done()
+
+        assert reached_the_trv is False
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_a_finished_task_stops_being_tracked(self, hass, owned_task_bt):
+        """Tracking must end when the work does.
+
+        A thermostat handles a reading every few seconds for months on end.
+        Holding on to every task it ever started would grow without bound
+        for the sake of a teardown that has nothing left to cancel.
+        """
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+        assert len(owned_task_bt._owned_tasks) == 1
+
+        await hass.async_block_till_done()
+        # The task drops itself from a callback the loop runs after it ends.
+        await asyncio.sleep(0)
+
+        assert owned_task_bt._owned_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_removal_keeps_the_last_state_write(self, hass, owned_task_bt):
+        """The save the removal itself performs must not be cancelled with the rest.
+
+        It is the only record the next start has of the learned thermal
+        model and the target the user last set; dropping it silently resets
+        the thermostat to its defaults on the next restart.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_task_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        readings = []
+        _record_readings_into(owned_task_bt, readings)
+        await BetterThermostat._trigger_temperature_change(owned_task_bt, MagicMock())
+
+        # Home Assistant runs the registered removal callbacks after the
+        # entity's own teardown, so the save is written last.
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        assert readings == []
+        state_mgr.flush.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +742,36 @@ class TestCheckEntitiesReady:
         bt.hass.states.get.return_value = State(TRV_ID, STATE_UNAVAILABLE)
         result = BetterThermostat._check_entities_ready(bt, sensor)
         assert result is False
+
+    def test_trv_unknown_returns_false(self, bt):
+        """An entity saying nothing leaves its device unaccounted for."""
+        sensor = _make_sensor_state()
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+        bt.hass.states.get.return_value = State(TRV_ID, STATE_UNKNOWN)
+        result = BetterThermostat._check_entities_ready(bt, sensor)
+        assert result is False
+
+    def test_a_model_that_reports_unknown_while_driven_is_ready(self, bt):
+        """Waiting for a TRV that is already taking commands never ends.
+
+        A TRV driven through a mode its climate entity does not describe
+        reports ``unknown`` for as long as that mode holds, so the startup
+        loop would keep waiting for a device that is right there.
+        """
+        from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+        from custom_components.better_thermostat.utils.const import CalibrationType
+
+        sensor = _make_sensor_state()
+        bt.real_trvs = {
+            TRV_ID: Trv(
+                entity_id=TRV_ID,
+                model_quirks=zwa021,
+                advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+            )
+        }
+        bt.hass.states.get.return_value = State(TRV_ID, STATE_UNKNOWN)
+        result = BetterThermostat._check_entities_ready(bt, sensor)
+        assert result is True
 
     def test_all_ready_returns_true(self, bt):
         """Return True when all entities are ready."""
@@ -440,7 +968,7 @@ class TestInitializeSensors:
 
         bt.hass.states.get.side_effect = side_effect
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.window_open is True
+        assert bt.kernel_state.window.effective_open is True
         assert WINDOW_ID in bt.all_entities
 
     def test_window_none_defaults_closed(self, bt):
@@ -448,7 +976,7 @@ class TestInitializeSensors:
         bt.window_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.window_open is False
+        assert bt.kernel_state.window.effective_open is False
 
     def test_door_open_detected(self, bt):
         """Test Door open detected."""
@@ -462,7 +990,7 @@ class TestInitializeSensors:
 
         bt.hass.states.get.side_effect = side_effect
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.door_open is True
+        assert bt.kernel_state.door.effective_open is True
         assert DOOR_ID in bt.all_entities
 
     def test_door_none_defaults_closed(self, bt):
@@ -470,7 +998,7 @@ class TestInitializeSensors:
         bt.door_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.door_open is False
+        assert bt.kernel_state.door.effective_open is False
 
     def test_door_unavailable_assumes_closed(self, bt):
         """Test Door sensor unavailable at startup counts as closed."""
@@ -484,7 +1012,7 @@ class TestInitializeSensors:
 
         bt.hass.states.get.side_effect = side_effect
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.door_open is False
+        assert bt.kernel_state.door.effective_open is False
 
     def test_humidity_sensor_initialized(self, bt):
         """Test Humidity sensor initialized."""
@@ -494,11 +1022,58 @@ class TestInitializeSensors:
         BetterThermostat._initialize_sensors(bt, sensor)
         assert HUMIDITY_ID in bt.all_entities
 
+    def test_unreadable_humidity_stays_unknown(self, bt):
+        """A humidity that does not parse is not reported as 0 %.
+
+        0 % is a reading a room can publish, so a sensor whose value cannot be
+        read has to stay unknown instead of being answered with a number.
+        """
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = State(HUMIDITY_ID, "not-a-number")
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt._current_humidity is None
+
+    def test_humidity_sensor_without_state_stays_unknown(self, bt):
+        """A humidity sensor that has not published yet stays unknown.
+
+        This is the only pass that reads the sensor at startup, so a sensor
+        without a state has to leave the humidity unset here.
+        """
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = None
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt._current_humidity is None
+
+    def test_unavailable_humidity_sensor_stays_unknown(self, bt):
+        """An unavailable humidity sensor leaves the humidity unset."""
+        bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
+        sensor = _make_sensor_state("20.0")
+        bt.hass.states.get.return_value = State(HUMIDITY_ID, STATE_UNAVAILABLE)
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt._current_humidity is None
+
+    def test_without_a_humidity_sensor_no_reading_is_published(self, bt):
+        """A thermostat without a humidity sensor reports no humidity.
+
+        0 % is a humidity a room can publish, so answering "no sensor" with a
+        number presents an absent measurement as a measured one.
+        """
+        bt.humidity_sensor_entity_id = None
+        bt._current_humidity = 55.0
+        sensor = _make_sensor_state("20.0")
+        BetterThermostat._initialize_sensors(bt, sensor)
+        assert bt._current_humidity is None
+
     def test_ema_initialized_with_cur_temp(self, bt):
         """Test Ema initialized with cur temp."""
         sensor = _make_sensor_state("21.5")
         with patch(
-            "custom_components.better_thermostat.events.temperature._update_external_temp_ema"
+            "custom_components.better_thermostat.climate._update_external_temp_ema"
         ):
             BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.last_known_external_temp is not None
@@ -509,60 +1084,10 @@ class TestInitializeSensors:
 # ---------------------------------------------------------------------------
 
 
-def _make_startup_bt():
-    """Build a BetterThermostat mock for a startup() run with a cooler."""
-    mock = MagicMock(spec=BetterThermostat)
-    mock.hass = MagicMock()
-    mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
-    mock.device_name = "Test BT"
-    mock.version = "1.0.0"
-    mock.is_removed = False
-    mock.startup_running = True
-    mock.sensor_entity_id = SENSOR_ID
-    mock.cooler_entity_id = COOLER_ID
-    # A spec'd mock carries no instance attributes, and the cooler of this
-    # case is a device of its own, so the set of controlled thermostats is
-    # stated explicitly and does not contain it.
-    mock.real_trvs = {}
-    mock.bt_target_cooltemp = None
-    # The heating target carries its construction default until the restore
-    # step replaces it, which is what makes the ordering of the two steps
-    # observable.
-    mock.bt_target_temp = DEFAULT_TARGET_TEMP
-    mock.bt_target_temp_step = 0.5
-    mock.bt_min_temp = 5.0
-    mock.bt_max_temp = 30.0
-    mock.hvac_mode = HVACMode.HEAT_COOL
-    mock.bt_hvac_mode = HVACMode.HEAT_COOL
-    mock._check_entities_ready.return_value = True
-    mock._enforce_cool_above_heat = lambda **kwargs: (
-        BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
-    )
-    mock._seed_cool_target = lambda setpoint, entity_id: (
-        BetterThermostat._seed_cool_target(mock, setpoint, entity_id)
-    )
-    mock._seed_cool_target_from_cooler = lambda log_source: (
-        BetterThermostat._seed_cool_target_from_cooler(mock, log_source)
-    )
-    mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
-        mock, value
-    )
-    return mock
-
-
-async def _run_startup(bt, cooler_state, restored_target, restored_cool_target=None):
+async def _run_startup(bt, restored_target, restored_cool_target=None):
     """Run startup() with a restore step that installs the restored targets."""
-
-    def _states_get(entity_id):
-        if entity_id == SENSOR_ID:
-            return _make_sensor_state("20.0")
-        # Every other lookup answers with the cooler state, including the
-        # ``None`` a run without a configured cooler looks up: the seed then has
-        # a perfectly readable setpoint in front of it, so the missing
-        # configuration is the only thing left that can turn it down.
-        return cooler_state
-
-    bt.hass.states.get.side_effect = _states_get
+    bt.is_removed = False
+    bt._check_entities_ready.return_value = True
 
     async def _restore(_states):
         bt.bt_target_temp = restored_target
@@ -570,94 +1095,114 @@ async def _run_startup(bt, cooler_state, restored_target, restored_cool_target=N
             bt.bt_target_cooltemp = restored_cool_target
 
     bt._restore_state.side_effect = _restore
-
-    climate = "custom_components.better_thermostat.climate"
-    with patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()):
+    with patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()):
         await asyncio.wait_for(BetterThermostat.startup(bt), timeout=1)
 
 
 class TestStartupCoolTargetSeed:
-    """startup() takes a cooling target off the cooler once restore is done."""
+    """startup() takes a cooling target off the cooler once the restore is done.
+
+    The cooler's own setpoint is the only value that can fill a cooling target
+    nothing else supplies, and it is read where both the temperature range and
+    the heating target are final: the range is what the value is clamped into,
+    the heating target what it is ordered against.
+    """
 
     @pytest.mark.asyncio
-    async def test_single_setpoint_cooler_seeds_the_cool_target(self):
-        """A cooler exposing ``temperature`` fills a cool target nothing else set."""
-        bt = _make_startup_bt()
+    async def test_single_setpoint_cooler_seeds_the_cool_target(self, bt):
+        """A cooler driven through a single setpoint is read from temperature."""
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
-        await _run_startup(bt, State(COOLER_ID, "cool", {"temperature": 24.0}), 21.0)
+        await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp == 24.0
 
     @pytest.mark.asyncio
-    async def test_range_only_cooler_seeds_from_target_temp_high(self):
-        """A range-only cooler carries its setpoint in ``target_temp_high``."""
-        bt = _make_startup_bt()
-        cooler = State(
-            COOLER_ID,
-            "cool",
-            {"temperature": None, "target_temp_low": 19.0, "target_temp_high": 26.0},
+    async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):
+        """A range-only cooler publishes an empty temperature and a range.
+
+        Its setpoint sits in target_temp_high, so reading only temperature
+        would leave the cool target unset for the whole session.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {
+                        ATTR_TEMPERATURE: None,
+                        "target_temp_low": 19.0,
+                        "target_temp_high": 25.5,
+                    }
+                )
+            },
         )
 
-        await _run_startup(bt, cooler, 21.0)
+        await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp == 26.0
+        assert bt.bt_target_cooltemp == 25.5
 
     @pytest.mark.asyncio
-    async def test_unavailable_cooler_leaves_the_cool_target_unknown(self):
+    async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):
         """An unavailable cooler contributes no setpoint to this read.
 
-        An entity that lost contact with its device keeps the attributes it last
-        published, so the setpoint in front of this read is perfectly readable
-        and the state string is the only thing that rejects it. The device may
-        not have reported in yet, or it may have dropped off again; either way
-        there is nothing to take, and the cool target stays unknown for the
-        re-read at the end of startup to pick up.
+        The device may not have reported in yet, or it may have dropped off
+        again; either way there is nothing to take, and the cool target stays
+        unknown for the re-read at the end of startup to pick up.
         """
-        bt = _make_startup_bt()
-
-        await _run_startup(
-            bt, State(COOLER_ID, STATE_UNAVAILABLE, {"temperature": 24.0}), 21.0
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=STATE_UNAVAILABLE
+                )
+            },
         )
+
+        await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp is None
 
     @pytest.mark.asyncio
     async def test_setpoint_inside_the_configured_range_is_taken_unchanged(
-        self, caplog
+        self, bt, caplog
     ):
-        """A setpoint that clears both bounds and the heating target is adopted as is.
+        """A setpoint clearing both bounds and the heating target is adopted as is.
 
         Nothing about such a value has to be corrected, so it reaches the
         cooling channel exactly as the device reports it and no correction is
         annunciated.
         """
-        bt = _make_startup_bt()
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
-        with caplog.at_level(logging.WARNING):
-            await _run_startup(
-                bt, State(COOLER_ID, "cool", {"temperature": 24.0}), 21.0
-            )
+        caplog.set_level(logging.WARNING)
+        await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp == 24.0
         assert bt.bt_target_temp == 21.0
-        assert "outside of range" not in caplog.text
-        assert "cooling target" not in caplog.text
+        assert caplog.text == ""
 
     @pytest.mark.asyncio
-    async def test_setpoint_outside_the_configured_range_is_clamped(self, caplog):
+    async def test_setpoint_outside_the_configured_range_is_clamped(self, bt, caplog):
         """A cooler reporting below the configured minimum is brought into range.
 
-        The heating target is well clear of the value, so the clamp is the only
-        correction, and it is annunciated because the clamped value is written
-        back to the device.
+        Better Thermostat advertises the overlap of the ranges its devices
+        advertise, and a cooler that was unreachable while that overlap was
+        derived contributed no bounds to it. The heating target is well clear of
+        the value, so the clamp is the only correction, and it is annunciated
+        because the clamped value is written back to the device.
         """
-        bt = _make_startup_bt()
+        bt.cooler_entity_id = COOLER_ID
         bt.bt_min_temp = 18.0
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 16.0})})
 
-        with caplog.at_level(logging.WARNING):
-            await _run_startup(
-                bt, State(COOLER_ID, "cool", {"temperature": 16.0}), 15.0
-            )
+        caplog.set_level(logging.WARNING)
+        await _run_startup(bt, restored_target=15.0)
 
         assert bt.bt_target_cooltemp == 18.0
         assert (
@@ -666,504 +1211,111 @@ class TestStartupCoolTargetSeed:
         )
 
     @pytest.mark.asyncio
-    async def test_setpoint_is_ordered_against_the_restored_heating_target(self):
-        """The heating target the restore step installs is the one that bounds the seed.
+    async def test_setpoint_is_ordered_against_the_restored_heating_target(self, bt):
+        """The heating target the restore installs is the one that bounds the seed.
 
         Reading the cooler before the restore would order the value against the
         construction default instead, and the pair Better Thermostat ends up
         holding would have the cooling target below the heating one.
         """
-        bt = _make_startup_bt()
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp = DEFAULT_TARGET_TEMP
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 20.0})})
 
-        await _run_startup(bt, State(COOLER_ID, "cool", {"temperature": 20.0}), 21.0)
+        await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp == 21.5
         assert bt.bt_target_temp == 21.0
 
     @pytest.mark.asyncio
-    async def test_restored_preset_cool_target_is_not_overwritten(self):
-        """A preset carries a cooling target the user chose, so the device is not read."""
-        bt = _make_startup_bt()
+    async def test_restored_preset_cool_target_is_not_overwritten(self, bt):
+        """A preset carries a cooling target the user chose, so it is kept.
 
-        await _run_startup(
-            bt,
-            State(COOLER_ID, "cool", {"temperature": 24.0}),
-            21.0,
-            restored_cool_target=26.0,
-        )
+        The device is only asked for a target nothing else supplies, and a
+        restored preset supplies one.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_startup(bt, restored_target=21.0, restored_cool_target=26.0)
 
         assert bt.bt_target_cooltemp == 26.0
 
     @pytest.mark.asyncio
-    async def test_no_cooler_configured_leaves_the_cool_target_unknown(self):
+    async def test_no_cooler_configured_leaves_the_cool_target_unknown(self, bt):
         """Without a cooling channel there is no device to take a target from.
 
-        A readable setpoint answers the lookup all the same, so the missing
-        configuration is what leaves the cool target unknown.
+        Every state lookup answers with a readable setpoint here, so the absent
+        cooling channel is the only thing that can leave the target unknown: a
+        read that went ahead without one would find a value and store it.
         """
-        bt = _make_startup_bt()
         bt.cooler_entity_id = None
+        bt.hass.states.get.return_value = _make_cooler_state({ATTR_TEMPERATURE: 24.0})
 
-        await _run_startup(bt, State(COOLER_ID, "cool", {"temperature": 24.0}), 21.0)
+        await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_this_read_names_itself_when_an_attribute_cannot_be_read(
-        self, caplog
-    ):
-        """An unreadable setpoint attribute is reported against this read.
+    async def test_unreadable_step_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's step cannot be converted.
 
-        The startup sequence reads the cooler twice through the same helper, so
-        the line that reports the failed conversion names the read it belongs
-        to rather than the sequence both reads run in.
+        The second startup read, at the cooler's listener registration, resolves
+        the step through the same helper. Naming this one after the method it
+        runs in is what keeps an entry the two could both have produced
+        attributable to one of them.
         """
-        bt = _make_startup_bt()
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0, "target_temp_step": "unavailable"}
+                )
+            },
+        )
 
-        with caplog.at_level(logging.DEBUG):
-            await _run_startup(
-                bt, State(COOLER_ID, "cool", {"temperature": "n/a"}), 21.0
-            )
+        caplog.set_level(logging.DEBUG)
+        await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp is None
+        assert "Could not convert 'unavailable' to float in startup()" in caplog.text
+        assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_unreadable_setpoint_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's setpoint cannot be converted.
+
+        The step and the setpoint are resolved through two separate helpers,
+        and this read hands its own name to both of them, so whichever of the
+        two attributes a cooler publishes unreadably is reported against the
+        read that asked for it.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
+
+        caplog.set_level(logging.DEBUG)
+        await _run_startup(bt, restored_target=21.0)
+
         assert "Could not convert 'n/a' to float in startup()" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_this_read_names_itself_when_the_step_cannot_be_read(self, caplog):
-        """An unreadable step attribute is reported against this read as well.
-
-        The cooler's step reaches the resolution through a forwarding of its
-        own, so it names the read it belongs to on the same terms as the
-        setpoint does. The setpoint is readable here, which leaves the step as
-        the only thing the reported conversion can be about.
-        """
-        bt = _make_startup_bt()
-
-        with caplog.at_level(logging.DEBUG):
-            await _run_startup(
-                bt,
-                State(
-                    COOLER_ID, "cool", {"temperature": 24.0, "target_temp_step": "n/a"}
-                ),
-                21.0,
-            )
-
-        assert bt.bt_target_cooltemp == 24.0
-        assert "Could not convert 'n/a' to float in startup()" in caplog.text
+        assert bt.bt_target_cooltemp is None
 
 
 # ---------------------------------------------------------------------------
-# 6. _finalize_startup cooler setpoint re-read
-# ---------------------------------------------------------------------------
-
-
-def _make_finalize_bt():
-    """Build a BetterThermostat mock for a _finalize_startup run with a cooler."""
-    mock = MagicMock(spec=BetterThermostat)
-    mock.hass = MagicMock()
-    mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
-    mock.device_name = "Test BT"
-    mock.is_removed = False
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
-    mock.all_trvs = None
-    mock.all_entities = []
-    mock.entity_ids = [TRV_ID]
-    mock.sensor_entity_id = SENSOR_ID
-    mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
-    mock.cooler_entity_id = COOLER_ID
-    mock.outdoor_sensor = None
-    mock._async_unsub_state_changed = None
-    mock.bt_target_cooltemp = None
-    mock.bt_target_temp = 21.0
-    mock.bt_target_temp_step = 0.5
-    mock.bt_min_temp = 5.0
-    mock.bt_max_temp = 30.0
-    mock.hvac_mode = HVACMode.HEAT_COOL
-    mock.bt_hvac_mode = HVACMode.HEAT_COOL
-    mock.control_queue_task = AsyncMock()
-    # Plain MagicMocks so the un-awaited coroutines handed to the background
-    # task mock do not raise "coroutine was never awaited" warnings.
-    mock._post_grace_recheck = MagicMock()
-    mock._external_temperature_keepalive = MagicMock()
-    mock._enforce_cool_above_heat = lambda **kwargs: (
-        BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
-    )
-    mock._seed_cool_target = lambda setpoint, entity_id: (
-        BetterThermostat._seed_cool_target(mock, setpoint, entity_id)
-    )
-    mock._seed_cool_target_from_cooler = lambda log_source: (
-        BetterThermostat._seed_cool_target_from_cooler(mock, log_source)
-    )
-    mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
-        mock, value
-    )
-    return mock
-
-
-async def _run_finalize_startup(bt):
-    """Run _finalize_startup with its waits, timers and listeners stubbed out."""
-    climate = "custom_components.better_thermostat.climate"
-    with (
-        patch(f"{climate}.await_critical_entities", AsyncMock()),
-        patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
-        patch(f"{climate}.await_optional_sensors", AsyncMock()),
-        patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{climate}.asyncio.sleep", AsyncMock()),
-        patch(f"{climate}.async_track_time_interval"),
-        patch(f"{climate}.async_track_state_change_event"),
-        patch(f"{climate}.async_track_time_change"),
-    ):
-        await BetterThermostat._finalize_startup(bt)
-
-
-class TestFinalizeStartupCoolerReread:
-    """The cooler setpoint is re-read once the cooler listener is live."""
-
-    @pytest.mark.asyncio
-    async def test_reread_seeds_cooltemp_when_cooler_arrived(self):
-        """A cooler that joined HA after the startup read is picked up."""
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 24.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 24.0
-        bt.control_queue_task.put.assert_awaited_once_with(bt)
-
-    @pytest.mark.asyncio
-    async def test_reread_seeds_from_a_cooler_resting_at_off(self):
-        """A cooler switched off still carries the setpoint it would cool to.
-
-        This is the resting state of an idle air conditioner, and a device at
-        rest publishes no further state change, so the re-read is the only place
-        its setpoint is ever seen. What the state string names is the mode the
-        device is in, not whether its setpoint can be read, so the value is
-        taken and Better Thermostat runs a cycle on it.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, HVACMode.OFF, {"temperature": 24.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 24.0
-        bt.control_queue_task.put.assert_awaited_once_with(bt)
-
-    @pytest.mark.asyncio
-    async def test_seed_while_bt_is_off_runs_no_control_cycle(self):
-        """A BT that is OFF learns the cool target from the re-read but stays idle.
-
-        Switching it on queues its own cycle, so a target arriving while it is
-        off is no reason to run one.
-        """
-        bt = _make_finalize_bt()
-        bt.hvac_mode = HVACMode.OFF
-        bt.bt_hvac_mode = HVACMode.OFF
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 24.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 24.0
-        bt.control_queue_task.put.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_reread_raises_a_setpoint_colliding_with_the_heat_target(self):
-        """A read setpoint below the heating target is raised above it.
-
-        The ordering has to hold for a BT that is still off, because switching it
-        on does not revisit the pair.
-        """
-        bt = _make_finalize_bt()
-        bt.hvac_mode = HVACMode.OFF
-        bt.bt_hvac_mode = HVACMode.OFF
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 16.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 21.5
-        assert bt.bt_target_temp == 21.0
-
-    @pytest.mark.asyncio
-    async def test_reread_ignores_an_unavailable_cooler_reporting_a_setpoint(self):
-        """A cooler still absent by then leaves the cool target for the handler.
-
-        An entity that lost contact with its device can keep the attributes it
-        last published, so a readable setpoint alone says nothing about whether
-        the device still stands behind it. The state string is what decides.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, STATE_UNAVAILABLE, {"temperature": 24.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp is None
-        bt.control_queue_task.put.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_reread_ignores_an_unknown_cooler_reporting_a_setpoint(self):
-        """A cooler that reports no mode yet leaves the cool target unknown.
-
-        An entity Home Assistant has created but whose device has not reported
-        in holds ``unknown`` while its attributes may already carry defaults, so
-        the state string decides here as well.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, STATE_UNKNOWN, {"temperature": 24.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp is None
-        bt.control_queue_task.put.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_reread_leaves_cooltemp_unknown_when_cooler_has_no_state(self):
-        """An entity that has not been created yet carries no state object.
-
-        A cooler whose integration has not set it up returns nothing at all
-        rather than an unavailable state, so the re-read has no attributes to
-        look at.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = None
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp is None
-        bt.control_queue_task.put.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_reread_requests_no_cycle_without_a_usable_setpoint(self):
-        """An available cooler may still publish no setpoint to read.
-
-        None of the setpoint attributes holds a usable value, so there is
-        nothing to seed the cool target with and nothing for a control cycle to
-        act on.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID,
-            "cool",
-            {"temperature": None, "target_temp_low": None, "target_temp_high": None},
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp is None
-        bt.control_queue_task.put.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_reread_skipped_when_cooltemp_already_known(self):
-        """A cool target the startup read resolved is not overwritten."""
-        bt = _make_finalize_bt()
-        bt.bt_target_cooltemp = 26.0
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 24.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 26.0
-        bt.control_queue_task.put.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_reread_raises_a_seed_colliding_with_the_heat_target(self):
-        """The re-read is an observation, so the cooling side yields on a collision."""
-        bt = _make_finalize_bt()
-        bt.bt_target_temp = 21.0
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 20.0}
-        )
-
-        await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 21.5
-        assert bt.bt_target_temp == 21.0
-
-    @pytest.mark.asyncio
-    async def test_reread_reads_a_fahrenheit_cooler_in_its_own_unit(self):
-        """A Fahrenheit cooler's setpoint and step are read as Fahrenheit.
-
-        The re-read shares the unit-aware boundary with the event handler, so
-        the seeded target is the Celsius value of the reported setpoint and the
-        echo window is built from the device's step scaled to a Celsius delta,
-        not from Better Thermostat's own step.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-        bt.bt_target_temp = 20.0
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 75.0, "target_temp_step": 2.0}
-        )
-        derived_steps = []
-
-        def _record_step(instance, state, log_source):
-            derived_steps.append(device_setpoint_step(instance, state, log_source))
-            return derived_steps[-1]
-
-        with patch(
-            "custom_components.better_thermostat.climate.device_setpoint_step",
-            _record_step,
-        ):
-            await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 23.89
-        assert derived_steps == [round(2.0 * 5.0 / 9.0, 4)]
-
-    @pytest.mark.asyncio
-    async def test_reread_clamps_a_setpoint_outside_the_configured_range(self, caplog):
-        """A cooler absent while the range was derived can report outside it.
-
-        Such a cooler contributed no bounds to the temperature range, so its own
-        setpoint may sit below the configured minimum. The clamped value is
-        written back to the device, so it is annunciated.
-        """
-        bt = _make_finalize_bt()
-        bt.bt_min_temp = 22.0
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 20.0}
-        )
-
-        with caplog.at_level(logging.WARNING):
-            await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 22.0
-        assert (
-            "reported setpoint 20.0 outside of range while the cool target is "
-            "unknown, taking 22.0 as the cool target" in caplog.text
-        )
-
-    @pytest.mark.asyncio
-    async def test_the_reread_names_itself_when_an_attribute_cannot_be_read(
-        self, caplog
-    ):
-        """An unreadable setpoint attribute is reported against the re-read.
-
-        This read shares the helper with the one that runs earlier in startup,
-        so it names its own site: a cooler whose setpoint attribute holds
-        something unreadable is otherwise indistinguishable from one the
-        earlier read already stumbled over.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": "n/a"}
-        )
-
-        with caplog.at_level(logging.DEBUG):
-            await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp is None
-        assert "Could not convert 'n/a' to float in _finalize_startup()" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_the_reread_names_itself_when_the_step_cannot_be_read(self, caplog):
-        """An unreadable step attribute is reported against the re-read as well.
-
-        The cooler's step reaches the resolution through a forwarding of its
-        own, so this read names its own site for a step it cannot convert on
-        the same terms as for a setpoint. The setpoint is readable here, which
-        leaves the step as the only thing the reported conversion can be about.
-        """
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 24.0, "target_temp_step": "n/a"}
-        )
-
-        with caplog.at_level(logging.DEBUG):
-            await _run_finalize_startup(bt)
-
-        assert bt.bt_target_cooltemp == 24.0
-        assert "Could not convert 'n/a' to float in _finalize_startup()" in caplog.text
-
-
-class TestFinalizeStartupBatteryScan:
-    """The battery scan covers every configured device.
-
-    It reads ``all_entities``, so a device registered after the scan is
-    never asked for a battery entity at all.
-    """
-
-    @staticmethod
-    async def _scan(bt):
-        """Run _finalize_startup and return the entity IDs the scan visited."""
-        scanned: list[str] = []
-
-        async def spy(_self, entity_id, _visited=None):
-            scanned.append(entity_id)
-            return f"sensor.{entity_id.split('.')[-1]}_battery"
-
-        with patch(
-            "custom_components.better_thermostat.climate.find_battery_entity", new=spy
-        ):
-            await _run_finalize_startup(bt)
-        return scanned
-
-    @pytest.mark.asyncio
-    async def test_scan_reaches_the_cooler(self):
-        """A configured cooler is asked for its battery entity."""
-        bt = _make_finalize_bt()
-        bt.devices_states = {}
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 24.0}
-        )
-
-        scanned = await self._scan(bt)
-
-        assert COOLER_ID in scanned
-        assert bt.devices_states[COOLER_ID]["battery_id"] == "sensor.cooler_battery"
-
-    @pytest.mark.asyncio
-    async def test_scan_reaches_the_outdoor_sensor(self):
-        """A configured outdoor sensor is asked for its battery entity."""
-        bt = _make_finalize_bt()
-        bt.cooler_entity_id = None
-        bt.outdoor_sensor = OUTDOOR_ID
-        bt.devices_states = {}
-
-        scanned = await self._scan(bt)
-
-        assert OUTDOOR_ID in scanned
-        assert (
-            bt.devices_states[OUTDOOR_ID]["battery_id"] == "sensor.outdoor_temp_battery"
-        )
-
-    @pytest.mark.asyncio
-    async def test_unconfigured_devices_are_not_scanned(self):
-        """Nothing is registered for a cooler or outdoor sensor that is absent."""
-        bt = _make_finalize_bt()
-        bt.cooler_entity_id = None
-        bt.outdoor_sensor = None
-        bt.devices_states = {}
-
-        scanned = await self._scan(bt)
-
-        assert scanned == []
-        assert bt.all_entities == []
-
-
-# ---------------------------------------------------------------------------
-# 7. _restore_state
+# 6. TRV attribute initialization (_initialize_trvs)
 # ---------------------------------------------------------------------------
 
 
 class TestInitializeTrvCurrentTemperature:
-    """The startup fallback for a missing TRV reading is 5.0 °C, literally.
+    """Startup must not fabricate a TRV-internal temperature.
 
-    Passing the literal through the unit conversion turned it into about
-    -15 °C on Fahrenheit systems, and the falsy-or fallback swallowed a
-    real reading of 0.0.
+    A seeded value would feed SENSOR_FALLBACK as if it were live and
+    keep the fail-soft ladder's HOLD rung unreachable, and a falsy-or
+    fallback would swallow a real reading of 0.0.
     """
 
     def _trv_only_bt(self, bt, attrs, unit="°C"):
@@ -1174,9 +1326,10 @@ class TestInitializeTrvCurrentTemperature:
 
     async def _run(self, bt):
         with (
-            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
             patch(
-                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
             ),
             patch(
                 "custom_components.better_thermostat.climate.control_trv",
@@ -1186,18 +1339,11 @@ class TestInitializeTrvCurrentTemperature:
             await BetterThermostat._initialize_trvs(bt)
 
     @pytest.mark.asyncio
-    async def test_missing_reading_falls_back_to_five_celsius(self, bt):
-        """No reading: the fallback is 5.0 °C on a Celsius system."""
+    async def test_missing_reading_stays_none(self, bt):
+        """No reading at startup leaves the field unset."""
         bt = self._trv_only_bt(bt, {"current_temperature": None})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID].current_temperature == 5.0
-
-    @pytest.mark.asyncio
-    async def test_fallback_is_not_unit_converted(self, bt):
-        """On a Fahrenheit system the fallback stays 5.0 °C, not -15 °C."""
-        bt = self._trv_only_bt(bt, {"current_temperature": None}, unit="°F")
-        await self._run(bt)
-        assert bt.real_trvs[TRV_ID].current_temperature == 5.0
+        assert bt.real_trvs[TRV_ID].current_temperature is None
 
     @pytest.mark.asyncio
     async def test_zero_reading_is_kept(self, bt):
@@ -1213,6 +1359,190 @@ class TestInitializeTrvCurrentTemperature:
         bt = self._trv_only_bt(bt, {"current_temperature": marker_temp})
         await self._run(bt)
         assert bt.real_trvs[TRV_ID].current_temperature is None
+
+
+class TestInitializeTrvCalibrationFallback:
+    """The offset read's gaps are filled without overwriting its answers.
+
+    A TRV that carries its own offset has startup read that offset and the
+    window the device accepts, and every offset the control loop later
+    writes is rounded to the step and clamped into that window. What the
+    read leaves unset the fallback fills — the offset at 0, the step at
+    0.5 — and what it did deliver it keeps, so a device that answered part
+    of the way is not reset to a value it never declared. A read that fails
+    outright ends the same way, and startup carries on to the rest of the
+    TRV's attributes.
+    """
+
+    def _offset_trv_bt(self, bt):
+        """Wire the thermostat to one TRV that carries its own offset."""
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=LOCAL_CALIBRATION)}
+        bt.hass.states.get.return_value = _make_trv_state()
+        # The fallback is what these tests read back off the TRV, so it runs
+        # for real while the rest of the instance stays a stand-in.
+        bt._set_trv_calibration_defaults.side_effect = lambda trv: (
+            BetterThermostat._set_trv_calibration_defaults(bt, trv)
+        )
+        return bt
+
+    async def _run(self, bt, failure):
+        """Initialize the TRV against an offset read that raises."""
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_current_offset",
+                autospec=True,
+                side_effect=failure,
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    async def _run_bounds_failure(self, bt, offset, failure):
+        """Initialize the TRV against a read that raises after the offset."""
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_current_offset",
+                autospec=True,
+                return_value=offset,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_min_offset",
+                autospec=True,
+                side_effect=failure,
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    async def _run_complete_read(self, bt, offset, minimum, maximum, step):
+        """Initialize the TRV against a read that answers every question."""
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_current_offset",
+                autospec=True,
+                return_value=offset,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_min_offset",
+                autospec=True,
+                return_value=minimum,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_max_offset",
+                autospec=True,
+                return_value=maximum,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.get_offset_step",
+                autospec=True,
+                return_value=step,
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_offset_read_that_times_out_leaves_the_offset_at_zero(
+        self, bt, caplog
+    ):
+        """A device that does not answer leaves the offset where it started.
+
+        The startup has to reach a defined calibration one way or another:
+        carrying an unanswered read forward as an offset would apply a
+        correction the device was never asked about.
+        """
+        bt = self._offset_trv_bt(bt)
+        caplog.set_level(logging.WARNING)
+
+        await self._run(bt, TimeoutError())
+
+        assert bt.real_trvs[TRV_ID].last_calibration == 0
+        assert f"Timeout getting offsets for TRV {TRV_ID}" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_offset_read_that_fails_leaves_the_offset_at_zero(self, bt, caplog):
+        """A read the device refuses lands the same offset as a timeout."""
+        bt = self._offset_trv_bt(bt)
+        caplog.set_level(logging.WARNING)
+
+        await self._run(bt, HomeAssistantError("device did not answer"))
+
+        assert bt.real_trvs[TRV_ID].last_calibration == 0
+        assert f"Error getting offsets for TRV {TRV_ID}: device did not answer" in (
+            caplog.text
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_read_that_fails_after_the_offset_keeps_that_offset(
+        self, bt, caplog
+    ):
+        """An offset the device did deliver survives the same failure.
+
+        The bounds the device accepts are read inside the same budget as the
+        offset, so a failure there lands on the same fallback. The offset is
+        no longer a gap by then, and filling it would discard a live reading
+        the first control cycle needs to recognise the device as converged.
+        """
+        bt = self._offset_trv_bt(bt)
+        caplog.set_level(logging.WARNING)
+
+        await self._run_bounds_failure(
+            bt, 1.5, HomeAssistantError("device did not answer")
+        )
+
+        assert f"Error getting offsets for TRV {TRV_ID}" in caplog.text
+        assert bt.real_trvs[TRV_ID].last_calibration == 1.5
+
+    @pytest.mark.asyncio
+    async def test_a_missing_step_is_filled_without_touching_the_bounds(self, bt):
+        """A device that declares no offset step is given one.
+
+        An adapter answers with no step whenever the calibration entity it
+        would read it from is absent, and the offset writer rounds every
+        command to that step. The fallback supplies 0.5 for it, while the
+        bounds the same read did deliver stay as the device declared them.
+        """
+        bt = self._offset_trv_bt(bt)
+
+        await self._run_complete_read(bt, 1.5, -6.0, 6.0, None)
+
+        trv = bt.real_trvs[TRV_ID]
+        assert trv.local_calibration_step == 0.5
+        assert trv.last_calibration == 1.5
+        assert trv.local_calibration_min == -6.0
+        assert trv.local_calibration_max == 6.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure", [TimeoutError(), HomeAssistantError("device did not answer")]
+    )
+    async def test_a_failed_offset_read_still_reads_the_trv_attributes(
+        self, bt, failure
+    ):
+        """The failure stays inside the offset read; startup carries on."""
+        bt = self._offset_trv_bt(bt)
+
+        await self._run(bt, failure)
+
+        assert bt.real_trvs[TRV_ID].max_temp == 30.0
+        assert bt.real_trvs[TRV_ID].current_temperature == 20.0
+
+
+# ---------------------------------------------------------------------------
+# 7. _restore_state
+# ---------------------------------------------------------------------------
 
 
 class TestRestoreState:
@@ -1423,6 +1753,115 @@ class TestRestoreState:
         assert bt.bt_target_cooltemp == 18.0
 
     @pytest.mark.asyncio
+    async def test_a_saved_range_restores_both_targets(self, bt):
+        """A thermostat with a cooler comes back on the pair it published.
+
+        Home Assistant writes `temperature` for an entity offering a single
+        target and the two bounds of a range for one offering a range. A
+        thermostat with a cooler offers the range, so those two bounds are the
+        whole record of the pair the user set.
+        """
+        bt = self._cooling_bt(bt, 16.0, 30.0)
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 20.0
+        assert bt.bt_target_cooltemp == 23.0
+
+    @pytest.mark.asyncio
+    async def test_a_saved_single_target_restores_without_a_cooling_target(self, bt):
+        """A thermostat without a cooler reads the one key it published.
+
+        The heating target of a single-target thermostat sits in
+        `temperature`, and there is no cooling channel for a second one.
+        """
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: 22.5}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 22.5
+        assert bt.bt_target_cooltemp is None
+
+    @pytest.mark.asyncio
+    async def test_a_restored_cooling_target_survives_the_cooler_read(self, bt):
+        """The cooler's setpoint fills a cooling target that nothing else supplies.
+
+        The read off the device runs after the restore and is what a cooling
+        target comes from when the saved state holds none. A target the restore
+        did supply is the user's own choice and stays.
+        """
+        bt = self._cooling_bt(bt, 16.0, 30.0)
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {}
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 26.0})})
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+        seeded = BetterThermostat._seed_cool_target_from_cooler(bt, "startup()")
+
+        assert seeded is False
+        assert bt.bt_target_cooltemp == 23.0
+
+    @pytest.mark.asyncio
+    async def test_a_saved_range_below_the_minimum_is_bounded_and_ordered(self, bt):
+        """A pair bounded onto one value is pushed apart again.
+
+        Both targets are bounded into the configured range, so a pair saved
+        under a wider one can land on the same value. The pair is published as
+        a range and written to the devices from there, and two targets meeting
+        would run the cooler against the heads.
+        """
+        bt = self._cooling_bt(bt, 20.0, 30.0)
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TARGET_TEMP_LOW: 9.0, ATTR_TARGET_TEMP_HIGH: 10.0}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 20.0
+        assert bt.bt_target_cooltemp == 20.5
+
+    @pytest.mark.asyncio
+    async def test_a_saved_fahrenheit_range_restores_as_celsius(self, bt):
+        """A saved range is read in the unit Home Assistant wrote it in.
+
+        Better Thermostat reports its own targets in Celsius, and Home
+        Assistant converts an entity's targets into the system unit on the way
+        into the state it saves. On a Fahrenheit installation the pair comes
+        back as Fahrenheit, so reading it as Celsius would restore the room to
+        a target the configured range has to bound away.
+        """
+        bt = self._cooling_bt(bt, 16.0, 30.0)
+        bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 24.0, "eco": 27.0}
+        bt.preset_mgr.temperatures = {}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TARGET_TEMP_LOW: 68.0, ATTR_TARGET_TEMP_HIGH: 73.4}
+        bt.async_get_last_state = AsyncMock(return_value=old)
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.bt_target_temp == 20.0
+        assert bt.bt_target_cooltemp == 23.0
+
+    @pytest.mark.asyncio
     async def test_restores_heating_power_clamped(self, bt):
         """Test Restores heating power clamped."""
         old = MagicMock()
@@ -1452,13 +1891,18 @@ class TestRestoreState:
         assert bt.bt_target_temp is not None
 
     @pytest.mark.asyncio
-    async def test_restores_call_for_heat(self, bt):
-        """Test Restores call for heat."""
+    async def test_call_for_heat_not_restored(self, bt):
+        """call_for_heat is an observation, not UI state.
+
+        A stored False is ignored and the safe default (True) keeps
+        ruling until the first live prediction.
+        """
         old = MagicMock()
         old.state = "heat"
-        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: True}
+        old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: False}
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.preset_mgr.temperatures = {}
+        bt.call_for_heat = True
 
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
@@ -1526,8 +1970,611 @@ class TestRestoreState:
 
 
 # ---------------------------------------------------------------------------
-# 8. _validate_hvac_mode
+# 8. Initial TRV sync (_finalize_startup / _startup_control_trvs)
 # ---------------------------------------------------------------------------
+
+
+_CLIMATE = "custom_components.better_thermostat.climate"
+
+_real_asyncio_sleep = asyncio.sleep
+
+
+class _AdvancingClock:
+    """An event-loop clock that a sleep moves forward instead of waiting.
+
+    A retry ladder spends tens of seconds of backoff, and a deadline
+    around it reads the loop's clock. Handing the loop this clock and this
+    sleep lets both happen in test time: the sleep hands control back at
+    once and charges its delay to the clock the deadline is measured on.
+    """
+
+    def __init__(self, loop):
+        """Start at the loop's own reading with nothing charged to it yet."""
+        self._loop_time = loop.time
+        self._elapsed = 0.0
+
+    def time(self) -> float:
+        """The loop's reading plus everything the slept delays have charged."""
+        return self._loop_time() + self._elapsed
+
+    async def sleep(self, delay, result=None):
+        """Charge the delay to the clock and hand control back at once."""
+        if delay and delay > 0:
+            self._elapsed += delay
+        await _real_asyncio_sleep(0)
+        return result
+
+
+def _trv_refusing_every_write(attempts: list[str]):
+    """A thermostat whose only TRV raises on every setpoint write."""
+    trv = MagicMock(spec=Trv)
+    trv.target_temp_step = 0.5
+    trv.min_temp = 5.0
+    trv.max_temp = 30.0
+
+    async def refuse(_self, entity_id, _temperature):
+        """Record the attempt and fail it the way an unreachable TRV does."""
+        attempts.append(entity_id)
+        raise HomeAssistantError("TRV is not reachable")
+
+    trv.adapter = MagicMock()
+    trv.adapter.set_temperature = refuse
+
+    thermostat = MagicMock()
+    thermostat.device_name = "Test BT"
+    thermostat.bt_target_temp_step = None
+    thermostat.real_trvs = {TRV_ID: trv}
+    return thermostat
+
+
+class TestStartupControlSync:
+    """The initial device sync must run after the lifecycle gate opens."""
+
+    @pytest.mark.asyncio
+    async def test_finalize_startup_flips_lifecycle_before_initial_sync(self, bt):
+        """The initial sync runs only after the lifecycle flip.
+
+        While startup_running is True, decide() addresses no TRVs — a
+        sync before the flip would silently write nothing.
+        """
+        bt.is_removed = False
+        bt.all_entities = []
+        bt.all_trvs = None
+        gate_states = []
+
+        async def record_sync():
+            gate_states.append(bt.kernel_state.lifecycle.startup_running)
+            bt.is_removed = True
+
+        bt._startup_control_trvs = record_sync
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+        ):
+            await BetterThermostat._finalize_startup(bt)
+
+        assert gate_states == [False]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_controls_each_trv(self, bt):
+        """Every configured TRV receives one initial control call."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        with patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl:
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert [call.args[1] for call in ctl.call_args_list] == [TRV_ID, TRV_ID_2]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_computes_one_cycle_for_all(self, bt):
+        """All TRVs are synced from one observation and decision."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        cycle = object()
+        with (
+            patch(f"{_CLIMATE}.compute_control_cycle", return_value=cycle) as compute,
+            patch(f"{_CLIMATE}.control_trv", AsyncMock(return_value=True)) as ctl,
+        ):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        compute.assert_called_once()
+        assert [call.kwargs.get("cycle") for call in ctl.call_args_list] == [
+            cycle,
+            cycle,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_survives_a_failing_trv(self, bt):
+        """An error on one TRV must not stop the sync of the others."""
+        bt.real_trvs = {TRV_ID: {}, TRV_ID_2: {}}
+        ctl = AsyncMock(side_effect=[RuntimeError("boom"), True])
+        with patch(f"{_CLIMATE}.control_trv", ctl):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert ctl.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_startup_control_trvs_lets_a_write_spend_its_retries(
+        self, bt, caplog
+    ):
+        """A TRV that is out of reach gets every attempt the write ladder has.
+
+        An unreachable device in the first seconds after a restart is what
+        those retries exist for, so the startup budget has to outlast their
+        backoff. The write runs against a clock this test advances, so the
+        ladder's delays elapse for the budget without costing wall time.
+        """
+        bt.real_trvs = {TRV_ID: {}}
+        loop = asyncio.get_running_loop()
+        clock = _AdvancingClock(loop)
+        attempts: list[str] = []
+        writer = _trv_refusing_every_write(attempts)
+
+        async def control_by_writing(_self, entity_id, cycle=None):
+            """Stand in for the control call with the setpoint write alone.
+
+            The retry ladder under test sits in the write, so the rest of a
+            control cycle would only add work the budget is not about.
+            """
+            return await delegate_set_temperature(writer, entity_id, 21.0)
+
+        with (
+            patch.object(loop, "time", clock.time),
+            patch("asyncio.sleep", clock.sleep),
+            patch(f"{_CLIMATE}.compute_control_cycle", return_value=None),
+            patch(f"{_CLIMATE}.control_trv", control_by_writing),
+            caplog.at_level(logging.ERROR),
+        ):
+            await BetterThermostat._startup_control_trvs(bt)
+
+        assert len(attempts) == 6
+        assert "Timeout controlling TRV" not in caplog.text
+
+
+async def _run_finalize_startup(bt):
+    """Run _finalize_startup with its external hooks patched out."""
+    bt.is_removed = False
+    bt.all_trvs = None
+    bt.entity_ids = [TRV_ID]
+    bt._async_unsub_state_changed = None
+    # Background jobs are handed to a mocked task factory that never awaits
+    # them, so they hand out plain values instead of orphaned coroutines.
+    bt._post_grace_recheck = MagicMock()
+    bt._external_temperature_keepalive = MagicMock()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
+    with (
+        patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+        patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
+        patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+        patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
+        patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+    ):
+        await BetterThermostat._finalize_startup(bt)
+
+
+class TestStartupStopsOnceTheEntityIsGone:
+    """A startup interrupted by removal must not go on setting the room up.
+
+    Waiting for the optional sensors can run for the better part of a
+    minute, and the entity can be removed inside that window. Everything
+    after it belongs to a thermostat the user still has.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_removal_during_the_sensor_wait_ends_the_startup(self, bt):
+        """The degraded evaluation writes state, so it may not run after it.
+
+        `await_optional_sensors` gives up on its own once the removal
+        starts, and returns normally. Reading the removal only after the
+        steps below it lets a torn-down entity publish a degraded mode and
+        start a recheck that outlives the call.
+        """
+
+        async def removed_during_the_wait(_self):
+            _self.is_removed = True
+            return []
+
+        degraded = AsyncMock()
+        bt.is_removed = False
+        bt.all_trvs = None
+        bt.entity_ids = [TRV_ID]
+        bt._async_unsub_state_changed = None
+        bt._post_grace_recheck = MagicMock()
+        bt._external_temperature_keepalive = MagicMock()
+        bt._spawn_owned = MagicMock()
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
+        with (
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.await_optional_sensors", removed_during_the_wait),
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", degraded),
+            patch(f"{_CLIMATE}.async_track_state_change_event", MagicMock()),
+            patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+            patch(f"{_CLIMATE}.async_track_time_change", MagicMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+        ):
+            await BetterThermostat._finalize_startup(bt)
+
+        degraded.assert_not_awaited()
+        # The critical-entity recheck is started before the wait; only the
+        # degraded one belongs to the steps this guard now covers.
+        started = [
+            call.kwargs.get("name", "") for call in bt._spawn_owned.call_args_list
+        ]
+        assert not any("post_grace_degraded" in name for name in started)
+
+
+class TestCoolerTargetReadAtListenerRegistration:
+    """The cool target is re-read once the cooler subscription is live.
+
+    A cooler that joins Home Assistant after the startup seed and then never
+    changes state again produces no event, so the registration of its listener
+    is the last point at which its setpoint can still be read.
+    An unknown cool target holds the cooler off on every control cycle.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cooler_online_by_now_seeds_the_cool_target(self, bt):
+        """The state the startup seed could not see is read here."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        bt._seed_cool_target.assert_called_once()
+        assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_seed_while_off_requests_no_control_cycle(self, bt):
+        """An off thermostat still needs the field, but no cycle to use it.
+
+        A cycle would command the cooler off whatever the target says, and
+        switching the thermostat back on requests a cycle of its own.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.OFF
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("minimum", "maximum", "raw", "bounded"),
+        [(5.0, 30.0, 31.0, 30.0), (22.0, 30.0, 20.0, 22.0)],
+    )
+    async def test_setpoint_outside_the_range_is_clamped_and_reported(
+        self, bt, caplog, minimum, maximum, raw, bounded
+    ):
+        """A cooler absent from the range derivation can report outside it.
+
+        The temperature range comes from the devices that were reachable, and an
+        offline cooler contributed no bounds of its own, so the setpoint it
+        reports once it joins can sit on either side of the advertised range.
+        Storing it unclamped would put the published target outside the range
+        and write a value the cooler may reject.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_min_temp = minimum
+        bt.bt_max_temp = maximum
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: raw})})
+
+        caplog.set_level(logging.WARNING)
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == bounded
+        assert (
+            f"reported setpoint {raw} outside of range while the cool target is "
+            f"unknown, taking {bounded} as the cool target" in caplog.text
+        )
+
+    @pytest.mark.asyncio
+    async def test_setpoint_colliding_with_the_heat_target_is_lifted(self, bt):
+        """The observed value yields, the restored heating target stays.
+
+        A setpoint read off the device carries no user intent, so a collision
+        between the two targets of the published range is resolved on the
+        cooling side.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_target_temp = 21.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 19.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 21.5
+        assert bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_setpoint_is_ordered_while_the_thermostat_is_off(self, bt):
+        """An off thermostat orders the pair the moment the value is stored.
+
+        Switching it on does not revisit the two targets, so a seed left
+        unordered here would be the pair the first cooling cycle works with.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.OFF
+        bt.bt_target_temp = 21.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 16.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 21.5
+        assert bt.bt_target_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_cooler_reporting_off_seeds_the_cool_target(self, bt):
+        """An air conditioner at rest reports off and still carries a setpoint.
+
+        Off is where an idle cooler sits and the only state a cooler that never
+        switches on will ever publish, so it is the state this read exists for.
+        The read asks whether a setpoint can be obtained, not whether the device
+        is currently cooling.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=HVACMode.OFF
+                )
+            },
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 24.0
+        bt._seed_cool_target.assert_called_once()
+        assert bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):
+        """Attributes an unavailable cooler carries are not a reading.
+
+        The state tells whether the device can be reached, and attributes can
+        survive alongside an unavailable one. Seeding from them would store a
+        value no reachable device stands behind, while the listener registered
+        just above delivers the real one as soon as the cooler returns.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=STATE_UNAVAILABLE
+                )
+            },
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_unknown_cooler_leaves_the_cool_target_unknown(self, bt):
+        """A cooler that has joined without reporting yet has nothing to offer.
+
+        An entity registered but not yet updated holds the unknown state, and
+        an attribute standing next to it is no value the device has confirmed.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0}, state=STATE_UNKNOWN
+                )
+            },
+        )
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_cooler_without_a_state_leaves_the_cool_target_unknown(self, bt):
+        """An entity that does not exist yet returns no state at all."""
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(bt, {})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_cooler_publishing_no_setpoint_requests_no_cycle(self, bt):
+        """An available cooler may still carry no setpoint in its attributes."""
+        bt.cooler_entity_id = COOLER_ID
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: None})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp is None
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_known_cool_target_is_not_re_read(self, bt):
+        """A target the startup seed or a restore already filled is not re-read.
+
+        The device is asked again only for a target that is still unknown, so a
+        cooler that has moved on since the startup seed cannot overwrite a value
+        Better Thermostat already holds.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_cooltemp = 26.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        await _run_finalize_startup(bt)
+
+        assert bt.bt_target_cooltemp == 26.0
+        bt._seed_cool_target.assert_not_called()
+        assert bt.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_fahrenheit_cooler_is_read_with_its_own_converted_step(self, bt):
+        """The device's step reaches the adoption gate as a Celsius delta.
+
+        A Fahrenheit cooler publishes its step as a °F delta, so the 2 °F grid
+        it advertises is 1.11 °C wide, and the setpoint it reports is converted
+        along with it.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 75.0, "target_temp_step": 2.0}
+                )
+            },
+        )
+        spy = MagicMock(side_effect=resolve_inbound_setpoint)
+
+        with patch(f"{_CLIMATE}.resolve_inbound_setpoint", spy):
+            await _run_finalize_startup(bt)
+
+        assert spy.call_args.kwargs["step"] == 1.1111
+        assert bt.bt_target_cooltemp == 23.89
+
+    @pytest.mark.asyncio
+    async def test_unreadable_step_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's step cannot be converted.
+
+        Three reads resolve a cooler's step through the same helper: the seed
+        under startup(), this one, and the event handler. The caller each names
+        is what tells a reader which of them produced the entry, so this one
+        names the method it runs in rather than the startup around it.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(
+            bt,
+            {
+                COOLER_ID: _make_cooler_state(
+                    {ATTR_TEMPERATURE: 24.0, "target_temp_step": "unavailable"}
+                )
+            },
+        )
+
+        caplog.set_level(logging.DEBUG)
+        await _run_finalize_startup(bt)
+
+        assert (
+            "Could not convert 'unavailable' to float in _finalize_startup()"
+            in caplog.text
+        )
+        assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_unreadable_setpoint_is_logged_against_this_read(self, bt, caplog):
+        """The read names itself when the cooler's setpoint cannot be converted.
+
+        The step and the setpoint are resolved through two separate helpers,
+        and this read hands its own name to both of them, so a setpoint this
+        read cannot convert is not reported against the read under startup()
+        that stumbles over the same attribute.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temp_step = 0.5
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
+
+        caplog.set_level(logging.DEBUG)
+        await _run_finalize_startup(bt)
+
+        assert "Could not convert 'n/a' to float in _finalize_startup()" in caplog.text
+        assert bt.bt_target_cooltemp is None
+
+
+class TestFinalizeStartupBatteryScan:
+    """The battery scan covers every configured device.
+
+    It reads ``all_entities``, so a device registered after the scan is
+    never asked for a battery entity at all.
+    """
+
+    @staticmethod
+    async def _scan(bt):
+        """Run _finalize_startup and return the entity IDs the scan visited."""
+        scanned: list[str] = []
+
+        async def spy(_self, entity_id, _visited=None):
+            scanned.append(entity_id)
+            return f"sensor.{entity_id.split('.')[-1]}_battery"
+
+        with patch(f"{_CLIMATE}.find_battery_entity", new=spy):
+            await _run_finalize_startup(bt)
+        return scanned
+
+    @pytest.mark.asyncio
+    async def test_scan_reaches_the_cooler(self, bt):
+        """A configured cooler is asked for its battery entity."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.devices_states = {}
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
+
+        scanned = await self._scan(bt)
+
+        assert COOLER_ID in scanned
+        assert bt.devices_states[COOLER_ID]["battery_id"] == "sensor.cooler_battery"
+
+    @pytest.mark.asyncio
+    async def test_scan_reaches_the_outdoor_sensor(self, bt):
+        """A configured outdoor sensor is asked for its battery entity."""
+        bt.cooler_entity_id = None
+        bt.outdoor_sensor = OUTDOOR_ID
+        bt.devices_states = {}
+
+        scanned = await self._scan(bt)
+
+        assert OUTDOOR_ID in scanned
+        assert (
+            bt.devices_states[OUTDOOR_ID]["battery_id"] == "sensor.outdoor_temp_battery"
+        )
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_devices_are_not_scanned(self, bt):
+        """Nothing is registered for a cooler or outdoor sensor that is absent."""
+        bt.cooler_entity_id = None
+        bt.outdoor_sensor = None
+        bt.devices_states = {}
+
+        scanned = await self._scan(bt)
+
+        assert scanned == []
+        assert bt.all_entities == []
+
+
+# ---------------------------------------------------------------------------
+# 9. _validate_hvac_mode
+# ---------------------------------------------------------------------------
+
+
+def _two_heads():
+    """Both TRVs the mode tests name, registered as heads of the room.
+
+    Only a state whose entity is among the room's heads speaks for it, so a
+    second head has to exist for a two-state case to say anything.
+    """
+    return {
+        entity_id: Trv(entity_id=entity_id, calibration=1)
+        for entity_id in (TRV_ID, TRV_ID_2)
+    }
 
 
 class TestValidateHvacMode:
@@ -1549,13 +2596,92 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.OFF
 
-    def test_none_mode_most_heat_sets_heat(self, bt):
-        """Test None mode most heat sets heat."""
+    def test_none_mode_every_head_heating_sets_heat(self, bt):
+        """A room whose heads all heat comes up heating."""
         bt.bt_hvac_mode = None
         bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
         states = [
             _make_trv_state(TRV_ID, state="heat"),
             _make_trv_state(TRV_ID_2, state="heat"),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    def test_none_mode_one_head_heating_sets_heat(self, bt):
+        """One head still heating is enough to bring the room up heating.
+
+        The counterpart of the runtime rule: the room follows its heads off
+        only once all of them are off, so a single one that is not carries it.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
+        states = [
+            _make_trv_state(TRV_ID, state="off"),
+            _make_trv_state(TRV_ID_2, state="heat"),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.HEAT
+
+    def test_none_mode_heads_parked_at_their_minimum_set_off(self, bt):
+        """Heads that never report "off" are off at their own minimum.
+
+        A ``no_off_system_mode`` valve expresses "off" as its minimum setpoint,
+        so a room of them parked there is off — the reading the runtime path
+        has always used, and which the startup path used to miss because it
+        judged the reported state alone.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        parked = {"temperature": 5.0, "min_temp": 5.0}
+        bt.real_trvs = {
+            entity_id: _make_no_off_trv(entity_id) for entity_id in (TRV_ID, TRV_ID_2)
+        }
+        states = [
+            _make_trv_state(TRV_ID, state="heat", attrs=parked),
+            _make_trv_state(TRV_ID_2, state="heat", attrs=parked),
+        ]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+    def test_none_mode_a_cooler_is_not_a_head_of_the_room(self, bt):
+        """The cooler travels with the heads but does not vote on heating.
+
+        `_collect_trv_states` hands the same list to the temperature-range
+        calculation and to this check, and the cooler belongs in the first.
+        Counting it here brings a room whose every head is off back up in
+        HEAT after any restart that lost the mode — for as long as a cooler
+        stays configured.
+        """
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.real_trvs = _two_heads()
+        bt.cooler_entity_id = COOLER_ID
+        states = [
+            _make_trv_state(TRV_ID, state="off"),
+            _make_trv_state(TRV_ID_2, state="off"),
+            _make_cooler_state({ATTR_TEMPERATURE: 24.0}),
+        ]
+
+        BetterThermostat._validate_hvac_mode(bt, states)
+
+        assert bt.bt_hvac_mode == HVACMode.OFF
+
+    def test_none_mode_one_head_above_its_minimum_sets_heat(self, bt):
+        """One head lifted off its minimum brings the whole room up heating."""
+        bt.bt_hvac_mode = None
+        bt.humidity_sensor_entity_id = None
+        bt.real_trvs = {
+            entity_id: _make_no_off_trv(entity_id) for entity_id in (TRV_ID, TRV_ID_2)
+        }
+        states = [
+            _make_trv_state(
+                TRV_ID, state="heat", attrs={"temperature": 5.0, "min_temp": 5.0}
+            ),
+            _make_trv_state(
+                TRV_ID_2, state="heat", attrs={"temperature": 21.0, "min_temp": 5.0}
+            ),
         ]
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.bt_hvac_mode == HVACMode.HEAT
@@ -1577,24 +2703,42 @@ class TestValidateHvacMode:
         BetterThermostat._validate_hvac_mode(bt, states)
         assert bt.last_main_hvac_mode == HVACMode.HEAT
 
-    def test_humidity_sensor_re_read(self, bt):
-        """Test Humidity sensor re read."""
+    def test_humidity_is_not_read_again(self, bt):
+        """The mode check keeps the humidity the sensor pass established.
+
+        A second read here decides the published value on its own, so the
+        guard the sensor pass applies would never reach the entity.
+        """
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
         bt.hass.states.get.return_value = State(HUMIDITY_ID, "60.0")
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        # humidity should be re-read
-        assert bt._current_humidity is not None
+        assert bt._current_humidity == 55.0
 
-    def test_humidity_sensor_none_sets_zero(self, bt):
-        """Test Humidity sensor none sets zero."""
+    def test_unreadable_humidity_sensor_keeps_the_humidity(self, bt):
+        """A humidity sensor without a state does not reset the reading."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
+        bt._current_humidity = 55.0
         bt.hass.states.get.return_value = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt._current_humidity == 0
+        assert bt._current_humidity == 55.0
+
+    def test_without_a_humidity_sensor_no_reading_is_invented(self, bt):
+        """An unconfigured humidity sensor stays without a reading.
+
+        0 % is a humidity a room can publish, so answering "no sensor" with a
+        number presents an absent measurement as a measured one.
+        """
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.humidity_sensor_entity_id = None
+        bt._current_humidity = None
+        states = [_make_trv_state()]
+        BetterThermostat._validate_hvac_mode(bt, states)
+        assert bt._current_humidity is None
 
 
 class TestFinalizeStartupOnADualRoleEntity:
@@ -1606,36 +2750,41 @@ class TestFinalizeStartupOnADualRoleEntity:
     """
 
     @staticmethod
-    def _make_shared_bt():
-        bt = _make_finalize_bt()
+    def _make_shared_bt(bt):
+        """Name the tracked thermostat as the cooler as well."""
         bt.cooler_entity_id = TRV_ID
-        bt.preset_mgr = MagicMock()
-        bt.preset_mgr.mode = PRESET_NONE
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
         bt._preset_cool_temperatures = {PRESET_NONE: 24.0}
         return bt
 
     @staticmethod
     async def _run_capturing_subscriptions(bt):
         """Run _finalize_startup and return the (entity ids, handler) pairs."""
-        climate = "custom_components.better_thermostat.climate"
+        bt.is_removed = False
+        bt.all_trvs = None
+        bt.entity_ids = [TRV_ID]
+        bt.outdoor_sensor = None
+        bt._async_unsub_state_changed = None
+        bt._post_grace_recheck = MagicMock()
+        bt._external_temperature_keepalive = MagicMock()
+        bt.control_queue_task = asyncio.Queue(maxsize=1)
         with (
-            patch(f"{climate}.await_critical_entities", AsyncMock()),
-            patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
-            patch(f"{climate}.await_optional_sensors", AsyncMock()),
-            patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
-            patch(f"{climate}.asyncio.sleep", AsyncMock()),
-            patch(f"{climate}.async_track_time_interval"),
-            patch(f"{climate}.async_track_time_change"),
-            patch(f"{climate}.async_track_state_change_event") as track,
+            patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
+            patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
+            patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),
+            patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
+            patch(f"{_CLIMATE}.async_track_state_change_event") as track,
         ):
             await BetterThermostat._finalize_startup(bt)
         return [(call.args[1], call.args[2]) for call in track.call_args_list]
 
     @pytest.mark.asyncio
-    async def test_a_shared_entity_registers_only_the_trv_subscription(self):
+    async def test_a_shared_entity_registers_only_the_trv_subscription(self, bt):
         """The device is tracked once, and by the handler that survives."""
-        bt = self._make_shared_bt()
-        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+        self._make_shared_bt(bt)
+        _install_states(bt, {TRV_ID: _make_trv_state()})
 
         tracked = await self._run_capturing_subscriptions(bt)
 
@@ -1643,61 +2792,62 @@ class TestFinalizeStartupOnADualRoleEntity:
         assert bt._trigger_cooler_change not in [handler for _, handler in tracked]
 
     @pytest.mark.asyncio
-    async def test_a_distinct_cooler_still_registers_its_own_subscription(self):
+    async def test_a_distinct_cooler_still_registers_its_own_subscription(self, bt):
         """A cooler of its own keeps the handler written for it."""
-        bt = _make_finalize_bt()
-        bt.hass.states.get.return_value = State(
-            COOLER_ID, "cool", {"temperature": 24.0}
-        )
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         tracked = await self._run_capturing_subscriptions(bt)
 
         assert ([COOLER_ID], bt._trigger_cooler_change) in tracked
 
     @pytest.mark.asyncio
-    async def test_a_shared_entity_seeds_the_cool_target_from_the_preset(self):
+    async def test_a_shared_entity_seeds_the_cool_target_from_the_preset(self, bt):
         """The cooling target comes from the preset, not off the device.
 
         The setpoint a shared device reports belongs to whichever channel last
         wrote it, and at startup that is the heating one. The seeded value only
         reaches the device through a control cycle, so the seed requests one.
         """
-        bt = self._make_shared_bt()
-        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+        self._make_shared_bt(bt)
+        _install_states(bt, {TRV_ID: _make_trv_state()})
 
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == 24.0
-        bt.control_queue_task.put.assert_awaited_once_with(bt)
+        assert bt.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio
-    async def test_a_shared_entity_leaves_a_restored_cool_target_alone(self):
+    async def test_a_shared_entity_leaves_a_restored_cool_target_alone(self, bt):
         """A cooling target the user already chose is never overwritten.
 
         Nothing was seeded, so there is no new value for a cycle to carry.
         """
-        bt = self._make_shared_bt()
+        self._make_shared_bt(bt)
         bt.bt_target_cooltemp = 26.0
-        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+        _install_states(bt, {TRV_ID: _make_trv_state()})
 
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == 26.0
-        bt.control_queue_task.put.assert_not_awaited()
+        assert bt.control_queue_task.empty()
 
     @pytest.mark.asyncio
-    async def test_a_shared_entity_bounds_a_preset_outside_the_configured_range(self):
+    async def test_a_shared_entity_bounds_a_preset_outside_the_configured_range(
+        self, bt
+    ):
         """A preset stored under a wider range is seeded inside this one.
 
         The seeded value is published as ``target_temperature_high`` and
         written to the device, so a preset the configured range does not
         contain is not a setpoint the group can hold.
         """
-        bt = self._make_shared_bt()
+        self._make_shared_bt(bt)
         bt._preset_cool_temperatures = {PRESET_NONE: 35.0}
-        bt.hass.states.get.return_value = State(TRV_ID, "heat", {"temperature": 21.0})
+        _install_states(bt, {TRV_ID: _make_trv_state()})
 
         await self._run_capturing_subscriptions(bt)
 
         assert bt.bt_target_cooltemp == bt.bt_max_temp
-        bt.control_queue_task.put.assert_awaited_once_with(bt)
+        assert bt.control_queue_task.qsize() == 1

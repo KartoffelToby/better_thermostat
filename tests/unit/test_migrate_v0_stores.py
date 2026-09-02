@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,6 +29,8 @@ from custom_components.better_thermostat.utils.state_manager import (
     StateManager,
     ThermalStats,
 )
+
+_MIGRATE_LOGGER = "custom_components.better_thermostat.utils.migrate_v0_stores"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,7 +66,14 @@ class TestFilterByPrefix:
         assert "uid2:trv_a" not in result
 
     def test_non_dict_values_excluded(self) -> None:
-        """Entries whose value is not a dict are excluded even if key matches."""
+        """Only entries carrying a controller state survive the prefix filter.
+
+        The return type promises `dict[str, dict[str, Any]]`, and the three
+        callers hand the result straight to the deserializers. Those check
+        the value again before reading it, so a stray string costs nothing
+        today; what it would cost is the promise, which is the only reason
+        the callers may be written the way they are.
+        """
         raw = {
             "uid1:trv_a": {"gain_est": 0.5},
             "uid1:trv_b": "not_a_dict",
@@ -319,19 +329,6 @@ class TestMigrateV0Stores:
         """Migration is skipped when thermal stats already have values."""
         mgr = _make_state_manager()
         mgr.thermal = ThermalStats(heating_power=1000.0)
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
-
-        await migrate_v0_stores(
-            AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
-        )
-
-        mgr.save.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_skips_when_presets_already_present(self) -> None:
-        """Migration is skipped when presets are already populated."""
-        mgr = _make_state_manager()
-        mgr.presets = {"comfort": 22.0}
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 
         await migrate_v0_stores(
@@ -612,7 +609,12 @@ class TestMigrateV0Stores:
 
     @pytest.mark.asyncio
     async def test_all_stores_raise_no_crash(self) -> None:
-        """If all four stores raise exceptions, migration completes without crash."""
+        """An unreadable legacy store must not stop the migration.
+
+        The old stores are read once at startup. A user whose disk gave up
+        on one of them needs a thermostat that comes up regardless, on
+        defaults, rather than an integration that fails to load.
+        """
         mgr = _make_state_manager()
         mgr.save = AsyncMock()  # type: ignore[method-assign]
 
@@ -632,3 +634,144 @@ class TestMigrateV0Stores:
 
         # No data imported, no save
         mgr.save.assert_not_called()
+
+
+class TestUnreadableLegacyStoreIsTraced:
+    """A legacy store that cannot be read leaves a debug trace naming it."""
+
+    @pytest.mark.asyncio
+    async def test_every_failing_store_is_named(self, caplog) -> None:
+        """All four store names and the config entry appear in the trace."""
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        failing_store = MagicMock()
+        failing_store.async_load = AsyncMock(side_effect=OSError("boom"))
+        store_iter = iter([failing_store] * 4)
+
+        with (
+            caplog.at_level(logging.DEBUG, logger=_MIGRATE_LOGGER),
+            patch(
+                "custom_components.better_thermostat.utils.migrate_v0_stores.Store",
+                side_effect=lambda _hass, _ver, _key: next(store_iter),
+            ),
+        ):
+            await migrate_v0_stores(
+                AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
+            )
+
+        for store_name in ("MPC", "PID", "TPI", "thermal"):
+            assert f"legacy {store_name} store not imported" in caplog.text
+        assert "entry1" in caplog.text
+        assert all(record.exc_info for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_readable_stores_leave_no_trace(self, caplog) -> None:
+        """Stores that read cleanly report nothing."""
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        stores = [
+            _make_mock_store({"uid1:trv_a": {"gain_est": 0.5}}),
+            _make_mock_store(None),
+            _make_mock_store(None),
+            _make_mock_store(None),
+        ]
+        store_iter = iter(stores)
+
+        with (
+            caplog.at_level(logging.DEBUG, logger=_MIGRATE_LOGGER),
+            patch(
+                "custom_components.better_thermostat.utils.migrate_v0_stores.Store",
+                side_effect=lambda _hass, _ver, _key: next(store_iter),
+            ),
+        ):
+            await migrate_v0_stores(
+                AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
+            )
+
+        assert "not imported" not in caplog.text
+
+
+class TestUnusableLegacyThermalValues:
+    """A legacy thermal value that is not a finite number costs only itself.
+
+    Letting the parse error out aborts the thermal import before it can
+    mark anything as imported, so the migration is never saved and runs
+    again on every start -- while the value that could be read is dropped
+    along with the one that could not.
+    """
+
+    def test_an_unparsable_statistic_does_not_take_its_neighbour(self, caplog) -> None:
+        """The import keeps every statistic it can read and reports the rest.
+
+        Both statistics arrive from the same legacy entry. Letting one that
+        `float()` refuses end the import would drop the readable one with
+        it, and the user would lose a heat-loss rate because a heating
+        power was corrupt.
+        """
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        with caplog.at_level(logging.WARNING, logger=_MIGRATE_LOGGER):
+            _import_legacy_data(
+                mgr, thermal_data={"heating_power": "n/a", "heat_loss_rate": 0.01}
+            )
+
+        assert mgr.thermal.heating_power is None
+        assert mgr.thermal.heat_loss_rate == pytest.approx(0.01)
+        assert "heating_power" in caplog.text
+        assert "not a finite number" in caplog.text
+
+    def test_non_finite_value_is_imported_as_unset(self) -> None:
+        """NaN and infinity are as unusable as a value float() refuses."""
+        mgr = _make_state_manager()
+
+        _import_legacy_data(
+            mgr,
+            thermal_data={"heating_power": float("nan"), "heat_loss_rate": "Infinity"},
+        )
+
+        assert mgr.thermal.heating_power is None
+        assert mgr.thermal.heat_loss_rate is None
+
+    def test_readable_values_are_not_reported(self, caplog) -> None:
+        """Nothing is logged when both statistics parse."""
+        mgr = _make_state_manager()
+
+        with caplog.at_level(logging.WARNING, logger=_MIGRATE_LOGGER):
+            _import_legacy_data(
+                mgr, thermal_data={"heating_power": 1200.0, "heat_loss_rate": 0.03}
+            )
+
+        assert caplog.text == ""
+
+    @pytest.mark.asyncio
+    async def test_a_store_that_yielded_nothing_usable_is_still_saved(self) -> None:
+        """Reaching a legacy entry counts as an import, whatever it parsed to.
+
+        The write is what carries the migration's result forward. Making it
+        depend on the values parsing would throw away the knowledge that the
+        entry was seen at all.
+
+        The write alone does not make the migration a one-off. The next
+        start skips only when the unified state holds data, and an entry
+        that parsed to nothing leaves it empty, so this case still runs the
+        scan again.
+        """
+        mgr = _make_state_manager()
+        mgr.save = AsyncMock()  # type: ignore[method-assign]
+
+        thermal_store = _make_mock_store({"entry1": {"heating_power": "n/a"}})
+        empty_store = _make_mock_store(None)
+        store_iter = iter([empty_store, empty_store, empty_store, thermal_store])
+
+        with patch(
+            "custom_components.better_thermostat.utils.migrate_v0_stores.Store",
+            side_effect=lambda _hass, _ver, _key: next(store_iter),
+        ):
+            await migrate_v0_stores(
+                AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
+            )
+
+        mgr.save.assert_awaited_once()

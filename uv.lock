@@ -392,7 +392,7 @@ wheels = [
 
 [[package]]
 name = "better-thermostat"
-version = "1.9.2"
+version = "2.0.0b0"
 source = { virtual = "." }
 dependencies = [
     { name = "homeassistant" },
@@ -400,12 +400,12 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "codespell" },
     { name = "daqp" },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
     { name = "pytest-homeassistant-custom-component" },
     { name = "ruff" },
     { name = "yamllint" },
@@ -416,12 +416,12 @@ requires-dist = [{ name = "homeassistant", specifier = ">=2026.7.2" }]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "codespell", specifier = ">=2.4.3" },
     { name = "daqp", specifier = ">=0.8.7" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pyrefly", specifier = ">=1.1.1" },
     { name = "pytest", specifier = ">=9" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-homeassistant-custom-component", specifier = ">=0.13.346" },
     { name = "ruff", specifier = ">=0.15.22" },
     { name = "yamllint", specifier = ">=1.38.0" },
@@ -680,15 +680,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d3/c7/3c521d6779ee433d9596eb3fcded79549bbe371843f25e62006c04f74dc9/ciso8601-2.3.3-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:aa9df2f84ab25454f14df92b2dd4f9aae03dbfa581565a716b3e89b8e2110c03", size = 41313, upload-time = "2025-08-20T16:31:01.313Z" },
     { url = "https://files.pythonhosted.org/packages/f9/93/efd40db0d6b512be1cbe4e7e750882c2e88f580e17f35b3e9cc9c23004b5/ciso8601-2.3.3-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:32e06a35eb251cfc4bbe01a858c598da0a160e4ad7f42ff52477157ceaf48061", size = 41443, upload-time = "2025-08-20T16:31:02.357Z" },
     { url = "https://files.pythonhosted.org/packages/21/8e/515f9404faa39af8df5e2b899cafbca5dbe7cd2ffe5cc124ef393ffdaf1c/ciso8601-2.3.3-cp314-cp314-win_amd64.whl", hash = "sha256:7657ba9730dc1340d73b9e61eca14f341c41dd308128c808b8b084d2b85bc03e", size = 17977, upload-time = "2025-08-20T16:31:03.429Z" },
-]
-
-[[package]]
-name = "codespell"
-version = "2.4.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/80/19/45e941380f69c042b43423513d201e6592346f992394347f5e7174c31407/codespell-2.4.3.tar.gz", hash = "sha256:cbe085e331227b37bb86ef8bddd08dc768c704ee9a07ca869852c093fa2793e2", size = 352773, upload-time = "2026-07-15T11:51:54.159Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8b/bf/bdb951d34eb169140b546f44be9ec4525d1acefb9eb5572071f5492b19fc/codespell-2.4.3-py3-none-any.whl", hash = "sha256:af2505b335e8573dbd2d384d1c4ef498f4006f4ba2d6fceca01e55b91f52628a", size = 340736, upload-time = "2026-07-15T11:51:52.925Z" },
 ]
 
 [[package]]

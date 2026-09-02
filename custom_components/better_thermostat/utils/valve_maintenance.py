@@ -14,6 +14,7 @@ import logging
 from random import randint
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
@@ -195,17 +196,39 @@ def build_trv_snapshots(
 ) -> list[MaintenanceTrvInfo]:
     """Build per-TRV snapshots needed for the maintenance cycle.
 
-    *get_state* should be ``hass.states.get``.  TRVs whose HA state is
-    ``None`` are silently skipped (logged at debug level).
+    A TRV without a readable state is left out of the run entirely: it
+    publishes no state at all, or the one it publishes is ``unavailable``
+    or ``unknown`` and therefore names no mode and no setpoint to put back
+    afterwards. Only a TRV with a snapshot is driven, so the one skipped
+    here is never left standing in one of the cycle's temperature
+    extremes. Every skip is logged at debug level.
+
+    Parameters
+    ----------
+    real_trvs : TrvMap
+            the cached TRV records, keyed by entity id
+    trv_ids : list[str]
+            entity ids to consider for this run
+    get_state : Callable[[str], State | None]
+            reads a TRV's reported state; ``hass.states.get``
+    device_name : str
+            thermostat instance name, for logging
+
+    Returns
+    -------
+    list[MaintenanceTrvInfo]
+            one snapshot per TRV the cycle may drive, in the order given
     """
     infos: list[MaintenanceTrvInfo] = []
     for trv_id in trv_ids:
         trv_state = get_state(trv_id)
-        if trv_state is None:
+        if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.debug(
-                "better_thermostat %s: maintenance skip %s (state None)",
+                "better_thermostat %s: maintenance skip %s (reports %s, so it names "
+                "no state to restore afterwards)",
                 device_name,
                 trv_id,
+                trv_state.state if trv_state is not None else None,
             )
             continue
 
@@ -217,11 +240,7 @@ def build_trv_snapshots(
                 trv_id,
             )
             continue
-        valve_entity = trv_data.valve_position_entity
-        quirks = trv_data.model_quirks
-        support_valve = bool(valve_entity) or bool(
-            getattr(quirks, "override_set_valve", None)
-        )
+        support_valve = trv_data.capabilities().supports_valve_write
         adv = _get_advanced(trv_data)
         cal_type = adv.get("calibration")
         use_direct = bool(
@@ -351,7 +370,11 @@ async def restore_one(
         try:
             await set_temperature_fn(info.entity_id, info.cur_temp)
         except Exception:
-            pass
+            _LOGGER.debug(
+                "better_thermostat: restoring the setpoint of %s failed",
+                info.entity_id,
+                exc_info=True,
+            )
     if not mode_needs_restoring(info, get_state, woken=woken):
         _LOGGER.debug(
             "better_thermostat: %s is still in mode %s, leaving it alone",
@@ -362,7 +385,11 @@ async def restore_one(
     try:
         await set_hvac_mode_fn(info.entity_id, info.cur_mode)
     except Exception:
-        pass
+        _LOGGER.debug(
+            "better_thermostat: restoring the HVAC mode of %s failed",
+            info.entity_id,
+            exc_info=True,
+        )
 
 
 # Main orchestrator
