@@ -207,6 +207,8 @@ from .utils.restore import (
     clamp_heating_power,
     mean_trv_target,
     restore_target_temperature,
+    saved_cooling_target,
+    saved_heating_target,
 )
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
@@ -1974,7 +1976,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Clamp the saved target, or fall back to the TRV mean.
             _restored_target = restore_target_temperature(
-                old_state.attributes.get(ATTR_TEMPERATURE),
+                saved_heating_target(old_state.attributes),
                 states,
                 self.bt_min_temp,
                 self.bt_max_temp,
@@ -1986,6 +1988,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: target temperature restored", self.device_name
             )
+
+            # The cooling target is published as the upper bound of the range
+            # and comes back from it. It is read before the preset block below,
+            # which owns the pair of an active preset, and before
+            # `_seed_cool_target_from_cooler`, which fills a target that is
+            # still unknown from the cooler's own setpoint: a target the user
+            # chose outranks the one the device happens to sit on.
+            if self.cooler_entity_id is not None:
+                _restored_cool_target = convert_to_float_celsius(
+                    saved_cooling_target(old_state.attributes),
+                    self.device_name,
+                    "startup()",
+                    self.hass.config.units.temperature_unit,
+                )
+                if _restored_cool_target is not None:
+                    # The pair was ordered under the range that held when it
+                    # was saved. A narrower range can bound both targets onto
+                    # the same value, so the ordering is applied again here.
+                    self.bt_target_cooltemp = self._bound_target_to_range(
+                        _restored_cool_target
+                    )
+                    self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
             _LOGGER.debug(
                 "better_thermostat %s: restoring preset mode...", self.device_name

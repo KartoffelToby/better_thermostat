@@ -9,10 +9,16 @@ and assigns the results to entity attributes.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 import math
 from statistics import mean
+from typing import Any
 
+from homeassistant.components.climate.const import (
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
+)
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.core import State
 
@@ -45,6 +51,56 @@ def mean_trv_target(
         if celsius is not None:
             temps.append(celsius)
     return mean(temps) if temps else None
+
+
+def saved_heating_target(attributes: Mapping[str, Any]) -> Any:
+    """Read the heating target out of the attributes a thermostat published.
+
+    Which key carries it depends on what the entity advertised. Home Assistant
+    writes ``temperature`` for an entity that supports a single target, and
+    ``target_temp_low`` / ``target_temp_high`` for one that supports a range.
+    A thermostat with a cooler configured advertises the range, so its heating
+    target is published as ``target_temp_low`` and the state it saves holds no
+    ``temperature`` at all.
+
+    Both keys are read by presence rather than by truth, so a target of ``0.0``
+    counts as a value.
+
+    Parameters
+    ----------
+    attributes : Mapping[str, Any]
+            the attributes of the state the thermostat saved
+
+    Returns
+    -------
+    Any
+            the raw saved heating target, or ``None`` when neither key carries
+            one
+    """
+    saved = attributes.get(ATTR_TEMPERATURE)
+    if saved is not None:
+        return saved
+    return attributes.get(ATTR_TARGET_TEMP_LOW)
+
+
+def saved_cooling_target(attributes: Mapping[str, Any]) -> Any:
+    """Read the cooling target out of the attributes a thermostat published.
+
+    Only an entity advertising a temperature range publishes one, and Home
+    Assistant writes it as ``target_temp_high``.
+
+    Parameters
+    ----------
+    attributes : Mapping[str, Any]
+            the attributes of the state the thermostat saved
+
+    Returns
+    -------
+    Any
+            the raw saved cooling target, or ``None`` when the attributes carry
+            no such key
+    """
+    return attributes.get(ATTR_TARGET_TEMP_HIGH)
 
 
 def restore_target_temperature(
