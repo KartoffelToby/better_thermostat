@@ -177,9 +177,10 @@ async def get_current_offset(self, entity_id):
 
 async def get_offset_step(self, entity_id):
     """Get offset step."""
-    state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
-    )
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
+        return 1.0
+    state = self.hass.states.get(calibration_entity)
     if state is None:
         return 1.0
     return float(str(state.attributes.get("step", 1)))
@@ -187,9 +188,10 @@ async def get_offset_step(self, entity_id):
 
 async def get_min_offset(self, entity_id):
     """Get min offset."""
-    state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
-    )
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
+        return -10.0
+    state = self.hass.states.get(calibration_entity)
     if state is None:
         return -10.0
     return float(str(state.attributes.get("min", -10)))
@@ -197,9 +199,10 @@ async def get_min_offset(self, entity_id):
 
 async def get_max_offset(self, entity_id):
     """Get max offset."""
-    state = self.hass.states.get(
-        self.real_trvs[entity_id].local_temperature_calibration_entity
-    )
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is None:
+        return 10.0
+    state = self.hass.states.get(calibration_entity)
     if state is None:
         return 10.0
     return float(str(state.attributes.get("max", 10)))
