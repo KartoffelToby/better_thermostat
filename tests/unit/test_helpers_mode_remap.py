@@ -256,13 +256,19 @@ class TestModeRemapTranslationOnAReportedSpelling:
         assert _unsupported_records(caplog) == []
 
     @pytest.mark.parametrize("hvac_modes", HEAT_ONLY)
-    def test_inbound_heat_becomes_heat_cool(self, hvac_modes):
-        """A heat-only device's HEAT is decoded as HEAT_COOL."""
+    def test_inbound_heat_stays_heat(self, hvac_modes):
+        """A heat-only device's HEAT is the instance-level spelling already.
+
+        HEAT is what the instance stores for "the room wants heat", and it is
+        one of the two values convert_inbound_states() carries any further. A
+        room with a cooler re-expresses it as HEAT_COOL through
+        get_hvac_bt_mode() when it publishes its own mode.
+        """
         mock_bt = MockThermostat()
         mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT, inbound=True)
-        assert result == HVACMode.HEAT_COOL
+        assert result == HVACMode.HEAT
 
     @pytest.mark.parametrize("hvac_modes", HEAT_COOL_ONLY)
     def test_outbound_heat_becomes_heat_cool(self, hvac_modes, caplog):
@@ -284,6 +290,50 @@ class TestModeRemapTranslationOnAReportedSpelling:
 
         result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
         assert result == HVACMode.HEAT
+
+    @pytest.mark.parametrize(
+        ("hvac_modes", "reported"),
+        [
+            pytest.param(["off", "heat"], "heat", id="heat_only"),
+            pytest.param(["off", "heat", "auto"], "heat", id="heat_and_auto"),
+            pytest.param(["off", "heat", "heat_cool"], "heat", id="both_spellings"),
+            pytest.param(["off", "heat_cool"], "heat_cool", id="heat_cool_only"),
+        ],
+    )
+    def test_every_offered_set_decodes_a_heating_report_as_heat(
+        self, hvac_modes, reported
+    ):
+        """Whatever a device calls its heating mode arrives as HEAT.
+
+        The offered sets differ in which spelling the device publishes; the
+        instance stores one spelling for all of them, so the mode reaches
+        convert_inbound_states() as a mode that function carries on.
+        """
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+
+        assert (
+            mode_remap(mock_bt, "climate.test", reported, inbound=True) == HVACMode.HEAT
+        )
+
+    @pytest.mark.parametrize(
+        "hvac_modes",
+        [
+            pytest.param(["off", "heat"], id="heat_only"),
+            pytest.param(["off", "heat", "auto"], id="heat_and_auto"),
+            pytest.param(["off", "heat", "heat_cool"], id="both_spellings"),
+            pytest.param(["off", "heat_cool"], id="heat_cool_only"),
+        ],
+    )
+    def test_every_offered_set_decodes_an_off_report_as_off(self, hvac_modes):
+        """OFF is spelled the same by every device and by the instance."""
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=hvac_modes)
+
+        assert (
+            mode_remap(mock_bt, "climate.test", HVACMode.OFF, inbound=True)
+            == HVACMode.OFF
+        )
 
     def test_a_device_offering_both_is_not_translated(self):
         """Offering both spellings of the heating mode translates neither."""
