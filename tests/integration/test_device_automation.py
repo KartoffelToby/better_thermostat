@@ -25,10 +25,11 @@ from homeassistant.const import (
     CONF_TYPE,
 )
 from homeassistant.core import State
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
     async_get_device_automations,
     async_mock_service,
 )
@@ -410,6 +411,59 @@ async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_tr
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
 
     assert await wait_for(hass, lambda: calls)
+
+
+async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
+    hass, fake_trv, caplog
+):
+    """A device carrying no thermostat is refused by name, and watches nothing.
+
+    Resolving the entity from the device is what makes the device-only shape
+    work, and it has exactly one way to come up empty. Home Assistant leaves
+    such an automation switched on either way, so the log line naming the
+    device is the only thing that separates "armed" from "attached to
+    nothing".
+    """
+    await _entry_with_device(hass)
+    calls = async_mock_service(hass, "test", "automation")
+    other = MockConfigEntry(domain="other_integration")
+    other.add_to_hass(hass)
+    stranger = dr.async_get(hass).async_get_or_create(
+        config_entry_id=other.entry_id,
+        identifiers={("other_integration", "no_thermostat_here")},
+    )
+
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "stranger",
+                    "trigger": {
+                        "platform": "device",
+                        CONF_DOMAIN: DOMAIN,
+                        CONF_DEVICE_ID: stranger.id,
+                        CONF_TYPE: "heating_active",
+                    },
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert any(
+        stranger.id in record.message
+        and "Better Thermostat climate entity" in record.message
+        for record in caplog.records
+    ), "the refusal did not name the device"
+
+    # The thermostat that does exist changes; nothing is watching for it.
+    _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
+    await hass.async_block_till_done()
+
+    assert not calls
 
 
 async def test_a_condition_that_names_the_registry_id_reads_the_state(hass, fake_trv):
