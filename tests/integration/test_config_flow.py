@@ -64,8 +64,10 @@ from .device_profiles import (
     SPARE_HEAT_TRV,
     SPARE_TRV_ID,
     TRV_ID,
+    ZHA_VALVE_QUIRK_TRV,
     DeviceProfile,
     OffsetChannel,
+    ValveChannel,
 )
 
 ENTRY_NAME = "BT Test"
@@ -94,17 +96,30 @@ def _expected_calibration_options(profile: DeviceProfile) -> list[str]:
 
     The setpoint is always writable, so target-temperature calibration is
     offered for every device; the local-offset strategy needs a calibration
-    channel the flow could discover behind the entity.
+    channel the flow could discover behind the entity, and direct valve
+    control a valve channel — a number entity on the device, or the quirk
+    module that drives the valve of this device's model.
     """
-    options = [CalibrationType.TARGET_TEMP_BASED]
+    options = []
+    if profile.valve_channel is not ValveChannel.NONE:
+        options.append(CalibrationType.DIRECT_VALVE_BASED)
+    options.append(CalibrationType.TARGET_TEMP_BASED)
     if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
         options.append(CalibrationType.LOCAL_BASED)
     return options
 
 
 def _expected_calibration(profile: DeviceProfile) -> str:
-    """Return the calibration strategy a device's channels make the default."""
-    return _expected_calibration_options(profile)[-1]
+    """Return the calibration strategy a device's channels make the default.
+
+    An offset channel makes local calibration the default and a valve channel
+    direct valve control; a device with neither is driven by its setpoint.
+    """
+    if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
+        return CalibrationType.LOCAL_BASED
+    if profile.valve_channel is not ValveChannel.NONE:
+        return CalibrationType.DIRECT_VALVE_BASED
+    return CalibrationType.TARGET_TEMP_BASED
 
 
 def _user_step_input(thermostat: str, **overrides) -> dict:
@@ -190,7 +205,10 @@ def _stored_trv(entry, index: int = 0) -> dict:
 
 
 @pytest.mark.parametrize(
-    "fake_trv", [GENERIC_HEAT_TRV, MQTT_OFFSET_TRV], indirect=True, ids=profile_id
+    "fake_trv",
+    [GENERIC_HEAT_TRV, MQTT_OFFSET_TRV, ZHA_VALVE_QUIRK_TRV],
+    indirect=True,
+    ids=profile_id,
 )
 async def test_create_flow_offers_the_calibration_the_device_can_take(hass, fake_trv):
     """The advanced step offers the strategies this device's channels support.
@@ -198,12 +216,48 @@ async def test_create_flow_offers_the_calibration_the_device_can_take(hass, fake
     Calibration is the one option in the flow that is not a preference: the
     strategies a device can take follow from the channels found behind its
     entity, and a device without a calibration channel must not be offered
-    one. The default is the best of what was found.
+    one. A valve the model's quirk drives is such a channel: the adapter
+    serving the ecosystem the device is paired through knows nothing of it,
+    and the write path reaches it all the same. The default is the best of
+    what was found.
     """
     profile = fake_trv.profile
     set_room_sensor(hass, 19.0)
 
     advanced_form, _ = await _run_create_flow(hass, _user_step_input(profile.entity_id))
+
+    assert _field_options(advanced_form, CONF_CALIBRATION) == (
+        _expected_calibration_options(profile)
+    )
+    assert form_default(advanced_form, CONF_CALIBRATION) == (
+        _expected_calibration(profile)
+    )
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [GENERIC_HEAT_TRV, MQTT_OFFSET_TRV, ZHA_VALVE_QUIRK_TRV],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_options_flow_offers_the_calibration_the_device_can_take(hass, fake_trv):
+    """Reopening the settings offers what the create flow offered.
+
+    The two flows publish the advanced step from call sites of their own, so
+    a channel read on the way in is not thereby read on the way back. The
+    device whose valve channel is the harder one to see needs both: the form
+    that creates an entry, and the form that moves an existing one onto the
+    strategy its device can take.
+    """
+    profile = fake_trv.profile
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(profile.entity_id))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+
+    advanced_form, _ = await _run_options_flow(
+        hass, entry, _user_step_input(profile.entity_id)
+    )
 
     assert _field_options(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration_options(profile)

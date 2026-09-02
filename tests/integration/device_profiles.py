@@ -50,6 +50,7 @@ class ValveChannel(StrEnum):
 
     NONE = "none"
     NUMBER_ENTITY = "number_entity"
+    MODEL_QUIRK = "model_quirk"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -69,12 +70,18 @@ class DeviceProfile:
     ``"0.0"`` means "not configured". A configured step overrides the device's
     own grid for every child, so a profile that varies the device step keeps
     this at ``"0.0"``.
+
+    ``model`` is what the device registry entry reports, and ``None`` is a
+    device that reports none. It is what selects the quirk module a device is
+    driven by, so a profile whose behaviour rides on a quirk names it here;
+    it needs ``has_device_registry_entry`` to be readable at all.
     """
 
     name: str
     integration: str
     calibration: str
     has_device_registry_entry: bool
+    model: str | None = None
     entity_id: str = TRV_ID
     entity_name: str = "fake trv"
     hvac_modes: tuple[HVACMode, ...] = (HVACMode.HEAT, HVACMode.OFF)
@@ -272,6 +279,24 @@ VALVE_TRV = DeviceProfile(
 The valve number sits on the same device as the climate entity, which is
 what makes it discoverable and writable; direct valve control is the one
 calibration strategy that puts a percentage on the wire at all.
+"""
+
+ZHA_VALVE_QUIRK_TRV = DeviceProfile(
+    name="zha_valve_quirk_trv",
+    integration="zha",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    model="TRVZB",
+    current_temperature=19.0,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    valve_channel=ValveChannel.MODEL_QUIRK,
+)
+"""A Sonoff TRVZB on an ecosystem Better Thermostat has no adapter for.
+
+Its valve is driven by the quirk module of its model rather than by anything
+the ecosystem publishes, so the valve channel of this device is invisible to
+the adapter that serves it. The device registry model is the whole of what
+makes it this device: it is what selects the quirk.
 """
 
 ROOM_AC_COOLER = DeviceProfile(

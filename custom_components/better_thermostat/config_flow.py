@@ -27,6 +27,7 @@ import voluptuous as vol
 
 from . import DOMAIN
 from .adapters.delegate import load_adapter
+from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -216,28 +217,70 @@ def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
     return bool(value)
 
 
+async def _quirk_valve_support(
+    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
+) -> bool:
+    """Answer whether this TRV's model quirk drives its valve.
+
+    The model comes from the device registry and its quirk is loaded the way
+    the running thermostat loads it, so the calibration strategies the flow
+    offers are the ones the write path can carry out.
+
+    Parameters
+    ----------
+    flow : ConfigFlow | OptionsFlowHandler
+        The flow the probe runs in, supplying Home Assistant access and the
+        instance name the model lookup logs against.
+    entity_id : str
+        Entity ID of the TRV to probe.
+
+    Returns
+    -------
+    bool
+        True when the TRV's model has a quirk of its own that writes the
+        valve, False when it has none and when the model cannot be read.
+    """
+    try:
+        model = await get_device_model(flow, entity_id)
+        quirks = await load_model_quirks(flow, model, entity_id)
+    except RuntimeError, ValueError, TypeError, AttributeError, ImportError:
+        _LOGGER.debug("model quirk probe failed", exc_info=True)
+        return False
+    return quirk_writes_valve(quirks)
+
+
 async def _load_adapter_info(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
+    flow: ConfigFlow | OptionsFlowHandler,
     integration: str | None,
-    trv_id: str | None,
+    entity_id: str | None,
     *,
     existing_adapter: Any | None = None,
 ) -> tuple[Any | None, dict[str, Any]]:
     adapter = existing_adapter
     info: dict[str, Any] = {}
 
-    if integration and trv_id:
+    if integration and entity_id:
         if adapter is None:
             try:
-                adapter = await load_adapter(flow, integration, trv_id)
+                adapter = await load_adapter(flow, integration, entity_id)
             except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
         if adapter is not None and hasattr(adapter, "get_info"):
             try:
-                info = await adapter.get_info(flow, trv_id)
+                info = await adapter.get_info(flow, entity_id)
             except RuntimeError, ValueError, TypeError, AttributeError:
                 _LOGGER.debug("adapter get_info failed", exc_info=True)
+
+    # A model quirk owns the valve of the devices it covers, whichever adapter
+    # serves the ecosystem they are paired through, so the adapter's answer is
+    # not the whole of the valve surface.
+    if (
+        entity_id
+        and not info.get("support_valve", False)
+        and await _quirk_valve_support(flow, entity_id)
+    ):
+        info = info | {"support_valve": True}
 
     return adapter, info
 
@@ -756,8 +799,7 @@ def _normalize_user_submission(
 
 
 async def _prepare_advanced_context(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow,
-    trv_config: dict[str, Any] | None,
+    flow: ConfigFlow | OptionsFlowHandler, trv_config: dict[str, Any] | None
 ) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
