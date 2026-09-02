@@ -189,7 +189,6 @@ class TestTrvStateUpdateBug:
 class TestControlTrvWithNoOffMode:
     """Tests for the full control_trv flow with no_off_system_mode."""
 
-    @pytest.mark.anyio
     async def test_control_trv_restores_temp_after_window_close(self, mock_bt_instance):
         """Test that control_trv properly restores temperature after window closes.
 
