@@ -69,6 +69,20 @@ def test_device_info_names_the_trv_device_by_its_registry_id():
     assert "via_device" not in info
 
 
+def test_device_info_links_a_trv_device_that_carries_no_identifiers():
+    """A device registered by connections alone still gets the link.
+
+    Every registry entry carries the id the link is written with, so the
+    identifiers are read for one thing only: keeping the BT device off its
+    own via link.
+    """
+    er_reg, dr_reg = _registries(_device("trv_device_id", set()))
+
+    info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
+
+    assert info["via_device_id"] == "trv_device_id"
+
+
 def test_device_info_omits_the_link_for_a_trv_on_the_bt_device_itself():
     """A self-referencing via link is refused by the registry, so it is not written."""
     er_reg, dr_reg = _registries(

@@ -29,6 +29,28 @@ async def async_bind_trv_device(
     Sets ``via_device_id`` on the BT device to point to the TRV device. On the
     HA device info page for the BT instance this renders as "via: <TRV name>",
     and the TRV device page lists the BT instance under "Connected devices".
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        Home Assistant instance holding the entity and device registries the
+        link is resolved and written through.
+    bt_unique_id : str
+        Unique id of the BT instance; it names the device registry entry the
+        link is written on, which this call creates when it is the first
+        write to reach it.
+    trv_entity_id : str
+        Entity ID of the single TRV the instance manages. The device that
+        entity belongs to is the one the link points at.
+    bt_entry_id : str
+        Config entry id the BT device is registered under.
+
+    Returns
+    -------
+    bool
+        True once the link went out, False when the TRV is not in the entity
+        registry yet, its device is not registered, or that device is the BT
+        device itself.
     """
     er_reg = er.async_get(hass)
     dr_reg = dr.async_get(hass)
