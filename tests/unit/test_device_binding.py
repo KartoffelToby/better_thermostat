@@ -46,12 +46,27 @@ def _bind_registries(trv_device, *, device_id="trv_device_id"):
     return er_reg, dr_reg
 
 
-def _device(device_id, identifiers):
-    """Build a device registry entry carrying a real identifier set."""
+def _device(device_id, identifiers, connections=frozenset()):
+    """Build a device registry entry carrying real identifier and connection sets.
+
+    Both are read as sets rather than left as mocks: the membership test that
+    keeps a BT device off its own via link reads ``identifiers``, and a device
+    registered by connections alone is only that if it carries one.
+    """
     device = MagicMock()
     device.id = device_id
     device.identifiers = identifiers
+    device.connections = connections
     return device
+
+
+async def _bind(er_reg, dr_reg):
+    """Run the binding against the registries the test assembled."""
+    with (
+        patch(f"{_BINDING}.er.async_get", return_value=er_reg),
+        patch(f"{_BINDING}.dr.async_get", return_value=dr_reg),
+    ):
+        return await async_bind_trv_device(MagicMock(), BT_UID, TRV_ID, BT_ENTRY_ID)
 
 
 @pytest.mark.asyncio
@@ -81,7 +96,7 @@ async def test_bind_links_a_trv_device_that_carries_no_identifiers():
     The id the link is written with exists for every registry entry, so a
     device whose integration registered it without identifiers is bindable.
     """
-    trv_device = _device("trv_device_id", set())
+    trv_device = _device("trv_device_id", set(), {("mac", "aa:bb:cc:dd:ee:ff")})
     er_reg, dr_reg = _bind_registries(trv_device)
 
     with (
@@ -173,3 +188,20 @@ async def test_unbind_is_a_noop_without_a_registry_entry():
 
     assert result is False
     registry.async_update_device.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bind_resolves_the_trv_device_without_child_devices():
+    """A child device is not offered as the link target.
+
+    The registry answers a child device id named as a via device with an
+    error, so children are left out of the lookup and a TRV on one takes the
+    same branch as a TRV whose device is not registered.
+    """
+    er_reg, dr_reg = _bind_registries(None)
+
+    result = await _bind(er_reg, dr_reg)
+
+    assert result is False
+    assert dr_reg.async_get.call_args.kwargs["include_child_devices"] is False
+    dr_reg.async_get_or_create.assert_not_called()

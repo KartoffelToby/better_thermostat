@@ -720,7 +720,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     dev_reg = dr.async_get(self.hass)
                     trv_ent = ent_reg.async_get(main_trv_id)
                     if trv_ent and trv_ent.device_id:
-                        trv_dev = dev_reg.async_get(trv_ent.device_id)
+                        # A child device is rejected as a via device, so it
+                        # is left out of the lookup.
+                        trv_dev = dev_reg.async_get(
+                            trv_ent.device_id, include_child_devices=False
+                        )
                         # The registry refuses a device as its own via device,
                         # which is what a TRV entity sitting on this very BT
                         # device would ask for.
