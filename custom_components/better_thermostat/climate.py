@@ -720,11 +720,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     dev_reg = dr.async_get(self.hass)
                     trv_ent = ent_reg.async_get(main_trv_id)
                     if trv_ent and trv_ent.device_id:
-                        trv_dev = dev_reg.async_get(trv_ent.device_id)
-                        if trv_dev and trv_dev.identifiers:
-                            info["via_device"] = list(trv_dev.identifiers)[0]
+                        # Only a real device can be a via device: the
+                        # registry rejects a child device, and a composite
+                        # id stands for a set of devices, not one.
+                        trv_dev = dev_reg.async_get(
+                            trv_ent.device_id,
+                            include_child_devices=False,
+                            include_composite_devices=False,
+                        )
+                        # The registry refuses a device as its own via device,
+                        # which is what a TRV entity sitting on this very BT
+                        # device would ask for.
+                        if (
+                            trv_dev
+                            and (DOMAIN, self.unique_id) not in trv_dev.identifiers
+                        ):
+                            info["via_device_id"] = trv_dev.id
         except Exception as e:
-            _LOGGER.debug("better_thermostat: Error getting via_device: %s", e)
+            _LOGGER.debug("better_thermostat: Error getting via device: %s", e)
 
         return info
 
@@ -2562,9 +2575,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
         if isinstance(self.all_trvs, list):
-            # via_device is single-valued: binding every TRV rewrites the same
-            # BT device row, leaving it attached only to the last valve. Only
-            # bind when there is exactly one TRV; skip for multi-TRV setups.
+            # The via device link is single-valued: binding every TRV rewrites
+            # the same BT device row, leaving it attached only to the last
+            # valve. Only bind when there is exactly one TRV; skip for
+            # multi-TRV setups.
             trv_ids = [
                 trv_conf.get("trv") for trv_conf in self.all_trvs if trv_conf.get("trv")
             ]
@@ -2574,10 +2588,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             elif len(trv_ids) > 1:
                 _LOGGER.debug(
-                    "better_thermostat %s: skipping via_device binding for multi-TRV setup",
+                    "better_thermostat %s: skipping via device binding for multi-TRV setup",
                     self.device_name,
                 )
-                # A via_device link written while the setup had (or was
+                # A via device link written while the setup had (or was
                 # treated as having) a single valve would keep the BT device
                 # attached to one arbitrary TRV; clear it.
                 await async_unbind_trv_device(self.hass, self._unique_id)
