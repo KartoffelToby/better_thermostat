@@ -59,6 +59,29 @@ async def _bind(er_reg, dr_reg):
         return await async_bind_trv_device(MagicMock(), BT_UID, TRV_ID, BT_ENTRY_ID)
 
 
+def _non_real_device_registries(kind, *, device_id="trv_device_id"):
+    """Build registries whose TRV device id names a device that is not a real one.
+
+    ``kind`` is the inclusion flag the device answers under: a child device is
+    returned only while ``include_child_devices`` is set, a composite id only
+    while ``include_composite_devices`` is set. Switching that flag off yields
+    nothing, which is what the registry does for such an id.
+    """
+    entity_entry = MagicMock()
+    entity_entry.device_id = device_id
+    er_reg = MagicMock()
+    er_reg.async_get.return_value = entity_entry
+
+    device = _device(device_id, {("mqtt", "0x1234")})
+
+    def _lookup(_device_id, **flags):
+        return None if flags.get(kind) is False else device
+
+    dr_reg = MagicMock()
+    dr_reg.async_get.side_effect = _lookup
+    return er_reg, dr_reg
+
+
 @pytest.mark.asyncio
 async def test_bind_links_the_bt_device_by_the_trv_device_id():
     """The link carries the TRV's registry id, not one of its identifiers."""
@@ -121,20 +144,18 @@ async def test_bind_is_a_noop_without_a_trv_device_entry():
     dr_reg.async_get_or_create.assert_not_called()
 
 
+@pytest.mark.parametrize("kind", ["include_child_devices", "include_composite_devices"])
 @pytest.mark.asyncio
-async def test_bind_resolves_the_trv_device_as_a_real_device():
-    """Only a real device is offered as the link target.
+async def test_bind_skips_a_device_that_is_not_a_real_one(kind):
+    """A child device and a composite id are both refused as link targets.
 
-    The registry answers a child device named as a via device with an error,
-    and a pre-migration composite id with a deprecation on the same removal
-    deadline the link is written to clear, so a TRV on either takes the same
-    branch as a TRV whose device is not registered.
+    Each answers the lookup only under its own inclusion flag, so a lookup
+    that switches both off leaves the TRV in the branch of one whose device
+    is not registered.
     """
-    er_reg, dr_reg = _bind_registries(None)
+    er_reg, dr_reg = _non_real_device_registries(kind)
 
     result = await _bind(er_reg, dr_reg)
 
     assert result is False
-    assert dr_reg.async_get.call_args.kwargs["include_child_devices"] is False
-    assert dr_reg.async_get.call_args.kwargs["include_composite_devices"] is False
     dr_reg.async_get_or_create.assert_not_called()

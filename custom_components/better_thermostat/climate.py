@@ -457,10 +457,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     dev_reg = dr.async_get(self.hass)
                     trv_ent = ent_reg.async_get(main_trv_id)
                     if trv_ent and trv_ent.device_id:
-                        # Only a real device can carry the link: a child
-                        # device is rejected outright, a pre-migration
-                        # composite id reports a deprecation on the same
-                        # removal deadline this link is written to clear.
+                        # Only a real device can be a via device: the
+                        # registry rejects a child device, and a composite
+                        # id stands for a set of devices, not one.
                         trv_dev = dev_reg.async_get(
                             trv_ent.device_id,
                             include_child_devices=False,

@@ -8,6 +8,8 @@ the BT device would ask for.
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import DOMAIN
 
@@ -65,6 +67,29 @@ def _read_device_info(bt, er_reg, dr_reg):
         return BetterThermostat.device_info.fget(bt)
 
 
+def _non_real_device_registries(kind, *, device_id="trv_device_id"):
+    """Build registries whose TRV device id names a device that is not a real one.
+
+    ``kind`` is the inclusion flag the device answers under: a child device is
+    returned only while ``include_child_devices`` is set, a composite id only
+    while ``include_composite_devices`` is set. Switching that flag off yields
+    nothing, which is what the registry does for such an id.
+    """
+    entity_entry = MagicMock()
+    entity_entry.device_id = device_id
+    er_reg = MagicMock()
+    er_reg.async_get.return_value = entity_entry
+
+    device = _device(device_id, {("mqtt", "0x1234")})
+
+    def _lookup(_device_id, **flags):
+        return None if flags.get(kind) is False else device
+
+    dr_reg = MagicMock()
+    dr_reg.async_get.side_effect = _lookup
+    return er_reg, dr_reg
+
+
 def test_device_info_names_the_trv_device_by_its_registry_id():
     """The via link carries the TRV's device id, not one of its identifiers."""
     er_reg, dr_reg = _registries(_device("trv_device_id", {("mqtt", "0x1234")}))
@@ -112,18 +137,15 @@ def test_device_info_omits_the_link_without_a_trv_device_entry():
     assert "via_device_id" not in info
 
 
-def test_device_info_resolves_the_trv_device_as_a_real_device():
-    """Only a real device is offered as the link target.
+@pytest.mark.parametrize("kind", ["include_child_devices", "include_composite_devices"])
+def test_device_info_omits_the_link_for_a_device_that_is_not_a_real_one(kind):
+    """A child device and a composite id are both refused as link targets.
 
-    The registry answers a child device named as a via device with an error,
-    and a pre-migration composite id with a deprecation on the same removal
-    deadline the link is written to clear, so the link stays unset for a TRV
-    that sits on either.
+    Each answers the lookup only under its own inclusion flag, so a lookup
+    that switches both off leaves the link unset.
     """
-    er_reg, dr_reg = _registries(None)
+    er_reg, dr_reg = _non_real_device_registries(kind)
 
     info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
 
     assert "via_device_id" not in info
-    assert dr_reg.async_get.call_args.kwargs["include_child_devices"] is False
-    assert dr_reg.async_get.call_args.kwargs["include_composite_devices"] is False

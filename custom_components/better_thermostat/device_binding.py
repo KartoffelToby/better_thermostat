@@ -64,11 +64,9 @@ async def async_bind_trv_device(
         )
         return False
 
-    # Only a real device can carry the link. A child device is rejected
-    # outright, and a pre-migration composite id resolves to a split while
-    # reporting a deprecation on the same removal deadline this link is
-    # written to clear, so neither is resolved and a TRV on one takes the
-    # same branch as a TRV with no device.
+    # Only a real device can be a via device: the registry rejects a child
+    # device, and a composite id stands for a set of devices rather than one.
+    # A TRV on either takes the same branch as a TRV with no device at all.
     trv_device = dr_reg.async_get(
         trv_entry.device_id,
         include_child_devices=False,
