@@ -64,10 +64,12 @@ async def async_bind_trv_device(
         )
         return False
 
-    trv_device = dr_reg.async_get(trv_entry.device_id)
+    # A child device is rejected as a via device, so it is left out of the
+    # lookup and a TRV on one takes the same branch as a TRV with no device.
+    trv_device = dr_reg.async_get(trv_entry.device_id, include_child_devices=False)
     if trv_device is None:
         _LOGGER.debug(
-            "better_thermostat %s: TRV %s has no device registry entry; skipping",
+            "better_thermostat %s: TRV %s has no device that can carry the link; skipping",
             bt_unique_id,
             trv_entity_id,
         )

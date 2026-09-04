@@ -37,11 +37,17 @@ def _registries(trv_device, *, device_id="trv_device_id"):
     return er_reg, dr_reg
 
 
-def _device(device_id, identifiers):
-    """Build a device registry entry carrying a real identifier set."""
+def _device(device_id, identifiers, connections=frozenset()):
+    """Build a device registry entry carrying real identifier and connection sets.
+
+    Both are read as sets rather than left as mocks: the membership test that
+    keeps a BT device off its own via link reads ``identifiers``, and a device
+    registered by connections alone is only that if it carries one.
+    """
     device = MagicMock()
     device.id = device_id
     device.identifiers = identifiers
+    device.connections = connections
     return device
 
 
@@ -76,7 +82,9 @@ def test_device_info_links_a_trv_device_that_carries_no_identifiers():
     identifiers are read for one thing only: keeping the BT device off its
     own via link.
     """
-    er_reg, dr_reg = _registries(_device("trv_device_id", set()))
+    er_reg, dr_reg = _registries(
+        _device("trv_device_id", set(), {("mac", "aa:bb:cc:dd:ee:ff")})
+    )
 
     info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
 
@@ -102,3 +110,18 @@ def test_device_info_omits_the_link_without_a_trv_device_entry():
     info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
 
     assert "via_device_id" not in info
+
+
+def test_device_info_resolves_the_trv_device_without_child_devices():
+    """A child device is not offered as the link target.
+
+    The registry answers a child device id named as a via device with an
+    error, so children are left out of the lookup and the link stays unset
+    for a TRV that sits on one.
+    """
+    er_reg, dr_reg = _registries(None)
+
+    info = _read_device_info(_bt([{"trv": "climate.trv"}]), er_reg, dr_reg)
+
+    assert "via_device_id" not in info
+    assert dr_reg.async_get.call_args.kwargs["include_child_devices"] is False
