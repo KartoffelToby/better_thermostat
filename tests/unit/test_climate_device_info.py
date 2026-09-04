@@ -112,12 +112,13 @@ def test_device_info_omits_the_link_without_a_trv_device_entry():
     assert "via_device_id" not in info
 
 
-def test_device_info_resolves_the_trv_device_without_child_devices():
-    """A child device is not offered as the link target.
+def test_device_info_resolves_the_trv_device_as_a_real_device():
+    """Only a real device is offered as the link target.
 
-    The registry answers a child device id named as a via device with an
-    error, so children are left out of the lookup and the link stays unset
-    for a TRV that sits on one.
+    The registry answers a child device named as a via device with an error,
+    and a pre-migration composite id with a deprecation on the same removal
+    deadline the link is written to clear, so the link stays unset for a TRV
+    that sits on either.
     """
     er_reg, dr_reg = _registries(None)
 
@@ -125,3 +126,4 @@ def test_device_info_resolves_the_trv_device_without_child_devices():
 
     assert "via_device_id" not in info
     assert dr_reg.async_get.call_args.kwargs["include_child_devices"] is False
+    assert dr_reg.async_get.call_args.kwargs["include_composite_devices"] is False

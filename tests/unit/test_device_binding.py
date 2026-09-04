@@ -122,12 +122,13 @@ async def test_bind_is_a_noop_without_a_trv_device_entry():
 
 
 @pytest.mark.asyncio
-async def test_bind_resolves_the_trv_device_without_child_devices():
-    """A child device is not offered as the link target.
+async def test_bind_resolves_the_trv_device_as_a_real_device():
+    """Only a real device is offered as the link target.
 
-    The registry answers a child device id named as a via device with an
-    error, so children are left out of the lookup and a TRV on one takes the
-    same branch as a TRV whose device is not registered.
+    The registry answers a child device named as a via device with an error,
+    and a pre-migration composite id with a deprecation on the same removal
+    deadline the link is written to clear, so a TRV on either takes the same
+    branch as a TRV whose device is not registered.
     """
     er_reg, dr_reg = _bind_registries(None)
 
@@ -135,4 +136,5 @@ async def test_bind_resolves_the_trv_device_without_child_devices():
 
     assert result is False
     assert dr_reg.async_get.call_args.kwargs["include_child_devices"] is False
+    assert dr_reg.async_get.call_args.kwargs["include_composite_devices"] is False
     dr_reg.async_get_or_create.assert_not_called()
