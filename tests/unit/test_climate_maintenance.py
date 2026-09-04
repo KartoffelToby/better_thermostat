@@ -3,7 +3,7 @@
 _maintenance_tick decides, on each periodic tick, whether to run valve
 maintenance now, postpone it, or schedule it far out.  These tests pin every
 decision branch so the scheduling contract is locked down.  A second section
-covers the via_device binding _finalize_startup writes, which depends on how
+covers the via device binding _finalize_startup writes, which depends on how
 many valves the setup has.
 """
 
@@ -219,7 +219,7 @@ async def test_due_and_enabled_dispatches_maintenance(bt):
 
 
 # ---------------------------------------------------------------------------
-# _finalize_startup: via_device binding
+# _finalize_startup: via device binding
 # ---------------------------------------------------------------------------
 
 
@@ -292,9 +292,9 @@ async def test_via_device_binding_runs_for_single_trv():
 
 @pytest.mark.asyncio
 async def test_via_device_binding_skipped_and_cleared_for_multi_trv():
-    """A multi-TRV setup skips via_device binding and clears a stale link.
+    """A multi-TRV setup skips via device binding and clears a stale link.
 
-    via_device is single-valued, so binding each TRV would just rewrite the
+    The via device link is single-valued, so binding each TRV would just rewrite the
     same BT device row and leave it attached to the last valve only. A link
     that an earlier single-valve binding pass left behind is removed.
     """

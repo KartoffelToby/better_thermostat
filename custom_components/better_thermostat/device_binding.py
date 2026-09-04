@@ -23,9 +23,9 @@ async def async_bind_trv_device(
 ) -> bool:
     """Bind a BT instance to a TRV device in the HA device registry.
 
-    Sets ``via_device`` on the BT device to point to the TRV device. On the HA
-    device info page for the BT instance this renders as "via: <TRV name>", and
-    the TRV device page lists the BT instance under "Connected devices".
+    Sets ``via_device_id`` on the BT device to point to the TRV device. On the
+    HA device info page for the BT instance this renders as "via: <TRV name>",
+    and the TRV device page lists the BT instance under "Connected devices".
     """
     er_reg = er.async_get(hass)
     dr_reg = dr.async_get(hass)
@@ -40,7 +40,7 @@ async def async_bind_trv_device(
         return False
 
     trv_device = dr_reg.async_get(trv_entry.device_id)
-    if trv_device is None or not trv_device.identifiers:
+    if trv_device is None:
         _LOGGER.debug(
             "better_thermostat %s: TRV %s has no device registry entry; skipping",
             bt_unique_id,
@@ -48,11 +48,20 @@ async def async_bind_trv_device(
         )
         return False
 
-    trv_id = next(iter(trv_device.identifiers))
+    # The registry refuses a device as its own via device, which is what a TRV
+    # entity sitting on this very BT device would ask for.
+    if (DOMAIN, bt_unique_id) in trv_device.identifiers:
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s belongs to this BT device; skipping",
+            bt_unique_id,
+            trv_entity_id,
+        )
+        return False
+
     dr_reg.async_get_or_create(
         config_entry_id=bt_entry_id,
         identifiers={(DOMAIN, bt_unique_id)},
-        via_device=trv_id,
+        via_device_id=trv_device.id,
     )
 
     _LOGGER.debug(
@@ -65,9 +74,9 @@ async def async_bind_trv_device(
 
 
 async def async_unbind_trv_device(hass: HomeAssistant, bt_unique_id: str) -> bool:
-    """Clear a stale ``via_device`` link on the BT device.
+    """Clear a stale ``via_device_id`` link on the BT device.
 
-    Multi-TRV setups carry no ``via_device`` link (it is single-valued), but
+    Multi-TRV setups carry no via device link (it is single-valued), but
     a BT device that was once bound to a single valve keeps that link in the
     device registry until it is cleared explicitly. Passing ``None`` for
     ``via_device_id`` removes the link; the registry treats the omitted
@@ -82,7 +91,7 @@ async def async_unbind_trv_device(hass: HomeAssistant, bt_unique_id: str) -> boo
 
     dr_reg.async_update_device(bt_device.id, via_device_id=None)
     _LOGGER.debug(
-        "better_thermostat %s: cleared stale via_device link on device %s",
+        "better_thermostat %s: cleared stale via device link on device %s",
         bt_unique_id,
         bt_device.id,
     )
