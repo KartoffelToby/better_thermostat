@@ -190,7 +190,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         )()
         heaters = new.get(CONF_HEATER, [])
         for trv in heaters:
-            entity_id = trv.get("entity_id")
+            entity_id = trv.get("trv")
             if entity_id:
                 trv["model"] = await get_device_model(migration_context, entity_id)
                 _LOGGER.debug(
