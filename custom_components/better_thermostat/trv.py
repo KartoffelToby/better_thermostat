@@ -215,11 +215,15 @@ class Trv:
             del self.echo_setpoints[0]
 
     def remember_setpoint_confirmed(self, value: float | None) -> None:
-        """Record the confirmed command and drop the writes before it.
+        """Record the confirmed command and retire the writes before it.
 
         The device holds ``value`` now, so the writes before it cannot come
         back. The caller passes the command it waited on rather than the
         current ``last_temperature``, which another task may have moved on to.
+        Only one write is watched at a time, so writes issued while the wait
+        ran sit behind the confirmed one in the list and are still in flight;
+        they stay. A value no longer in the list gives no boundary to retire
+        against, so nothing is dropped.
 
         Parameters
         ----------
@@ -228,7 +232,8 @@ class Trv:
             reported none
         """
         self.confirmed_setpoint = value
-        self.echo_setpoints = []
+        if value is not None and value in self.echo_setpoints:
+            del self.echo_setpoints[: self.echo_setpoints.index(value) + 1]
 
     def capabilities(self) -> TrvCapabilities:
         """Effective capabilities: adapter declaration ∩ discovered surface."""

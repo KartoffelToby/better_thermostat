@@ -189,8 +189,8 @@ class TestEchoSetpoints:
         assert 21.0 not in trv.echo_setpoints
         assert trv.echo_setpoints[-1] == 29.0
 
-    def test_a_confirmation_records_the_command_and_drops_the_writes(self):
-        """Once the device holds the command, only the command can echo."""
+    def test_a_confirmation_records_the_command_and_retires_the_writes_before_it(self):
+        """Once the device holds the command, the writes before it cannot echo."""
         trv = _make()
         trv.remember_setpoint_written(26.0)
         trv.remember_setpoint_written(25.0)
@@ -198,13 +198,31 @@ class TestEchoSetpoints:
         assert trv.confirmed_setpoint == 25.0
         assert trv.echo_setpoints == []
 
-    def test_a_confirmation_without_a_command_leaves_nothing(self):
-        """With no command on record a confirmation empties the list."""
+    def test_a_confirmation_keeps_the_writes_issued_after_the_command(self):
+        """Only one write is watched, so 24.0 and 25.0 are still in flight."""
+        trv = _make()
+        for value in (23.0, 24.0, 25.0):
+            trv.remember_setpoint_written(value)
+        trv.remember_setpoint_confirmed(23.0)
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoints == [24.0, 25.0]
+
+    def test_a_confirmation_of_an_evicted_command_retires_nothing(self):
+        """Without the command in the list there is no boundary to cut at."""
+        trv = _make()
+        for value in (24.0, 25.0):
+            trv.remember_setpoint_written(value)
+        trv.remember_setpoint_confirmed(23.0)
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoints == [24.0, 25.0]
+
+    def test_a_confirmation_without_a_command_retires_nothing(self):
+        """A report with no setpoint confirms nothing, so nothing retires."""
         trv = _make()
         trv.remember_setpoint_written(26.0)
         trv.remember_setpoint_confirmed(None)
         assert trv.confirmed_setpoint is None
-        assert trv.echo_setpoints == []
+        assert trv.echo_setpoints == [26.0]
 
     def test_a_confirmation_ignores_a_command_another_task_moved_on_to(self):
         """The caller passes the command it waited on, not ``last_temperature``."""
