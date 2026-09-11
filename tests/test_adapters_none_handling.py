@@ -19,6 +19,46 @@ def _adapter_id(adapter):
     return adapter.__name__.rsplit(".", 1)[-1]
 
 
+def _state_of_a_lowercased_id(entity_id):
+    """Answer a state lookup the way Home Assistant's state machine does.
+
+    The machine lowercases an entity ID before looking it up, so an adapter
+    that hands it the unset calibration entity of a TRV raises there rather
+    than reading a state that is merely missing.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity ID to look up.
+
+    Returns
+    -------
+    State or None
+        None, since the lookup holds no states.
+    """
+    return {}.get(entity_id.lower())
+
+
+def _leave_the_trv_without_a_calibration_entity(bt):
+    """Put the TRV in the state discovery leaves it in when it finds none.
+
+    Its state lookup resolves an entity ID the way Home Assistant's state
+    machine does, so a getter that passes the unset entity on raises on that
+    entity rather than reading a mock's stand-in attributes.
+
+    Parameters
+    ----------
+    bt : MagicMock
+        Mock BetterThermostat instance to rewrite in place.
+    """
+    bt.real_trvs = {
+        "climate.test_trv": Trv(
+            entity_id="climate.test_trv", local_temperature_calibration_entity=None
+        )
+    }
+    bt.hass.states.get = MagicMock(side_effect=_state_of_a_lowercased_id)
+
+
 @pytest.fixture
 def mock_hass():
     """Create a mock Home Assistant instance."""
@@ -109,15 +149,29 @@ class TestBoundsOfAnEntityThatDeclaresNone:
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
     async def test_step_without_a_calibration_entity(self, adapter, mock_bt_instance):
         """A TRV discovery found no entity for gets the same answer."""
-        mock_bt_instance.real_trvs = {
-            "climate.test_trv": Trv(
-                entity_id="climate.test_trv", local_temperature_calibration_entity=None
-            )
-        }
+        _leave_the_trv_without_a_calibration_entity(mock_bt_instance)
 
         result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
 
         assert result == 1.0
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
+    async def test_min_without_a_calibration_entity(self, adapter, mock_bt_instance):
+        """The lower bound of a TRV without an entity is the same default."""
+        _leave_the_trv_without_a_calibration_entity(mock_bt_instance)
+
+        result = await adapter.get_min_offset(mock_bt_instance, "climate.test_trv")
+
+        assert result == -10.0
+
+    @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
+    async def test_max_without_a_calibration_entity(self, adapter, mock_bt_instance):
+        """The upper bound of a TRV without an entity is the same default."""
+        _leave_the_trv_without_a_calibration_entity(mock_bt_instance)
+
+        result = await adapter.get_max_offset(mock_bt_instance, "climate.test_trv")
+
+        assert result == 10.0
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS, ids=_adapter_id)
     async def test_step_comes_from_the_entity_when_it_publishes_one(
