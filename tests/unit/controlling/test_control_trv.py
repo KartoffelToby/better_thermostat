@@ -1918,16 +1918,24 @@ class TestGroupedTrvCalibration:
 
     @pytest.mark.parametrize(
         "step,reported,released",
-        [(0.5, 2.2, True), (0.5, 2.3, False), (1.0, 2.5, True)],
+        [
+            (0.5, 2.2, True),
+            (0.5, 2.5, True),
+            (0.5, 2.6, False),
+            (1.0, 2.5, True),
+            (1.0, 3.0, True),
+            (1.0, 3.1, False),
+        ],
     )
-    async def test_confirmation_window_is_half_the_device_offset_step(
+    async def test_confirmation_window_is_one_device_offset_step(
         self, mock_bt_grouped, step, reported, released
     ):
-        """The confirmation window is half the device's own offset step.
+        """The confirmation window is one device offset step.
 
-        A device snaps a commanded offset onto its own grid, so a report up to
-        half a step away from the command still confirms it, and anything
-        beyond that is a divergence.
+        The written offset reaches the device as a count of its step, and a
+        device that truncates that count reports one step nearer zero than
+        the command, so a report up to one step away from the command
+        confirms it, and anything beyond that is a divergence.
         """
         entity_id = "climate.trv_3"
         mock_bt_grouped.real_trvs[entity_id].local_calibration_step = step
@@ -2404,6 +2412,35 @@ class TestCalibrationWriteGate:
         mocks.set_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_report_one_step_below_the_command_is_not_rewritten(self):
+        """A device that floors the written offset holds the command.
+
+        The written 6.3 travels as 62 counts of the 0.1 K step and comes
+        back as 6.2; with the intent unchanged there is nothing to write.
+        Reading that report as a divergence would re-send the same offset
+        every cycle and wait out the confirmation watchdog each time.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _offset_trv(
+                    last_calibration=6.3,
+                    last_calibration_requested=6.3,
+                    local_calibration_step=0.1,
+                    calibration_received=True,
+                )
+            },
+        )
+
+        with _offset_cycle(reported=6.2, desired_offset=6.3) as mocks:
+            for _ in range(3):
+                await control_trv(mock_self, "climate.trv1")
+
+        mocks.set_offset.assert_not_awaited()
+        assert "bt_check_calibration_climate.trv1" not in _watchdog_names(mock_self)
+
+    @pytest.mark.asyncio
     async def test_failed_write_keeps_the_channel_open(self):
         """A write the adapter refused arms no watchdog and is retried."""
         mock_self = _make_mock_self(
@@ -2480,9 +2517,9 @@ class TestCalibrationWriteGate:
         """A device rounding coarser than it declares is written once.
 
         The device declares a 0.01 K offset step but publishes its offset
-        on a 0.05 K grid. Half the declared step is narrower than that
-        grid, so without the floor every cycle would read the rounding as
-        a divergence and re-assert the same command forever.
+        on a 0.05 K grid. One declared step is narrower than that grid, so
+        without the floor every cycle would read the rounding as a
+        divergence and re-assert the same command forever.
         """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,

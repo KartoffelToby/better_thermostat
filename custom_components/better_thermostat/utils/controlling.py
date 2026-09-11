@@ -61,8 +61,8 @@ _LOGGER = logging.getLogger(__name__)
 # a slow device the same window.
 WRITE_CONFIRM_TIMEOUT_S = 360
 
-# Floor for the commanded-vs-reported offset comparison. Half the declared
-# offset step is the right window only while that step describes the grid the
+# Floor for the commanded-vs-reported offset comparison. One declared offset
+# step is the right window only while that step describes the grid the
 # device reports on; an adapter declaring a nominal 0.01 K step describes a
 # continuous range instead, and any report rounded coarser than that then reads
 # as a divergence the write gate re-asserts on every control cycle. The floor
@@ -439,8 +439,12 @@ def _device_setpoint_tolerance(self, state) -> float:
 def _calibration_match_tolerance(self, entity_id) -> float:
     """Return the tolerance for comparing a written offset to a reported one.
 
-    A device snaps a written offset onto its own step grid, so a snapped value
-    sits at most half a step away from the value that was commanded.
+    A written offset travels to the device as a count of its step, and the
+    ZHA number platform truncates onto that grid (``int(value / step)``): a
+    written 6.3 on a 0.1 K step becomes 62 counts and is reported as 6.2. A
+    device that truncates on its own grid does the same. The truncated count
+    lands one step nearer zero than the command, so a report within one step
+    of the command is the command or its truncated neighbour.
     OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report no
     usable step and those whose declared step is finer than the grid they
     actually report on.
@@ -464,8 +468,8 @@ def _calibration_match_tolerance(self, entity_id) -> float:
     )
     if step is None or step <= 0:
         return OFFSET_MATCH_TOLERANCE_K
-    # Slack against float noise when the difference is exactly half a step.
-    return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
+    # Slack against float noise when the difference is exactly one step.
+    return max(OFFSET_MATCH_TOLERANCE_K, step + 1e-6)
 
 
 async def control_cooler(self):
