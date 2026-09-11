@@ -841,11 +841,11 @@ async def control_queue(self: BetterThermostat) -> None:
                         result = True
                         for i, res in enumerate(results):
                             if isinstance(res, Exception):
-                                trv_id = controlled_trvs[i]
+                                entity_id = controlled_trvs[i]
                                 _LOGGER.error(
                                     "better_thermostat %s: ERROR controlling TRV %s: %s",
                                     self.device_name,
-                                    trv_id,
+                                    entity_id,
                                     res,
                                 )
                                 result = False
