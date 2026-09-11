@@ -1,13 +1,14 @@
 """Tests for the config-entry migration to version 18.
 
 Every ``CONF_HEATER`` entry stores the entity id of its TRV under the key
-``"trv"``. The migration to version 18 must read that key, ask the device
-registry for the model of every TRV and store the answer under ``"model"``,
-so that entries created before the model was recorded, or with a stale one,
-carry the model the device-specific quirks are keyed by.
+``"trv"``. The migration to version 18 reads that key, asks the device
+registry for the model of every TRV and stores an answer that identifies the
+device under ``"model"``, so the device-specific quirks are keyed by the model
+the TRV really is. An answer that identifies nothing leaves a model the entry
+already carries alone, because the migration runs once.
 """
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_NAME
 import pytest
@@ -19,11 +20,15 @@ from custom_components.better_thermostat.utils.const import (
     CONF_HEATER,
     CONF_PROTECT_OVERHEATING,
     CONF_SENSOR,
+    GENERIC_MODEL,
     CalibrationMode,
     CalibrationType,
 )
 
 DETECTED_MODEL = "TRVZB"
+STALE_MODEL = "SPZB0001"
+ENTRY_NAME = "Kinderzimmer"
+ROOM_SENSOR = "sensor.kinderzimmer_temperature"
 
 
 def _make_trv(entity_id, **extra):
@@ -46,12 +51,8 @@ def _make_entry(trvs):
     entry = MagicMock()
     entry.version = 17
     entry.entry_id = "abcd1234"
-    entry.title = "Kinderzimmer"
-    entry.data = {
-        CONF_NAME: "Kinderzimmer",
-        CONF_SENSOR: "sensor.kinderzimmer_temperature",
-        CONF_HEATER: trvs,
-    }
+    entry.title = ENTRY_NAME
+    entry.data = {CONF_NAME: ENTRY_NAME, CONF_SENSOR: ROOM_SENSOR, CONF_HEATER: trvs}
     return entry
 
 
@@ -96,11 +97,21 @@ class TestMigrationToVersion18:
             lookup.args[1] for lookup in patched_get_device_model.await_args_list
         ]
         assert looked_up == ["climate.kinderzimmer", "climate.wohnzimmer"]
+        # The lookup reads ``hass`` and ``device_name`` off whatever it is
+        # handed, so the context has to carry both.
+        context = patched_get_device_model.await_args_list[0].args[0]
+        assert context.hass is hass
+        assert context.device_name == ENTRY_NAME
 
         hass.config_entries.async_update_entry.assert_called_once()
         update = hass.config_entries.async_update_entry.call_args
-        assert update == call(entry, data=update.kwargs["data"], version=18)
-        written_trvs = update.kwargs["data"][CONF_HEATER]
+        assert update.args == (entry,)
+        assert update.kwargs["version"] == 18
+        # The written mapping is the whole entry, not just its heaters.
+        written = update.kwargs["data"]
+        assert written[CONF_NAME] == ENTRY_NAME
+        assert written[CONF_SENSOR] == ROOM_SENSOR
+        written_trvs = written[CONF_HEATER]
         assert written_trvs[0]["trv"] == "climate.kinderzimmer"
         assert written_trvs[0]["model"] == DETECTED_MODEL
         assert written_trvs[1]["trv"] == "climate.wohnzimmer"
@@ -113,8 +124,8 @@ class TestMigrationToVersion18:
         hass = _make_hass()
         entry = _make_entry(
             [
-                _make_trv("climate.kinderzimmer", model="generic"),
-                _make_trv("climate.wohnzimmer", model="generic"),
+                _make_trv("climate.kinderzimmer", model=STALE_MODEL),
+                _make_trv("climate.wohnzimmer", model=GENERIC_MODEL),
             ]
         )
 
@@ -127,6 +138,39 @@ class TestMigrationToVersion18:
 
         update = hass.config_entries.async_update_entry.call_args
         assert update.kwargs["version"] == 18
-        written_trvs = update.kwargs["data"][CONF_HEATER]
+        written = update.kwargs["data"]
+        assert written[CONF_NAME] == ENTRY_NAME
+        assert written[CONF_SENSOR] == ROOM_SENSOR
+        written_trvs = written[CONF_HEATER]
         assert written_trvs[0]["model"] == DETECTED_MODEL
         assert written_trvs[1]["model"] == DETECTED_MODEL
+
+    async def test_migration_to_version_18_keeps_a_model_the_registry_cannot_confirm(
+        self, patched_get_device_model
+    ):
+        """A lookup that identifies nothing leaves a recorded model standing."""
+        patched_get_device_model.return_value = GENERIC_MODEL
+        hass = _make_hass()
+        entry = _make_entry([_make_trv("climate.kinderzimmer", model=STALE_MODEL)])
+
+        assert await async_migrate_entry(hass, entry) is True
+
+        assert patched_get_device_model.await_count == 1
+        update = hass.config_entries.async_update_entry.call_args
+        assert update.kwargs["version"] == 18
+        written_trvs = update.kwargs["data"][CONF_HEATER]
+        assert written_trvs[0]["model"] == STALE_MODEL
+
+    async def test_migration_to_version_18_records_the_fallback_without_a_model(
+        self, patched_get_device_model
+    ):
+        """A TRV the entry knows no model for takes the fallback answer."""
+        patched_get_device_model.return_value = GENERIC_MODEL
+        hass = _make_hass()
+        entry = _make_entry([_make_trv("climate.kinderzimmer")])
+
+        assert await async_migrate_entry(hass, entry) is True
+
+        update = hass.config_entries.async_update_entry.call_args
+        written_trvs = update.kwargs["data"][CONF_HEATER]
+        assert written_trvs[0]["model"] == GENERIC_MODEL
