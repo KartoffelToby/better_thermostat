@@ -1574,7 +1574,6 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.test_cooler"
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.advanced["no_off_system_mode"] = True
-        trv.temperature = 5.0
         trv.last_temperature = 5.0
         old_state = _make_state(
             attributes={"temperature": 5.0, "current_temperature": 18.0}
