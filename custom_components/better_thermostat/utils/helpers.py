@@ -32,6 +32,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     DOMAIN,
+    GENERIC_MODEL,
     MAX_HEATING_POWER,
     MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
@@ -2092,7 +2093,7 @@ async def get_device_model(self, entity_id: str) -> str:
         selected = configured_model.strip()
         source = "config.model"
     if not selected:
-        selected = "generic"
+        selected = GENERIC_MODEL
         source = "default"
 
     _LOGGER.debug(

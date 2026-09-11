@@ -76,6 +76,11 @@ CONF_TARGET_TEMP_MIN: Final = "target_temp_min"
 CONF_TARGET_TEMP_MAX: Final = "target_temp_max"
 CONF_TARGET_TEMP_STEP: Final = "target_temp_step"
 
+# Model string a TRV carries when the device registry has nothing that
+# identifies it. No quirk module answers for it, so a TRV on this model is
+# driven by the default quirks, the same as one whose model is unknown.
+GENERIC_MODEL: Final = "generic"
+
 SUPPORT_FLAGS: Final = (
     ClimateEntityFeature.TARGET_TEMPERATURE
     | ClimateEntityFeature.TURN_OFF
