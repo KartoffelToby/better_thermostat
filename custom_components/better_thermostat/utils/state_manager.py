@@ -91,8 +91,12 @@ class MpcV2ReidData:
     tau_room_min: float = 0.0
     gain_heater: float = 0.0
     fitted_ts: float = 0.0
-    rmse_prior_K: float = 0.0
-    rmse_fit_K: float = 0.0
+    # `persist_state` writes this dataclass through `dataclasses.asdict` into
+    # Home Assistant's `Store`, so these two field names are the names on disk.
+    # Lowercasing them needs a store version bump and a migration step, and the
+    # two move with it.
+    rmse_prior_K: float = 0.0  # noqa: N815
+    rmse_fit_K: float = 0.0  # noqa: N815
     n_segments: int = 0
 
 

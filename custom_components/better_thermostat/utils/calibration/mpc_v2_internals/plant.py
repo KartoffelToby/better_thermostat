@@ -86,7 +86,7 @@ class PlantModelRC2:
             ]
         )
 
-    def linearised_AB(
+    def linearised_AB(  # noqa: N802
         self, T_outdoor_C: float, T_rad_op_C: float, dt_s: float | None = None
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         """Return ``(A, B, d)`` for ``x_{k+1} = A·x + B·u + d``.
