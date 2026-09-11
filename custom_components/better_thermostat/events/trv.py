@@ -301,7 +301,7 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
-            *trv.echo_setpoints,
+            *trv.echo_setpoint_values(),
             self.bt_target_cooltemp,
             self.last_sent_cooler_temp,
         )
@@ -310,7 +310,7 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
-            *trv.echo_setpoints,
+            *trv.echo_setpoint_values(),
         )
     _setpoint = resolve_inbound_setpoint(
         self,

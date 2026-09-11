@@ -1745,7 +1745,7 @@ class TestInitializeTrvSetpointSeed:
 
         assert bt.real_trvs[TRV_ID].last_temperature == 21.0
         assert bt.real_trvs[TRV_ID].confirmed_setpoint == 21.0
-        assert bt.real_trvs[TRV_ID].echo_setpoints == []
+        assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 
 class TestRestoreState:

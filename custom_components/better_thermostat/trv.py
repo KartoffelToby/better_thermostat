@@ -22,6 +22,19 @@ ECHO_SETPOINTS_LIMIT = 8
 
 
 @dataclass
+class PendingSetpoint:
+    """A setpoint on the wire that the device has not confirmed yet.
+
+    The id says when the command went out. Two writes can carry the same
+    value, so the value alone cannot tell a re-sent command from the one a
+    watchdog is waiting for.
+    """
+
+    value: float
+    write_id: int
+
+
+@dataclass
 class Trv:
     """State, adapter, and quirks of a single TRV."""
 
@@ -73,13 +86,17 @@ class Trv:
     # startup. A device may report it again at any time, so it stays a value
     # BT itself wrote even once later writes are in flight.
     confirmed_setpoint: float | None = None
-    # The setpoints in °C written since that confirmation, oldest first. A
+    # The setpoints written since that confirmation, oldest write first. A
     # device that did not take the latest write still reports an earlier one,
     # so every one of them remains a value BT itself wrote.
     # ``trigger_trv_change`` reads a report within the echo window of
     # ``confirmed_setpoint`` or any of these as BT's write coming back rather
     # than as a user press.
-    echo_setpoints: list[float] = field(default_factory=list)
+    pending_setpoints: list[PendingSetpoint] = field(default_factory=list)
+    # The id the last setpoint write went out under. A watchdog records it at
+    # the start of its wait so the confirmation retires that command and the
+    # ones before it, never a write made while the wait ran.
+    last_setpoint_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
@@ -121,43 +138,72 @@ class Trv:
         self.accept_next_internal_temp = False
         return accepted
 
-    def remember_setpoint_written(self, value: float) -> None:
+    def echo_setpoint_values(self) -> list[float]:
+        """List the setpoints still on the wire, oldest write first.
+
+        Returns
+        -------
+        list[float]
+            The values in °C, without the ids they were written under.
+        """
+        return [pending.value for pending in self.pending_setpoints]
+
+    def remember_setpoint_written(self, value: float) -> int:
         """Add a setpoint BT put on the wire to the values a report may echo.
 
-        A value written again moves to the end, so the command most recently
-        on the wire is the last one a full list gives up. The confirmed
-        setpoint is held outside this list and is never evicted.
+        A value written again takes a new id and moves to the end, so the
+        command most recently on the wire is the last one a full list gives
+        up. The confirmed setpoint is held outside this list and is never
+        evicted.
 
         Parameters
         ----------
         value : float
             The setpoint in °C as it was sent.
-        """
-        if value in self.echo_setpoints:
-            self.echo_setpoints.remove(value)
-        self.echo_setpoints.append(value)
-        if len(self.echo_setpoints) > ECHO_SETPOINTS_LIMIT:
-            del self.echo_setpoints[0]
 
-    def remember_setpoint_confirmed(self, value: float | None) -> None:
-        """Record the setpoint the device confirmed and retire the writes before it.
+        Returns
+        -------
+        int
+            The id this write went out under.
+        """
+        self.last_setpoint_write_id += 1
+        self.pending_setpoints = [
+            pending for pending in self.pending_setpoints if pending.value != value
+        ]
+        self.pending_setpoints.append(
+            PendingSetpoint(value, self.last_setpoint_write_id)
+        )
+        if len(self.pending_setpoints) > ECHO_SETPOINTS_LIMIT:
+            del self.pending_setpoints[0]
+        return self.last_setpoint_write_id
+
+    def remember_setpoint_confirmed(
+        self, value: float | None, through_write_id: int = 0
+    ) -> None:
+        """Record the setpoint the device confirmed and retire the writes it covers.
 
         The caller passes the command it waited on rather than the current
         ``last_temperature``, which another task may have moved on to. Only
-        one write is watched at a time, so writes issued while the wait ran
-        sit behind the confirmed one in the list and are still in flight;
-        they stay. A value no longer in the list gives no boundary to retire
-        against, so nothing is dropped.
+        one write is watched at a time, so a write made while the wait ran
+        carries a higher id and is still on the wire; it stays. Matching on
+        the id rather than the value keeps a command that was sent again
+        after the awaited one from retiring the writes between them.
 
         Parameters
         ----------
         value : float | None
             The confirmed setpoint in °C, or ``None`` when the device
             reported none.
+        through_write_id : int
+            Retire the writes up to and including this id. The default
+            retires nothing, for callers that confirm without having waited.
         """
         self.confirmed_setpoint = value
-        if value is not None and value in self.echo_setpoints:
-            del self.echo_setpoints[: self.echo_setpoints.index(value) + 1]
+        self.pending_setpoints = [
+            pending
+            for pending in self.pending_setpoints
+            if pending.write_id > through_write_id
+        ]
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:

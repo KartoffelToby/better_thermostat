@@ -1235,6 +1235,7 @@ async def check_system_mode(self, heater_entity_id=None):
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     _awaited_setpoint = _real_trv.last_temperature
+    _awaited_write_id = _real_trv.last_setpoint_write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
@@ -1282,10 +1283,11 @@ async def check_target_temperature(self, heater_entity_id=None):
     target_temp_received flag when complete. The command is read once at
     entry: valve maintenance writes through the same delegate and moves
     ``last_temperature`` on without going through the control path, so a
-    maintenance value must not be able to confirm a control write. A match
-    records the confirmed setpoint and drops the writes before it; a timeout
-    or an unreadable setpoint leaves them, since the device may still hold
-    any of them.
+    maintenance value must not be able to confirm a control write. The id
+    that command went out under is read with it, so the confirmation retires
+    that write and the ones before it and leaves anything written while the
+    wait ran. A timeout or an unreadable setpoint retires nothing, since the
+    device may still hold any of them.
 
     Parameters
     ----------
@@ -1302,6 +1304,7 @@ async def check_target_temperature(self, heater_entity_id=None):
     _timeout = 0
     _real_trv = self.real_trvs[heater_entity_id]
     _awaited_setpoint = _real_trv.last_temperature
+    _awaited_write_id = _real_trv.last_setpoint_write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, heater_entity_id)
     while True:
         _trv_state = self.hass.states.get(heater_entity_id)
@@ -1338,7 +1341,7 @@ async def check_target_temperature(self, heater_entity_id=None):
             _timeout = 0
             break
         if matches_any_setpoint(_awaited_setpoint, _current_set_temperatures):
-            _real_trv.remember_setpoint_confirmed(_awaited_setpoint)
+            _real_trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:

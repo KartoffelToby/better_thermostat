@@ -21,7 +21,7 @@ from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -1959,7 +1959,7 @@ class TestTargetTempBasedSync:
 class TestReportAfterAnUnconfirmedWrite:
     """Setpoint reports judged against the writes the device may still hold.
 
-    ``echo_setpoints`` carries the last confirmed setpoint and every write
+    ``pending_setpoints`` carries every write since the confirmed setpoint
     since. A report equal to one of them is BT's own write coming back; a
     report outside them is a press.
     """
@@ -1972,7 +1972,9 @@ class TestReportAfterAnUnconfirmedWrite:
         mock_bt.contact_open = False
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.last_temperature = last_temperature
-        trv.echo_setpoints = list(echo_setpoints)
+        for index, value in enumerate(echo_setpoints, start=1):
+            trv.pending_setpoints.append(PendingSetpoint(value, index))
+        trv.last_setpoint_write_id = len(echo_setpoints)
         trv.target_temp_received = True
         trv.system_mode_received = True
         trv.hvac_mode = HVACMode.HEAT

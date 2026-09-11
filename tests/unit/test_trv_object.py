@@ -2,7 +2,7 @@
 
 import pytest
 
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 
 
 def _make() -> Trv:
@@ -110,13 +110,17 @@ class TestEchoSetpoints:
     def test_a_fresh_trv_remembers_no_setpoint(self):
         """Nothing has been written or confirmed on a fresh Trv."""
         trv = _make()
-        assert trv.echo_setpoints == []
+        assert trv.echo_setpoint_values() == []
         assert trv.confirmed_setpoint is None
+        assert trv.last_setpoint_write_id == 0
 
-    def test_from_legacy_dict_carries_the_list(self):
-        """``echo_setpoints`` is a typed field, not an extra."""
-        trv = Trv.from_legacy_dict("climate.trv", {"echo_setpoints": [21.0, 22.0]})
-        assert trv.echo_setpoints == [21.0, 22.0]
+    def test_from_legacy_dict_carries_the_pending_writes(self):
+        """``pending_setpoints`` is a typed field, not an extra."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv",
+            {"pending_setpoints": [PendingSetpoint(21.0, 1), PendingSetpoint(22.0, 2)]},
+        )
+        assert trv.echo_setpoint_values() == [21.0, 22.0]
         assert trv.extra == {}
 
     def test_a_written_setpoint_is_appended(self):
@@ -124,7 +128,14 @@ class TestEchoSetpoints:
         trv = _make()
         trv.remember_setpoint_written(21.0)
         trv.remember_setpoint_written(22.0)
-        assert trv.echo_setpoints == [21.0, 22.0]
+        assert trv.echo_setpoint_values() == [21.0, 22.0]
+
+    def test_each_write_takes_the_next_id(self):
+        """The id says when the command went out, so it only ever rises."""
+        trv = _make()
+        assert trv.remember_setpoint_written(21.0) == 1
+        assert trv.remember_setpoint_written(22.0) == 2
+        assert trv.remember_setpoint_written(21.0) == 3
 
     def test_a_repeated_write_is_kept_once(self):
         """Writing a value the list already holds does not duplicate it."""
@@ -132,7 +143,7 @@ class TestEchoSetpoints:
         trv.remember_setpoint_written(21.0)
         trv.remember_setpoint_written(22.0)
         trv.remember_setpoint_written(21.0)
-        assert sorted(trv.echo_setpoints) == [21.0, 22.0]
+        assert sorted(trv.echo_setpoint_values()) == [21.0, 22.0]
 
     def test_a_repeated_write_becomes_the_newest_again(self):
         """The command last on the wire is the last one the bound gives up."""
@@ -140,7 +151,7 @@ class TestEchoSetpoints:
         trv.remember_setpoint_written(21.0)
         trv.remember_setpoint_written(22.0)
         trv.remember_setpoint_written(21.0)
-        assert trv.echo_setpoints == [22.0, 21.0]
+        assert trv.echo_setpoint_values() == [22.0, 21.0]
 
     def test_a_repeated_write_outlives_an_older_one_under_the_bound(self):
         """Re-sending 21.0 makes 22.0 the oldest, so 22.0 goes first."""
@@ -149,8 +160,8 @@ class TestEchoSetpoints:
             trv.remember_setpoint_written(value)
         trv.remember_setpoint_written(21.0)
         trv.remember_setpoint_written(29.0)
-        assert 21.0 in trv.echo_setpoints
-        assert 22.0 not in trv.echo_setpoints
+        assert 21.0 in trv.echo_setpoint_values()
+        assert 22.0 not in trv.echo_setpoint_values()
 
     def test_a_full_list_drops_the_oldest_write(self):
         """The bound counts writes since the confirmation and drops the oldest."""
@@ -158,7 +169,16 @@ class TestEchoSetpoints:
         trv.remember_setpoint_confirmed(20.0)
         for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
             trv.remember_setpoint_written(value)
-        assert trv.echo_setpoints == [22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0]
+        assert trv.echo_setpoint_values() == [
+            22.0,
+            23.0,
+            24.0,
+            25.0,
+            26.0,
+            27.0,
+            28.0,
+            29.0,
+        ]
 
     def test_the_confirmed_setpoint_survives_the_bound(self):
         """The confirmed setpoint is held apart and is never evicted."""
@@ -173,47 +193,64 @@ class TestEchoSetpoints:
         trv = _make()
         for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
             trv.remember_setpoint_written(value)
-        assert 21.0 not in trv.echo_setpoints
-        assert trv.echo_setpoints[-1] == 29.0
+        assert 21.0 not in trv.echo_setpoint_values()
+        assert trv.echo_setpoint_values()[-1] == 29.0
 
-    def test_a_confirmation_records_the_setpoint_and_retires_the_writes_before_it(self):
-        """Once the device confirms, the writes before it can no longer come back."""
+    def test_a_confirmation_retires_the_writes_it_covers(self):
+        """The awaited command and the writes before it can no longer come back."""
         trv = _make()
-        trv.echo_setpoints = [20.0, 26.0, 25.0]
-        trv.remember_setpoint_confirmed(25.0)
+        first = trv.remember_setpoint_written(20.0)
+        trv.remember_setpoint_written(26.0)
+        awaited = trv.remember_setpoint_written(25.0)
+        assert first < awaited
+        trv.remember_setpoint_confirmed(25.0, awaited)
         assert trv.confirmed_setpoint == 25.0
-        assert trv.echo_setpoints == []
+        assert trv.echo_setpoint_values() == []
 
     def test_a_confirmation_keeps_the_writes_issued_after_the_command(self):
         """Only one write is watched, so 24.0 and 25.0 are still in flight."""
         trv = _make()
-        for value in (23.0, 24.0, 25.0):
-            trv.remember_setpoint_written(value)
-        trv.remember_setpoint_confirmed(23.0)
+        awaited = trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_written(24.0)
+        trv.remember_setpoint_written(25.0)
+        trv.remember_setpoint_confirmed(23.0, awaited)
         assert trv.confirmed_setpoint == 23.0
-        assert trv.echo_setpoints == [24.0, 25.0]
+        assert trv.echo_setpoint_values() == [24.0, 25.0]
 
-    def test_a_confirmation_of_an_evicted_command_retires_nothing(self):
-        """Without the command in the list there is no boundary to cut at."""
+    def test_a_command_sent_again_does_not_retire_the_writes_between(self):
+        """Confirming the first 23.0 must not take 24.0 with it.
+
+        The device may be reporting either 23.0, and 24.0 went out after the
+        one that was awaited, so it can still come back.
+        """
         trv = _make()
-        for value in (24.0, 25.0):
-            trv.remember_setpoint_written(value)
-        trv.remember_setpoint_confirmed(23.0)
+        awaited = trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_written(24.0)
+        trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_confirmed(23.0, awaited)
         assert trv.confirmed_setpoint == 23.0
-        assert trv.echo_setpoints == [24.0, 25.0]
+        assert trv.echo_setpoint_values() == [24.0, 23.0]
+
+    def test_a_confirmation_without_a_write_id_retires_nothing(self):
+        """A caller that never waited has no boundary to retire against."""
+        trv = _make()
+        trv.remember_setpoint_written(20.0)
+        trv.remember_setpoint_confirmed(20.0)
+        assert trv.confirmed_setpoint == 20.0
+        assert trv.echo_setpoint_values() == [20.0]
 
     def test_a_confirmation_without_a_setpoint_retires_nothing(self):
         """A report with no setpoint confirms nothing, so nothing retires."""
         trv = _make()
-        trv.echo_setpoints = [20.0]
+        trv.remember_setpoint_written(20.0)
         trv.remember_setpoint_confirmed(None)
         assert trv.confirmed_setpoint is None
-        assert trv.echo_setpoints == [20.0]
+        assert trv.echo_setpoint_values() == [20.0]
 
     def test_a_confirmation_ignores_a_setpoint_another_task_moved_on_to(self):
         """The caller passes the command it waited on, not ``last_temperature``."""
         trv = _make()
-        trv.remember_setpoint_written(23.0)
+        awaited = trv.remember_setpoint_written(23.0)
         trv.last_temperature = 8.0
-        trv.remember_setpoint_confirmed(23.0)
+        trv.remember_setpoint_confirmed(23.0, awaited)
         assert trv.confirmed_setpoint == 23.0
