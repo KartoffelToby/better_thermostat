@@ -19,10 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.better_thermostat.model_fixes import (
-    TS0601 as ts0601_quirk,
-    TS0601_thermostat as ts0601_thermostat_quirk,
-)
+from custom_components.better_thermostat.model_fixes import TS0601, TS0601_thermostat
 from custom_components.better_thermostat.trv import Trv
 
 # Two of the modules carry a hyphen in the device name they are called
@@ -38,7 +35,7 @@ ENTITY_ID = "climate.trv"
 
 # The three modules that share one shape: compare, nudge conditionally,
 # and otherwise return the offset unchanged.
-CONDITIONAL_NUDGE_QUIRKS = [ts0601_quirk, ts0601_thermostat_quirk, SEA801]
+CONDITIONAL_NUDGE_QUIRKS = [TS0601, TS0601_thermostat, SEA801]
 
 
 def _thermostat(cur_temp, bt_target_temp):

@@ -74,13 +74,13 @@ from custom_components.better_thermostat.utils.const import (
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    Rounding,
     clamp_valve_percent,
     convert_to_float,
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_calibration_mode,
     round_by_step,
-    rounding,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
 
@@ -1411,11 +1411,11 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
     # Idle and cooling round the offset UP to ensure the valve closes.
     # When HEATING, round offset DOWN to ensure the valve opens.
     if self.hvac_action in _IDLE_OR_COOLING:
-        _cal_rounding = rounding.up
+        _cal_rounding = Rounding.up
     elif self.hvac_action == HVACAction.HEATING:
-        _cal_rounding = rounding.down
+        _cal_rounding = Rounding.down
     else:
-        _cal_rounding = rounding.nearest
+        _cal_rounding = Rounding.nearest
     _rounded_calibration = round_by_step(
         _new_trv_calibration, _calibration_step, _cal_rounding
     )
@@ -1615,11 +1615,11 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
     # This prevents integer-step TRVs (step=1.0) from rounding a value like
     # 19.7 up to 20.0 which would keep the valve open at the current temp.
     if self.hvac_action in _IDLE_OR_COOLING:
-        _step_rounding = rounding.down
+        _step_rounding = Rounding.down
     elif self.hvac_action == HVACAction.HEATING:
-        _step_rounding = rounding.up
+        _step_rounding = Rounding.up
     else:
-        _step_rounding = rounding.nearest
+        _step_rounding = Rounding.nearest
     _rounded_setpoint = round_by_step(
         _calibrated_setpoint, _trv_temp_step, _step_rounding
     )

@@ -122,6 +122,20 @@ async def override_set_temperature(
     return False
 
 
+# Translation keys Sonoff TRVZB valve entities carry. They are stable,
+# language-independent identifiers set by the integration.
+_TK_OPENING = frozenset(
+    {
+        "valve_opening_degree",
+        "valve_position",
+        "pi_heating_demand",
+        "heating_demand",
+        "valve",
+    }
+)
+_TK_CLOSING = frozenset({"valve_closing_degree"})
+
+
 async def maybe_set_sonoff_valve_percent(
     self: ModelFixHost, entity_id: str, percent: int
 ) -> bool:
@@ -173,17 +187,6 @@ async def maybe_set_sonoff_valve_percent(
         opening_candidates: list[str] = []
         closing_candidates: list[str] = []
         generic_candidates: list[str] = []
-
-        # Known translation_key values for Sonoff TRVZB valve entities.
-        # These are stable, language-independent identifiers set by the integration.
-        _TK_OPENING = {
-            "valve_opening_degree",
-            "valve_position",
-            "pi_heating_demand",
-            "heating_demand",
-            "valve",
-        }
-        _TK_CLOSING = {"valve_closing_degree"}
 
         for ent in entity_registry.entities.values():
             if ent.device_id != device_id or ent.domain != "number":

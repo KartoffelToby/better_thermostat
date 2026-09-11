@@ -51,6 +51,7 @@ select = [
     "PL",     # pylint
     "RUF100", # unused noqa directives
     "I",      # isort
+    "N",      # pep8-naming
 ]
 ignore = [
     "E501",   # Line too long - handled by formatter where possible
@@ -100,8 +101,45 @@ convention = "numpy"
 "custom_components/better_thermostat/utils/controlling.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/helpers.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/migrate_v0_stores.py" = ["BLE001"]
-"custom_components/better_thermostat/utils/state_manager.py" = ["BLE001"]
+"custom_components/better_thermostat/utils/state_manager.py" = [
+  "BLE001",
+  # `rmse_prior_K` and `rmse_fit_K` on `MpcV2ReidData` are persisted keys:
+  # `persist_state` writes the dataclass through `dataclasses.asdict` into Home
+  # Assistant's `Store`, so the field name is the name on disk. Renaming them
+  # needs a store version bump and a migration step. Drop this code when the
+  # store version is next bumped and the two fields move with it.
+  "N815",
+]
 "custom_components/better_thermostat/utils/valve_maintenance.py" = ["BLE001"]
+
+# The naming rules that read an identifier's case are silenced in the paths
+# below, each for a reason PEP 8 itself allows: the convention is dropped where
+# following it makes the code less readable.
+#
+# Control-theory notation. State-space matrices (`A`, `B`), Kalman quantities
+# (`kalman_P`, `Q`, `R`, `K`), temperatures (`T_room`, `target_temp_C`) and
+# differences in kelvin (`delta_T`, `error_K`) are the domain's own names, and
+# they are what the literature and the derivations next to the code spell.
+# Lowercasing them separates the code from the equations it implements. Only
+# the four rules that judge the case of a variable, argument, attribute or
+# function name are dropped; class names, exception suffixes, module names and
+# import aliases stay under the convention.
+"custom_components/better_thermostat/utils/calibration/**" = [
+  "N802",
+  "N803",
+  "N806",
+  "N815",
+]
+"tests/benchmark/**" = ["N802", "N803", "N806", "N815"]
+"tests/unit/mpc_v2/**" = ["N802", "N803", "N806", "N815"]
+"tests/unit/test_mpc_comprehensive.py" = ["N802", "N803", "N806", "N815"]
+
+# Device model names as module names. Each module under `model_fixes` is named
+# for the device model it fixes, and `load_model_quirks` imports it under the
+# model string the device registry reports, so the file name is the lookup key.
+# Spelling the modules snake_case would need a translation table between the
+# model string and the module name.
+"custom_components/better_thermostat/model_fixes/**" = ["N999"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]

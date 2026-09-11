@@ -348,6 +348,11 @@ uv run python scripts/check_naming.py list <path>    # what a file still carries
 uv run python scripts/check_naming.py check          # what CI runs
 ```
 
+The two halves are checked by different tools. `check_naming.py` reads vocabulary
+and says nothing about case; `ruff check` reads case and shape through its `N`
+rules and says nothing about which word was chosen. The two deviations above are
+`per-file-ignores` entries in `pyproject.toml`, each naming the rules it drops.
+
 ## Docstring type
 
 We use numpy type docstrings. Documentation can be found here:

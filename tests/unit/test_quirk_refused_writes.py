@@ -33,10 +33,7 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
-from custom_components.better_thermostat.model_fixes import (
-    SPZB0001 as spzb0001_quirk,
-    ZWA021 as zwa021_quirk,
-)
+from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
 
@@ -221,7 +218,7 @@ class TestTheZWaveValveDeclinesARefusedCommand:
         host = self._direct_valve_host()
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
-        answered = await zwa021_quirk.override_set_hvac_mode(host, ENTITY_ID, "heat")
+        answered = await ZWA021.override_set_hvac_mode(host, ENTITY_ID, "heat")
 
         assert answered is False
         assert "set_value" in _services_called(host)
@@ -238,7 +235,7 @@ class TestTheZWaveValveDeclinesARefusedCommand:
         host = self._direct_valve_host()
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
-        assert await zwa021_quirk.override_set_valve(host, ENTITY_ID, 50) is False
+        assert await ZWA021.override_set_valve(host, ENTITY_ID, 50) is False
         assert "set_value" in _services_called(host)
 
 
@@ -280,11 +277,11 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         with patch.object(
-            spzb0001_quirk.er,
+            SPZB0001.er,
             "async_get",
             lambda hass: self._registry_holding_a_mode_select(),
         ):
-            answered = await spzb0001_quirk.check_operation_mode(host, ENTITY_ID, "1")
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
 
         assert answered is False
         assert "select_option" in _services_called(host)
@@ -302,11 +299,11 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
         host.hass.services.async_call = AsyncMock(return_value=None)
 
         with patch.object(
-            spzb0001_quirk.er,
+            SPZB0001.er,
             "async_get",
             lambda hass: self._registry_holding_a_mode_select(),
         ):
-            assert await spzb0001_quirk.check_operation_mode(host, ENTITY_ID, "1")
+            assert await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
 
         host.hass.services.async_call.assert_awaited_once_with(
             "select",
@@ -336,11 +333,11 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
         with patch.object(
-            spzb0001_quirk.er,
+            SPZB0001.er,
             "async_get",
             lambda hass: self._registry_holding_a_mode_select(),
         ):
-            assert await spzb0001_quirk.initial_tweak(host, ENTITY_ID) is None
+            assert await SPZB0001.initial_tweak(host, ENTITY_ID) is None
         assert "select_option" in _services_called(host)
 
 
@@ -353,7 +350,7 @@ WRITING_SURFACE = {
     "initial_tweak": ((), type(None)),
 }
 QUIRK_PACKAGE = "custom_components.better_thermostat.model_fixes"
-QUIRKS_DIR = Path(spzb0001_quirk.__file__).parent
+QUIRKS_DIR = Path(SPZB0001.__file__).parent
 NOT_A_MODEL = {"__init__", "model_quirks", "types"}
 
 

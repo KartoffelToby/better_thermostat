@@ -360,10 +360,10 @@ class TestInternalTemperatureChange:
         reading would drop the room off the sensor fallback for a device
         that never left.
         """
-        from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+        from custom_components.better_thermostat.model_fixes import ZWA021
 
         trv = mock_bt.real_trvs[ENTITY_ID]
-        trv.model_quirks = zwa021
+        trv.model_quirks = ZWA021
         trv.advanced = {
             **trv.advanced,
             "calibration": CalibrationType.DIRECT_VALVE_BASED,

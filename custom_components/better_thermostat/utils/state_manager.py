@@ -244,7 +244,7 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     return _make_json_safe(data)
 
 
-class _PoisonedState(ValueError):
+class _PoisonedStateError(ValueError):
     """A stored entry carries a mathematical anomaly (NaN/inf)."""
 
 
@@ -342,7 +342,7 @@ def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
         attr,
         kind,
     )
-    raise _PoisonedState(attr)
+    raise _PoisonedStateError(attr)
 
 
 def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
@@ -361,7 +361,7 @@ def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
             attr,
             kind,
         )
-        raise _PoisonedState(attr)
+        raise _PoisonedStateError(attr)
     return number
 
 
@@ -388,7 +388,7 @@ def _finite_perf_curve(
     mapping of statistics, or a statistic ``float()`` refuses outright such
     as ``"later"``, raises one of the errors the caller skips a field on:
     the curve is lost and the rest of the entry survives. A statistic that
-    is null or parses as a non-finite number raises :class:`_PoisonedState`
+    is null or parses as a non-finite number raises :class:`_PoisonedStateError`
     instead — the bins are declared to hold plain numbers, so either one is
     corrupt math, and the entry keeps none of its stored values.
     """
@@ -453,7 +453,7 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
                 setattr(state, attr, str(value))
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc"))
-        except _PoisonedState:
+        except _PoisonedStateError:
             return MpcState()
         except TypeError, ValueError, OverflowError:
             continue
@@ -506,7 +506,7 @@ def deserialize_mpc_v2(
                 setattr(state, attr, None)
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2"))
-        except _PoisonedState:
+        except _PoisonedStateError:
             return None
         except TypeError, ValueError, OverflowError:
             # The field keeps the default a first start leaves there. Saying
@@ -563,7 +563,7 @@ def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
                 setattr(state, attr, _stored_count(value))
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2_reid"))
-        except _PoisonedState:
+        except _PoisonedStateError:
             return None
         except TypeError, ValueError, OverflowError:
             continue
@@ -610,7 +610,7 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
                 setattr(state, attr, bool(value))
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "pid"))
-        except _PoisonedState:
+        except _PoisonedStateError:
             return PIDState()
         except TypeError, ValueError, OverflowError:
             continue
@@ -636,7 +636,7 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
                 setattr(state, attr, None)
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
-        except _PoisonedState:
+        except _PoisonedStateError:
             return TpiState()
         except TypeError, ValueError, OverflowError:
             continue

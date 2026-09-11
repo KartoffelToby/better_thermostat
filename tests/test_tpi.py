@@ -159,14 +159,14 @@ class TestTpiOverManyCycles:
         duty_cycles = []
 
         for cycle in range(cycles):
-            target_temp_C = 20.0 + rng.random() * 3.0
-            error_K = -0.25 + rng.random() * 1.4
-            delta_outdoor_K = 8.0 + rng.random() * 16.0
+            heat_target_temperature = 20.0 + rng.random() * 3.0
+            error_kelvin = -0.25 + rng.random() * 1.4
+            delta_outdoor_kelvin = 8.0 + rng.random() * 16.0
             inp = TpiInput(
                 key="k",
-                current_temp_C=target_temp_C - error_K,
-                target_temp_C=target_temp_C,
-                outdoor_temp_C=target_temp_C - delta_outdoor_K,
+                current_temp_C=heat_target_temperature - error_kelvin,
+                target_temp_C=heat_target_temperature,
+                outdoor_temp_C=heat_target_temperature - delta_outdoor_kelvin,
             )
             carried, state = compute_tpi(inp, params, state=state, now=float(cycle))
             fresh, _ = compute_tpi(inp, params, state=TpiState(), now=float(cycle))
