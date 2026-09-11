@@ -71,22 +71,22 @@ class TestIgnoreTrvStates:
 
         trv_new_temp = 22.0
         entity_id = "climate.test_trv"
-        trv_data = mock_bt_instance.real_trvs[entity_id]
-        child_lock = trv_data.advanced.get("child_lock", False)
+        trv = mock_bt_instance.real_trvs[entity_id]
+        child_lock = trv.advanced.get("child_lock", False)
 
         should_adopt_temp = (
             trv_new_temp
             not in (
                 mock_bt_instance.bt_target_temp,
-                trv_data.temperature,
-                trv_data.last_temperature,
+                trv.temperature,
+                trv.last_temperature,
             )
             and not child_lock
-            and trv_data.target_temp_received is True
-            and trv_data.system_mode_received is True
-            and trv_data.hvac_mode is not HVACMode.OFF
+            and trv.target_temp_received is True
+            and trv.system_mode_received is True
+            and trv.hvac_mode is not HVACMode.OFF
             and mock_bt_instance.window_open is False
-            and not trv_data.ignore_trv_states
+            and not trv.ignore_trv_states
         )
 
         assert should_adopt_temp is False
@@ -97,22 +97,22 @@ class TestIgnoreTrvStates:
 
         trv_new_temp = 22.0
         entity_id = "climate.test_trv"
-        trv_data = mock_bt_instance.real_trvs[entity_id]
-        child_lock = trv_data.advanced.get("child_lock", False)
+        trv = mock_bt_instance.real_trvs[entity_id]
+        child_lock = trv.advanced.get("child_lock", False)
 
         should_adopt_temp = (
             trv_new_temp
             not in (
                 mock_bt_instance.bt_target_temp,
-                trv_data.temperature,
-                trv_data.last_temperature,
+                trv.temperature,
+                trv.last_temperature,
             )
             and not child_lock
-            and trv_data.target_temp_received is True
-            and trv_data.system_mode_received is True
-            and trv_data.hvac_mode is not HVACMode.OFF
+            and trv.target_temp_received is True
+            and trv.system_mode_received is True
+            and trv.hvac_mode is not HVACMode.OFF
             and mock_bt_instance.window_open is False
-            and not trv_data.ignore_trv_states
+            and not trv.ignore_trv_states
         )
 
         assert should_adopt_temp is True
@@ -124,28 +124,28 @@ class TestIgnoreTrvStates:
 
         trv_new_temp = 22.0
         entity_id = "climate.test_trv"
-        trv_data = mock_bt_instance.real_trvs[entity_id]
-        child_lock = trv_data.advanced.get("child_lock", False)
+        trv = mock_bt_instance.real_trvs[entity_id]
+        child_lock = trv.advanced.get("child_lock", False)
 
         should_adopt_temp = (
             trv_new_temp
             not in (
                 mock_bt_instance.bt_target_temp,
-                trv_data.temperature,
-                trv_data.last_temperature,
+                trv.temperature,
+                trv.last_temperature,
             )
             and not child_lock
-            and trv_data.target_temp_received is True
-            and trv_data.system_mode_received is True
-            and trv_data.hvac_mode is not HVACMode.OFF
+            and trv.target_temp_received is True
+            and trv.system_mode_received is True
+            and trv.hvac_mode is not HVACMode.OFF
             and mock_bt_instance.window_open is False
-            and not trv_data.ignore_trv_states
+            and not trv.ignore_trv_states
         )
 
         assert should_adopt_temp is False
 
     def test_ignore_trv_states_default_is_false(self):
         """The ignore_trv_states flag defaults to False when not set."""
-        trv_data = Trv.from_legacy_dict("climate.default_test", {})
+        trv = Trv.from_legacy_dict("climate.default_test", {})
 
-        assert trv_data.ignore_trv_states is False
+        assert trv.ignore_trv_states is False

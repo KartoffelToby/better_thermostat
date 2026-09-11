@@ -232,23 +232,23 @@ def build_trv_snapshots(
             )
             continue
 
-        trv_data = real_trvs.get(entity_id)
-        if trv_data is None:
+        trv = real_trvs.get(entity_id)
+        if trv is None:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance skip %s (not in real_trvs)",
                 device_name,
                 entity_id,
             )
             continue
-        support_valve = trv_data.capabilities().supports_valve_write
-        adv = _get_advanced(trv_data)
+        support_valve = trv.capabilities().supports_valve_write
+        adv = _get_advanced(trv)
         cal_type = adv.get("calibration")
         use_direct = bool(
             support_valve and cal_type == CalibrationType.DIRECT_VALVE_BASED
         )
 
-        raw_max = trv_data.max_temp
-        raw_min = trv_data.min_temp
+        raw_max = trv.max_temp
+        raw_min = trv.min_temp
         infos.append(
             MaintenanceTrvInfo(
                 entity_id=entity_id,

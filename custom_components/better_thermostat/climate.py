@@ -2290,95 +2290,101 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     async def _initialize_trvs(self) -> None:
         """Initialize each TRV: init, tweak, calibration offsets, attributes, control."""
-        for trv, trv_data in self.real_trvs.items():
-            self.all_entities.append(trv)
+        for entity_id, trv in self.real_trvs.items():
+            self.all_entities.append(entity_id)
             _LOGGER.debug(
-                "better_thermostat %s: initializing TRV %s", self.device_name, trv
+                "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )
             try:
-                await asyncio.wait_for(init(self, trv), timeout=30)
+                await asyncio.wait_for(init(self, entity_id), timeout=30)
                 _LOGGER.debug(
-                    "better_thermostat %s: TRV %s initialized", self.device_name, trv
+                    "better_thermostat %s: TRV %s initialized",
+                    self.device_name,
+                    entity_id,
                 )
             except TimeoutError:
                 _LOGGER.error(
                     "better_thermostat %s: Timeout initializing TRV %s",
                     self.device_name,
-                    trv,
+                    entity_id,
                 )
             except Exception as exc:
                 _LOGGER.error(
                     "better_thermostat %s: Error initializing TRV %s: %s",
                     self.device_name,
-                    trv,
+                    entity_id,
                     exc,
                 )
 
             try:
-                await initial_tweak(self, trv)
+                await initial_tweak(self, entity_id)
             except Exception as exc:
                 _LOGGER.error(
                     "better_thermostat %s: Error running initial tweak for TRV %s: %s",
                     self.device_name,
-                    trv,
+                    entity_id,
                     exc,
                 )
 
-            if trv_data.calibration != 1:
+            if trv.calibration != 1:
                 _LOGGER.debug(
                     "better_thermostat %s: getting offsets for TRV %s",
                     self.device_name,
-                    trv,
+                    entity_id,
                 )
 
                 try:
                     async with asyncio.timeout(10):
-                        trv_data.last_calibration = await get_current_offset(self, trv)
-                        trv_data.local_calibration_min = await get_min_offset(self, trv)
-                        trv_data.local_calibration_max = await get_max_offset(self, trv)
-                        trv_data.local_calibration_step = await get_offset_step(
-                            self, trv
+                        trv.last_calibration = await get_current_offset(self, entity_id)
+                        trv.local_calibration_min = await get_min_offset(
+                            self, entity_id
+                        )
+                        trv.local_calibration_max = await get_max_offset(
+                            self, entity_id
+                        )
+                        trv.local_calibration_step = await get_offset_step(
+                            self, entity_id
                         )
                     # Ensure None values are replaced with sensible defaults
-                    self._set_trv_calibration_defaults(trv)
+                    self._set_trv_calibration_defaults(entity_id)
                     _LOGGER.debug(
                         "better_thermostat %s: offsets for TRV %s retrieved",
                         self.device_name,
-                        trv,
+                        entity_id,
                     )
                 except TimeoutError:
                     _LOGGER.error(
                         "better_thermostat %s: Timeout getting offsets for TRV %s",
                         self.device_name,
-                        trv,
+                        entity_id,
                     )
-                    self._set_trv_calibration_defaults(trv)
+                    self._set_trv_calibration_defaults(entity_id)
                 except Exception as exc:
                     _LOGGER.error(
                         "better_thermostat %s: Error getting offsets for TRV %s: %s",
                         self.device_name,
-                        trv,
+                        entity_id,
                         exc,
                     )
-                    self._set_trv_calibration_defaults(trv)
+                    self._set_trv_calibration_defaults(entity_id)
             else:
-                trv_data.last_calibration = 0
-                trv_data.local_calibration_min = -7
-                trv_data.local_calibration_max = 7
-                trv_data.local_calibration_step = 0.5
+                trv.last_calibration = 0
+                trv.local_calibration_min = -7
+                trv.local_calibration_max = 7
+                trv.local_calibration_step = 0.5
 
-            _s = self.hass.states.get(trv)
+            _s = self.hass.states.get(entity_id)
             _attrs = _s.attributes if _s else {}
             _LOGGER.debug(
                 "better_thermostat %s: reading TRV %s attributes...",
                 self.device_name,
-                trv,
+                entity_id,
             )
-            trv_data.valve_position = convert_to_float(
+            trv.valve_position = convert_to_float(
                 str(_attrs.get("valve_position", None)), self.device_name, "startup"
             )
-            trv_data.max_temp = attr_to_celsius(self, _s, "max_temp", 30, "startup")
-            trv_data.min_temp = attr_to_celsius(self, _s, "min_temp", 5, "startup")
+            trv.max_temp = attr_to_celsius(self, _s, "max_temp", 30, "startup")
+            trv.min_temp = attr_to_celsius(self, _s, "min_temp", 5, "startup")
             # This step is the grid the device rounds to: it sizes the echo
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
@@ -2389,20 +2395,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 _s, self.device_name, self.hass.config.units.temperature_unit
             )
             if self._configured_target_temp_step is not None:
-                trv_data.target_temp_step = self._configured_target_temp_step
+                trv.target_temp_step = self._configured_target_temp_step
             elif _device_step is not None and _device_step > 0.0:
-                trv_data.target_temp_step = _device_step
+                trv.target_temp_step = _device_step
             elif self.bt_target_temp_step and self.bt_target_temp_step > 0.0:
-                trv_data.target_temp_step = self.bt_target_temp_step
+                trv.target_temp_step = self.bt_target_temp_step
             else:
-                trv_data.target_temp_step = 0.5
-            trv_data.temperature = attr_to_celsius(
-                self, _s, "temperature", 5, "startup"
-            )
-            trv_data.hvac_modes = _attrs.get("hvac_modes", None)
-            trv_data.hvac_mode = _s.state if _s else None
-            trv_data.last_hvac_mode = _s.state if _s else None
-            trv_data.last_temperature = attr_to_celsius(
+                trv.target_temp_step = 0.5
+            trv.temperature = attr_to_celsius(self, _s, "temperature", 5, "startup")
+            trv.hvac_modes = _attrs.get("hvac_modes", None)
+            trv.hvac_mode = _s.state if _s else None
+            trv.last_hvac_mode = _s.state if _s else None
+            trv.last_temperature = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
             # No reading is no reading: a fabricated value would feed
@@ -2430,11 +2434,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: TRV %s reports implausible "
                     "current_temperature %s at startup; ignoring",
                     self.device_name,
-                    trv,
+                    entity_id,
                     _current_temp,
                 )
                 _current_temp = None
-            trv_data.current_temperature = _current_temp
+            trv.current_temperature = _current_temp
 
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.
@@ -2685,8 +2689,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         active_balance_modes = set()
         active_calibration_modes = set()
         try:
-            for trv_info in self.real_trvs.values():
-                advanced = trv_info.advanced or {}
+            for trv in self.real_trvs.values():
+                advanced = trv.advanced or {}
 
                 raw_balance = advanced.get("balance_mode", "")
                 balance_value = getattr(raw_balance, "value", raw_balance)
