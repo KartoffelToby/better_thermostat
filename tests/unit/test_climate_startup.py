@@ -1390,7 +1390,8 @@ class TestInitializeTrvEchoSetpoints:
         bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: 20.0})
         await self._run(bt)
         assert bt.real_trvs[TRV_ID].last_temperature == 20.0
-        assert bt.real_trvs[TRV_ID].echo_setpoints == [20.0]
+        assert bt.real_trvs[TRV_ID].confirmed_setpoint == 20.0
+        assert bt.real_trvs[TRV_ID].echo_setpoints == []
 
     @pytest.mark.asyncio
     async def test_no_setpoint_at_startup_leaves_nothing_to_echo(self, bt):

@@ -3419,10 +3419,10 @@ class TestEchoSetpointBookkeeping:
     async def test_the_writes_since_the_confirmed_one_are_remembered(self):
         """A confirmed write and the one after it are both remembered.
 
-        The cycle writes 26.0 and the device confirms it, so the echo set
-        restarts at 26.0. The next cycle writes 25.0; a device that holds
-        on to 26.0 then reports a value BT wrote, so 26.0 stays remembered
-        next to the new command.
+        The cycle writes 26.0 and the device confirms it, so 26.0 becomes the
+        confirmed setpoint and the write list empties. The next cycle writes
+        25.0; a device that holds on to 26.0 then reports a value BT wrote,
+        so 26.0 stays known next to the new command.
         """
         trv_attrs = {"temperature": 20.0}
         mock_self = _make_mock_self(trv_state=HVACMode.HEAT, trv_attrs=trv_attrs)
@@ -3449,7 +3449,8 @@ class TestEchoSetpointBookkeeping:
 
             trv_attrs["temperature"] = 26.0
             await check_target_temperature(mock_self, "climate.trv1")
-            assert trv.echo_setpoints == [26.0]
+            assert trv.confirmed_setpoint == 26.0
+            assert trv.echo_setpoints == []
 
             mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
             mock_convert.return_value = {
@@ -3459,7 +3460,8 @@ class TestEchoSetpointBookkeeping:
             await control_trv(mock_self, "climate.trv1")
 
         assert trv.last_temperature == 25.0
-        assert trv.echo_setpoints == [26.0, 25.0]
+        assert trv.confirmed_setpoint == 26.0
+        assert trv.echo_setpoints == [25.0]
 
     @pytest.mark.asyncio
     async def test_the_value_the_delegate_sent_is_remembered_next_to_the_intent(self):

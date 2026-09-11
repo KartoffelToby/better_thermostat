@@ -2030,11 +2030,14 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
-    supported) attribute every second until either matches last_temperature
-    within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
-    target_temp_received flag when complete. A match restarts the
-    setpoints the device may echo at the confirmed command; an unreadable
-    setpoint ends the wait without confirming one.
+    supported) attribute every second until either matches the awaited
+    command within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
+    target_temp_received flag when complete. The command is read once at
+    entry: valve maintenance writes through the same delegate and moves
+    ``last_temperature`` on without going through the control path, so a
+    maintenance value must not be able to confirm a control write. A match
+    records the confirmed command and drops the writes before it; an
+    unreadable setpoint ends the wait without confirming one.
 
     Parameters
     ----------
@@ -2050,6 +2053,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     """
     _timeout = 0
     trv = self.real_trvs[entity_id]
+    _awaited_setpoint = trv.last_temperature
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2074,7 +2078,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
                 "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
                 self.device_name,
                 entity_id,
-                trv.last_temperature,
+                _awaited_setpoint,
                 _current_set_temperatures,
             )
         # An empty set (no readable setpoint) ends the wait without a
@@ -2085,8 +2089,8 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
         if not _current_set_temperatures:
             _timeout = 0
             break
-        if matches_any_setpoint(trv.last_temperature, _current_set_temperatures):
-            trv.remember_setpoint_confirmed()
+        if matches_any_setpoint(_awaited_setpoint, _current_set_temperatures):
+            trv.remember_setpoint_confirmed(_awaited_setpoint)
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
@@ -2096,7 +2100,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
                 self.device_name,
                 entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
-                trv.last_temperature,
+                _awaited_setpoint,
                 _current_set_temperatures,
             )
             _timeout = 0

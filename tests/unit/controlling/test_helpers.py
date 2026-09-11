@@ -541,6 +541,45 @@ class TestCheckTargetTemperature:
             controlling_module.asyncio.sleep = original_sleep_func
 
     @pytest.mark.asyncio
+    async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
+        """Valve maintenance moves last_temperature without going through control.
+
+        The watchdog waits on the command it was started for, so a device
+        report of the maintenance value confirms nothing and the control
+        write stays a value the device may still echo.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1",
+            {
+                "last_temperature": 23.0,
+                "echo_setpoints": [23.0],
+                "target_temp_received": False,
+            },
+        )
+
+        # The watchdog is polling for 23.0 when maintenance drives the delegate
+        # to 8.0; the device then reports the maintenance value.
+        def report(_entity_id):
+            trv.last_temperature = 8.0
+            return State("climate.trv1", HVACMode.HEAT, {"temperature": 8.0})
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.side_effect = report
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch, patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 3):
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert trv.confirmed_setpoint is None
+        assert trv.echo_setpoints == [23.0]
+
+    @pytest.mark.asyncio
     async def test_a_confirmed_write_restarts_the_echo_set_at_the_command(self):
         """A confirmed write leaves the command as the one value that may echo.
 
@@ -573,7 +612,8 @@ class TestCheckTargetTemperature:
 
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
-        assert trv.echo_setpoints == [25.0]
+        assert trv.confirmed_setpoint == 25.0
+        assert trv.echo_setpoints == []
         assert trv.last_temperature == 25.0
         assert trv.target_temp_received is True
 

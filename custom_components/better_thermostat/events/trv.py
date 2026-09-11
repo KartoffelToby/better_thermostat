@@ -321,12 +321,18 @@ async def trigger_trv_change(self, event):
         _known_values = (
             self.bt_target_temp,
             trv.last_temperature,
+            trv.confirmed_setpoint,
             *trv.echo_setpoints,
             self.bt_target_cooltemp,
             last_sent_cooler_temperature(self),
         )
     else:
-        _known_values = (self.bt_target_temp, trv.last_temperature, *trv.echo_setpoints)
+        _known_values = (
+            self.bt_target_temp,
+            trv.last_temperature,
+            trv.confirmed_setpoint,
+            *trv.echo_setpoints,
+        )
     _setpoint = resolve_inbound_setpoint(
         self,
         new_state,
