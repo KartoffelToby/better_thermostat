@@ -176,7 +176,7 @@ class TestEchoSetpoints:
         assert 21.0 not in trv.echo_setpoints
         assert trv.echo_setpoints[-1] == 29.0
 
-    def test_a_confirmation_records_the_setpoint_and_drops_the_writes(self):
+    def test_a_confirmation_records_the_setpoint_and_retires_the_writes_before_it(self):
         """Once the device confirms, the writes before it can no longer come back."""
         trv = _make()
         trv.echo_setpoints = [20.0, 26.0, 25.0]
@@ -184,13 +184,31 @@ class TestEchoSetpoints:
         assert trv.confirmed_setpoint == 25.0
         assert trv.echo_setpoints == []
 
-    def test_a_confirmation_without_a_setpoint_remembers_nothing(self):
-        """With no setpoint known, nothing is left to echo."""
+    def test_a_confirmation_keeps_the_writes_issued_after_the_command(self):
+        """Only one write is watched, so 24.0 and 25.0 are still in flight."""
+        trv = _make()
+        for value in (23.0, 24.0, 25.0):
+            trv.remember_setpoint_written(value)
+        trv.remember_setpoint_confirmed(23.0)
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoints == [24.0, 25.0]
+
+    def test_a_confirmation_of_an_evicted_command_retires_nothing(self):
+        """Without the command in the list there is no boundary to cut at."""
+        trv = _make()
+        for value in (24.0, 25.0):
+            trv.remember_setpoint_written(value)
+        trv.remember_setpoint_confirmed(23.0)
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoints == [24.0, 25.0]
+
+    def test_a_confirmation_without_a_setpoint_retires_nothing(self):
+        """A report with no setpoint confirms nothing, so nothing retires."""
         trv = _make()
         trv.echo_setpoints = [20.0]
         trv.remember_setpoint_confirmed(None)
         assert trv.confirmed_setpoint is None
-        assert trv.echo_setpoints == []
+        assert trv.echo_setpoints == [20.0]
 
     def test_a_confirmation_ignores_a_setpoint_another_task_moved_on_to(self):
         """The caller passes the command it waited on, not ``last_temperature``."""

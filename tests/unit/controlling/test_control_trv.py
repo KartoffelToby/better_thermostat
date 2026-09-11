@@ -217,6 +217,45 @@ class TestEchoSetpointsAcrossWrites:
         assert trv.echo_setpoints == [25.0]
 
     @pytest.mark.asyncio
+    async def test_writes_during_the_wait_survive_the_confirmation(self):
+        """Only one write is watched, so 24.0 and 25.0 are still in flight.
+
+        Write 23.0 and start its watchdog, then write 24.0 and 25.0 while it
+        runs — neither gets a watchdog of its own. The device confirms 23.0;
+        a delayed report of 24.0 is still BT's own write coming back.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    echo_setpoints=[], target_temp_received=True
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        reported = mock_self.hass.states.get.return_value.attributes
+
+        with _setpoint_cycle(23.0):
+            await control_trv(mock_self, "climate.trv1")
+        # The watchdog for 23.0 is the only one; the next writes get none.
+        assert trv.target_temp_received is False
+        for value in (24.0, 25.0):
+            with _setpoint_cycle(value):
+                await control_trv(mock_self, "climate.trv1")
+        assert trv.echo_setpoints == [23.0, 24.0, 25.0]
+
+        reported["temperature"] = 23.0
+        # The watchdog captures the command at entry, which for the real task
+        # is the moment it was created, right after the 23.0 write.
+        trv.last_temperature = 23.0
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await check_target_temperature(mock_self, "climate.trv1")
+
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoints == [24.0, 25.0]
+
+    @pytest.mark.asyncio
     async def test_the_intent_and_the_rounded_value_sent_are_both_remembered(self):
         """Intent 20.7 on a 0.5 step goes out as 20.5; the device may echo either."""
         mock_self = _delegate_driven_self(echo_setpoints=[20.0])

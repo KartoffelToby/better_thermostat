@@ -140,10 +140,14 @@ class Trv:
             del self.echo_setpoints[0]
 
     def remember_setpoint_confirmed(self, value: float | None) -> None:
-        """Record the setpoint the device confirmed and drop the writes before it.
+        """Record the setpoint the device confirmed and retire the writes before it.
 
         The caller passes the command it waited on rather than the current
-        ``last_temperature``, which another task may have moved on to.
+        ``last_temperature``, which another task may have moved on to. Only
+        one write is watched at a time, so writes issued while the wait ran
+        sit behind the confirmed one in the list and are still in flight;
+        they stay. A value no longer in the list gives no boundary to retire
+        against, so nothing is dropped.
 
         Parameters
         ----------
@@ -152,7 +156,8 @@ class Trv:
             reported none.
         """
         self.confirmed_setpoint = value
-        self.echo_setpoints = []
+        if value is not None and value in self.echo_setpoints:
+            del self.echo_setpoints[: self.echo_setpoints.index(value) + 1]
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
