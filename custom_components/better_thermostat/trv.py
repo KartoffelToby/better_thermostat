@@ -14,9 +14,10 @@ from datetime import datetime
 from types import ModuleType
 from typing import Any
 
-# How many setpoints a device is remembered to possibly echo. Writes since the
-# last confirmation are few; the bound only guards against a device that never
-# confirms while the control loop keeps writing.
+# How many unconfirmed writes a device is remembered to possibly echo. Writes
+# since the last confirmation are few; the bound only guards against a device
+# that never confirms while the control loop keeps writing. The confirmed
+# setpoint is held separately and is not counted against this bound.
 ECHO_SETPOINTS_LIMIT = 8
 
 
@@ -68,10 +69,16 @@ class Trv:
     last_internal_sensor_change: datetime | None = None
     # The setpoint BT last sent; the device's own at startup.
     last_temperature: float | None = None
-    # The setpoints in °C a report may carry as BT's own value: the last one
-    # the device confirmed (the device's own at startup) and every write since.
-    # ``trigger_trv_change`` reads a report within the echo window of any of
-    # them as BT's write coming back rather than as a user press.
+    # The setpoint in °C the device last confirmed, the device's own at
+    # startup. A device may report it again at any time, so it stays a value
+    # BT itself wrote even once later writes are in flight.
+    confirmed_setpoint: float | None = None
+    # The setpoints in °C written since that confirmation, oldest first. A
+    # device that did not take the latest write still reports an earlier one,
+    # so every one of them remains a value BT itself wrote.
+    # ``trigger_trv_change`` reads a report within the echo window of
+    # ``confirmed_setpoint`` or any of these as BT's write coming back rather
+    # than as a user press.
     echo_setpoints: list[float] = field(default_factory=list)
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
@@ -117,8 +124,9 @@ class Trv:
     def remember_setpoint_written(self, value: float) -> None:
         """Add a setpoint BT put on the wire to the values a report may echo.
 
-        The head of the list is the last setpoint the device confirmed, so a
-        full list drops its oldest unconfirmed write and keeps the head.
+        A value written again moves to the end, so the command most recently
+        on the wire is the last one a full list gives up. The confirmed
+        setpoint is held outside this list and is never evicted.
 
         Parameters
         ----------
@@ -126,19 +134,25 @@ class Trv:
             The setpoint in °C as it was sent.
         """
         if value in self.echo_setpoints:
-            return
+            self.echo_setpoints.remove(value)
         self.echo_setpoints.append(value)
         if len(self.echo_setpoints) > ECHO_SETPOINTS_LIMIT:
-            del self.echo_setpoints[1]
+            del self.echo_setpoints[0]
 
-    def remember_setpoint_confirmed(self) -> None:
-        """Restart the echo list at the setpoint the device confirmed.
+    def remember_setpoint_confirmed(self, value: float | None) -> None:
+        """Record the setpoint the device confirmed and drop the writes before it.
 
-        ``last_temperature`` is that setpoint; without one the list is empty.
+        The caller passes the command it waited on rather than the current
+        ``last_temperature``, which another task may have moved on to.
+
+        Parameters
+        ----------
+        value : float | None
+            The confirmed setpoint in °C, or ``None`` when the device
+            reported none.
         """
-        self.echo_setpoints = (
-            [] if self.last_temperature is None else [self.last_temperature]
-        )
+        self.confirmed_setpoint = value
+        self.echo_setpoints = []
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:

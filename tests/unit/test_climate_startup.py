@@ -1734,7 +1734,7 @@ class TestInitializeTrvSetpointSeed:
 
     @pytest.mark.asyncio
     async def test_the_reported_setpoint_seeds_the_echo_list(self, bt):
-        """The setpoint read at startup is both last_temperature and the echo head."""
+        """The setpoint read at startup is both last_temperature and the confirmed one."""
         bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
         bt.hass.config.units.temperature_unit = "°C"
         bt.hass.states.get.return_value = _make_trv_state(
@@ -1744,7 +1744,8 @@ class TestInitializeTrvSetpointSeed:
         await self._run(bt)
 
         assert bt.real_trvs[TRV_ID].last_temperature == 21.0
-        assert bt.real_trvs[TRV_ID].echo_setpoints == [21.0]
+        assert bt.real_trvs[TRV_ID].confirmed_setpoint == 21.0
+        assert bt.real_trvs[TRV_ID].echo_setpoints == []
 
 
 class TestRestoreState:

@@ -109,7 +109,9 @@ class TestEchoSetpoints:
 
     def test_a_fresh_trv_remembers_no_setpoint(self):
         """Nothing has been written or confirmed on a fresh Trv."""
-        assert _make().echo_setpoints == []
+        trv = _make()
+        assert trv.echo_setpoints == []
+        assert trv.confirmed_setpoint is None
 
     def test_from_legacy_dict_carries_the_list(self):
         """``echo_setpoints`` is a typed field, not an extra."""
@@ -125,34 +127,75 @@ class TestEchoSetpoints:
         assert trv.echo_setpoints == [21.0, 22.0]
 
     def test_a_repeated_write_is_kept_once(self):
-        """Writing a value the list already holds leaves the list unchanged."""
+        """Writing a value the list already holds does not duplicate it."""
         trv = _make()
         trv.remember_setpoint_written(21.0)
         trv.remember_setpoint_written(22.0)
         trv.remember_setpoint_written(21.0)
-        assert trv.echo_setpoints == [21.0, 22.0]
+        assert sorted(trv.echo_setpoints) == [21.0, 22.0]
 
-    def test_a_full_list_drops_the_oldest_write_and_keeps_the_head(self):
-        """The confirmed head survives the bound; the oldest write goes."""
+    def test_a_repeated_write_becomes_the_newest_again(self):
+        """The command last on the wire is the last one the bound gives up."""
         trv = _make()
-        trv.last_temperature = 20.0
-        trv.remember_setpoint_confirmed()
+        trv.remember_setpoint_written(21.0)
+        trv.remember_setpoint_written(22.0)
+        trv.remember_setpoint_written(21.0)
+        assert trv.echo_setpoints == [22.0, 21.0]
+
+    def test_a_repeated_write_outlives_an_older_one_under_the_bound(self):
+        """Re-sending 21.0 makes 22.0 the oldest, so 22.0 goes first."""
+        trv = _make()
         for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0):
             trv.remember_setpoint_written(value)
-        assert trv.echo_setpoints == [20.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0]
+        trv.remember_setpoint_written(21.0)
+        trv.remember_setpoint_written(29.0)
+        assert 21.0 in trv.echo_setpoints
+        assert 22.0 not in trv.echo_setpoints
 
-    def test_a_confirmation_restarts_the_list_at_the_confirmed_setpoint(self):
-        """Once the device confirms, only that setpoint can still come back."""
+    def test_a_full_list_drops_the_oldest_write(self):
+        """The bound counts writes since the confirmation and drops the oldest."""
+        trv = _make()
+        trv.remember_setpoint_confirmed(20.0)
+        for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
+            trv.remember_setpoint_written(value)
+        assert trv.echo_setpoints == [22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0]
+
+    def test_the_confirmed_setpoint_survives_the_bound(self):
+        """The confirmed setpoint is held apart and is never evicted."""
+        trv = _make()
+        trv.remember_setpoint_confirmed(20.0)
+        for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
+            trv.remember_setpoint_written(value)
+        assert trv.confirmed_setpoint == 20.0
+
+    def test_an_unconfirmed_write_does_not_pin_the_oldest_value(self):
+        """With no confirmation yet, the first write is evicted like any other."""
+        trv = _make()
+        for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
+            trv.remember_setpoint_written(value)
+        assert 21.0 not in trv.echo_setpoints
+        assert trv.echo_setpoints[-1] == 29.0
+
+    def test_a_confirmation_records_the_setpoint_and_drops_the_writes(self):
+        """Once the device confirms, the writes before it can no longer come back."""
         trv = _make()
         trv.echo_setpoints = [20.0, 26.0, 25.0]
-        trv.last_temperature = 25.0
-        trv.remember_setpoint_confirmed()
-        assert trv.echo_setpoints == [25.0]
+        trv.remember_setpoint_confirmed(25.0)
+        assert trv.confirmed_setpoint == 25.0
+        assert trv.echo_setpoints == []
 
-    def test_a_confirmation_without_a_setpoint_empties_the_list(self):
+    def test_a_confirmation_without_a_setpoint_remembers_nothing(self):
         """With no setpoint known, nothing is left to echo."""
         trv = _make()
         trv.echo_setpoints = [20.0]
-        trv.last_temperature = None
-        trv.remember_setpoint_confirmed()
+        trv.remember_setpoint_confirmed(None)
+        assert trv.confirmed_setpoint is None
         assert trv.echo_setpoints == []
+
+    def test_a_confirmation_ignores_a_setpoint_another_task_moved_on_to(self):
+        """The caller passes the command it waited on, not ``last_temperature``."""
+        trv = _make()
+        trv.remember_setpoint_written(23.0)
+        trv.last_temperature = 8.0
+        trv.remember_setpoint_confirmed(23.0)
+        assert trv.confirmed_setpoint == 23.0

@@ -206,13 +206,15 @@ class TestEchoSetpointsAcrossWrites:
         reported["temperature"] = 26.0
         with patch("asyncio.sleep", new=AsyncMock()):
             await check_target_temperature(mock_self, "climate.trv1")
-        assert trv.echo_setpoints == [26.0]
+        assert trv.confirmed_setpoint == 26.0
+        assert trv.echo_setpoints == []
 
         with _setpoint_cycle(25.0):
             await control_trv(mock_self, "climate.trv1")
 
         assert trv.last_temperature == 25.0
-        assert trv.echo_setpoints == [26.0, 25.0]
+        assert trv.confirmed_setpoint == 26.0
+        assert trv.echo_setpoints == [25.0]
 
     @pytest.mark.asyncio
     async def test_the_intent_and_the_rounded_value_sent_are_both_remembered(self):
