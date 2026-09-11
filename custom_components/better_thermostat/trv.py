@@ -37,7 +37,6 @@ class Trv:
     max_temp: float | None = None
     min_temp: float | None = None
     target_temp_step: float | None = None
-    temperature: float | None = None
     current_temperature: float | None = None
     hvac_modes: list[str] | None = None
     hvac_mode: str | None = None
