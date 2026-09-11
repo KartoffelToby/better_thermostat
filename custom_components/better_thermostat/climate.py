@@ -744,7 +744,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def __init__(
         self,
         name,
-        heater_entity_id,
+        trv_configs,
         sensor_entity_id,
         humidity_sensor_entity_id,
         window_id,
@@ -774,7 +774,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ----------
         name : str
             Display name of the thermostat.
-        heater_entity_id : list[dict]
+        trv_configs : list[dict]
             TRV configuration entries controlled by this thermostat.
         sensor_entity_id : str | None
             External temperature sensor entity id.
@@ -825,7 +825,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         self.real_trvs: dict[str, Trv] = {}
         self.entity_ids = []
-        self.all_trvs = heater_entity_id
+        self.all_trvs = trv_configs
         # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
         _off_temperature = None
         if off_temperature not in (None, "", "None"):  # allow numeric 0

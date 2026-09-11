@@ -832,7 +832,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.device_name = ""
         self.data: dict[str, Any] | None = None
         self.model = None
-        self.heater_entity_id = None
+        self.trv_entity_ids = None
         self.trv_bundle: list[dict[str, Any]] = []
         self.integration = None
         self.i = 0
@@ -1002,9 +1002,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_HEATER] = "no_heater"
 
             if not errors:
-                self.heater_entity_id = list(heaters)
+                self.trv_entity_ids = list(heaters)
                 self.trv_bundle = []
-                for trv in self.heater_entity_id:
+                for trv in self.trv_entity_ids:
                     integration = await get_trv_intigration(self, trv)
                     self.trv_bundle.append(
                         {
