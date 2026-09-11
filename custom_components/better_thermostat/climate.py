@@ -2090,10 +2090,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data.hvac_modes = _attrs.get("hvac_modes", None)
             trv_data.hvac_mode = _s.state if _s else None
             trv_data.last_hvac_mode = _s.state if _s else None
-            trv_data.last_temperature = attr_to_celsius(
+            _reported_setpoint = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
-            trv_data.remember_setpoint_confirmed(trv_data.last_temperature)
+            trv_data.last_temperature = _reported_setpoint
+            trv_data.remember_setpoint_confirmed(_reported_setpoint)
             # The 5.0 °C fallback for a missing reading must not pass the
             # unit conversion (a literal "5" read as °F becomes about
             # -15 °C), and a real reading of 0.0 is a reading.
