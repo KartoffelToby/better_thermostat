@@ -774,8 +774,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ----------
         name : str
             Display name of the thermostat.
-        trv_configs : list[dict]
-            TRV configuration entries controlled by this thermostat.
+        trv_configs : list[dict] | str
+            TRV configuration entries controlled by this thermostat. Config
+            entries written before 1.0.0-Beta36 carry a single entity id
+            string here instead; that shape reaches ``async_added_to_hass``
+            and stops there with an error asking the user to re-add the
+            device.
         sensor_entity_id : str | None
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
