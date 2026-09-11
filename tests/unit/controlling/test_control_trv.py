@@ -2671,16 +2671,17 @@ class TestGroupedTrvCalibration:
 
     @pytest.mark.parametrize(
         ("step", "reported", "released"),
-        [(0.5, 2.2, True), (0.5, 2.3, False), (1.0, 2.5, True)],
+        [(0.5, 2.5, True), (0.5, 2.6, False), (1.0, 3.0, True), (1.0, 3.1, False)],
     )
-    async def test_confirmation_window_is_half_the_device_step(
+    async def test_confirmation_window_is_one_device_step(
         self, mock_bt_grouped, step, reported, released
     ):
-        """A report within half the device's own offset step confirms.
+        """A report within one of the device's own offset steps confirms.
 
-        That is the distance a device can move a written value by
-        snapping it onto its own grid, so it is the width of the window
-        in which the report still counts as the command.
+        The window is symmetric because the gate cannot tell a truncated
+        count from a device holding its previous value one step away,
+        and one step is the smallest correction the channel issues; a
+        report beyond one step is a lost write.
         """
         entity_id = "climate.trv_3"
         mock_bt_grouped.real_trvs[entity_id].local_calibration_step = step
@@ -3078,7 +3079,7 @@ class TestOffsetWriteGate:
         set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
-    async def test_report_beyond_half_a_step_counts_as_diverged(self):
+    async def test_report_beyond_a_step_counts_as_diverged(self):
         """On a fine grid a small deviation is already a lost write."""
         mock_self = _make_offset_self(
             calibration_received=True,
@@ -3094,8 +3095,8 @@ class TestOffsetWriteGate:
         set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
-    async def test_report_within_half_a_step_counts_as_confirmed(self):
-        """On a coarse grid the same deviation is the device's own snap."""
+    async def test_report_within_a_step_counts_as_confirmed(self):
+        """On a coarse grid a whole step of deviation is still the command."""
         mock_self = _make_offset_self(
             calibration_received=True,
             last_calibration=-2.0,
@@ -3104,10 +3105,49 @@ class TestOffsetWriteGate:
         )
 
         set_offset, _ = await _run_offset_cycle(
-            mock_self, desired_offset=-2.0, reported_offset=-2.5
+            mock_self, desired_offset=-2.0, reported_offset=-3.0
         )
 
         set_offset.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_report_one_step_below_the_command_is_not_rewritten(self):
+        """A truncated offset count is the command, not a dropped write.
+
+        A value written as 6.3 arrives as ``int(6.3 / 0.1) == 62`` counts
+        on a 0.1 K device, so it holds and reports 6.2 for as long as the
+        intent stands. Rewriting it would send the same command every
+        cycle and wait out the confirmation window each time.
+        """
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=6.3,
+            last_calibration_requested=6.3,
+            local_calibration_step=0.1,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=6.3, reported_offset=6.2
+        )
+
+        set_offset.assert_not_awaited()
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_report_two_steps_below_the_command_is_rewritten(self):
+        """Two steps of distance is a dropped write on a 0.1 K grid."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=6.3,
+            last_calibration_requested=6.3,
+            local_calibration_step=0.1,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=6.3, reported_offset=6.1
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", 6.3)
 
     @pytest.mark.asyncio
     async def test_failed_write_keeps_the_gate_open_and_retries(self):

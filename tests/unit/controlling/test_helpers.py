@@ -898,6 +898,70 @@ class TestCheckCalibration:
         assert 1 not in durations
 
     @pytest.mark.asyncio
+    async def test_a_report_one_step_below_the_command_confirms(self, caplog):
+        """A truncated offset count is the command, not a miss.
+
+        A value written as 6.3 arrives as ``int(6.3 / 0.1) == 62`` counts
+        on a 0.1 K device, so it holds and reports 6.2; the watchdog
+        reads that report as the command it was armed for.
+        """
+        mock_self = self._mock_self(last_calibration=6.3, local_calibration_step=0.1)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=6.2),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_negative_report_one_step_nearer_zero_confirms(self, caplog):
+        """Truncation toward zero puts a negative report above the command.
+
+        A value written as -6.3 arrives as ``int(-6.3 / 0.1) == -62``
+        counts, so the device holds and reports -6.2; the watchdog reads
+        that report as the command it was armed for.
+        """
+        mock_self = self._mock_self(last_calibration=-6.3, local_calibration_step=0.1)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-6.2),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_report_two_steps_below_the_command_does_not_confirm(self, caplog):
+        """Two steps of distance is a lost write; the gate still opens."""
+        mock_self = self._mock_self(last_calibration=6.3, local_calibration_step=0.1)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=6.1),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_offset_confirmed_after_a_delay_logs_no_warning(self, caplog):
         """A late confirmation ends the wait without an annunciation."""
         mock_self = self._mock_self()
@@ -1128,10 +1192,11 @@ class TestCalibrationMatchTolerance:
         }
         return mock_self
 
-    def test_step_yields_half_a_step(self):
-        """A snapped offset sits at most half a step from the command."""
-        tolerance = _calibration_match_tolerance(self._mock_self(1.0), "climate.trv1")
-        assert tolerance == pytest.approx(0.5, abs=1e-5)
+    @pytest.mark.parametrize("step", [0.1, 0.5, 1.0])
+    def test_step_yields_a_full_step(self, step):
+        """A truncated offset count sits one step nearer zero than the command."""
+        tolerance = _calibration_match_tolerance(self._mock_self(step), "climate.trv1")
+        assert tolerance == pytest.approx(step, abs=1e-5)
 
     def test_unusable_step_falls_back_to_the_floor(self):
         """Without a usable step there is no grid to derive a tolerance from."""
