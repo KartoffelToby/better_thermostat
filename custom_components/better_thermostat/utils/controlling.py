@@ -1160,11 +1160,22 @@ async def control_trv(self, heater_entity_id=None):
                         _temperature,
                     )
                     self.real_trvs[heater_entity_id].last_temperature = _temperature
+                    self.real_trvs[heater_entity_id].remember_setpoint_written(
+                        _temperature
+                    )
                     _tvr_has_quirk = await override_set_temperature(
                         self, heater_entity_id, _temperature
                     )
                     if _tvr_has_quirk is False:
                         await set_temperature(self, heater_entity_id, _temperature)
+                    # The delegate stores the value it put on the wire, which its
+                    # rounding and clamping may have moved off the intent; the
+                    # device echoes that value, so it is remembered as well.
+                    _sent_setpoint = self.real_trvs[heater_entity_id].last_temperature
+                    if _sent_setpoint is not None:
+                        self.real_trvs[heater_entity_id].remember_setpoint_written(
+                            _sent_setpoint
+                        )
                     if self.real_trvs[heater_entity_id].target_temp_received is True:
                         self.real_trvs[heater_entity_id].target_temp_received = False
                         self.task_manager.create_task(
@@ -1267,7 +1278,10 @@ async def check_target_temperature(self, heater_entity_id=None):
     Polls the TRV's temperature (and target_temp_low, when range mode is
     supported) attribute every second until either matches last_temperature
     within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
-    target_temp_received flag when complete.
+    target_temp_received flag when complete. A match restarts the TRV's
+    echo_setpoints at the confirmed value; a timeout or an unreadable
+    setpoint leaves the list as it is, since the device may still hold any
+    of the writes in it.
 
     Parameters
     ----------
@@ -1310,12 +1324,16 @@ async def check_target_temperature(self, heater_entity_id=None):
                 _real_trv.last_temperature,
                 _current_set_temperatures,
             )
-        # An empty set (no readable setpoint) is treated as confirmed; a
-        # non-empty set is matched with a tolerance because written and
-        # read-back setpoints lie on different float rounding grids.
-        if not _current_set_temperatures or matches_any_setpoint(
-            _real_trv.last_temperature, _current_set_temperatures
-        ):
+        # An empty set (no readable setpoint) ends the wait without a
+        # confirmation, so the writes the device may still hold stay
+        # remembered. A non-empty set is matched with a tolerance because
+        # written and read-back setpoints lie on different float rounding
+        # grids.
+        if not _current_set_temperatures:
+            _timeout = 0
+            break
+        if matches_any_setpoint(_real_trv.last_temperature, _current_set_temperatures):
+            _real_trv.remember_setpoint_confirmed()
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:

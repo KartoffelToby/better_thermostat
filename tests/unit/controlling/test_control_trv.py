@@ -13,7 +13,7 @@ Absorbed tests from:
 """
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -31,6 +31,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.controlling import (
     check_calibration,
+    check_target_temperature,
     control_trv,
 )
 
@@ -135,6 +136,119 @@ def _default_trv_config(**overrides):
     }
     cfg.update(overrides)
     return Trv.from_legacy_dict("climate.trv1", cfg)
+
+
+@contextmanager
+def _setpoint_cycle(desired_temperature, *, through_delegate=False):
+    """Patch control_trv's collaborators around a plain setpoint write.
+
+    With ``through_delegate`` the real delegate runs against the TRV's mock
+    adapter, so its rounding and clamping reach ``last_temperature``.
+    """
+    set_temperature_patch = (
+        nullcontext()
+        if through_delegate
+        else patch(_PATCHES["set_temperature"], new=AsyncMock())
+    )
+    with (
+        patch(
+            _PATCHES["convert_outbound_states"],
+            return_value={
+                "temperature": desired_temperature,
+                "system_mode": HVACMode.HEAT,
+            },
+        ),
+        patch(_PATCHES["handle_contact_open"], return_value=HVACMode.HEAT),
+        patch(_PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)),
+        patch(_PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)),
+        patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+        set_temperature_patch,
+        patch("asyncio.sleep", new=AsyncMock()),
+    ):
+        yield
+
+
+def _delegate_driven_self(**trv_overrides):
+    """Mock self whose TRV writes through the real delegate on a 0.5 step."""
+    trv = _default_trv_config(target_temp_received=True, **trv_overrides)
+    trv.target_temp_step = 0.5
+    trv.adapter = MagicMock(set_temperature=AsyncMock(return_value=True))
+    return _make_mock_self(
+        trv_state=HVACMode.HEAT,
+        trv_attrs={"temperature": 20.0},
+        real_trvs={"climate.trv1": trv},
+        bt_target_temp_step=0.5,
+    )
+
+
+class TestEchoSetpointsAcrossWrites:
+    """The writes since the last confirmation stay known as possible echoes."""
+
+    @pytest.mark.asyncio
+    async def test_a_confirmed_write_and_the_next_one_are_both_remembered(self):
+        """Write 26.0, confirm it, write 25.0: the device may report either."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    echo_setpoints=[20.0], target_temp_received=True
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        reported = mock_self.hass.states.get.return_value.attributes
+
+        with _setpoint_cycle(26.0):
+            await control_trv(mock_self, "climate.trv1")
+        assert trv.echo_setpoints == [20.0, 26.0]
+
+        reported["temperature"] = 26.0
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await check_target_temperature(mock_self, "climate.trv1")
+        assert trv.echo_setpoints == [26.0]
+
+        with _setpoint_cycle(25.0):
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_temperature == 25.0
+        assert trv.echo_setpoints == [26.0, 25.0]
+
+    @pytest.mark.asyncio
+    async def test_the_intent_and_the_rounded_value_sent_are_both_remembered(self):
+        """Intent 20.7 on a 0.5 step goes out as 20.5; the device may echo either."""
+        mock_self = _delegate_driven_self(echo_setpoints=[20.0])
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with _setpoint_cycle(20.7, through_delegate=True):
+            await control_trv(mock_self, "climate.trv1")
+
+        trv.adapter.set_temperature.assert_awaited_once_with(
+            mock_self, "climate.trv1", 20.5
+        )
+        assert trv.last_temperature == 20.5
+        assert trv.echo_setpoints == [20.0, 20.7, 20.5]
+
+    @pytest.mark.asyncio
+    async def test_a_direct_delegate_write_is_not_remembered(self):
+        """A maintenance write of 30.0 through the delegate leaves the list alone.
+
+        Valve maintenance drives the setpoint through the delegate, outside the
+        control loop, and nothing confirms those writes; a remembered 30.0 would
+        read a later knob turn to the same value as an echo.
+        """
+        mock_self = _delegate_driven_self(echo_setpoints=[20.0])
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with _setpoint_cycle(21.0, through_delegate=True):
+            await control_trv(mock_self, "climate.trv1")
+        assert trv.echo_setpoints == [20.0, 21.0]
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            await delegate.set_temperature(mock_self, "climate.trv1", 30.0)
+
+        assert trv.last_temperature == 30.0
+        assert trv.echo_setpoints == [20.0, 21.0]
 
 
 # ---------------------------------------------------------------------------

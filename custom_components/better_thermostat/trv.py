@@ -14,6 +14,11 @@ from datetime import datetime
 from types import ModuleType
 from typing import Any
 
+# How many setpoints a device is remembered to possibly echo. Writes since the
+# last confirmation are few; the bound only guards against a device that never
+# confirms while the control loop keeps writing.
+ECHO_SETPOINTS_LIMIT = 8
+
 
 @dataclass
 class Trv:
@@ -61,7 +66,13 @@ class Trv:
     # nothing about how fresh another valve's reading is. ``None`` means no
     # reading has been accepted yet and the next one passes.
     last_internal_sensor_change: datetime | None = None
+    # The setpoint BT last sent; the device's own at startup.
     last_temperature: float | None = None
+    # The setpoints in °C a report may carry as BT's own value: the last one
+    # the device confirmed (the device's own at startup) and every write since.
+    # ``trigger_trv_change`` reads a report within the echo window of any of
+    # them as BT's write coming back rather than as a user press.
+    echo_setpoints: list[float] = field(default_factory=list)
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
@@ -102,6 +113,32 @@ class Trv:
         accepted = self.accept_next_internal_temp
         self.accept_next_internal_temp = False
         return accepted
+
+    def remember_setpoint_written(self, value: float) -> None:
+        """Add a setpoint BT put on the wire to the values a report may echo.
+
+        The head of the list is the last setpoint the device confirmed, so a
+        full list drops its oldest unconfirmed write and keeps the head.
+
+        Parameters
+        ----------
+        value : float
+            The setpoint in °C as it was sent.
+        """
+        if value in self.echo_setpoints:
+            return
+        self.echo_setpoints.append(value)
+        if len(self.echo_setpoints) > ECHO_SETPOINTS_LIMIT:
+            del self.echo_setpoints[1]
+
+    def remember_setpoint_confirmed(self) -> None:
+        """Restart the echo list at the setpoint the device confirmed.
+
+        ``last_temperature`` is that setpoint; without one the list is empty.
+        """
+        self.echo_setpoints = (
+            [] if self.last_temperature is None else [self.last_temperature]
+        )
 
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:

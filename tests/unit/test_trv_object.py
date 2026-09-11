@@ -102,3 +102,57 @@ class TestExtraScratchpad:
     def test_truthiness(self):
         """A Trv instance is truthy (callers use ``entry or default``)."""
         assert bool(_make()) is True
+
+
+class TestEchoSetpoints:
+    """The setpoints a device report may carry as BT's own value."""
+
+    def test_a_fresh_trv_remembers_no_setpoint(self):
+        """Nothing has been written or confirmed on a fresh Trv."""
+        assert _make().echo_setpoints == []
+
+    def test_from_legacy_dict_carries_the_list(self):
+        """``echo_setpoints`` is a typed field, not an extra."""
+        trv = Trv.from_legacy_dict("climate.trv", {"echo_setpoints": [21.0, 22.0]})
+        assert trv.echo_setpoints == [21.0, 22.0]
+        assert trv.extra == {}
+
+    def test_a_written_setpoint_is_appended(self):
+        """Each write joins the list behind the values already there."""
+        trv = _make()
+        trv.remember_setpoint_written(21.0)
+        trv.remember_setpoint_written(22.0)
+        assert trv.echo_setpoints == [21.0, 22.0]
+
+    def test_a_repeated_write_is_kept_once(self):
+        """Writing a value the list already holds leaves the list unchanged."""
+        trv = _make()
+        trv.remember_setpoint_written(21.0)
+        trv.remember_setpoint_written(22.0)
+        trv.remember_setpoint_written(21.0)
+        assert trv.echo_setpoints == [21.0, 22.0]
+
+    def test_a_full_list_drops_the_oldest_write_and_keeps_the_head(self):
+        """The confirmed head survives the bound; the oldest write goes."""
+        trv = _make()
+        trv.last_temperature = 20.0
+        trv.remember_setpoint_confirmed()
+        for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0):
+            trv.remember_setpoint_written(value)
+        assert trv.echo_setpoints == [20.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0]
+
+    def test_a_confirmation_restarts_the_list_at_the_confirmed_setpoint(self):
+        """Once the device confirms, only that setpoint can still come back."""
+        trv = _make()
+        trv.echo_setpoints = [20.0, 26.0, 25.0]
+        trv.last_temperature = 25.0
+        trv.remember_setpoint_confirmed()
+        assert trv.echo_setpoints == [25.0]
+
+    def test_a_confirmation_without_a_setpoint_empties_the_list(self):
+        """With no setpoint known, nothing is left to echo."""
+        trv = _make()
+        trv.echo_setpoints = [20.0]
+        trv.last_temperature = None
+        trv.remember_setpoint_confirmed()
+        assert trv.echo_setpoints == []

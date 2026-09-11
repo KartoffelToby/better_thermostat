@@ -2093,6 +2093,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data.last_temperature = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
+            trv_data.remember_setpoint_confirmed()
             # The 5.0 °C fallback for a missing reading must not pass the
             # unit conversion (a literal "5" read as °F becomes about
             # -15 °C), and a real reading of 0.0 is a reading.
