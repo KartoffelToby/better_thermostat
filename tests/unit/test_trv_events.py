@@ -1456,7 +1456,8 @@ class TestTargetTempAdoption:
         """
         mock_bt.bt_target_temp = 24.0
         mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
-        mock_bt.real_trvs[ENTITY_ID].echo_setpoints = [26.0, 25.0]
+        for _value in (26.0, 25.0):
+            mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
         old_state = _make_state(
             attributes={"temperature": 26.0, "current_temperature": 21.0}
@@ -1493,7 +1494,8 @@ class TestTargetTempAdoption:
         """
         mock_bt.bt_target_temp = 24.0
         mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
-        mock_bt.real_trvs[ENTITY_ID].echo_setpoints = [26.0, 25.0]
+        for _value in (26.0, 25.0):
+            mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
         old_state = _make_state(
             attributes={"temperature": 26.0, "current_temperature": 21.0}
@@ -1530,7 +1532,8 @@ class TestTargetTempAdoption:
         """
         mock_bt.bt_target_temp = 24.0
         mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
-        mock_bt.real_trvs[ENTITY_ID].echo_setpoints = [25.0]
+        for _value in (25.0,):
+            mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
         old_state = _make_state(
             attributes={"temperature": 26.0, "current_temperature": 21.0}
@@ -3317,7 +3320,8 @@ class TestDualRoleEntityReports:
         22.0. Its report of 22.0 while it heats is BT's own write coming
         back, so neither target moves.
         """
-        shared_bt.real_trvs[ENTITY_ID].echo_setpoints = [22.0, 20.0]
+        for _value in (22.0, 20.0):
+            shared_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
         await self._report(
             shared_bt, device_mode="heat", reported_temp=22.0, previous_temp=22.0

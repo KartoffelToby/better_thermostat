@@ -2035,9 +2035,10 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     target_temp_received flag when complete. The command is read once at
     entry: valve maintenance writes through the same delegate and moves
     ``last_temperature`` on without going through the control path, so a
-    maintenance value must not be able to confirm a control write. A match
-    records the confirmed command and drops the writes before it; an
-    unreadable setpoint ends the wait without confirming one.
+    maintenance value must not be able to confirm a control write. The id
+    that command went out under is read with it, so the confirmation retires
+    that write and the ones before it and leaves anything written while the
+    wait ran. An unreadable setpoint ends the wait without confirming one.
 
     Parameters
     ----------
@@ -2054,6 +2055,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     _timeout = 0
     trv = self.real_trvs[entity_id]
     _awaited_setpoint = trv.last_temperature
+    _awaited_write_id = trv.last_setpoint_write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2090,7 +2092,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
             _timeout = 0
             break
         if matches_any_setpoint(_awaited_setpoint, _current_set_temperatures):
-            trv.remember_setpoint_confirmed(_awaited_setpoint)
+            trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:

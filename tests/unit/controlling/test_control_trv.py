@@ -3445,12 +3445,12 @@ class TestEchoSetpointBookkeeping:
                 "system_mode": HVACMode.HEAT,
             }
             await control_trv(mock_self, "climate.trv1")
-            assert trv.echo_setpoints == [26.0]
+            assert trv.echo_setpoint_values() == [26.0]
 
             trv_attrs["temperature"] = 26.0
             await check_target_temperature(mock_self, "climate.trv1")
             assert trv.confirmed_setpoint == 26.0
-            assert trv.echo_setpoints == []
+            assert trv.echo_setpoint_values() == []
 
             mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
             mock_convert.return_value = {
@@ -3461,16 +3461,11 @@ class TestEchoSetpointBookkeeping:
 
         assert trv.last_temperature == 25.0
         assert trv.confirmed_setpoint == 26.0
-        assert trv.echo_setpoints == [25.0]
+        assert trv.echo_setpoint_values() == [25.0]
 
     @pytest.mark.asyncio
-    async def test_writes_during_the_wait_survive_the_confirmation(self):
-        """Only one write is watched, so 24.0 and 25.0 are still in flight.
-
-        Write 23.0 and start its watchdog, then write 24.0 and 25.0 while it
-        runs — neither gets a watchdog of its own. The device confirms 23.0;
-        a delayed report of 24.0 is still BT's own write coming back.
-        """
+    async def test_each_write_in_a_cycle_takes_a_rising_id(self):
+        """The id the watchdog captures is the one of the write it follows."""
         trv_attrs = {"temperature": 20.0}
         mock_self = _make_mock_self(trv_state=HVACMode.HEAT, trv_attrs=trv_attrs)
         trv = mock_self.real_trvs["climate.trv1"]
@@ -3487,23 +3482,25 @@ class TestEchoSetpointBookkeeping:
             patch(_PATCHES["set_temperature"], autospec=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
-            for value in (23.0, 24.0, 25.0):
+            mock_convert.return_value = {
+                "temperature": 23.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+            # The watchdog task is created inside that cycle, so this is the
+            # id it reads at entry.
+            awaited_write_id = trv.last_setpoint_write_id
+
+            for value in (24.0, 25.0):
                 mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
                 mock_convert.return_value = {
                     "temperature": value,
                     "system_mode": HVACMode.HEAT,
                 }
                 await control_trv(mock_self, "climate.trv1")
-            assert trv.echo_setpoints == [23.0, 24.0, 25.0]
 
-            trv_attrs["temperature"] = 23.0
-            # The watchdog captures the command at entry, which for the real
-            # task is the moment it was created, right after the 23.0 write.
-            trv.last_temperature = 23.0
-            await check_target_temperature(mock_self, "climate.trv1")
-
-        assert trv.confirmed_setpoint == 23.0
-        assert trv.echo_setpoints == [24.0, 25.0]
+        assert trv.echo_setpoint_values() == [23.0, 24.0, 25.0]
+        assert trv.last_setpoint_write_id > awaited_write_id
 
     @pytest.mark.asyncio
     async def test_the_value_the_delegate_sent_is_remembered_next_to_the_intent(self):
@@ -3541,4 +3538,4 @@ class TestEchoSetpointBookkeeping:
             mock_self, "climate.trv1", pytest.approx(20.5)
         )
         assert trv.last_temperature == pytest.approx(20.5)
-        assert trv.echo_setpoints == [pytest.approx(20.7), pytest.approx(20.5)]
+        assert trv.echo_setpoint_values() == [pytest.approx(20.7), pytest.approx(20.5)]

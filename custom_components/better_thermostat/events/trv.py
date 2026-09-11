@@ -322,7 +322,7 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
-            *trv.echo_setpoints,
+            *trv.echo_setpoint_values(),
             self.bt_target_cooltemp,
             last_sent_cooler_temperature(self),
         )
@@ -331,7 +331,7 @@ async def trigger_trv_change(self, event):
             self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
-            *trv.echo_setpoints,
+            *trv.echo_setpoint_values(),
         )
     _setpoint = resolve_inbound_setpoint(
         self,
@@ -455,7 +455,7 @@ async def trigger_trv_change(self, event):
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
                 "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
-                "bt_target_temp=%s last_temperature=%s echo_setpoints=%s step=%s)",
+                "bt_target_temp=%s last_temperature=%s pending_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -470,7 +470,7 @@ async def trigger_trv_change(self, event):
                 trv.ignore_trv_states,
                 self.bt_target_temp,
                 trv.last_temperature,
-                trv.echo_setpoints,
+                trv.echo_setpoint_values(),
                 _step,
             )
 

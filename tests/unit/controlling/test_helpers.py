@@ -23,7 +23,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -271,6 +271,16 @@ class TestCheckSystemMode:
 # ---------------------------------------------------------------------------
 # check_target_temperature
 # ---------------------------------------------------------------------------
+
+
+def _seed_pending(*values):
+    """Seed the pending writes as if each value had gone out in order."""
+    return {
+        "pending_setpoints": [
+            PendingSetpoint(value, index) for index, value in enumerate(values, start=1)
+        ],
+        "last_setpoint_write_id": len(values),
+    }
 
 
 class TestCheckTargetTemperature:
@@ -541,6 +551,47 @@ class TestCheckTargetTemperature:
             controlling_module.asyncio.sleep = original_sleep_func
 
     @pytest.mark.asyncio
+    async def test_writes_made_during_the_wait_survive_the_confirmation(self):
+        """Only one write is watched, so 24.0 and 25.0 are still in flight.
+
+        The watchdog reads the command and its id at entry. The control loop
+        then writes 24.0 and 25.0 while the wait runs — neither gets a
+        watchdog of its own. When the device finally reports 23.0, the
+        confirmation must retire 23.0 alone.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+        )
+        trv.remember_setpoint_written(23.0)
+
+        polls: list[int] = []
+
+        def report(_entity_id):
+            polls.append(1)
+            if len(polls) == 1:
+                # The control loop writes again while the wait runs.
+                trv.remember_setpoint_written(24.0)
+                trv.remember_setpoint_written(25.0)
+                return State("climate.trv1", HVACMode.HEAT, {"temperature": 20.0})
+            return State("climate.trv1", HVACMode.HEAT, {"temperature": 23.0})
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.side_effect = report
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoint_values() == [24.0, 25.0]
+
+    @pytest.mark.asyncio
     async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
         """Valve maintenance moves last_temperature without going through control.
 
@@ -552,7 +603,7 @@ class TestCheckTargetTemperature:
             "climate.trv1",
             {
                 "last_temperature": 23.0,
-                "echo_setpoints": [23.0],
+                **_seed_pending(23.0),
                 "target_temp_received": False,
             },
         )
@@ -577,7 +628,7 @@ class TestCheckTargetTemperature:
 
         assert result is True
         assert trv.confirmed_setpoint is None
-        assert trv.echo_setpoints == [23.0]
+        assert trv.echo_setpoint_values() == [23.0]
 
     @pytest.mark.asyncio
     async def test_a_confirmed_write_restarts_the_echo_set_at_the_command(self):
@@ -600,7 +651,7 @@ class TestCheckTargetTemperature:
                 "climate.trv1",
                 {
                     "last_temperature": 25.0,
-                    "echo_setpoints": [26.0, 25.0],
+                    **_seed_pending(26.0, 25.0),
                     "target_temp_received": False,
                 },
             )
@@ -613,7 +664,7 @@ class TestCheckTargetTemperature:
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
         assert trv.confirmed_setpoint == 25.0
-        assert trv.echo_setpoints == []
+        assert trv.echo_setpoint_values() == []
         assert trv.last_temperature == 25.0
         assert trv.target_temp_received is True
 
@@ -638,7 +689,7 @@ class TestCheckTargetTemperature:
                 "climate.trv1",
                 {
                     "last_temperature": 22.0,
-                    "echo_setpoints": [20.0, 22.0],
+                    **_seed_pending(20.0, 22.0),
                     "target_temp_received": False,
                 },
             )
@@ -651,7 +702,7 @@ class TestCheckTargetTemperature:
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
         assert trv.target_temp_received is True
-        assert trv.echo_setpoints == [20.0, 22.0]
+        assert trv.echo_setpoint_values() == [20.0, 22.0]
 
     @pytest.mark.asyncio
     async def test_a_give_up_keeps_the_echo_set_and_the_command(self, caplog):
@@ -674,7 +725,7 @@ class TestCheckTargetTemperature:
                 "climate.trv1",
                 {
                     "last_temperature": 25.0,
-                    "echo_setpoints": [26.0, 25.0],
+                    **_seed_pending(26.0, 25.0),
                     "target_temp_received": False,
                 },
             )
@@ -686,7 +737,7 @@ class TestCheckTargetTemperature:
 
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
-        assert trv.echo_setpoints == [26.0, 25.0]
+        assert trv.echo_setpoint_values() == [26.0, 25.0]
         assert trv.last_temperature == 25.0
         assert trv.target_temp_received is True
         assert "did not confirm the target temperature" in caplog.text
