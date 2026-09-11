@@ -1920,11 +1920,18 @@ async def control_trv(
                             _temperature,
                         )
                         trv_entry.last_temperature = _temperature
+                        trv_entry.remember_setpoint_written(_temperature)
                         _tvr_has_quirk = await override_set_temperature(
                             self, entity_id, _temperature
                         )
                         if _tvr_has_quirk is False:
                             await set_temperature(self, entity_id, _temperature)
+                        # The delegate records the value it sent after its own
+                        # rounding and clamping, which is the one the device
+                        # can echo. Only writes of this path are remembered:
+                        # maintenance drives the device through the delegate
+                        # and nothing confirms those writes.
+                        trv_entry.remember_setpoint_written(trv_entry.last_temperature)
                         if trv_entry.target_temp_received is True:
                             trv_entry.target_temp_received = False
                             self.task_manager.create_task(
@@ -2025,7 +2032,9 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     Polls the TRV's temperature (and target_temp_low, when range mode is
     supported) attribute every second until either matches last_temperature
     within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
-    target_temp_received flag when complete.
+    target_temp_received flag when complete. A match restarts the
+    setpoints the device may echo at the confirmed command; an unreadable
+    setpoint ends the wait without confirming one.
 
     Parameters
     ----------
@@ -2040,7 +2049,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
         Always returns True
     """
     _timeout = 0
-    _real_trv = self.real_trvs[entity_id]
+    trv = self.real_trvs[entity_id]
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2065,15 +2074,19 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
                 "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
                 self.device_name,
                 entity_id,
-                _real_trv.last_temperature,
+                trv.last_temperature,
                 _current_set_temperatures,
             )
-        # An empty set (no readable setpoint) is treated as confirmed; a
-        # non-empty set is matched with a tolerance because written and
-        # read-back setpoints lie on different float rounding grids.
-        if not _current_set_temperatures or matches_any_setpoint(
-            _real_trv.last_temperature, _current_set_temperatures
-        ):
+        # An empty set (no readable setpoint) ends the wait without a
+        # confirmation, so the writes the device may still hold stay
+        # remembered; a non-empty set is matched with a tolerance because
+        # written and read-back setpoints lie on different float rounding
+        # grids.
+        if not _current_set_temperatures:
+            _timeout = 0
+            break
+        if matches_any_setpoint(trv.last_temperature, _current_set_temperatures):
+            trv.remember_setpoint_confirmed()
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
@@ -2083,7 +2096,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
                 self.device_name,
                 entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
-                _real_trv.last_temperature,
+                trv.last_temperature,
                 _current_set_temperatures,
             )
             _timeout = 0
@@ -2092,7 +2105,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
         _timeout += 1
     await asyncio.sleep(2)
 
-    _real_trv.target_temp_received = True
+    trv.target_temp_received = True
     return True
 
 

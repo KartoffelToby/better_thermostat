@@ -5,7 +5,7 @@ import importlib
 import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import ECHO_SETPOINTS_LIMIT, Trv
 
 
 def _make() -> Trv:
@@ -108,6 +108,75 @@ class TestExtraScratchpad:
     def test_truthiness(self):
         """A Trv instance is truthy (callers use ``entry or default``)."""
         assert bool(_make()) is True
+
+
+class TestEchoSetpoints:
+    """The setpoints a report may carry as BT's own write."""
+
+    def test_a_fresh_trv_expects_no_echo(self):
+        """Nothing has been written or confirmed, so nothing can echo."""
+        assert _make().echo_setpoints == []
+
+    def test_each_trv_keeps_its_own_list(self):
+        """A write remembered on one TRV is unknown to another."""
+        first = _make()
+        first.remember_setpoint_written(26.0)
+        assert _make().echo_setpoints == []
+
+    def test_a_written_setpoint_is_remembered(self):
+        """A write joins the values the device may echo."""
+        trv = _make()
+        trv.remember_setpoint_written(26.0)
+        assert trv.echo_setpoints == [26.0]
+
+    def test_remembering_no_setpoint_adds_nothing(self):
+        """A TRV with no setpoint on record has nothing to remember."""
+        trv = _make()
+        trv.remember_setpoint_written(26.0)
+        trv.remember_setpoint_written(None)
+        assert trv.echo_setpoints == [26.0]
+
+    def test_a_repeated_write_is_remembered_once(self):
+        """Writing a value that is already remembered adds no entry."""
+        trv = _make()
+        trv.remember_setpoint_written(26.0)
+        trv.remember_setpoint_written(25.0)
+        trv.remember_setpoint_written(26.0)
+        assert trv.echo_setpoints == [26.0, 25.0]
+
+    def test_the_confirmed_setpoint_outlives_the_bound(self):
+        """Past the bound the oldest unconfirmed write goes, the head stays."""
+        trv = _make()
+        trv.last_temperature = 20.0
+        trv.remember_setpoint_confirmed()
+        for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
+            trv.remember_setpoint_written(value)
+        assert len(trv.echo_setpoints) == ECHO_SETPOINTS_LIMIT
+        assert trv.echo_setpoints == [20.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0]
+
+    def test_a_confirmation_restarts_the_list_at_the_command(self):
+        """Once the device holds the command, only the command can echo."""
+        trv = _make()
+        trv.remember_setpoint_written(26.0)
+        trv.last_temperature = 25.0
+        trv.remember_setpoint_written(25.0)
+        trv.remember_setpoint_confirmed()
+        assert trv.echo_setpoints == [25.0]
+
+    def test_a_confirmation_without_a_command_leaves_nothing(self):
+        """With no command on record a confirmation empties the list."""
+        trv = _make()
+        trv.remember_setpoint_written(26.0)
+        trv.last_temperature = None
+        trv.remember_setpoint_confirmed()
+        assert trv.echo_setpoints == []
+
+    def test_from_legacy_dict_fills_the_list_from_the_dict(self):
+        """The list is a typed field like the rest, with its own default."""
+        seeded = Trv.from_legacy_dict("climate.trv", {"echo_setpoints": [26.0]})
+        bare = Trv.from_legacy_dict("climate.trv", {})
+        assert seeded.echo_setpoints == [26.0]
+        assert bare.echo_setpoints == []
 
 
 class TestTrvCapabilities:

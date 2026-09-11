@@ -541,6 +541,117 @@ class TestCheckTargetTemperature:
             controlling_module.asyncio.sleep = original_sleep_func
 
     @pytest.mark.asyncio
+    async def test_a_confirmed_write_restarts_the_echo_set_at_the_command(self):
+        """A confirmed write leaves the command as the one value that may echo.
+
+        The device answers within the match tolerance of the command, so the
+        writes before it cannot come back and the set restarts at the command
+        itself, not at the report.
+        """
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 25.004}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "last_temperature": 25.0,
+                    "echo_setpoints": [26.0, 25.0],
+                    "target_temp_received": False,
+                },
+            )
+        }
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert result is True
+        assert trv.echo_setpoints == [25.0]
+        assert trv.last_temperature == 25.0
+        assert trv.target_temp_received is True
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_setpoint_ends_the_wait_without_confirming(self):
+        """A device publishing no setpoint confirms nothing.
+
+        The wait ends, because there is nothing to poll for, but the writes
+        the device may still hold stay remembered: a report that shows up
+        again later can carry any of them.
+        """
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": None}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "last_temperature": 22.0,
+                    "echo_setpoints": [20.0, 22.0],
+                    "target_temp_received": False,
+                },
+            )
+        }
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert result is True
+        assert trv.target_temp_received is True
+        assert trv.echo_setpoints == [20.0, 22.0]
+
+    @pytest.mark.asyncio
+    async def test_a_give_up_keeps_the_echo_set_and_the_command(self, caplog):
+        """A write the device does not take leaves the echo set as it stands.
+
+        The device stays on the earlier write, so both that value and the
+        command remain values a report may carry as BT's own; the command
+        stays on record for the reconciler.
+        """
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 26.0}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "last_temperature": 25.0,
+                    "echo_setpoints": [26.0, 25.0],
+                    "target_temp_received": False,
+                },
+            )
+        }
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch, caplog.at_level(logging.WARNING):
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert result is True
+        assert trv.echo_setpoints == [26.0, 25.0]
+        assert trv.last_temperature == 25.0
+        assert trv.target_temp_received is True
+        assert "did not confirm the target temperature" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_convert_to_float_called(self):
         """Test that convert_to_float is used for temperature conversion."""
         mock_state = Mock()

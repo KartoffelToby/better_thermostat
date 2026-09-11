@@ -16,7 +16,7 @@ import asyncio
 from datetime import datetime
 import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -24,6 +24,9 @@ from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
+from custom_components.better_thermostat.adapters.delegate import (
+    set_temperature as delegate_set_temperature,
+)
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.valve_maintenance import (
@@ -521,6 +524,43 @@ class TestRunValveMaintenance:
         assert valve_fn.await_count == 4
         calls = [c.args for c in valve_fn.await_args_list]
         assert calls == [("trv1", 100), ("trv1", 0), ("trv1", 100), ("trv1", 0)]
+
+    @pytest.mark.asyncio
+    async def test_the_writes_of_a_run_are_not_remembered_as_echoes(self):
+        """A maintenance run leaves the setpoints a report may echo alone.
+
+        The run drives a setpoint-controlled TRV to its maximum, its minimum
+        and back to the restored target through the delegate, and no
+        watchdog confirms any of those writes. Were they remembered, a knob
+        turned down to the device minimum afterwards would read as an echo.
+        """
+        bt = MagicMock()
+        bt.device_name = "Test"
+        bt.bt_target_temp_step = 0.5
+        trv = Trv(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
+        trv.adapter = MagicMock()
+        trv.adapter.set_temperature = AsyncMock(return_value=True)
+        trv.echo_setpoints = [21.0]
+        bt.real_trvs = {"climate.trv1": trv}
+
+        async def write_through_the_delegate(entity_id: str, temp: float) -> None:
+            await delegate_set_temperature(bt, entity_id, temp)
+
+        infos = [_info(entity_id="climate.trv1", cur_temp=21.0)]
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=write_through_the_delegate,
+            set_hvac_mode_fn=AsyncMock(),
+            get_state=_reports_a_moved_mode(infos),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        sent = [c.args[2] for c in trv.adapter.set_temperature.await_args_list]
+        assert sent == [30.0, 5.0, 30.0, 5.0, 21.0]
+        assert trv.last_temperature == 21.0
+        assert trv.echo_setpoints == [21.0]
 
     @pytest.mark.asyncio
     async def test_multiple_trvs(self):

@@ -44,6 +44,12 @@ class ModelQuirks(Protocol):
     override_set_temperature: Callable[..., Awaitable[bool]]
 
 
+# How many setpoints one TRV keeps as values a report may echo. The head of
+# the list is the last confirmed setpoint and is kept whatever happens; the
+# bound only trims the writes made since.
+ECHO_SETPOINTS_LIMIT = 8
+
+
 @dataclass(frozen=True)
 class TrvCapabilities:
     """What this TRV can do.
@@ -110,6 +116,14 @@ class Trv:
     # reading has been accepted yet and the next one passes.
     last_internal_sensor_change: datetime | None = None
     last_temperature: float | None = None
+    # The setpoints in °C a report may carry as BT's own value: the last one
+    # the device confirmed (its own at startup) and every control-path write
+    # since. ``trigger_trv_change`` reads a report within the echo window of
+    # any of them as BT's write coming back rather than as a user press. A
+    # knob turned onto one of the remembered writes before the device
+    # confirms is read as an echo as well; that is the price of telling a
+    # held write from a press.
+    echo_setpoints: list[float] = field(default_factory=list)
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
@@ -173,6 +187,36 @@ class Trv:
         accepted = self.accept_next_internal_temp
         self.accept_next_internal_temp = False
         return accepted
+
+    def remember_setpoint_written(self, value: float | None) -> None:
+        """Add a written setpoint to the values a report may echo.
+
+        A value already in the list is not added again, and ``None`` (no
+        setpoint on record) adds nothing. Past ``ECHO_SETPOINTS_LIMIT``
+        entries the one after the head is dropped, so the last confirmed
+        setpoint at the head outlives every write made since.
+
+        Parameters
+        ----------
+        value : float | None
+            the setpoint in °C as it went to the device
+        """
+        if value is None or value in self.echo_setpoints:
+            return
+        self.echo_setpoints.append(value)
+        if len(self.echo_setpoints) > ECHO_SETPOINTS_LIMIT:
+            del self.echo_setpoints[1]
+
+    def remember_setpoint_confirmed(self) -> None:
+        """Restart the values a report may echo at the confirmed command.
+
+        The device holds ``last_temperature`` now, so the writes before it
+        cannot come back; the list restarts at that one value, or empty when
+        nothing has been commanded.
+        """
+        self.echo_setpoints = (
+            [self.last_temperature] if self.last_temperature is not None else []
+        )
 
     def capabilities(self) -> TrvCapabilities:
         """Effective capabilities: adapter declaration ∩ discovered surface."""

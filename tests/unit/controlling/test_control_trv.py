@@ -41,7 +41,9 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    MIN_WRITE_INTERVAL_S,
     check_calibration,
+    check_target_temperature,
     control_trv,
 )
 
@@ -3403,3 +3405,96 @@ class TestSnappingSelectOffsetConverges:
             mock_self.clock.advance(31.0)
 
         assert device.written == ["-3.0k", "3.0k"]
+
+
+# ---------------------------------------------------------------------------
+# Echo bookkeeping across control cycles
+# ---------------------------------------------------------------------------
+
+
+class TestEchoSetpointBookkeeping:
+    """The writes a device may still echo follow the control cycle."""
+
+    @pytest.mark.asyncio
+    async def test_the_writes_since_the_confirmed_one_are_remembered(self):
+        """A confirmed write and the one after it are both remembered.
+
+        The cycle writes 26.0 and the device confirms it, so the echo set
+        restarts at 26.0. The next cycle writes 25.0; a device that holds
+        on to 26.0 then reports a value BT wrote, so 26.0 stays remembered
+        next to the new command.
+        """
+        trv_attrs = {"temperature": 20.0}
+        mock_self = _make_mock_self(trv_state=HVACMode.HEAT, trv_attrs=trv_attrs)
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 26.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+            assert trv.echo_setpoints == [26.0]
+
+            trv_attrs["temperature"] = 26.0
+            await check_target_temperature(mock_self, "climate.trv1")
+            assert trv.echo_setpoints == [26.0]
+
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+            mock_convert.return_value = {
+                "temperature": 25.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_temperature == 25.0
+        assert trv.echo_setpoints == [26.0, 25.0]
+
+    @pytest.mark.asyncio
+    async def test_the_value_the_delegate_sent_is_remembered_next_to_the_intent(self):
+        """Both the intent and the value the delegate sent may echo.
+
+        The cycle asks for 20.7 on a device with a 0.5 step; the delegate
+        rounds and sends 20.5, which is what the device can report back.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.target_temp_step = 0.5
+        trv.adapter = MagicMock()
+        trv.adapter.set_temperature = AsyncMock(return_value=True)
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.7,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        trv.adapter.set_temperature.assert_awaited_once_with(
+            mock_self, "climate.trv1", pytest.approx(20.5)
+        )
+        assert trv.last_temperature == pytest.approx(20.5)
+        assert trv.echo_setpoints == [pytest.approx(20.7), pytest.approx(20.5)]

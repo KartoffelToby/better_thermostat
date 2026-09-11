@@ -303,9 +303,12 @@ async def trigger_trv_change(self, event):
     _old_heating_setpoint = read_setpoint_celsius(
         self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    # Compare only against values BT itself wrote. ``_old_heating_setpoint`` is
-    # the TRV's previously published state and is not necessarily a BT-written
-    # value, so it does not belong in the echo-suppression set.
+    # Compare only against values BT itself wrote: the room target, the last
+    # command, and the writes since the one the device last confirmed, which
+    # a device may still hold against a later write it did not take.
+    # ``_old_heating_setpoint`` is the TRV's previously published state and is
+    # not necessarily a BT-written value, so it does not belong in the
+    # echo-suppression set.
     _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
@@ -318,11 +321,12 @@ async def trigger_trv_change(self, event):
         _known_values = (
             self.bt_target_temp,
             trv.last_temperature,
+            *trv.echo_setpoints,
             self.bt_target_cooltemp,
             last_sent_cooler_temperature(self),
         )
     else:
-        _known_values = (self.bt_target_temp, trv.last_temperature)
+        _known_values = (self.bt_target_temp, trv.last_temperature, *trv.echo_setpoints)
     _setpoint = resolve_inbound_setpoint(
         self,
         new_state,
@@ -445,7 +449,7 @@ async def trigger_trv_change(self, event):
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
                 "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
-                "bt_target_temp=%s last_temperature=%s step=%s)",
+                "bt_target_temp=%s last_temperature=%s echo_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -460,6 +464,7 @@ async def trigger_trv_change(self, event):
                 trv.ignore_trv_states,
                 self.bt_target_temp,
                 trv.last_temperature,
+                trv.echo_setpoints,
                 _step,
             )
 

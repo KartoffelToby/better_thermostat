@@ -1361,6 +1361,46 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
+class TestInitializeTrvEchoSetpoints:
+    """Startup takes the device's own setpoint as the one it may echo."""
+
+    def _trv_only_bt(self, bt, attrs):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = "°C"
+        bt.hass.states.get.return_value = _make_trv_state(attrs=attrs)
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_the_setpoint_the_device_holds_at_startup_may_echo(self, bt):
+        """The device's own setpoint is the one value a report may carry."""
+        bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: 20.0})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].last_temperature == 20.0
+        assert bt.real_trvs[TRV_ID].echo_setpoints == [20.0]
+
+    @pytest.mark.asyncio
+    async def test_no_setpoint_at_startup_leaves_nothing_to_echo(self, bt):
+        """A device publishing no setpoint gives startup nothing to remember."""
+        bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: None})
+        await self._run(bt)
+        assert bt.real_trvs[TRV_ID].last_temperature is None
+        assert bt.real_trvs[TRV_ID].echo_setpoints == []
+
+
 class TestInitializeTrvCalibrationFallback:
     """The offset read's gaps are filled without overwriting its answers.
 
