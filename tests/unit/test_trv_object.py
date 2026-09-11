@@ -201,7 +201,7 @@ class TestEchoSetpoints:
         ]
 
     def test_the_confirmed_setpoint_outlives_the_bound(self):
-        """The confirmed setpoint is held apart and is never evicted."""
+        """The bound counts the writes alone, so the confirmed setpoint outlives it."""
         trv = _make()
         trv.remember_setpoint_confirmed(20.0)
         for value in (21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0):
@@ -250,7 +250,7 @@ class TestEchoSetpoints:
         assert trv.echo_setpoint_values() == [24.0, 23.0]
 
     def test_a_confirmation_without_a_write_id_retires_nothing(self):
-        """A caller that never waited has no boundary to retire against."""
+        """A caller that confirms without waiting has no boundary to retire against."""
         trv = _make()
         trv.remember_setpoint_written(26.0)
         trv.remember_setpoint_confirmed(26.0)
