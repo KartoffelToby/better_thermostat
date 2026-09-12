@@ -146,6 +146,11 @@ class Trv:
     # the start of its wait so the confirmation retires that command and the
     # ones before it, never a write made while the wait ran.
     last_setpoint_write_id: int = 0
+    # The highest write id a confirmation has already covered. Handing a
+    # shared device over releases the heating channel's pending confirmation
+    # without stopping its watchdog, so two can run at once and answer out of
+    # order; the later command wins whichever answers last.
+    confirmed_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
     last_current_temperature: float | None = None
@@ -273,8 +278,12 @@ class Trv:
             reported none
         through_write_id : int
             retire the writes up to and including this id; the default
-            retires nothing, for callers that confirm without having waited
+            retires nothing, for callers that confirm without having waited.
+            A confirmation older than one already recorded is dropped
         """
+        if through_write_id < self.confirmed_write_id:
+            return
+        self.confirmed_write_id = through_write_id
         self.confirmed_setpoint = value
         self.pending_setpoints = [
             pending

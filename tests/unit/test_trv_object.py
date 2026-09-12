@@ -225,6 +225,28 @@ class TestEchoSetpoints:
         assert trv.confirmed_setpoint == 25.0
         assert trv.echo_setpoint_values() == []
 
+    def test_a_confirmation_older_than_one_already_recorded_is_dropped(self):
+        """Handing a shared device over lets two watchdogs answer out of order.
+
+        The heating channel's watchdog is released without being stopped, so
+        a second one can start and confirm first. The older answer must not
+        put its command back as the one the device holds.
+        """
+        trv = _make()
+        older = trv.remember_setpoint_written(23.0)
+        newer = trv.remember_setpoint_written(25.0)
+        trv.remember_setpoint_confirmed(25.0, newer)
+        trv.remember_setpoint_confirmed(23.0, older)
+        assert trv.confirmed_setpoint == 25.0
+
+    def test_a_confirmation_at_the_recorded_id_still_applies(self):
+        """Only an older answer is dropped; the same watchdog may answer once."""
+        trv = _make()
+        awaited = trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_confirmed(23.0, awaited)
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.confirmed_write_id == awaited
+
     def test_a_confirmation_keeps_the_writes_issued_after_the_command(self):
         """Only one write is watched, so 24.0 and 25.0 are still in flight."""
         trv = _make()
