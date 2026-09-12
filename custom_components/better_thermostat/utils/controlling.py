@@ -80,9 +80,9 @@ _LOGGER = logging.getLogger(__name__)
 MIN_WRITE_INTERVAL_S = 30.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
-# Floor for the commanded-vs-reported offset comparison. Half the declared
-# offset step is the right window only while that step describes the grid the
-# device reports on; an adapter declaring a nominal 0.01 K step describes a
+# Floor for the commanded-vs-reported offset comparison. One declared offset
+# step is the right window only while that step describes the grid the device
+# reports on; an adapter declaring a nominal 0.01 K step describes a
 # continuous range instead, and any report rounded coarser than that then reads
 # as a divergence the write gate re-asserts on every control cycle. The floor
 # covers those roundings and stays below the 0.1 K resolution a TRV reports its
@@ -386,8 +386,16 @@ def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
 def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> float:
     """Per-device tolerance for the commanded-vs-reported offset comparison.
 
-    Devices snap a written offset onto their own step grid; a snapped
-    value sits at most half a step away from the commanded one.
+    A written offset travels to the device as a count of its declared
+    step, and the ZHA number platform truncates that count toward zero
+    (``int(value / step)``). Float division lands just short of the
+    whole number, so a value written as 6.3 arrives as
+    ``int(6.3 / 0.1) == 62`` counts and the device reports 6.2: the
+    truncated count lands one step nearer zero than the command, in
+    either sign. A device whose own grid is one declared step coarser
+    lands there too. A report within one step of the command is
+    therefore the command or its truncated neighbour, and a report
+    further away is a lost write.
     OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report
     no usable step and those whose declared step is finer than the grid
     they actually report on.
@@ -411,8 +419,8 @@ def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> floa
     )
     if step is None or step <= 0:
         return OFFSET_MATCH_TOLERANCE_K
-    # Slack against float noise when the difference is exactly half a step.
-    return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
+    # Slack against float noise when the difference is exactly one step.
+    return max(OFFSET_MATCH_TOLERANCE_K, step + 1e-6)
 
 
 def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
