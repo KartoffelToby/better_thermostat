@@ -360,8 +360,8 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     pid_trvs: set[str] = set()
     if not bt_climate.real_trvs:
         return pid_trvs
-    for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.advanced or {}
+    for trv_entity_id, trv in bt_climate.real_trvs.items():
+        advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         # Normalize string values to CalibrationMode enum
         if isinstance(calibration_mode, str):
@@ -689,8 +689,8 @@ class _BtMpcSensorBase(_BtSensorBase):
         """Update state from calibration_balance debug data."""
         val = None
         if self._bt_climate.real_trvs:
-            for trv_data in self._bt_climate.real_trvs.values():
-                cal_bal = trv_data.calibration_balance
+            for trv in self._bt_climate.real_trvs.values():
+                cal_bal = trv.calibration_balance
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
                     if self._debug_key in debug:
@@ -893,8 +893,8 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
         """Update state from the MPC v2 debug payload."""
         val = None
         if self._bt_climate.real_trvs:
-            for trv_data in self._bt_climate.real_trvs.values():
-                cal_bal = trv_data.calibration_balance
+            for trv in self._bt_climate.real_trvs.values():
+                cal_bal = trv.calibration_balance
                 debug = cal_bal.get("debug") if cal_bal else None
                 if (
                     isinstance(debug, dict)

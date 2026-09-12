@@ -1811,13 +1811,13 @@ async def control_trv(
                         entity_id,
                     )
 
-                trv_entry = self.real_trvs[entity_id]
+                trv = self.real_trvs[entity_id]
                 _offset_tolerance = _calibration_match_tolerance(self, entity_id)
 
                 # COMMAND: what the adapter actually put on the wire. Only
                 # that value can be acknowledged; before the first write the
                 # device's own report stands in for it.
-                _last_sent = trv_entry.last_calibration
+                _last_sent = trv.last_calibration
                 if _last_sent is None:
                     _last_sent = _current_calibration
 
@@ -1834,7 +1834,7 @@ async def control_trv(
 
                 # A device holding what it was told has acknowledged it, even
                 # when the state event that would have said so was suppressed.
-                if trv_entry.calibration_received is False and _command_confirmed:
+                if trv.calibration_received is False and _command_confirmed:
                     _LOGGER.debug(
                         "better_thermostat %s: TRV %s device confirms the last "
                         "calibration command (%s), releasing the write gate",
@@ -1842,9 +1842,9 @@ async def control_trv(
                         entity_id,
                         _last_sent,
                     )
-                    trv_entry.calibration_received = True
+                    trv.calibration_received = True
 
-                if _calibration is not None and trv_entry.calibration_received is True:
+                if _calibration is not None and trv.calibration_received is True:
                     if _last_sent is None:
                         _LOGGER.debug(
                             "better_thermostat %s: no reference calibration for %s "
@@ -1860,7 +1860,7 @@ async def control_trv(
                         # cycle. Both intent values come off the same step
                         # grid, so they compare exactly; only the report lives
                         # on the device's grid and needs the tolerance.
-                        _last_requested = trv_entry.last_calibration_requested
+                        _last_requested = trv.last_calibration_requested
                         if _last_requested is None:
                             _last_requested = _last_sent
                         if float(_last_requested) != _calibration or _command_diverged:
@@ -1876,13 +1876,13 @@ async def control_trv(
                                     _current_calibration,
                                 )
                                 if await set_offset(self, entity_id, _calibration):
-                                    trv_entry.calibration_received = False
-                                    trv_entry.calibration_write_generation += 1
+                                    trv.calibration_received = False
+                                    trv.calibration_write_generation += 1
                                     self.task_manager.create_task(
                                         check_calibration(
                                             self,
                                             entity_id,
-                                            trv_entry.calibration_write_generation,
+                                            trv.calibration_write_generation,
                                         ),
                                         name=f"bt_check_calibration_{entity_id}",
                                     )
@@ -1908,7 +1908,7 @@ async def control_trv(
                 # device step grid, the read-back values on the 0.01 grid, so
                 # exact set membership would re-send identical setpoints.
                 if not matches_any_setpoint(_temperature, _current_set_temperatures):
-                    trv_entry = self.real_trvs[entity_id]
+                    trv = self.real_trvs[entity_id]
                     # Safety-relevant writes (frost floor / OFF) bypass the
                     # write budget; everything else waits for the next slot
                     # and converges via the scheduled retry.
@@ -1919,7 +1919,7 @@ async def control_trv(
                         bypass=_safety_overrode_setpoint
                         or _new_hvac_mode == HVACMode.OFF,
                     ):
-                        old = trv_entry.last_temperature
+                        old = trv.last_temperature
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
                             self.device_name,
@@ -1927,8 +1927,8 @@ async def control_trv(
                             old,
                             _temperature,
                         )
-                        trv_entry.last_temperature = _temperature
-                        trv_entry.remember_setpoint_written(_temperature)
+                        trv.last_temperature = _temperature
+                        trv.remember_setpoint_written(_temperature)
                         _tvr_has_quirk = await override_set_temperature(
                             self, entity_id, _temperature
                         )
@@ -1939,9 +1939,9 @@ async def control_trv(
                         # can echo. Only writes of this path are remembered:
                         # maintenance drives the device through the delegate
                         # and nothing confirms those writes.
-                        trv_entry.remember_setpoint_written(trv_entry.last_temperature)
-                        if trv_entry.target_temp_received is True:
-                            trv_entry.target_temp_received = False
+                        trv.remember_setpoint_written(trv.last_temperature)
+                        if trv.target_temp_received is True:
+                            trv.target_temp_received = False
                             self.task_manager.create_task(
                                 check_target_temperature(self, entity_id),
                                 name=f"bt_check_target_temp_{entity_id}",
@@ -1990,7 +1990,7 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
         Always returns True
     """
     _timeout = 0
-    _real_trv = self.real_trvs[entity_id]
+    trv = self.real_trvs[entity_id]
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2010,7 +2010,7 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
         # describes. Waiting for a match it will never make would hold the
         # write open for the full confirmation budget and then warn about a
         # device that is doing exactly what it was told.
-        if _trv_state.state == _real_trv.last_hvac_mode or (
+        if _trv_state.state == trv.last_hvac_mode or (
             _trv_state.state == STATE_UNKNOWN and state_unknown_as_available
         ):
             _timeout = 0
@@ -2022,7 +2022,7 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
                 self.device_name,
                 entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
-                _real_trv.last_hvac_mode,
+                trv.last_hvac_mode,
                 _trv_state.state,
             )
             _timeout = 0
@@ -2030,7 +2030,7 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
         await asyncio.sleep(1)
         _timeout += 1
     await asyncio.sleep(2)
-    _real_trv.system_mode_received = True
+    trv.system_mode_received = True
     return True
 
 
@@ -2168,11 +2168,11 @@ async def check_calibration(
         Always returns True
     """
     _timeout = 0
-    _real_trv = self.real_trvs[entity_id]
+    trv = self.real_trvs[entity_id]
     _tolerance = _calibration_match_tolerance(self, entity_id)
     try:
         while True:
-            if _real_trv.calibration_write_generation != generation:
+            if trv.calibration_write_generation != generation:
                 _LOGGER.debug(
                     "better_thermostat %s: a newer calibration command superseded "
                     "the one %s was being watched for, leaving the write gate to "
@@ -2197,9 +2197,9 @@ async def check_calibration(
                 self.device_name,
                 "check_calibration()",
             )
-            if _real_trv.last_calibration is None or (
+            if trv.last_calibration is None or (
                 _reported is not None
-                and abs(_reported - float(_real_trv.last_calibration)) <= _tolerance
+                and abs(_reported - float(trv.last_calibration)) <= _tolerance
             ):
                 _timeout = 0
                 break
@@ -2210,7 +2210,7 @@ async def check_calibration(
                     self.device_name,
                     entity_id,
                     WRITE_CONFIRM_TIMEOUT_S,
-                    _real_trv.last_calibration,
+                    trv.last_calibration,
                     _reported,
                 )
                 _timeout = 0
@@ -2219,6 +2219,6 @@ async def check_calibration(
             _timeout += 1
         await asyncio.sleep(2)
     finally:
-        if _real_trv.calibration_write_generation == generation:
-            _real_trv.calibration_received = True
+        if trv.calibration_write_generation == generation:
+            trv.calibration_received = True
     return True
