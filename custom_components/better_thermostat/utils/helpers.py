@@ -1621,7 +1621,7 @@ def matches_any_setpoint(
     return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
 
 
-class rounding:
+class Rounding:
     """Rounding helpers for stable step-based rounding.
 
     Provides minor offsets to avoid floating point rounding artifacts when
@@ -1647,7 +1647,7 @@ class rounding:
 def round_by_step(
     value: float | None,
     step: float | None,
-    f_rounding: Callable[[float], float] = rounding.nearest,
+    f_rounding: Callable[[float], float] = Rounding.nearest,
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
 
@@ -1658,7 +1658,7 @@ def round_by_step(
     step : float
             size of one step
     f_rounding : callable
-            rounding function (default: rounding.nearest)
+            rounding function (default: Rounding.nearest)
 
     Returns
     -------
@@ -1670,7 +1670,7 @@ def round_by_step(
         return None
     # Use default rounding function if none provided
     if f_rounding is None:
-        f_rounding = rounding.nearest
+        f_rounding = Rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
     return f_rounding(value / step) * step
 
@@ -1716,6 +1716,19 @@ class ValveEntityInfo(TypedDict):
     writable: bool
     reason: str
     domain: str
+
+
+# Known translation_key values used by TRV integrations for valve-related entities.
+# These are stable, language-independent identifiers set by the integration.
+_VALVE_TRANSLATION_KEYS: dict[str, str] = {
+    "valve_position": "valve_position",
+    "valve_opening_degree": "valve_opening_degree",
+    "valve_closing_degree": "valve_closing_degree",
+    "pi_heating_demand": "pi_heating_demand",
+    "heating_demand": "pi_heating_demand",
+    # Shelly BLU TRV uses this translation_key
+    "valve": "valve_position",
+}
 
 
 async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
@@ -1768,18 +1781,6 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
             return False
         cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
         return bool(base_identifiers.intersection(cand_identifiers))
-
-    # Known translation_key values used by TRV integrations for valve-related entities.
-    # These are stable, language-independent identifiers set by the integration.
-    _VALVE_TRANSLATION_KEYS: dict[str, str] = {
-        "valve_position": "valve_position",
-        "valve_opening_degree": "valve_opening_degree",
-        "valve_closing_degree": "valve_closing_degree",
-        "pi_heating_demand": "pi_heating_demand",
-        "heating_demand": "pi_heating_demand",
-        # Shelly BLU TRV uses this translation_key
-        "valve": "valve_position",
-    }
 
     def _classify_by_translation_key(entity: er.RegistryEntry) -> str | None:
         """Classify entity by its translation_key (stable, language-independent)."""

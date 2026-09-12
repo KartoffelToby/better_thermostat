@@ -348,6 +348,33 @@ uv run python scripts/check_naming.py list <path>    # what a file still carries
 uv run python scripts/check_naming.py check          # what CI runs
 ```
 
+The two halves are checked by different tools. `check_naming.py` reads vocabulary
+and says nothing about case; `ruff check` reads case and shape through its `N`
+rules and says nothing about which word was chosen.
+
+Where the case rules give way, `pyproject.toml` says so in a `per-file-ignores`
+entry, and there are five: the control-theory notation under
+`custom_components/better_thermostat/utils/calibration/`, its three test mirrors
+`tests/benchmark/`, `tests/unit/mpc_v2/` and
+`tests/unit/test_mpc_comprehensive.py`, and the device model strings that name
+the modules under `model_fixes/`. Each entry drops only the rules that fire
+under it. Where a single line carries the notation rather than a tree, a
+`# noqa: N8xx` with its reason does the job instead, as the two persisted field
+names in `utils/state_manager.py` do. Both forms are capped by
+`.pep8-naming-budget.json`, which records per file how many findings they hide,
+and CI holds that number:
+
+```bash
+uv run python scripts/pep8_naming_budget.py check    # what CI runs
+```
+
+The two gates point in opposite directions inside those paths, and that is not
+yet settled. `glossary.toml` rejects `delta_T` and the `_K` and `_C` suffixes
+wherever they appear, the calibration modules included, and `.naming-budget.json`
+charges every one of them. The ruff exemption buys nothing there. A separate
+change decides whether the glossary gains an exception for the notation or those
+names come out.
+
 ## Docstring type
 
 We use numpy type docstrings. Documentation can be found here:

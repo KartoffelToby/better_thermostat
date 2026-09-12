@@ -15,9 +15,9 @@ Related issues:
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
+    Rounding,
     convert_to_float,
     round_by_step,
-    rounding,
 )
 
 
@@ -92,14 +92,14 @@ class TestRoundByStep:
         # These should round to their nearest 0.1
         assert round_by_step(19.97, 0.1) == pytest.approx(20.0, abs=0.001)
         assert round_by_step(19.94, 0.1) == pytest.approx(19.9, abs=0.001)
-        # Note: 19.95 rounds down due to rounding.nearest epsilon offset
+        # Note: 19.95 rounds down due to Rounding.nearest epsilon offset
         assert round_by_step(19.95, 0.1) == pytest.approx(19.9, abs=0.001)
 
     def test_round_by_step_001_preserves_hundredths(self):
         """Test that 0.01 step rounding preserves hundredths."""
         assert round_by_step(19.97, 0.01) == pytest.approx(19.97, abs=0.001)
         assert round_by_step(19.994, 0.01) == pytest.approx(19.99, abs=0.001)
-        # Note: 19.995 rounds down due to rounding.nearest epsilon offset
+        # Note: 19.995 rounds down due to Rounding.nearest epsilon offset
         assert round_by_step(19.995, 0.01) == pytest.approx(19.99, abs=0.001)
 
 
@@ -175,7 +175,7 @@ class TestDirectionAwareRounding:
 
     def test_idle_step_1_rounds_setpoint_down(self):
         """IDLE with step=1.0: 19.7 must round DOWN to 19.0, not up to 20.0."""
-        result = round_by_step(19.7, 1.0, rounding.down)
+        result = round_by_step(19.7, 1.0, Rounding.down)
         assert result == pytest.approx(19.0, abs=0.01), (
             f"Expected 19.0, got {result}. "
             "Rounding 19.7 up to 20.0 keeps the valve open when it should close."
@@ -183,37 +183,37 @@ class TestDirectionAwareRounding:
 
     def test_heating_step_1_rounds_setpoint_up(self):
         """HEATING with step=1.0: 20.3 must round UP to 21.0 to keep valve open."""
-        result = round_by_step(20.3, 1.0, rounding.up)
+        result = round_by_step(20.3, 1.0, Rounding.up)
         assert result == pytest.approx(21.0, abs=0.01)
 
     def test_idle_step_1_already_on_boundary(self):
         """IDLE with step=1.0: exact integer 20.0 stays at 20.0."""
-        result = round_by_step(20.0, 1.0, rounding.down)
+        result = round_by_step(20.0, 1.0, Rounding.down)
         assert result == pytest.approx(20.0, abs=0.01)
 
     def test_heating_step_1_already_on_boundary(self):
         """HEATING with step=1.0: exact integer 20.0 stays at 20.0."""
-        result = round_by_step(20.0, 1.0, rounding.up)
+        result = round_by_step(20.0, 1.0, Rounding.up)
         assert result == pytest.approx(20.0, abs=0.01)
 
     def test_idle_step_05_rounds_setpoint_down(self):
         """IDLE with step=0.5: 19.8 must round DOWN to 19.5, not up to 20.0."""
-        result = round_by_step(19.8, 0.5, rounding.down)
+        result = round_by_step(19.8, 0.5, Rounding.down)
         assert result == pytest.approx(19.5, abs=0.01)
 
     def test_heating_step_05_rounds_setpoint_up(self):
         """HEATING with step=0.5: 20.2 must round UP to 20.5."""
-        result = round_by_step(20.2, 0.5, rounding.up)
+        result = round_by_step(20.2, 0.5, Rounding.up)
         assert result == pytest.approx(20.5, abs=0.01)
 
     def test_idle_step_01_rounds_setpoint_down(self):
         """IDLE with step=0.1: 19.97 must round DOWN to 19.9, not up to 20.0."""
-        result = round_by_step(19.97, 0.1, rounding.down)
+        result = round_by_step(19.97, 0.1, Rounding.down)
         assert result == pytest.approx(19.9, abs=0.01)
 
     def test_heating_step_01_rounds_setpoint_up(self):
         """HEATING with step=0.1: 20.01 must round UP to 20.1."""
-        result = round_by_step(20.01, 0.1, rounding.up)
+        result = round_by_step(20.01, 0.1, Rounding.up)
         assert result == pytest.approx(20.1, abs=0.01)
 
     # --- Local calibration offset rounding (inverted direction) ---
@@ -223,7 +223,7 @@ class TestDirectionAwareRounding:
 
         A positive offset makes the TRV read a higher temperature, closing the valve.
         """
-        result = round_by_step(0.7, 1.0, rounding.up)
+        result = round_by_step(0.7, 1.0, Rounding.up)
         assert result == pytest.approx(1.0, abs=0.01)
 
     def test_heating_local_cal_step_1_rounds_offset_down(self):
@@ -231,12 +231,12 @@ class TestDirectionAwareRounding:
 
         A negative offset makes the TRV read a lower temperature, opening the valve.
         """
-        result = round_by_step(-0.3, 1.0, rounding.down)
+        result = round_by_step(-0.3, 1.0, Rounding.down)
         assert result == pytest.approx(-1.0, abs=0.01)
 
     def test_idle_local_cal_step_1_negative_offset_rounds_up(self):
         """IDLE local calibration: offset -0.3 rounds UP to 0.0 (towards closing)."""
-        result = round_by_step(-0.3, 1.0, rounding.up)
+        result = round_by_step(-0.3, 1.0, Rounding.up)
         assert result == pytest.approx(0.0, abs=0.01)
 
     # --- Regression: small steps should be minimally affected ---
@@ -244,8 +244,8 @@ class TestDirectionAwareRounding:
     def test_step_001_direction_minimal_impact(self):
         """With step=0.01, direction-aware rounding changes value by at most 0.01."""
         value = 19.975
-        down = round_by_step(value, 0.01, rounding.down)
-        up = round_by_step(value, 0.01, rounding.up)
+        down = round_by_step(value, 0.01, Rounding.down)
+        up = round_by_step(value, 0.01, Rounding.up)
         assert down == pytest.approx(19.97, abs=0.001)
         assert up == pytest.approx(19.98, abs=0.001)
         # Difference between up and down is at most one step
@@ -266,13 +266,13 @@ class TestDirectionAwareRounding:
         step = 1.0
 
         # Old behavior (nearest) - would round UP → valve stays open
-        nearest_result = round_by_step(calibrated_setpoint, step, rounding.nearest)
+        nearest_result = round_by_step(calibrated_setpoint, step, Rounding.nearest)
         assert nearest_result == pytest.approx(20.0, abs=0.01), (
             "Nearest rounding should produce 20.0 (the buggy value)"
         )
 
         # New behavior (down when IDLE) - rounds DOWN → valve closes
-        idle_result = round_by_step(calibrated_setpoint, step, rounding.down)
+        idle_result = round_by_step(calibrated_setpoint, step, Rounding.down)
         assert idle_result == pytest.approx(19.0, abs=0.01), (
             f"IDLE rounding should produce 19.0, got {idle_result}. "
             "This is the core fix for integer-step TRVs."

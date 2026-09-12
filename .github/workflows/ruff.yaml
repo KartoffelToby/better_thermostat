@@ -39,6 +39,12 @@ jobs:
       # existing ones are worked off.
       - name: Check the rejected name budget
         run: uv run --locked --only-group dev python scripts/check_naming.py check
+      # The N rules are silenced for the paths that carry control-theory
+      # notation and for the device model strings that name the modules under
+      # model_fixes, so `ruff check` above says nothing about those names.
+      # This caps them.
+      - name: Check the PEP 8 naming budget
+        run: uv run --locked --only-group dev python scripts/pep8_naming_budget.py check
       # A test docstring that retells the code pins the behaviour it found,
       # which the suite cannot notice: the test is green either way. This caps
       # the summaries where that question is still open.

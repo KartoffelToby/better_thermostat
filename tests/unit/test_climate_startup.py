@@ -758,14 +758,14 @@ class TestCheckEntitiesReady:
         reports ``unknown`` for as long as that mode holds, so the startup
         loop would keep waiting for a device that is right there.
         """
-        from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+        from custom_components.better_thermostat.model_fixes import ZWA021
         from custom_components.better_thermostat.utils.const import CalibrationType
 
         sensor = _make_sensor_state()
         bt.real_trvs = {
             TRV_ID: Trv(
                 entity_id=TRV_ID,
-                model_quirks=zwa021,
+                model_quirks=ZWA021,
                 advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
             )
         }

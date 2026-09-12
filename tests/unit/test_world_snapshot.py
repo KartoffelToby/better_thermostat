@@ -19,7 +19,7 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
     parse_hvac_mode,
 )
-from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
@@ -188,7 +188,7 @@ class TestTrvReportedBuilding:
         the addressed set and never written to again.
         """
         bt = _make_bt()
-        bt.real_trvs["climate.trv"].model_quirks = zwa021
+        bt.real_trvs["climate.trv"].model_quirks = ZWA021
         bt.real_trvs["climate.trv"].advanced = {
             "calibration": CalibrationType.DIRECT_VALVE_BASED
         }

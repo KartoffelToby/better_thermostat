@@ -22,7 +22,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperat
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
+from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -219,7 +219,7 @@ class TestCheckSystemMode:
             live_state=STATE_UNKNOWN, last_hvac_mode=HVACMode.HEAT
         )
         trv = mock_self.real_trvs["climate.trv1"]
-        trv.model_quirks = zwa021
+        trv.model_quirks = ZWA021
         trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
 
         slept = []
@@ -360,7 +360,7 @@ class TestCheckTargetTemperature:
             )
         }
         trv = mock_self.real_trvs["climate.trv1"]
-        trv.model_quirks = zwa021
+        trv.model_quirks = ZWA021
         trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
 
         slept = []

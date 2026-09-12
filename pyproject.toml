@@ -51,6 +51,7 @@ select = [
     "PL",     # pylint
     "RUF100", # unused noqa directives
     "I",      # isort
+    "N",      # pep8-naming
 ]
 ignore = [
     "E501",   # Line too long - handled by formatter where possible
@@ -102,6 +103,42 @@ convention = "numpy"
 "custom_components/better_thermostat/utils/migrate_v0_stores.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/state_manager.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/valve_maintenance.py" = ["BLE001"]
+
+# Control-theory notation. The state-space matrices `A` and `B`, the Kalman
+# covariance `P` and gain `K`, the process and measurement noise `Q` and `R`
+# and the horizon length `N` are single symbols lifted from the derivations
+# that sit in the docstrings beside them. Lowercasing them separates the code
+# from the equations it implements, which is the case PEP 8 itself makes for
+# dropping the convention. Class names, exception suffixes, module names and
+# import aliases stay under it either way.
+#
+# Each entry drops only the rules that actually fire under it, so a rule no
+# file there trips is not disarmed for the files that arrive later, and
+# `.pep8-naming-budget.json` caps how many findings the entries hide. A glob
+# says where a deviation is allowed; the budget says how many there are, and
+# `scripts/pep8_naming_budget.py check` holds that number. An inline
+# `# noqa: N8xx` counts the same, which is what makes it the better form where
+# one line rather than a tree carries the notation.
+#
+# This is about case alone. The vocabulary half is judged by
+# `scripts/check_naming.py` against `glossary.toml`, which rejects `delta_T`
+# and the `_K` and `_C` suffixes in these paths as well and charges them to
+# `.naming-budget.json`. Nothing here excuses them; a separate change decides
+# whether the glossary gains an exception for the notation or the names come
+# out.
+"custom_components/better_thermostat/utils/calibration/**" = ["N803", "N806", "N815"]
+"tests/benchmark/**" = ["N802", "N803", "N806", "N815"]
+"tests/unit/mpc_v2/**" = ["N803", "N806"]
+"tests/unit/test_mpc_comprehensive.py" = ["N802", "N803", "N806"]
+
+# Device model names as module names. `load_model_quirks` sanitises the model
+# string the device registry reports and imports the module of that name, so a
+# file name under `model_fixes` is a lookup key rather than a name anybody
+# chose. `_QUIRK_MODULE_ALIASES` in `model_quirks.py` redirects a model to
+# another model's module; snake_case module names would turn that one-line
+# redirect into an entry per supported device. The budget records the twelve
+# files that trip the rule today, so a thirteenth is not exempt for free.
+"custom_components/better_thermostat/model_fixes/**" = ["N999"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]

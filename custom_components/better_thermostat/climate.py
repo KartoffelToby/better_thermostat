@@ -4539,8 +4539,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if old_ema is not None and old_ts is not None:
                     dt_min = (now_ts - old_ts) / 60.0
                     if dt_min > 0.1:  # Avoid division by zero or tiny steps
-                        delta_T = new_ema - old_ema
-                        slope = delta_T / dt_min
+                        delta_kelvin = new_ema - old_ema
+                        slope = delta_kelvin / dt_min
                         self.temp_slope = slope
                         _LOGGER.debug(
                             "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",

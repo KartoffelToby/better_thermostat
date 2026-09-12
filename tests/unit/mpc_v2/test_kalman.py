@@ -31,7 +31,7 @@ def test_initialise_seeds_x_hat() -> None:
     assert float(obs.x_hat[1]) == 35.0
 
 
-def test_observer_reconstructs_T_rad_from_T_room_measurements() -> None:
+def test_observer_reconstructs_T_rad_from_T_room_measurements() -> None:  # noqa: N802
     """Drive the truth model, feed only T_room into the observer, verify T_rad recovery."""
     plant_true = PlantModelRC2(
         PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0
