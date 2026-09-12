@@ -63,9 +63,9 @@ async def test_a_delegate_write_leaves_the_echo_list_alone(bt):
     control loop and nothing confirms those writes, so a list fed here would
     read a later knob turn to the same value as an echo.
     """
-    bt.real_trvs[ENTITY_ID].echo_setpoints = [21.0]
+    bt.real_trvs[ENTITY_ID].remember_setpoint_written(21.0)
 
     await set_temperature(bt, ENTITY_ID, 30.0)
 
     assert bt.real_trvs[ENTITY_ID].last_temperature == 30.0
-    assert bt.real_trvs[ENTITY_ID].echo_setpoints == [21.0]
+    assert bt.real_trvs[ENTITY_ID].echo_setpoint_values() == [21.0]

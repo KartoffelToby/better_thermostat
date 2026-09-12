@@ -101,7 +101,7 @@ async def test_maintenance_setpoint_writes_stay_out_of_the_echo_list(bt):
     """
     trv = bt.real_trvs["climate.trv"]
     trv.min_temp, trv.max_temp = 5.0, 30.0
-    trv.echo_setpoints = [21.0]
+    trv.remember_setpoint_written(21.0)
     trv.adapter = MagicMock(set_temperature=AsyncMock(return_value=True))
     bt.bt_target_temp_step = 0.5
 
@@ -119,4 +119,4 @@ async def test_maintenance_setpoint_writes_stay_out_of_the_echo_list(bt):
 
     assert trv.adapter.set_temperature.await_count == 3
     assert trv.last_temperature == 21.0
-    assert trv.echo_setpoints == [21.0]
+    assert trv.echo_setpoint_values() == [21.0]
