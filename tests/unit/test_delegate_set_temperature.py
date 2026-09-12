@@ -123,3 +123,21 @@ async def test_the_outbound_setpoint_is_recorded_before_it_goes_out(bt):
     await set_temperature(bt, ENTITY_ID, 21.3)
 
     assert recorded_while_writing == [pytest.approx(21.5)]
+
+
+@pytest.mark.asyncio
+async def test_the_delegate_leaves_the_echo_setpoints_alone(bt):
+    """Only the control path remembers what it wrote.
+
+    Valve maintenance and other callers reach the device through this
+    delegate with setpoints no watchdog confirms. A knob turned onto one of
+    those values has to stay a press, so the delegate records the outbound
+    value and nothing more.
+    """
+    trv = bt.real_trvs[ENTITY_ID]
+    trv.remember_setpoint_written(21.0)
+
+    await set_temperature(bt, ENTITY_ID, 30.0)
+
+    assert vars(trv)[_RECORDED_SETPOINT_FIELD] == 30.0
+    assert trv.echo_setpoint_values() == [21.0]

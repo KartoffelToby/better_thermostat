@@ -23,7 +23,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.model_fixes import ZWA021 as zwa021
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -271,6 +271,16 @@ class TestCheckSystemMode:
 # ---------------------------------------------------------------------------
 # check_target_temperature
 # ---------------------------------------------------------------------------
+
+
+def _seed_pending(*values):
+    """Seed the pending writes as if each value had gone out in order."""
+    return {
+        "pending_setpoints": [
+            PendingSetpoint(value, index) for index, value in enumerate(values, start=1)
+        ],
+        "last_setpoint_write_id": len(values),
+    }
 
 
 class TestCheckTargetTemperature:
@@ -539,6 +549,198 @@ class TestCheckTargetTemperature:
             assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
+
+    @pytest.mark.asyncio
+    async def test_writes_made_during_the_wait_survive_the_confirmation(self):
+        """Only one write is watched, so 24.0 and 25.0 are still in flight.
+
+        The watchdog reads the command and its id at entry. The control loop
+        then writes 24.0 and 25.0 while the wait runs — neither gets a
+        watchdog of its own. When the device finally reports 23.0, the
+        confirmation must retire 23.0 alone.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+        )
+        trv.remember_setpoint_written(23.0)
+
+        polls: list[int] = []
+
+        def report(_entity_id):
+            polls.append(1)
+            if len(polls) == 1:
+                # The control loop writes again while the wait runs.
+                trv.remember_setpoint_written(24.0)
+                trv.remember_setpoint_written(25.0)
+                return State("climate.trv1", HVACMode.HEAT, {"temperature": 20.0})
+            return State("climate.trv1", HVACMode.HEAT, {"temperature": 23.0})
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.side_effect = report
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert trv.confirmed_setpoint == 23.0
+        assert trv.echo_setpoint_values() == [24.0, 25.0]
+
+    @pytest.mark.asyncio
+    async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
+        """Valve maintenance moves last_temperature without going through control.
+
+        The watchdog waits on the command it was started for, so a device
+        report of the maintenance value confirms nothing and the control
+        write stays a value the device may still echo.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1",
+            {
+                "last_temperature": 23.0,
+                **_seed_pending(23.0),
+                "target_temp_received": False,
+            },
+        )
+
+        # The watchdog is polling for 23.0 when maintenance drives the delegate
+        # to 8.0; the device then reports the maintenance value.
+        def report(_entity_id):
+            trv.last_temperature = 8.0
+            return State("climate.trv1", HVACMode.HEAT, {"temperature": 8.0})
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.side_effect = report
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch, patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 3):
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        assert result is True
+        assert trv.confirmed_setpoint is None
+        assert trv.echo_setpoint_values() == [23.0]
+
+    @pytest.mark.asyncio
+    async def test_a_confirmed_write_restarts_the_echo_set_at_the_command(self):
+        """A confirmed write leaves the command as the one value that may echo.
+
+        The device answers within the match tolerance of the command, so the
+        writes before it cannot come back and the set restarts at the command
+        itself, not at the report.
+        """
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 25.004}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "last_temperature": 25.0,
+                    **_seed_pending(26.0, 25.0),
+                    "target_temp_received": False,
+                },
+            )
+        }
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert result is True
+        assert trv.confirmed_setpoint == 25.0
+        assert trv.echo_setpoint_values() == []
+        assert trv.last_temperature == 25.0
+        assert trv.target_temp_received is True
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_setpoint_ends_the_wait_without_confirming(self):
+        """A device publishing no setpoint confirms nothing.
+
+        The wait ends, because there is nothing to poll for, but the writes
+        the device may still hold stay remembered: a report that shows up
+        again later can carry any of them.
+        """
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": None}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "last_temperature": 22.0,
+                    **_seed_pending(20.0, 22.0),
+                    "target_temp_received": False,
+                },
+            )
+        }
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert result is True
+        assert trv.target_temp_received is True
+        assert trv.echo_setpoint_values() == [20.0, 22.0]
+
+    @pytest.mark.asyncio
+    async def test_a_give_up_keeps_the_echo_set_and_the_command(self, caplog):
+        """A write the device does not take leaves the echo set as it stands.
+
+        The device stays on the earlier write, so both that value and the
+        command remain values a report may carry as BT's own; the command
+        stays on record for the reconciler.
+        """
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 26.0}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1",
+                {
+                    "last_temperature": 25.0,
+                    **_seed_pending(26.0, 25.0),
+                    "target_temp_received": False,
+                },
+            )
+        }
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch, caplog.at_level(logging.WARNING):
+            result = await check_target_temperature(mock_self, "climate.trv1")
+
+        trv = mock_self.real_trvs["climate.trv1"]
+        assert result is True
+        assert trv.echo_setpoint_values() == [26.0, 25.0]
+        assert trv.last_temperature == 25.0
+        assert trv.target_temp_received is True
+        assert "did not confirm the target temperature" in caplog.text
 
     @pytest.mark.asyncio
     async def test_convert_to_float_called(self):
@@ -898,6 +1100,70 @@ class TestCheckCalibration:
         assert 1 not in durations
 
     @pytest.mark.asyncio
+    async def test_a_report_one_step_below_the_command_confirms(self, caplog):
+        """A truncated offset count is the command, not a miss.
+
+        A value written as 6.3 arrives as ``int(6.3 / 0.1) == 62`` counts
+        on a 0.1 K device, so it holds and reports 6.2; the watchdog
+        reads that report as the command it was armed for.
+        """
+        mock_self = self._mock_self(last_calibration=6.3, local_calibration_step=0.1)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=6.2),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_negative_report_one_step_nearer_zero_confirms(self, caplog):
+        """Truncation toward zero puts a negative report above the command.
+
+        A value written as -6.3 arrives as ``int(-6.3 / 0.1) == -62``
+        counts, so the device holds and reports -6.2; the watchdog reads
+        that report as the command it was armed for.
+        """
+        mock_self = self._mock_self(last_calibration=-6.3, local_calibration_step=0.1)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-6.2),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert 1 not in durations
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_report_two_steps_below_the_command_does_not_confirm(self, caplog):
+        """Two steps of distance is a lost write; the gate still opens."""
+        mock_self = self._mock_self(last_calibration=6.3, local_calibration_step=0.1)
+        durations, sleep_patch = _sleep_recorder()
+
+        with (
+            caplog.at_level(logging.WARNING, logger=_CTRL),
+            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=6.1),
+            sleep_patch,
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_offset_confirmed_after_a_delay_logs_no_warning(self, caplog):
         """A late confirmation ends the wait without an annunciation."""
         mock_self = self._mock_self()
@@ -1128,10 +1394,11 @@ class TestCalibrationMatchTolerance:
         }
         return mock_self
 
-    def test_step_yields_half_a_step(self):
-        """A snapped offset sits at most half a step from the command."""
-        tolerance = _calibration_match_tolerance(self._mock_self(1.0), "climate.trv1")
-        assert tolerance == pytest.approx(0.5, abs=1e-5)
+    @pytest.mark.parametrize("step", [0.1, 0.5, 1.0])
+    def test_step_yields_a_full_step(self, step):
+        """A truncated offset count sits one step nearer zero than the command."""
+        tolerance = _calibration_match_tolerance(self._mock_self(step), "climate.trv1")
+        assert tolerance == pytest.approx(step, abs=1e-5)
 
     def test_unusable_step_falls_back_to_the_floor(self):
         """Without a usable step there is no grid to derive a tolerance from."""

@@ -1756,7 +1756,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
         """
         thermostat = BetterThermostat(
             name="cooler band",
-            heater_entity_id=[],
+            trv_configs=[],
             sensor_entity_id=None,
             humidity_sensor_entity_id=None,
             window_id=None,

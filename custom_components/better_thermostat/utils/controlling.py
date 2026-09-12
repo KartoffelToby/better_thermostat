@@ -80,9 +80,9 @@ _LOGGER = logging.getLogger(__name__)
 MIN_WRITE_INTERVAL_S = 30.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
-# Floor for the commanded-vs-reported offset comparison. Half the declared
-# offset step is the right window only while that step describes the grid the
-# device reports on; an adapter declaring a nominal 0.01 K step describes a
+# Floor for the commanded-vs-reported offset comparison. One declared offset
+# step is the right window only while that step describes the grid the device
+# reports on; an adapter declaring a nominal 0.01 K step describes a
 # continuous range instead, and any report rounded coarser than that then reads
 # as a divergence the write gate re-asserts on every control cycle. The floor
 # covers those roundings and stays below the 0.1 K resolution a TRV reports its
@@ -386,8 +386,16 @@ def _reconcile_tolerance(self: BetterThermostat, state: State) -> float:
 def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> float:
     """Per-device tolerance for the commanded-vs-reported offset comparison.
 
-    Devices snap a written offset onto their own step grid; a snapped
-    value sits at most half a step away from the commanded one.
+    A written offset travels to the device as a count of its declared
+    step, and the ZHA number platform truncates that count toward zero
+    (``int(value / step)``). Float division lands just short of the
+    whole number, so a value written as 6.3 arrives as
+    ``int(6.3 / 0.1) == 62`` counts and the device reports 6.2: the
+    truncated count lands one step nearer zero than the command, in
+    either sign. A device whose own grid is one declared step coarser
+    lands there too. A report within one step of the command is
+    therefore the command or its truncated neighbour, and a report
+    further away is a lost write.
     OFFSET_MATCH_TOLERANCE_K is the floor: it covers devices that report
     no usable step and those whose declared step is finer than the grid
     they actually report on.
@@ -411,8 +419,8 @@ def _calibration_match_tolerance(self: BetterThermostat, entity_id: str) -> floa
     )
     if step is None or step <= 0:
         return OFFSET_MATCH_TOLERANCE_K
-    # Slack against float noise when the difference is exactly half a step.
-    return max(OFFSET_MATCH_TOLERANCE_K, step / 2.0 + 1e-6)
+    # Slack against float noise when the difference is exactly one step.
+    return max(OFFSET_MATCH_TOLERANCE_K, step + 1e-6)
 
 
 def _offset_diverges(self: BetterThermostat, trv: Trv) -> bool:
@@ -1920,11 +1928,18 @@ async def control_trv(
                             _temperature,
                         )
                         trv.last_temperature = _temperature
+                        trv.remember_setpoint_written(_temperature)
                         _tvr_has_quirk = await override_set_temperature(
                             self, entity_id, _temperature
                         )
                         if _tvr_has_quirk is False:
                             await set_temperature(self, entity_id, _temperature)
+                        # The delegate records the value it sent after its own
+                        # rounding and clamping, which is the one the device
+                        # can echo. Only writes of this path are remembered:
+                        # maintenance drives the device through the delegate
+                        # and nothing confirms those writes.
+                        trv.remember_setpoint_written(trv.last_temperature)
                         if trv.target_temp_received is True:
                             trv.target_temp_received = False
                             self.task_manager.create_task(
@@ -2023,9 +2038,15 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
-    supported) attribute every second until either matches last_temperature
-    within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
-    target_temp_received flag when complete.
+    supported) attribute every second until either matches the awaited
+    command within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
+    target_temp_received flag when complete. The command is read once at
+    entry: valve maintenance writes through the same delegate and moves
+    ``last_temperature`` on without going through the control path, so a
+    maintenance value must not be able to confirm a control write. The id
+    that command went out under is read with it, so the confirmation retires
+    that write and the ones before it and leaves anything written while the
+    wait ran. An unreadable setpoint ends the wait without confirming one.
 
     Parameters
     ----------
@@ -2041,6 +2062,8 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     """
     _timeout = 0
     trv = self.real_trvs[entity_id]
+    _awaited_setpoint = trv.last_temperature
+    _awaited_write_id = trv.last_setpoint_write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2065,15 +2088,19 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
                 "better_thermostat %s: %s / check_target_temp / _last: %s - _current: %s",
                 self.device_name,
                 entity_id,
-                trv.last_temperature,
+                _awaited_setpoint,
                 _current_set_temperatures,
             )
-        # An empty set (no readable setpoint) is treated as confirmed; a
-        # non-empty set is matched with a tolerance because written and
-        # read-back setpoints lie on different float rounding grids.
-        if not _current_set_temperatures or matches_any_setpoint(
-            trv.last_temperature, _current_set_temperatures
-        ):
+        # An empty set (no readable setpoint) ends the wait without a
+        # confirmation, so the writes the device may still hold stay
+        # remembered; a non-empty set is matched with a tolerance because
+        # written and read-back setpoints lie on different float rounding
+        # grids.
+        if not _current_set_temperatures:
+            _timeout = 0
+            break
+        if matches_any_setpoint(_awaited_setpoint, _current_set_temperatures):
+            trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
@@ -2083,7 +2110,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
                 self.device_name,
                 entity_id,
                 WRITE_CONFIRM_TIMEOUT_S,
-                trv.last_temperature,
+                _awaited_setpoint,
                 _current_set_temperatures,
             )
             _timeout = 0

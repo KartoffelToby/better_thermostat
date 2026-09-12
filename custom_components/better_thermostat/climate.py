@@ -744,7 +744,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def __init__(
         self,
         name,
-        heater_entity_id,
+        trv_configs,
         sensor_entity_id,
         humidity_sensor_entity_id,
         window_id,
@@ -774,8 +774,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ----------
         name : str
             Display name of the thermostat.
-        heater_entity_id : list[dict]
-            TRV configuration entries controlled by this thermostat.
+        trv_configs : list[dict] | str
+            TRV configuration entries controlled by this thermostat. Config
+            entries written before 1.0.0-Beta36 carry a single entity id
+            string here instead; that shape reaches ``async_added_to_hass``
+            and stops there with an error asking the user to re-add the
+            device.
         sensor_entity_id : str | None
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
@@ -825,7 +829,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         self.real_trvs: dict[str, Trv] = {}
         self.entity_ids = []
-        self.all_trvs = heater_entity_id
+        self.all_trvs = trv_configs
         # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
         _off_temperature = None
         if off_temperature not in (None, "", "None"):  # allow numeric 0
@@ -2402,13 +2406,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 trv.target_temp_step = self.bt_target_temp_step
             else:
                 trv.target_temp_step = 0.5
-            trv.temperature = attr_to_celsius(self, _s, "temperature", 5, "startup")
             trv.hvac_modes = _attrs.get("hvac_modes", None)
             trv.hvac_mode = _s.state if _s else None
             trv.last_hvac_mode = _s.state if _s else None
-            trv.last_temperature = attr_to_celsius(
+            _reported_setpoint = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
+            trv.last_temperature = _reported_setpoint
+            trv.remember_setpoint_confirmed(_reported_setpoint)
             # No reading is no reading: a fabricated value would feed
             # SENSOR_FALLBACK as if it were live and keep the ladder's
             # HOLD rung unreachable.
