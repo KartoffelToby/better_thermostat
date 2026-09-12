@@ -8,6 +8,7 @@ convert thermostat states and prepare outbound payloads.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -49,7 +50,48 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.trv import Trv
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def accepts_user_setpoint(
+    trv: Trv, *, is_echo: bool, child_lock: bool | None, contact_open: bool
+) -> bool:
+    """Decide whether a setpoint a TRV reports is a user press to adopt.
+
+    Parameters
+    ----------
+    trv
+        The device that reported the setpoint. ``target_temp_received``
+        and ``system_mode_received`` say whether BT's own commands have
+        landed, ``hvac_mode`` says whether the device is off, and
+        ``ignore_trv_states`` is set while BT drives the device.
+    is_echo
+        Whether the reported value is a BT write coming back.
+    child_lock
+        Whether the device is configured as child-locked, so a press on
+        its knob does not speak for the user. ``None`` is an unset
+        option and reads as not locked.
+    contact_open
+        Whether a window or door contact of the room is open.
+
+    Returns
+    -------
+    bool
+        ``True`` when the report is a user press BT adopts as its own
+        target, ``False`` when any guard suppresses it.
+    """
+    return (
+        not is_echo
+        and not child_lock
+        and trv.target_temp_received is True
+        and trv.system_mode_received is True
+        and trv.hvac_mode != HVACMode.OFF
+        and contact_open is False
+        and not trv.ignore_trv_states
+    )
 
 
 async def trigger_trv_change(self, event):
@@ -303,9 +345,12 @@ async def trigger_trv_change(self, event):
     _old_heating_setpoint = read_setpoint_celsius(
         self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    # Compare only against values BT itself wrote. ``_old_heating_setpoint`` is
-    # the TRV's previously published state and is not necessarily a BT-written
-    # value, so it does not belong in the echo-suppression set.
+    # Compare only against values BT itself wrote: the room target, the last
+    # command, and the writes since the one the device last confirmed, which
+    # a device may still hold against a later write it did not take.
+    # ``_old_heating_setpoint`` is the TRV's previously published state and is
+    # not necessarily a BT-written value, so it does not belong in the
+    # echo-suppression set.
     _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
@@ -318,11 +363,18 @@ async def trigger_trv_change(self, event):
         _known_values = (
             self.bt_target_temp,
             trv.last_temperature,
+            trv.confirmed_setpoint,
+            *trv.echo_setpoint_values(),
             self.bt_target_cooltemp,
             last_sent_cooler_temperature(self),
         )
     else:
-        _known_values = (self.bt_target_temp, trv.last_temperature)
+        _known_values = (
+            self.bt_target_temp,
+            trv.last_temperature,
+            trv.confirmed_setpoint,
+            *trv.echo_setpoint_values(),
+        )
     _setpoint = resolve_inbound_setpoint(
         self,
         new_state,
@@ -350,14 +402,8 @@ async def trigger_trv_change(self, event):
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
-        _accept_user_setpoint = (
-            not _is_echo
-            and not child_lock
-            and trv.target_temp_received is True
-            and trv.system_mode_received is True
-            and trv.hvac_mode != HVACMode.OFF
-            and self.contact_open is False
-            and not trv.ignore_trv_states
+        _accept_user_setpoint = accepts_user_setpoint(
+            trv, is_echo=_is_echo, child_lock=child_lock, contact_open=self.contact_open
         )
         if _accept_user_setpoint:
             if _setpoint.clamped:
@@ -445,7 +491,7 @@ async def trigger_trv_change(self, event):
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
                 "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
-                "bt_target_temp=%s last_temperature=%s step=%s)",
+                "bt_target_temp=%s last_temperature=%s pending_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -460,6 +506,7 @@ async def trigger_trv_change(self, event):
                 trv.ignore_trv_states,
                 self.bt_target_temp,
                 trv.last_temperature,
+                trv.echo_setpoint_values(),
                 _step,
             )
 

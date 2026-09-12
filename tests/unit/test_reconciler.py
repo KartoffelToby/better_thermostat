@@ -202,8 +202,8 @@ class TestReconcileTick:
         bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_offset_within_half_step_is_converged(self):
-        """Half a calibration step of quantization is convergence."""
+    async def test_offset_within_a_step_is_converged(self):
+        """A calibration step of quantization is convergence."""
         bt = _make_bt()
         trv = bt.real_trvs["climate.trv"]
         trv.local_temperature_calibration_entity = "number.offset"
@@ -213,6 +213,37 @@ class TestReconcileTick:
         self._with_states(bt, {"number.offset": self._state("1.8")})
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offset_one_step_below_the_command_is_converged(self):
+        """A truncated offset count is the command, not a divergence.
+
+        The device reports 6.2 for a written 6.3 on a 0.1 K grid; a tick
+        that called this a divergence would queue a cycle whose write
+        the device answers with the same 6.2, every five minutes.
+        """
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.last_calibration = 6.3
+        trv.local_calibration_step = 0.1
+        trv.calibration_received = True
+        self._with_states(bt, {"number.offset": self._state("6.2")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_offset_two_steps_below_the_command_queues_a_cycle(self):
+        """Two steps of distance on a 0.1 K grid is a lost write."""
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.local_temperature_calibration_entity = "number.offset"
+        trv.last_calibration = 6.3
+        trv.local_calibration_step = 0.1
+        trv.calibration_received = True
+        self._with_states(bt, {"number.offset": self._state("6.1")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_unconfirmed_offset_write_is_left_to_the_write_path(self):

@@ -133,10 +133,10 @@ def _get_advanced(info: Trv) -> dict[str, object]:
 def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     """Return entity-ids of TRVs that have valve maintenance enabled."""
     result: list[str] = []
-    for trv_id, info in real_trvs.items():
+    for entity_id, info in real_trvs.items():
         adv = _get_advanced(info)
         if bool(adv.get(CONF_VALVE_MAINTENANCE, False)):
-            result.append(trv_id)
+            result.append(entity_id)
     return result
 
 
@@ -152,8 +152,8 @@ def compute_next_maintenance(
         now = dt_util.now()
 
     min_interval_hours = 168  # default 7 days
-    for trv_id in trv_ids:
-        _trv = real_trvs.get(trv_id)
+    for entity_id in trv_ids:
+        _trv = real_trvs.get(entity_id)
         quirks = _trv.model_quirks if _trv is not None else None
         interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
         min_interval_hours = min(min_interval_hours, interval)
@@ -174,8 +174,8 @@ def compute_initial_maintenance(
         now = dt_util.now()
 
     min_interval_hours = 168
-    for trv_id in trv_ids:
-        _trv = real_trvs.get(trv_id)
+    for entity_id in trv_ids:
+        _trv = real_trvs.get(entity_id)
         quirks = _trv.model_quirks if _trv is not None else None
         interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
         min_interval_hours = min(min_interval_hours, interval)
@@ -220,38 +220,38 @@ def build_trv_snapshots(
             one snapshot per TRV the cycle may drive, in the order given
     """
     infos: list[MaintenanceTrvInfo] = []
-    for trv_id in trv_ids:
-        trv_state = get_state(trv_id)
+    for entity_id in trv_ids:
+        trv_state = get_state(entity_id)
         if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             _LOGGER.debug(
                 "better_thermostat %s: maintenance skip %s (reports %s, so it names "
                 "no state to restore afterwards)",
                 device_name,
-                trv_id,
+                entity_id,
                 trv_state.state if trv_state is not None else None,
             )
             continue
 
-        trv_data = real_trvs.get(trv_id)
-        if trv_data is None:
+        trv = real_trvs.get(entity_id)
+        if trv is None:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance skip %s (not in real_trvs)",
                 device_name,
-                trv_id,
+                entity_id,
             )
             continue
-        support_valve = trv_data.capabilities().supports_valve_write
-        adv = _get_advanced(trv_data)
+        support_valve = trv.capabilities().supports_valve_write
+        adv = _get_advanced(trv)
         cal_type = adv.get("calibration")
         use_direct = bool(
             support_valve and cal_type == CalibrationType.DIRECT_VALVE_BASED
         )
 
-        raw_max = trv_data.max_temp
-        raw_min = trv_data.min_temp
+        raw_max = trv.max_temp
+        raw_min = trv.min_temp
         infos.append(
             MaintenanceTrvInfo(
-                entity_id=trv_id,
+                entity_id=entity_id,
                 cur_mode=trv_state.state,
                 cur_temp=trv_state.attributes.get("temperature"),
                 use_direct_valve=use_direct,
@@ -272,10 +272,10 @@ SetTemperatureFn = Callable[[str, float], Awaitable[None]]
 SetHvacModeFn = Callable[[str, str], Awaitable[None]]
 
 
-async def _set_valve_pct(trv_id: str, pct: int, set_valve_fn: SetValveFn) -> bool:
+async def _set_valve_pct(entity_id: str, pct: int, set_valve_fn: SetValveFn) -> bool:
     """Set valve percentage via callback."""
     try:
-        return bool(await set_valve_fn(trv_id, int(pct)))
+        return bool(await set_valve_fn(entity_id, int(pct)))
     except Exception:
         return False
 

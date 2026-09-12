@@ -13,21 +13,21 @@ async def async_get_config_entry_diagnostics(
 ) -> dict:
     """Return diagnostics for a config entry."""
     trvs = {}
-    for trv_id in config_entry.data[CONF_HEATER]:
-        trv = hass.states.get(trv_id["trv"])
-        if trv is None:
+    for trv_config in config_entry.data[CONF_HEATER]:
+        trv_state = hass.states.get(trv_config["trv"])
+        if trv_state is None:
             continue
-        trv_id["adapter"] = trv_id["integration"]
-        if trv_id["adapter"] is None:
-            trv_id["adapter"] = "unknown"
-        trvs[trv_id["trv"]] = {
-            "name": trv.name,
-            "state": trv.state,
-            "attributes": trv.attributes,
-            "bt_config": trv_id["advanced"],
-            "bt_adapter": trv_id["adapter"],
-            "bt_integration": trv_id["integration"],
-            "model": trv_id["model"],
+        trv_config["adapter"] = trv_config["integration"]
+        if trv_config["adapter"] is None:
+            trv_config["adapter"] = "unknown"
+        trvs[trv_config["trv"]] = {
+            "name": trv_state.name,
+            "state": trv_state.state,
+            "attributes": trv_state.attributes,
+            "bt_config": trv_config["advanced"],
+            "bt_adapter": trv_config["adapter"],
+            "bt_integration": trv_config["integration"],
+            "model": trv_config["model"],
         }
     external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
 

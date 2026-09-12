@@ -36,8 +36,8 @@ async def async_setup_entry(
     switches: list[SwitchEntity] = []
     switch_unique_ids = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
-    for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.advanced or {}
+    for trv_entity_id, trv in bt_climate.real_trvs.items():
+        advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
 
         # Normalize string values to CalibrationMode enum

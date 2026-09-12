@@ -219,10 +219,10 @@ _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
 
 def _pick_representative_trv(real_trvs: Mapping[str, TrvInfo]) -> str | None:
     """Prefer a sonoff/trvzb TRV; else first key."""
-    for trv_id, info in real_trvs.items():
+    for entity_id, info in real_trvs.items():
         model = (info.model or "").lower()
         if "sonoff" in model or "trvzb" in model:
-            return trv_id
+            return entity_id
     return next(iter(real_trvs), None)
 
 

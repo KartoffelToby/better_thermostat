@@ -23,6 +23,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
+    GENERIC_MODEL,
     NORMALIZED_ID_NAMES,
     CalibrationMode,
 )
@@ -143,9 +144,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     entity_ids: list[str] = []
     for trv in entry.data.get(CONF_HEATER) or []:
-        trv_id = trv.get("trv")
-        if trv_id:
-            entity_ids.append(trv_id)
+        trv_entity_id = trv.get("trv")
+        if trv_entity_id:
+            entity_ids.append(trv_entity_id)
     for conf_key in (
         CONF_SENSOR,
         CONF_HUMIDITY,
@@ -203,11 +204,22 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         )()
         heaters = new.get(CONF_HEATER, [])
         for trv in heaters:
-            entity_id = trv.get("entity_id")
+            entity_id = trv.get("trv")
             if entity_id:
-                trv["model"] = await get_device_model(migration_context, entity_id)
+                detected_model = await get_device_model(migration_context, entity_id)
+                # The lookup answers GENERIC_MODEL for a device the registry
+                # cannot identify, and a migration runs once, so that answer
+                # must not replace a model the entry already carries. An entry
+                # without one takes it: the quirks loader drives a generic
+                # model with the same default module as a missing one.
+                if (
+                    isinstance(detected_model, str)
+                    and detected_model
+                    and detected_model != GENERIC_MODEL
+                ) or not trv.get("model"):
+                    trv["model"] = detected_model
                 _LOGGER.debug(
-                    "Migration to version 1.8: TRV %s model updated to %s",
+                    "Migration to version 1.8: TRV %s carries model %s",
                     entity_id,
                     trv["model"],
                 )

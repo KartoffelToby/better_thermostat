@@ -132,8 +132,8 @@ def _bt_with_pid(trvs, real_trv_entries):
     """Build a mock BT with PID-bearing real_trvs."""
     bt = MagicMock()
     bt.real_trvs = {
-        trv_id: Trv.from_legacy_dict(trv_id, entry)
-        for trv_id, entry in zip(trvs, real_trv_entries)
+        entity_id: Trv.from_legacy_dict(entity_id, entry)
+        for entity_id, entry in zip(trvs, real_trv_entries)
     }
     return bt
 

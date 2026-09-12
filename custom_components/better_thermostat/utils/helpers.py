@@ -35,6 +35,7 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from custom_components.better_thermostat.utils.const import (
     CONF_HEAT_AUTO_SWAPPED,
     DOMAIN,
+    GENERIC_MODEL,
     MAX_HEATING_POWER,
     MAX_REASONABLE_TEMPERATURE,
     MIN_HEATING_POWER,
@@ -1788,9 +1789,9 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
             return _VALVE_TRANSLATION_KEYS[tk]
         return None
 
-    def _classify(uid: str, ent_id: str, original_name: str) -> str | None:
+    def _classify(uid: str, candidate_entity_id: str, original_name: str) -> str | None:
         """Classify by string matching (fallback for integrations without translation_key)."""
-        descriptor = f"{uid} {ent_id} {original_name}".lower()
+        descriptor = f"{uid} {candidate_entity_id} {original_name}".lower()
         # Sonoff TRVZB (and some others) expose explicit valve degree entities
         if "valve_opening_degree" in descriptor:
             return "valve_opening_degree"
@@ -2194,7 +2195,7 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         selected = configured_model.strip()
         source = "config.model"
     if not selected:
-        selected = "generic"
+        selected = GENERIC_MODEL
         source = "default"
 
     _LOGGER.debug(

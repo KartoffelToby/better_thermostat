@@ -41,7 +41,9 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    MIN_WRITE_INTERVAL_S,
     check_calibration,
+    check_target_temperature,
     control_trv,
 )
 
@@ -2671,16 +2673,17 @@ class TestGroupedTrvCalibration:
 
     @pytest.mark.parametrize(
         ("step", "reported", "released"),
-        [(0.5, 2.2, True), (0.5, 2.3, False), (1.0, 2.5, True)],
+        [(0.5, 2.5, True), (0.5, 2.6, False), (1.0, 3.0, True), (1.0, 3.1, False)],
     )
-    async def test_confirmation_window_is_half_the_device_step(
+    async def test_confirmation_window_is_one_device_step(
         self, mock_bt_grouped, step, reported, released
     ):
-        """A report within half the device's own offset step confirms.
+        """A report within one of the device's own offset steps confirms.
 
-        That is the distance a device can move a written value by
-        snapping it onto its own grid, so it is the width of the window
-        in which the report still counts as the command.
+        The window is symmetric because the gate cannot tell a truncated
+        count from a device holding its previous value one step away,
+        and one step is the smallest correction the channel issues; a
+        report beyond one step is a lost write.
         """
         entity_id = "climate.trv_3"
         mock_bt_grouped.real_trvs[entity_id].local_calibration_step = step
@@ -3078,7 +3081,7 @@ class TestOffsetWriteGate:
         set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
-    async def test_report_beyond_half_a_step_counts_as_diverged(self):
+    async def test_report_beyond_a_step_counts_as_diverged(self):
         """On a fine grid a small deviation is already a lost write."""
         mock_self = _make_offset_self(
             calibration_received=True,
@@ -3094,8 +3097,8 @@ class TestOffsetWriteGate:
         set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
-    async def test_report_within_half_a_step_counts_as_confirmed(self):
-        """On a coarse grid the same deviation is the device's own snap."""
+    async def test_report_within_a_step_counts_as_confirmed(self):
+        """On a coarse grid a whole step of deviation is still the command."""
         mock_self = _make_offset_self(
             calibration_received=True,
             last_calibration=-2.0,
@@ -3104,10 +3107,49 @@ class TestOffsetWriteGate:
         )
 
         set_offset, _ = await _run_offset_cycle(
-            mock_self, desired_offset=-2.0, reported_offset=-2.5
+            mock_self, desired_offset=-2.0, reported_offset=-3.0
         )
 
         set_offset.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_report_one_step_below_the_command_is_not_rewritten(self):
+        """A truncated offset count is the command, not a dropped write.
+
+        A value written as 6.3 arrives as ``int(6.3 / 0.1) == 62`` counts
+        on a 0.1 K device, so it holds and reports 6.2 for as long as the
+        intent stands. Rewriting it would send the same command every
+        cycle and wait out the confirmation window each time.
+        """
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=6.3,
+            last_calibration_requested=6.3,
+            local_calibration_step=0.1,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=6.3, reported_offset=6.2
+        )
+
+        set_offset.assert_not_awaited()
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+
+    @pytest.mark.asyncio
+    async def test_report_two_steps_below_the_command_is_rewritten(self):
+        """Two steps of distance is a dropped write on a 0.1 K grid."""
+        mock_self = _make_offset_self(
+            calibration_received=True,
+            last_calibration=6.3,
+            last_calibration_requested=6.3,
+            local_calibration_step=0.1,
+        )
+
+        set_offset, _ = await _run_offset_cycle(
+            mock_self, desired_offset=6.3, reported_offset=6.1
+        )
+
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", 6.3)
 
     @pytest.mark.asyncio
     async def test_failed_write_keeps_the_gate_open_and_retries(self):
@@ -3403,3 +3445,137 @@ class TestSnappingSelectOffsetConverges:
             mock_self.clock.advance(31.0)
 
         assert device.written == ["-3.0k", "3.0k"]
+
+
+# ---------------------------------------------------------------------------
+# Echo bookkeeping across control cycles
+# ---------------------------------------------------------------------------
+
+
+class TestEchoSetpointBookkeeping:
+    """The writes a device may still echo follow the control cycle."""
+
+    @pytest.mark.asyncio
+    async def test_the_writes_since_the_confirmed_one_are_remembered(self):
+        """A confirmed write and the one after it are both remembered.
+
+        The cycle writes 26.0 and the device confirms it, so 26.0 becomes the
+        confirmed setpoint and the write list empties. The next cycle writes
+        25.0; a device that holds on to 26.0 then reports a value BT wrote,
+        so 26.0 stays known next to the new command.
+        """
+        trv_attrs = {"temperature": 20.0}
+        mock_self = _make_mock_self(trv_state=HVACMode.HEAT, trv_attrs=trv_attrs)
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 26.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+            assert trv.echo_setpoint_values() == [26.0]
+
+            trv_attrs["temperature"] = 26.0
+            await check_target_temperature(mock_self, "climate.trv1")
+            assert trv.confirmed_setpoint == 26.0
+            assert trv.echo_setpoint_values() == []
+
+            mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+            mock_convert.return_value = {
+                "temperature": 25.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_temperature == 25.0
+        assert trv.confirmed_setpoint == 26.0
+        assert trv.echo_setpoint_values() == [25.0]
+
+    @pytest.mark.asyncio
+    async def test_each_write_in_a_cycle_takes_a_rising_id(self):
+        """The id the watchdog captures is the one of the write it follows."""
+        trv_attrs = {"temperature": 20.0}
+        mock_self = _make_mock_self(trv_state=HVACMode.HEAT, trv_attrs=trv_attrs)
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 23.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+            # The watchdog task is created inside that cycle, so this is the
+            # id it reads at entry.
+            awaited_write_id = trv.last_setpoint_write_id
+
+            for value in (24.0, 25.0):
+                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                mock_convert.return_value = {
+                    "temperature": value,
+                    "system_mode": HVACMode.HEAT,
+                }
+                await control_trv(mock_self, "climate.trv1")
+
+        assert trv.echo_setpoint_values() == [23.0, 24.0, 25.0]
+        assert trv.last_setpoint_write_id > awaited_write_id
+
+    @pytest.mark.asyncio
+    async def test_the_value_the_delegate_sent_is_remembered_next_to_the_intent(self):
+        """Both the intent and the value the delegate sent may echo.
+
+        The cycle asks for 20.7 on a device with a 0.5 step; the delegate
+        rounds and sends 20.5, which is what the device can report back.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.target_temp_step = 0.5
+        trv.adapter = MagicMock()
+        trv.adapter.set_temperature = AsyncMock(return_value=True)
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.7,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        trv.adapter.set_temperature.assert_awaited_once_with(
+            mock_self, "climate.trv1", pytest.approx(20.5)
+        )
+        assert trv.last_temperature == pytest.approx(20.5)
+        assert trv.echo_setpoint_values() == [pytest.approx(20.7), pytest.approx(20.5)]

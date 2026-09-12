@@ -294,11 +294,11 @@ def _default_calibration_from_info(info: dict[str, Any]) -> str:
 
 
 def _trv_supports_auto(
-    flow: config_entries.ConfigFlow | config_entries.OptionsFlow, trv_id: str | None
+    flow: config_entries.ConfigFlow | config_entries.OptionsFlow, entity_id: str | None
 ) -> bool:
-    if not trv_id:
+    if not entity_id:
         return False
-    trv_state = flow.hass.states.get(trv_id)
+    trv_state = flow.hass.states.get(entity_id)
     if not trv_state or not hasattr(trv_state, "attributes"):
         return False
     hvac_modes = trv_state.attributes.get("hvac_modes") or []
@@ -803,13 +803,13 @@ async def _prepare_advanced_context(
 ) -> dict[str, Any]:
     trv_config = trv_config or {}
     integration = trv_config.get("integration")
-    trv_id = trv_config.get("trv")
+    entity_id = trv_config.get("trv")
     adapter, info = await _load_adapter_info(
-        flow, integration, trv_id, existing_adapter=trv_config.get("adapter")
+        flow, integration, entity_id, existing_adapter=trv_config.get("adapter")
     )
     default_calibration = _default_calibration_from_info(info)
     homematic = bool(integration and "homematic" in integration.lower())
-    has_auto = _trv_supports_auto(flow, trv_id)
+    has_auto = _trv_supports_auto(flow, entity_id)
 
     return {
         "adapter": adapter,
@@ -818,7 +818,7 @@ async def _prepare_advanced_context(
         "homematic": homematic,
         "has_auto": has_auto,
         "integration": integration,
-        "trv_id": trv_id,
+        "trv_id": entity_id,
     }
 
 
@@ -832,7 +832,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.device_name = ""
         self.data: dict[str, Any] | None = None
         self.model = None
-        self.heater_entity_id = None
+        self.trv_entity_ids = None
         self.trv_bundle: list[dict[str, Any]] = []
         self.integration = None
         self.i = 0
@@ -1002,9 +1002,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_HEATER] = "no_heater"
 
             if not errors:
-                self.heater_entity_id = list(heaters)
+                self.trv_entity_ids = list(heaters)
                 self.trv_bundle = []
-                for trv in self.heater_entity_id:
+                for trv in self.trv_entity_ids:
                     integration = await get_trv_intigration(self, trv)
                     self.trv_bundle.append(
                         {
@@ -1185,28 +1185,28 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 for heater_item in heaters:
                     if isinstance(heater_item, dict):
-                        trv_id = heater_item.get("trv")
+                        entity_id = heater_item.get("trv")
                     else:
-                        trv_id = heater_item
+                        entity_id = heater_item
 
-                    if not trv_id:
+                    if not entity_id:
                         continue
 
-                    if trv_id in existing_trvs:
+                    if entity_id in existing_trvs:
                         # Use existing config for this TRV
-                        trv_copy = copy.deepcopy(existing_trvs[trv_id])
+                        trv_copy = copy.deepcopy(existing_trvs[entity_id])
                         trv_copy["adapter"] = None
                         self.trv_bundle.append(trv_copy)
                     else:
                         # This is a new TRV added during edit
-                        integration = await get_trv_intigration(self, trv_id)
+                        integration = await get_trv_intigration(self, entity_id)
                         self.trv_bundle.append(
                             {
-                                "trv": trv_id,
+                                "trv": entity_id,
                                 "integration": integration,
-                                "model": await get_device_model(self, trv_id),
+                                "model": await get_device_model(self, entity_id),
                                 "adapter": await load_adapter(
-                                    self, integration, trv_id
+                                    self, integration, entity_id
                                 ),
                             }
                         )

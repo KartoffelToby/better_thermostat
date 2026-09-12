@@ -264,10 +264,10 @@ def _supports_direct_valve_control(self: BetterThermostat, entity_id: str) -> bo
     if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
         return False
 
-    trv_data = self.real_trvs.get(entity_id)
-    if trv_data is None:
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
         return False
-    return trv_data.capabilities().supports_valve_write
+    return trv.capabilities().supports_valve_write
 
 
 def _get_trv_max_opening(self: BetterThermostat, entity_id: str) -> float | None:

@@ -52,8 +52,8 @@ async def async_bind_trv_device(
     er_reg = er.async_get(hass)
     dr_reg = dr.async_get(hass)
 
-    trv_entry = er_reg.async_get(trv_entity_id)
-    if trv_entry is None or trv_entry.device_id is None:
+    trv_reg_entry = er_reg.async_get(trv_entity_id)
+    if trv_reg_entry is None or trv_reg_entry.device_id is None:
         _LOGGER.debug(
             "better_thermostat %s: TRV %s not yet in entity registry; skipping device binding",
             bt_unique_id,
@@ -65,7 +65,7 @@ async def async_bind_trv_device(
     # device, and a composite id stands for a set of devices rather than one.
     # A TRV on either takes the same branch as a TRV with no device at all.
     trv_device = dr_reg.async_get(
-        trv_entry.device_id,
+        trv_reg_entry.device_id,
         include_child_devices=False,
         include_composite_devices=False,
     )
