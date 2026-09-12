@@ -90,3 +90,33 @@ async def test_no_control_kick_when_off(bt):
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
     bt.control_queue_task.put_nowait.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_maintenance_setpoint_writes_stay_out_of_the_echo_list(bt):
+    """The setpoints maintenance drives through the delegate are not echoes.
+
+    Nothing confirms these writes, so remembering the device limits would read
+    a later knob turn to the minimum or the maximum as BT's own value.
+    """
+    trv = bt.real_trvs["climate.trv"]
+    trv.min_temp, trv.max_temp = 5.0, 30.0
+    trv.remember_setpoint_written(21.0)
+    trv.adapter = MagicMock(set_temperature=AsyncMock(return_value=True))
+    bt.bt_target_temp_step = 0.5
+
+    async def _exercise(infos, *, set_temperature_fn, **_):
+        await set_temperature_fn("climate.trv", 30.0)
+        await set_temperature_fn("climate.trv", 5.0)
+        await set_temperature_fn("climate.trv", 21.0)
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", AsyncMock(side_effect=_exercise)),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+    assert trv.adapter.set_temperature.await_count == 3
+    assert trv.last_temperature == 21.0
+    assert trv.echo_setpoint_values() == [21.0]

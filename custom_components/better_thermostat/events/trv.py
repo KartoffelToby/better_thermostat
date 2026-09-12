@@ -327,7 +327,9 @@ async def trigger_trv_change(self, event):
     )
     # Compare only against values BT itself wrote. ``_old_heating_setpoint`` is
     # the TRV's previously published state and is not necessarily a BT-written
-    # value, so it does not belong in the echo-suppression set.
+    # value, so it does not belong in the echo-suppression set. The confirmed
+    # setpoint and the writes since it join the set, because a device that
+    # never took the latest write still reports an earlier one.
     _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
@@ -340,11 +342,18 @@ async def trigger_trv_change(self, event):
         _known_values = (
             self.bt_target_temp,
             trv.last_temperature,
+            trv.confirmed_setpoint,
+            *trv.echo_setpoint_values(),
             self.bt_target_cooltemp,
             self.last_sent_cooler_temp,
         )
     else:
-        _known_values = (self.bt_target_temp, trv.last_temperature)
+        _known_values = (
+            self.bt_target_temp,
+            trv.last_temperature,
+            trv.confirmed_setpoint,
+            *trv.echo_setpoint_values(),
+        )
     _setpoint = resolve_inbound_setpoint(
         self,
         new_state,

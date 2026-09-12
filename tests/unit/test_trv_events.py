@@ -21,7 +21,7 @@ from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
 )
-from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -1953,6 +1953,84 @@ class TestTargetTempBasedSync:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 21.5
+
+
+class TestReportAfterAnUnconfirmedWrite:
+    """Setpoint reports judged against the writes the device may still hold.
+
+    ``pending_setpoints`` carries every write since the confirmed setpoint
+    since. A report equal to one of them is BT's own write coming back; a
+    report outside them is a press.
+    """
+
+    _TRV_MODULE = "custom_components.better_thermostat.events.trv"
+
+    @staticmethod
+    def _prepare(mock_bt, *, last_temperature, echo_setpoints):
+        mock_bt.bt_target_temp = 24.0
+        mock_bt.contact_open = False
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.last_temperature = last_temperature
+        for index, value in enumerate(echo_setpoints, start=1):
+            trv.pending_setpoints.append(PendingSetpoint(value, index))
+        trv.last_setpoint_write_id = len(echo_setpoints)
+        trv.target_temp_received = True
+        trv.system_mode_received = True
+        trv.hvac_mode = HVACMode.HEAT
+        trv.ignore_trv_states = False
+        trv.advanced["child_lock"] = False
+
+    @classmethod
+    async def _report(cls, mock_bt, *, previous_setpoint, reported_setpoint):
+        """Fire a state event whose room temperature moved from 18.0 to 18.5."""
+        old_state = _make_state(
+            attributes={"temperature": previous_setpoint, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": reported_setpoint, "current_temperature": 18.5}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+        with patch(
+            f"{cls._TRV_MODULE}.convert_inbound_states", return_value=HVACMode.HEAT
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+    @pytest.mark.asyncio
+    async def test_a_report_of_an_earlier_write_is_an_echo(self, mock_bt, caplog):
+        """A room-temperature event carrying the earlier 26.0 leaves the target alone."""
+        self._prepare(mock_bt, last_temperature=25.0, echo_setpoints=[26.0, 25.0])
+
+        with caplog.at_level(logging.DEBUG, logger=self._TRV_MODULE):
+            await self._report(mock_bt, previous_setpoint=26.0, reported_setpoint=26.0)
+
+        assert mock_bt.bt_target_temp == 24.0
+        assert "decoded TRV target temp changed" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_report_away_from_every_remembered_write_is_a_press(self, mock_bt):
+        """A report of 27.0 against remembered 26.0 and 25.0 becomes the target."""
+        self._prepare(mock_bt, last_temperature=25.0, echo_setpoints=[26.0, 25.0])
+
+        await self._report(mock_bt, previous_setpoint=26.0, reported_setpoint=27.0)
+
+        assert mock_bt.bt_target_temp == 27.0
+
+    @pytest.mark.asyncio
+    async def test_a_report_outside_the_remembered_writes_is_a_press_when_unchanged(
+        self, mock_bt
+    ):
+        """A value nobody wrote is a press, even with the setpoint attribute still.
+
+        Guards against over-suppression: with only the 25.0 command
+        remembered, a report of 26.0 matches no known value and becomes the
+        room target although the setpoint attribute did not change.
+        """
+        self._prepare(mock_bt, last_temperature=25.0, echo_setpoints=[25.0])
+
+        await self._report(mock_bt, previous_setpoint=26.0, reported_setpoint=26.0)
+
+        assert mock_bt.bt_target_temp == 26.0
 
 
 # ---------------------------------------------------------------------------

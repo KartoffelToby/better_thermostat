@@ -1716,6 +1716,38 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
+class TestInitializeTrvSetpointSeed:
+    """At startup the device's own setpoint is the one it may echo."""
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    async def test_the_reported_setpoint_seeds_the_echo_list(self, bt):
+        """The setpoint read at startup is both last_temperature and the confirmed one."""
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = "°C"
+        bt.hass.states.get.return_value = _make_trv_state(
+            attrs={"temperature": 21.0, "current_temperature": 20.0}
+        )
+
+        await self._run(bt)
+
+        assert bt.real_trvs[TRV_ID].last_temperature == 21.0
+        assert bt.real_trvs[TRV_ID].confirmed_setpoint == 21.0
+        assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
+
+
 class TestRestoreState:
     """Tests for _restore_state."""
 
