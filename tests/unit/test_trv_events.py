@@ -1443,6 +1443,121 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 19.0
 
     @pytest.mark.asyncio
+    async def test_a_report_of_an_earlier_write_the_device_holds_is_not_a_press(
+        self, mock_bt, caplog
+    ):
+        """A device holding an earlier write of BT's is not read as a press.
+
+        The room target is 24.0, the last command 25.0, and 26.0 is the
+        write before it, which the device still holds. A state event that
+        only moves the room reading carries 26.0 in both its old and new
+        state; that report is BT's own write coming back and leaves the
+        room target where it is.
+        """
+        mock_bt.bt_target_temp = 24.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
+        for _value in (26.0, 25.0):
+            mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
+
+        old_state = _make_state(
+            attributes={"temperature": 26.0, "current_temperature": 21.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 26.0, "current_temperature": 21.5}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 21.5, "temperature": 26.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 24.0
+        assert "decoded TRV target temp changed" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_report_matching_no_write_is_a_press(self, mock_bt):
+        """A value BT did not write is a press, whatever the device held.
+
+        With the room target at 24.0, the last command 25.0 and 26.0 the
+        write before it, a report of 27.0 is nobody's write and is adopted.
+        """
+        mock_bt.bt_target_temp = 24.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
+        for _value in (26.0, 25.0):
+            mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
+
+        old_state = _make_state(
+            attributes={"temperature": 26.0, "current_temperature": 21.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 27.0, "current_temperature": 21.5}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 21.5, "temperature": 27.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 27.0
+
+    @pytest.mark.asyncio
+    async def test_a_report_outside_the_remembered_writes_is_a_press(self, mock_bt):
+        """A report outside the remembered writes is a press, unchanged or not.
+
+        The room target is 24.0 and the command 25.0 is the only write on
+        record. The device reports 26.0 in both the old and the new state of
+        an event that only moves the room reading, and 26.0 is adopted all
+        the same: the handler judges the report against the writes it knows,
+        not against the previous state. This is why the writes since the
+        last confirmation are remembered.
+        """
+        mock_bt.bt_target_temp = 24.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
+        for _value in (25.0,):
+            mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
+
+        old_state = _make_state(
+            attributes={"temperature": 26.0, "current_temperature": 21.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 26.0, "current_temperature": 21.5}
+        )
+        trv_state = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 21.5, "temperature": 26.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 26.0
+
+    @pytest.mark.asyncio
     async def test_setpoint_clamped_to_min(self, mock_bt):
         """Setpoint below min should be clamped."""
         old_state = _make_state(
@@ -3193,6 +3308,27 @@ class TestDualRoleEntityReports:
         assert shared_bt.bt_target_cooltemp == 26.0
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_reads_an_earlier_heating_write_as_an_echo(
+        self, shared_bt
+    ):
+        """A shared device holding an earlier heating write moves no target.
+
+        The heating channel wrote 22.0 and then 20.0; the device still holds
+        22.0. Its report of 22.0 while it heats is BT's own write coming
+        back, so neither target moves.
+        """
+        for _value in (22.0, 20.0):
+            shared_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
+
+        await self._report(
+            shared_bt, device_mode="heat", reported_temp=22.0, previous_temp=22.0
+        )
+
+        assert shared_bt.bt_target_temp == 20.0
+        assert shared_bt.bt_target_cooltemp == 24.0
+        shared_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(

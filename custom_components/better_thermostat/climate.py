@@ -2399,9 +2399,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data.hvac_modes = _attrs.get("hvac_modes", None)
             trv_data.hvac_mode = _s.state if _s else None
             trv_data.last_hvac_mode = _s.state if _s else None
-            trv_data.last_temperature = attr_to_celsius(
+            _reported_setpoint = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
+            trv_data.last_temperature = _reported_setpoint
+            trv_data.remember_setpoint_confirmed(_reported_setpoint)
             # No reading is no reading: a fabricated value would feed
             # SENSOR_FALLBACK as if it were live and keep the ladder's
             # HOLD rung unreachable.
