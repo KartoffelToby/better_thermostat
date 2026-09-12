@@ -540,7 +540,7 @@ class TestRunValveMaintenance:
         trv = Trv(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
         trv.adapter = MagicMock()
         trv.adapter.set_temperature = AsyncMock(return_value=True)
-        trv.echo_setpoints = [21.0]
+        trv.remember_setpoint_written(21.0)
         bt.real_trvs = {"climate.trv1": trv}
 
         async def write_through_the_delegate(entity_id: str, temp: float) -> None:
@@ -560,7 +560,7 @@ class TestRunValveMaintenance:
         sent = [c.args[2] for c in trv.adapter.set_temperature.await_args_list]
         assert sent == [30.0, 5.0, 30.0, 5.0, 21.0]
         assert trv.last_temperature == 21.0
-        assert trv.echo_setpoints == [21.0]
+        assert trv.echo_setpoint_values() == [21.0]
 
     @pytest.mark.asyncio
     async def test_multiple_trvs(self):

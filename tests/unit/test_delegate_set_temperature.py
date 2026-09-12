@@ -135,9 +135,9 @@ async def test_the_delegate_leaves_the_echo_setpoints_alone(bt):
     value and nothing more.
     """
     trv = bt.real_trvs[ENTITY_ID]
-    trv.echo_setpoints = [21.0]
+    trv.remember_setpoint_written(21.0)
 
     await set_temperature(bt, ENTITY_ID, 30.0)
 
     assert vars(trv)[_RECORDED_SETPOINT_FIELD] == 30.0
-    assert trv.echo_setpoints == [21.0]
+    assert trv.echo_setpoint_values() == [21.0]
