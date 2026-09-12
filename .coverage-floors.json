@@ -1,5 +1,5 @@
 {
-  "custom_components/better_thermostat/__init__.py": 52.6,
+  "custom_components/better_thermostat/__init__.py": 75.1,
   "custom_components/better_thermostat/adapters/__init__.py": 100.0,
   "custom_components/better_thermostat/adapters/base.py": 65.2,
   "custom_components/better_thermostat/adapters/deconz.py": 74.5,
