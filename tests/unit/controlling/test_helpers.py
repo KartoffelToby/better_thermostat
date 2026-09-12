@@ -871,6 +871,67 @@ class TestCheckCalibration:
         assert "did not confirm the calibration offset" not in caplog.text
 
     @pytest.mark.asyncio
+    async def test_a_report_one_step_below_the_command_confirms(self, caplog):
+        """A report one step below the command is the command, floored.
+
+        The offset reaches the device as a count of its step and the ZHA
+        number platform truncates that count, so a written 6.3 on a 0.1 K
+        step comes back as 6.2.
+        """
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=6.3, step=0.1
+        )
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=6.2)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_negative_report_one_step_nearer_zero_confirms(self, caplog):
+        """A negative command truncates toward zero and still confirms.
+
+        ``int()`` truncates toward zero, so a written -6.3 on a 0.1 K step
+        becomes -62 counts and comes back as -6.2, one step above the
+        command.
+        """
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=-6.3, step=0.1
+        )
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=-6.2)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_report_two_steps_below_the_command_times_out(self, caplog):
+        """A report two steps off the command is a wrong value, not a floor."""
+        mock_self = _calibration_mock_self(
+            HVACMode.HEAT, last_calibration=6.3, step=0.1
+        )
+
+        with (
+            patch(f"{_CTRL}.get_current_offset", new=AsyncMock(return_value=6.1)),
+            _instant_sleep(),
+        ):
+            result = await check_calibration(mock_self, "climate.trv1")
+
+        assert result is True
+        assert mock_self.real_trvs["climate.trv1"].calibration_received is True
+        assert "did not confirm the calibration offset" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_offset_matches_after_delay(self, caplog):
         """A report that arrives late still confirms without a warning."""
         mock_self = _calibration_mock_self(HVACMode.HEAT, last_calibration=-2.0)
@@ -1096,10 +1157,10 @@ class TestCalibrationMatchTolerance:
         }
         return mock_self
 
-    def test_step_yields_half_a_step(self):
-        """A snapped offset sits at most half a step from the command."""
+    def test_step_yields_a_full_step(self):
+        """A truncated offset sits one step nearer zero than the command."""
         tolerance = _calibration_match_tolerance(self._mock_self(1.0), "climate.trv1")
-        assert tolerance == pytest.approx(0.5, abs=1e-5)
+        assert tolerance == pytest.approx(1.0, abs=1e-5)
 
     def test_unusable_step_falls_back_to_the_floor(self):
         """Without a usable step there is no grid to derive a tolerance from."""
