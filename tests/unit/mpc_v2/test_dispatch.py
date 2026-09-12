@@ -10,13 +10,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
-pytest.importorskip("daqp")
-
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Params,
@@ -27,6 +25,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
+from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 
 
 class _FakeStateManager:
@@ -40,6 +39,13 @@ class _FakeStateManager:
     def __init__(self) -> None:
         """Start with an empty per-key live MPC v2 state store."""
         self._mpc_v2_live: dict[str, MpcV2State] = {}
+        self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
+        self.mpc_v2_reid: dict[str, object] = {}
+
+    @property
+    def state(self):
+        """Return self so ``state.mpc_v2_reid`` resolves like on the real store."""
+        return self
 
     def get_mpc_v2_live(self, key: str, params: MpcV2Params) -> MpcV2State:
         """Return the live state for key, creating a fresh one on first use."""
@@ -52,6 +58,18 @@ class _FakeStateManager:
     def set_mpc_v2_live(self, key: str, state: MpcV2State) -> None:
         """Store the live MPC v2 state for key."""
         self._mpc_v2_live[key] = state
+
+    def get_mpc_v2_reid(self, key: str) -> None:
+        """No persisted re-identification result in the fake store."""
+        return None
+
+    def get_mpc_v2_reid_runtime(self, key: str) -> MpcV2ReidRuntime:
+        """Return the in-memory re-ID collection state, building it on first use."""
+        runtime = self._mpc_v2_reid_live.get(key)
+        if runtime is None:
+            runtime = MpcV2ReidRuntime()
+            self._mpc_v2_reid_live[key] = runtime
+        return runtime
 
 
 def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
@@ -68,6 +86,9 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         # The real entity derives this from both contacts; the dispatcher
         # reads the combined flag, so the stand-in has to carry it too.
         contact_open=False,
+        kernel_state=SimpleNamespace(
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+        ),
         device_name="BT_TEST",
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
@@ -79,6 +100,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         device_id="bt_test_device",
         entry_id="bt_test_entry",
         state_mgr=_FakeStateManager(),
+        clock=FakeClock(monotonic_value=1_000_000.0),
     )
 
 
@@ -224,28 +246,21 @@ def test_missing_cur_temp_returns_none() -> None:
     assert supports is False
 
 
-def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
-    """A failing daqp import degrades to (None, False) with a single warning."""
-    from custom_components.better_thermostat import calibration
+def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
+    """MPC v2 keeps dispatching through the portable solver without DAQP."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
-    monkeypatch.setattr(qp_optimiser, "_DAQP_IMPORT_ERROR", "synthetic test failure")
-    monkeypatch.setattr(calibration, "_MPC_V2_IMPORT_WARNED", set())
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
 
     real_trvs = {
         "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
     }
     bt = _make_bt(real_trvs=real_trvs)
 
-    with caplog.at_level("WARNING"):
-        out, supports = _compute_mpc_v2_balance(bt, "climate.x")
-        out2, supports2 = _compute_mpc_v2_balance(bt, "climate.x")
+    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
 
-    assert out is None and supports is False
-    assert out2 is None and supports2 is False
-    assert real_trvs["climate.x"].calibration_balance is None
-    warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
-    assert len(warnings) == 1
+    assert out is not None and supports is True
+    assert real_trvs["climate.x"].calibration_balance is not None

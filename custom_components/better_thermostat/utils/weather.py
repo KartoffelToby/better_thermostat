@@ -18,10 +18,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 from homeassistant.helpers.recorder import get_instance
 import homeassistant.util.dt as dt_util
 
-# from datetime import datetime, timedelta
-# import homeassistant.util.dt as dt_util
-# from homeassistant.components.recorder.history import state_changes_during_period
-from .helpers import convert_to_float_celsius
+from .helpers import async_fire_logbook_entry, convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,10 +81,6 @@ async def check_weather(self) -> bool:
         self.call_for_heat = True
 
     if old_call_for_heat != self.call_for_heat:
-        from custom_components.better_thermostat.utils.helpers import (
-            async_fire_logbook_entry,
-        )
-
         if not self.call_for_heat:
             await async_fire_logbook_entry(
                 self,
@@ -353,8 +346,8 @@ class DailyHistory:
       - Track all readings per day and compute the per-day mean
       - Then compute the overall mean across the kept days
 
-    Note: Attribute name `min` is kept for backward compatibility with callers,
-    but it now contains the multi-day mean (float) instead of a median of minima.
+    Note: the attribute holding the result is named `min` and carries the
+    multi-day mean as a float.
     """
 
     def __init__(self, max_length):
@@ -364,7 +357,7 @@ class DailyHistory:
         # Track per-day aggregate to compute means
         self._sum_dict = {}
         self._count_dict = {}
-        # Back-compat field: will store the resulting multi-day mean
+        # Holds the resulting multi-day mean
         self.min = None
 
     def add_measurement(self, value, timestamp=None):

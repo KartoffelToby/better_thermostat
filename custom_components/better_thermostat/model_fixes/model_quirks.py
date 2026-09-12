@@ -8,64 +8,43 @@ from __future__ import annotations
 
 import logging
 import re
+from types import ModuleType
 
 from homeassistant.helpers.importlib import async_import_module
 
+from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+
 _LOGGER = logging.getLogger(__name__)
 
+# Model strings that no quirk module of their own answers for, mapped to the
+# module that drives them instead. The Eurotronic Spirit Z and the Aeotec
+# ZWA021 are one device sold under two names, so one module covers both.
+_QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021"}
 
-def get_model_quirks_name(model):
-    """Return the model quirks module name for a TRV model.
+
+def get_model_quirks_name(model: str | None) -> str:
+    """Return the name of the quirk module a device model is driven by.
 
     Parameters
     ----------
-    model : object or None
-        TRV model identifier. The ``Spirit`` model is mapped to ``ZWA021``;
-        other values are converted to strings.
+    model : str | None
+        Model string the device registry reports, or None while the model
+        is undetermined.
 
     Returns
     -------
     str
-        Model quirks module name, or an empty string when ``model`` is
-        ``None``.
+        Module name to load: the model itself, unless another model's
+        module answers for it.
     """
-    if model is not None:
-        model_str = str(model)
-        match model_str:
-            case "Spirit":
-                model_quirks_name = "ZWA021"
-            case _:
-                model_quirks_name = model_str
-    else:
-        model_quirks_name = ""
-    return model_quirks_name
+    model_str = str(model) if model is not None else ""
+    return _QUIRK_MODULE_ALIASES.get(model_str, model_str)
 
 
-async def load_model_quirks(self, model, entity_id):
+async def load_model_quirks(self, model, entity_id) -> ModuleType:
     """Load model quirks module for a given TRV model, falling back to default.
 
     Emits debug logs for both the success and the fallback path.
-
-    Parameters
-    ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
-    model : object or None
-        TRV model identifier used to select the quirks module.
-    entity_id : str
-        TRV entity identifier used in diagnostic log messages.
-
-    Returns
-    -------
-    module
-        Imported model quirks module, or the default quirks module when the
-        model-specific module is unavailable.
-
-    Raises
-    ------
-    ImportError
-        If the model-specific module is unavailable and the default module
-        cannot be imported.
     """
 
     # Normalize model to a safe module suffix
@@ -115,34 +94,58 @@ async def load_model_quirks(self, model, entity_id):
     return self.model_quirks
 
 
-def trv_state_unknown_as_available(self, entity_id):
-    """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
+def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
+    """Answer whether a model's own quirk drives that model's valve.
 
-    Call the configured model quirks implementation to determine it.
-    Some TRVs have a Climate Entity specific Manufacturer Mode for direct valve control
-    that leads to having TRV Climate entity STATE_UNKNOWN even when the device is actually
-    available and controllable.
+    A quirk module carrying ``override_set_valve`` reaches the valve through
+    the entities its device family exposes, which is a channel of the model
+    and not of the ecosystem the device happens to be paired through. So the
+    answer holds for every adapter, including the generic one a device
+    without an adapter of its own falls back to.
 
     Parameters
     ----------
-    self : BetterThermostat
-        The Better Thermostat climate entity instance
-    entity_id : str
-        Entity identifier of the TRV to check.
+    model_quirks : ModuleType | None
+        Quirk module loaded for a TRV, or None where none is loaded.
 
     Returns
     -------
     bool
-        Whether the TRV should be treated as available while its Climate
-        entity state is ``STATE_UNKNOWN``. Returns ``False`` when no
-        configured model quirks implementation provides this policy.
+        True when the module carries a callable ``override_set_valve``.
     """
-    _trv = self.real_trvs.get(entity_id)
-    if _trv is not None and hasattr(_trv, "model_quirks"):
-        quirks = _trv.model_quirks
-        if hasattr(quirks, "trv_state_unknown_as_available"):
-            return quirks.trv_state_unknown_as_available(self, entity_id)
-    return False
+    return callable(getattr(model_quirks, "override_set_valve", None))
+
+
+def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether a TRV is operating while its state reads ``unknown``.
+
+    A device driven through a thermostat mode its climate entity does not
+    describe reports ``unknown`` for as long as that mode holds, while it
+    stays reachable and takes commands. Only the model's own quirk module
+    knows that, so the answer comes from there; for every other device an
+    entity that says nothing leaves the device unaccounted for.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV whose state reads ``unknown``
+
+    Returns
+    -------
+    bool
+        True when ``unknown`` is this model's way of reporting an
+        operating device
+    """
+    quirks = getattr(self.real_trvs.get(entity_id), "model_quirks", None)
+    # The record holds the loaded quirk module, and only a loaded module can
+    # answer; anything else is read the way an unquirked device is.
+    if not isinstance(quirks, ModuleType):
+        return False
+    if not hasattr(quirks, "trv_state_unknown_as_available"):
+        return False
+    return bool(quirks.trv_state_unknown_as_available(self, entity_id))
 
 
 def fix_local_calibration(self, entity_id, offset):

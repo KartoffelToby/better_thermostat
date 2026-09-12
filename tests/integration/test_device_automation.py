@@ -39,16 +39,16 @@ from custom_components.better_thermostat.device_condition import CONDITION_TYPES
 from custom_components.better_thermostat.device_trigger import TRIGGER_TYPES
 
 from .conftest import (
+    BT_ENTITY,
     DOMAIN,
-    SENSOR_ID,
-    TRV_ID,
     make_entry,
+    set_room_humidity,
+    set_room_sensor,
     setup_entry,
     wait_for,
     wait_for_startup,
 )
-
-BT_ENTITY = "climate.bt_test"
+from .device_profiles import GENERIC_HEAT_TRV, TRV_ID
 
 # The state change each trigger claims to watch, written as the attributes the
 # thermostat itself publishes. Every key is checked against the live entity
@@ -94,15 +94,16 @@ CONDITION_CASES = {
 }
 
 
-def _room_sensor(hass, value="19.0"):
-    """Set the external room temperature sensor to ``value`` (°C)."""
-    hass.states.async_set(SENSOR_ID, value, {"unit_of_measurement": "°C"})
-
-
 async def _entry_with_device(hass):
-    """Set a thermostat up and return its config entry and device id."""
-    _room_sensor(hass)
-    entry = make_entry()
+    """Set a thermostat up and return its config entry and device id.
+
+    The entry carries a humidity sensor because two of the offered triggers
+    watch the humidity, and a thermostat without that sensor has no humidity
+    to report.
+    """
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 45.0)
+    entry = make_entry(GENERIC_HEAT_TRV, with_humidity=True)
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     registry_entry = er.async_get(hass).async_get(BT_ENTITY)
@@ -139,19 +140,12 @@ def _republish(hass, **changes) -> State:
     return state
 
 
-async def _run_automation(hass, config) -> None:
-    """Set one automation up and assert it survived validation."""
-    assert await async_setup_component(
-        hass, automation.DOMAIN, {automation.DOMAIN: [config]}
-    )
-    await hass.async_block_till_done()
-    assert hass.states.async_entity_ids("automation"), (
-        f"{config['alias']} did not survive automation setup"
-    )
-
-
 async def test_the_device_offers_every_declared_trigger(hass, fake_trv):
-    """Home Assistant is offered each trigger type the platform declares."""
+    """Home Assistant is offered each trigger type the platform declares.
+
+    The declaration and the listing are two separate places, so a type added
+    to one and not the other never reaches an automation editor.
+    """
     _entry, device_id = await _entry_with_device(hass)
 
     offered = await async_get_device_automations(
@@ -160,6 +154,31 @@ async def test_the_device_offers_every_declared_trigger(hass, fake_trv):
     ours = {item[CONF_TYPE] for item in offered if item.get(CONF_DOMAIN) == DOMAIN}
 
     assert ours == TRIGGER_TYPES
+
+
+async def test_a_thermostat_without_a_humidity_sensor_is_offered_no_humidity_trigger(
+    hass, fake_trv
+):
+    """A trigger that can never fire does not belong in the automation editor.
+
+    Without that sensor the thermostat publishes no humidity, so both
+    humidity triggers would attach to an automation and then stay silent for
+    good — which reads to the user as a broken automation, not as a missing
+    sensor.
+    """
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    assert registry_entry is not None
+
+    offered = await async_get_device_automations(
+        hass, DeviceAutomationType.TRIGGER, registry_entry.device_id
+    )
+    ours = {item[CONF_TYPE] for item in offered if item.get(CONF_DOMAIN) == DOMAIN}
+
+    assert ours == TRIGGER_TYPES - {"humidity_high", "current_humidity_changed"}
 
 
 @pytest.mark.parametrize("trigger_type", sorted(TRIGGER_CASES), ids=str)
@@ -181,13 +200,22 @@ async def test_each_trigger_fires_on_the_change_it_names(hass, fake_trv, trigger
     trigger.update(TRIGGER_EXTRA_FIELDS.get(trigger_type, {}))
     calls = async_mock_service(hass, "test", "automation")
 
-    await _run_automation(
+    assert await async_setup_component(
         hass,
+        automation.DOMAIN,
         {
-            "alias": trigger_type,
-            "trigger": trigger,
-            "action": {"service": "test.automation"},
+            automation.DOMAIN: [
+                {
+                    "alias": trigger_type,
+                    "trigger": trigger,
+                    "action": {"service": "test.automation"},
+                }
+            ]
         },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation"), (
+        f"{trigger_type} did not survive automation setup"
     )
 
     if trigger_type in TRIGGER_PRECONDITIONS:
@@ -207,36 +235,6 @@ async def test_each_trigger_fires_on_the_change_it_names(hass, fake_trv, trigger
         _republish(hass, **TRIGGER_CASES[trigger_type])
 
     assert await wait_for(hass, lambda: calls), f"{trigger_type} never fired"
-
-
-async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_trv):
-    """A device-only trigger watches the thermostat on that device.
-
-    This is the shape the bundled blueprints are written in: they let the user
-    pick a device, and nothing in the blueprint knows an entity id. The
-    automation editor writes the entity alongside the device, so both shapes
-    reach the platform and both have to work.
-    """
-    _entry, device_id = await _entry_with_device(hass)
-    calls = async_mock_service(hass, "test", "automation")
-
-    await _run_automation(
-        hass,
-        {
-            "alias": "device_only",
-            "trigger": {
-                "platform": "device",
-                CONF_DOMAIN: DOMAIN,
-                CONF_DEVICE_ID: device_id,
-                CONF_TYPE: "heating_active",
-            },
-            "action": {"service": "test.automation"},
-        },
-    )
-
-    _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
-
-    assert await wait_for(hass, lambda: calls)
 
 
 async def test_the_device_offers_every_declared_condition(hass, fake_trv):
@@ -271,14 +269,23 @@ async def test_each_condition_passes_on_the_state_it_names(
     condition.update(extra_fields)
     calls = async_mock_service(hass, "test", "automation")
 
-    await _run_automation(
+    assert await async_setup_component(
         hass,
+        automation.DOMAIN,
         {
-            "alias": condition_type,
-            "trigger": {"platform": "event", "event_type": "run_condition"},
-            "condition": [condition],
-            "action": {"service": "test.automation"},
+            automation.DOMAIN: [
+                {
+                    "alias": condition_type,
+                    "trigger": {"platform": "event", "event_type": "run_condition"},
+                    "condition": [condition],
+                    "action": {"service": "test.automation"},
+                }
+            ]
         },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation"), (
+        f"{condition_type} did not survive automation setup"
     )
 
     state = _republish(hass, **attributes) if attributes else hass.states.get(BT_ENTITY)
@@ -291,43 +298,6 @@ async def test_each_condition_passes_on_the_state_it_names(
     await hass.async_block_till_done()
 
     assert calls, f"{condition_type} blocked the state it names"
-
-
-async def test_a_condition_that_names_the_registry_id_reads_the_state(hass, fake_trv):
-    """A condition naming the entity by registry id still reads its state.
-
-    A stored automation may hold the registry id instead of the entity id —
-    that is the point of the id, it survives a rename. The schema accepts both
-    and ``hass.states`` accepts only one, so the registry id has to be resolved
-    before the state is read, or the condition is silently always false.
-    """
-    _entry, device_id = await _entry_with_device(hass)
-    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
-    condition = _offered(
-        await async_get_device_automations(
-            hass, DeviceAutomationType.CONDITION, device_id
-        ),
-        "is_hvac_mode",
-    )
-    condition[CONF_ENTITY_ID] = registry_entry.id
-    condition[ATTR_HVAC_MODE] = "heat"
-    calls = async_mock_service(hass, "test", "automation")
-
-    await _run_automation(
-        hass,
-        {
-            "alias": "by_registry_id",
-            "trigger": {"platform": "event", "event_type": "run_condition"},
-            "condition": [condition],
-            "action": {"service": "test.automation"},
-        },
-    )
-    assert hass.states.get(BT_ENTITY).state == "heat"
-
-    hass.bus.async_fire("run_condition")
-    await hass.async_block_till_done()
-
-    assert calls, "the condition did not resolve the registry id"
 
 
 async def test_the_device_offers_every_declared_action(hass, fake_trv):
@@ -354,14 +324,20 @@ async def test_the_set_hvac_mode_action_reaches_the_thermostat(hass, fake_trv):
     action[ATTR_HVAC_MODE] = "off"
     assert hass.states.get(BT_ENTITY).state == "heat"
 
-    await _run_automation(
+    assert await async_setup_component(
         hass,
+        automation.DOMAIN,
         {
-            "alias": "set_hvac_mode",
-            "trigger": {"platform": "event", "event_type": "run_action"},
-            "action": action,
+            automation.DOMAIN: [
+                {
+                    "alias": "set_hvac_mode",
+                    "trigger": {"platform": "event", "event_type": "run_action"},
+                    "action": action,
+                }
+            ]
         },
     )
+    await hass.async_block_till_done()
     hass.bus.async_fire("run_action")
 
     assert await wait_for(hass, lambda: hass.states.get(BT_ENTITY).state == "off")
@@ -379,19 +355,62 @@ async def test_the_set_temperature_action_reaches_the_thermostat(hass, fake_trv)
     action[ATTR_TEMPERATURE] = 23.5
     assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] != 23.5
 
-    await _run_automation(
+    assert await async_setup_component(
         hass,
+        automation.DOMAIN,
         {
-            "alias": "set_temperature",
-            "trigger": {"platform": "event", "event_type": "run_action"},
-            "action": action,
+            automation.DOMAIN: [
+                {
+                    "alias": "set_temperature",
+                    "trigger": {"platform": "event", "event_type": "run_action"},
+                    "action": action,
+                }
+            ]
         },
     )
+    await hass.async_block_till_done()
     hass.bus.async_fire("run_action")
 
     assert await wait_for(
         hass, lambda: hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 23.5
     )
+
+
+async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_trv):
+    """A device-only trigger watches the thermostat on that device.
+
+    This is the shape the bundled blueprints are written in: they let the user
+    pick a device, and nothing in the blueprint knows an entity id. The
+    automation editor writes the entity alongside the device, so both shapes
+    reach the platform and both have to work.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    calls = async_mock_service(hass, "test", "automation")
+
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "device_only",
+                    "trigger": {
+                        "platform": "device",
+                        CONF_DOMAIN: DOMAIN,
+                        CONF_DEVICE_ID: device_id,
+                        CONF_TYPE: "heating_active",
+                    },
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation")
+
+    _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
+
+    assert await wait_for(hass, lambda: calls)
 
 
 async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
@@ -445,3 +464,81 @@ async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
     await hass.async_block_till_done()
 
     assert not calls
+
+
+async def test_a_condition_that_names_the_registry_id_reads_the_state(hass, fake_trv):
+    """A condition naming the entity by registry id still reads its state.
+
+    A stored automation may hold the registry id instead of the entity id —
+    that is the point of the id, it survives a rename. The schema accepts both
+    and ``hass.states`` accepts only one, so the registry id has to be resolved
+    before the state is read, or the condition is silently always false.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    condition = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.CONDITION, device_id
+        ),
+        "is_hvac_mode",
+    )
+    condition[CONF_ENTITY_ID] = registry_entry.id
+    condition[ATTR_HVAC_MODE] = "heat"
+    calls = async_mock_service(hass, "test", "automation")
+
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "by_registry_id",
+                    "trigger": {"platform": "event", "event_type": "run_condition"},
+                    "condition": [condition],
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation")
+    assert hass.states.get(BT_ENTITY).state == "heat"
+
+    hass.bus.async_fire("run_condition")
+    await hass.async_block_till_done()
+
+    assert calls, "the condition did not resolve the registry id"
+
+
+async def test_a_trigger_that_names_the_registry_id_watches_the_entity(hass, fake_trv):
+    """A trigger naming the entity by registry id still watches that entity."""
+    _entry, device_id = await _entry_with_device(hass)
+    registry_entry = er.async_get(hass).async_get(BT_ENTITY)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        "heating_active",
+    )
+    trigger[CONF_ENTITY_ID] = registry_entry.id
+    calls = async_mock_service(hass, "test", "automation")
+
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "by_registry_id",
+                    "trigger": trigger,
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    assert hass.states.async_entity_ids("automation")
+
+    _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
+
+    assert await wait_for(hass, lambda: calls)

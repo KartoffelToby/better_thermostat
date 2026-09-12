@@ -9,9 +9,12 @@ import logging
 import math
 import random
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .types import CalibrationHost
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+
+if TYPE_CHECKING:
+    from ...climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,10 +153,7 @@ class _MpcState:
     tolerance_hold_active: bool = False
 
 
-# Public alias so callers can reference the state type without
-# importing a private name.  The underscore-prefixed original is kept
-# for backwards compatibility within this module.
-def _all_finite(value: Any) -> bool:
+def _all_finite(value: object) -> bool:
     """Whether every number reachable inside ``value`` is finite."""
     if isinstance(value, bool):
         return True
@@ -166,8 +166,8 @@ def _all_finite(value: Any) -> bool:
     return True
 
 
-def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
-    """Return a usable MPC state; a poisoned one is replaced by a fresh one.
+def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, CalibratorHealth]:
+    """Self-heal a poisoned MPC state before computing.
 
     A non-finite number anywhere in the learned state poisons every
     prediction derived from it, so the whole state is discarded and the
@@ -175,10 +175,12 @@ def sanitize_mpc_state(state: _MpcState) -> tuple[_MpcState, str | None]:
     """
     for f in fields(state):
         if not _all_finite(getattr(state, f.name)):
-            return _MpcState(), "non-finite state"
-    return state, None
+            return _MpcState(), CalibratorHealth.NON_FINITE
+    return state, CalibratorHealth.HEALTHY
 
 
+# Public alias so callers can reference the state type without importing
+# a private name.
 MpcState = _MpcState
 
 
@@ -313,7 +315,11 @@ def _seed_state_from_siblings(
     ``loss_est``, ``ka_est``) are not touched.
 
     Existing values in *state* are never overwritten — seeding only
-    fills in defaults.
+    fills in defaults. Candidate values are copied only when finite:
+    a sibling holding NaN/inf for a field (e.g. a poisoned state parked
+    under an inactive bucket, which the active-key sanitizer never
+    heals) is skipped for that field and the next-nearest sibling is
+    tried, so seeding cannot re-poison a freshly sanitized state.
     """
     uid, entity, bucket = _split_mpc_key(key)
     if not uid or not entity:
@@ -343,14 +349,16 @@ def _seed_state_from_siblings(
         getattr(params, "enable_min_effective_percent", True)
     ):
         for _, sib in siblings:
-            if sib.min_effective_percent is not None:
+            if sib.min_effective_percent is not None and _all_finite(
+                sib.min_effective_percent
+            ):
                 state.min_effective_percent = sib.min_effective_percent
                 break
 
     # --- Target-independent learned characteristics ---
     if not state.perf_curve:
         for _, sib in siblings:
-            if sib.perf_curve:
+            if sib.perf_curve and _all_finite(sib.perf_curve):
                 state.perf_curve = {
                     label: dict(stats) for label, stats in sib.perf_curve.items()
                 }
@@ -358,7 +366,12 @@ def _seed_state_from_siblings(
 
     if state.trv_profile == "unknown" and state.profile_samples == 0:
         for _, sib in siblings:
-            if sib.trv_profile != "unknown" and sib.profile_samples > 0:
+            if (
+                sib.trv_profile != "unknown"
+                and sib.profile_samples > 0
+                and _all_finite(sib.profile_confidence)
+                and _all_finite(sib.profile_samples)
+            ):
                 state.trv_profile = sib.trv_profile
                 state.profile_confidence = sib.profile_confidence
                 state.profile_samples = sib.profile_samples
@@ -366,12 +379,12 @@ def _seed_state_from_siblings(
 
     if state.solar_gain_est is None:
         for _, sib in siblings:
-            if sib.solar_gain_est is not None:
+            if sib.solar_gain_est is not None and _all_finite(sib.solar_gain_est):
                 state.solar_gain_est = sib.solar_gain_est
                 break
 
 
-def build_mpc_key(bt: CalibrationHost, entity_id: str) -> str:
+def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     """Return a stable key for MPC state tracking.
 
     For a single-TRV BT instance this key is entity-specific.
@@ -393,7 +406,7 @@ def build_mpc_key(bt: CalibrationHost, entity_id: str) -> str:
     return f"{uid}:{entity_id}:{bucket}"
 
 
-def build_mpc_group_key(bt: CalibrationHost) -> str:
+def build_mpc_group_key(bt: BetterThermostat) -> str:
     """Return a BT-level (group) key for MPC state tracking.
 
     All TRVs under the same BT instance share this key so that a single
@@ -566,15 +579,6 @@ def compute_mpc(
     """
 
     now = time()
-
-    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
-    state, pathology = sanitize_mpc_state(state)
-    if pathology is not None:
-        _LOGGER.warning(
-            "better_thermostat: discarding poisoned MPC state for %s (%s)",
-            inp.key,
-            pathology,
-        )
 
     if state.created_ts == 0.0:
         # For existing trained models, backdate the creation timestamp
@@ -906,12 +910,15 @@ def _compute_predictive_percent(
 ) -> tuple[float, dict[str, Any]]:
     """Core MPC minimisation routine.
 
-    Overhauled to use a physically consistent temperature-forward model:
-    - gain and loss are treated as °C/min and converted to °C/step
-    - temperature is simulated forward (°C) rather than multiplying the error
-    - quadratic cost (sum of squared errors) is used
-    - coarse -> fine candidate search to reduce evals
-    - adaptation uses EMA but in physical units (°C/min)
+    The plant model is temperature-forward and carries physical units:
+    - gain and loss are °C/min and are converted to °C/step
+    - the room temperature is simulated forward in °C over the horizon
+    - the cost is quadratic in the tracking error, weighted extra on
+      overshoot, plus a control-effort term around the steady-state opening
+      and a slew term against the last command
+    - the valve fraction is picked by a coarse grid pass followed by a fine
+      local refinement, which keeps the number of cost evaluations small
+    - adaptation moves the gain and loss estimates by EMA, in °C/min
     """
 
     # Defensive checks
@@ -939,14 +946,14 @@ def _compute_predictive_percent(
 
     use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
 
-    # delta_t is kept for API/backward compatibility (pre-u0 versions used it)
+    # delta_t is part of the call signature but not an input to this solver.
     _ = delta_t
 
     if state.last_learn_time is None:
         state.last_learn_time = now
         state.last_learn_temp = current_temp_cost_C
 
-    # Convert constants & params (use existing param names for backward compatibility)
+    # Convert constants & params
     step_s = float(getattr(params, "mpc_step_s", MPC_STEP_SECONDS))
     step_minutes = step_s / 60.0
     horizon = int(getattr(params, "mpc_horizon_steps", MPC_HORIZON_STEPS))

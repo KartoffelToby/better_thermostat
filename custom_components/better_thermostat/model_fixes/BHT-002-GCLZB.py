@@ -17,7 +17,8 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
 
     Rounds to the nearest integer (towards ceiling if the room is heating)
     to recover from the erroneous float values produced by some Zigbee
-    integrations.
+    integrations. Without a room temperature or a setpoint the heating
+    direction is unknown and the offset rounds down.
 
     Parameters
     ----------
@@ -33,7 +34,10 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     float
         The normalized integer-valued calibration offset.
     """
-    if self.cur_temp < self.bt_target_temp:
+    _cur_temp = self.cur_temp
+    _target_temp = self.bt_target_temp
+
+    if _cur_temp is not None and _target_temp is not None and _cur_temp < _target_temp:
         offset = float(math.ceil(offset))
     else:
         offset = float(math.floor(offset))

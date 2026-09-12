@@ -34,6 +34,7 @@ This page explains the two setup screens in plain language and gives practical d
 - **The outdoor temperature when the thermostat turns off**: If it gets warmer than this outside, the heating turns off automatically to save energy and money.
 - **Enabled Presets**: Choose which modes you want to use (like Eco mode for saving energy while away).
 - **Tolerance, to prevent the thermostat from turning on and off too often**: A small temperature buffer so your heater doesn't constantly click on and off if the temperature fluctuates slightly.
+- **Target minimum temperature** / **Target maximum temperature**: The range you can set on this thermostat. Leave both on *Auto* to use the range your devices report, or pick a degree to narrow it — a nursery held above 16°C, say. The minimum must not be above the maximum.
 - **Target temperature step**: How much the temperature changes when you press the plus or minus buttons (e.g., 0.5°C).
 
 </div>

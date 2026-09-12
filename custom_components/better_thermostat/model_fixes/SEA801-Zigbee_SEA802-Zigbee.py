@@ -20,7 +20,8 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     """Adjust the local calibration offset for SEA801/SEA802 devices.
 
     The function applies small adjustments based on the external and target
-    temperatures to avoid incorrect temperature behavior.
+    temperatures to avoid incorrect temperature behavior; without either of
+    them the offset is returned unchanged.
 
     Parameters
     ----------
@@ -40,6 +41,9 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         return offset
     _cur_external_temp = self.cur_temp
     _target_temp = self.bt_target_temp
+
+    if _cur_external_temp is None or _target_temp is None:
+        return offset
 
     if (_cur_external_temp + 0.1) >= _target_temp:
         offset = round(offset + 0.5, 1)

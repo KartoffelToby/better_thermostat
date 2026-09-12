@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import logging
+import math
 
 from homeassistant.helpers.importlib import async_import_module
 
@@ -13,11 +15,29 @@ from ..utils.retry import async_retry
 _LOGGER = logging.getLogger(__name__)
 
 
-async def load_adapter(self, integration, entity_id, get_name=False):
-    """Load adapter."""
-    if get_name:
-        self.device_name = "-"
+async def load_adapter(self, integration, entity_id):
+    """Load the adapter module that speaks to one integration.
 
+    An integration without an adapter module of its own is served by the
+    generic adapter. The import error that leads there is logged with its
+    traceback: a broken adapter module reads exactly like an unsupported
+    ecosystem from the outside, and only the traceback tells them apart.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance, or the config flow
+        standing in for it
+    integration : str
+        Name of the integration owning the TRV
+    entity_id : str
+        Entity ID of the TRV the adapter is loaded for
+
+    Returns
+    -------
+    ModuleType
+        The adapter module, which is also stored on ``self.adapter``
+    """
     if integration == "generic_thermostat":
         integration = "generic"
 
@@ -32,6 +52,13 @@ async def load_adapter(self, integration, entity_id, get_name=False):
             entity_id,
         )
     except Exception:
+        _LOGGER.debug(
+            "better_thermostat %s: adapter %s could not be imported for trv %s",
+            self.device_name,
+            integration,
+            entity_id,
+            exc_info=True,
+        )
         self.adapter = await async_import_module(
             self.hass, "custom_components.better_thermostat.adapters.generic"
         )
@@ -42,8 +69,6 @@ async def load_adapter(self, integration, entity_id, get_name=False):
             "generic",
         )
 
-    if get_name:
-        return integration
     return self.adapter
 
 
@@ -92,13 +117,31 @@ async def set_temperature(self, entity_id, temperature):
     """Set new target temperature.
 
     Round to device step if known and clamp to min/max before delegating.
-    Also updates last_temperature to the (potentially) rounded value for consistency.
+    The TRV's recorded setpoint follows the value that actually goes out.
+
+    A target that is not a number is refused rather than replaced by a
+    stand-in. A stand-in is indistinguishable from a setpoint the user
+    asked for: a device that reports a range would receive its lower
+    bound, and a device that reports none would receive the stand-in
+    itself. NaN and the infinities are refused on the same grounds:
+    ``float()`` takes them, rounding carries them through, and the clamp
+    turns them into a bound — a NaN target would reach the device as its
+    maximum setpoint.
     """
     # Normalize input to float early
     try:
         t = float(temperature)
     except TypeError, ValueError:
-        t = 0.0
+        t = None
+    if t is None or not math.isfinite(t):
+        _LOGGER.error(
+            "better_thermostat %s: target temperature %r for %s is not a number, "
+            "nothing was written",
+            getattr(self, "device_name", "unknown"),
+            temperature,
+            entity_id,
+        )
+        return None
 
     # Initialize step with default value
     step = 0.5
@@ -150,7 +193,15 @@ async def set_temperature(self, entity_id, temperature):
             rounded,
             step,
         )
-    # Keep last_temperature in sync with the actually sent value
+    # The recorded setpoint is what the TRV event handler compares an inbound
+    # report against to tell BT's own write apart from someone turning the
+    # knob. The state change this write causes can be handled while the
+    # service call is still in flight, so the value is recorded before it goes
+    # out: recorded afterwards, the device's echo would arrive while the
+    # previous value still stood and would be adopted as a user setpoint.
+    # ``set_offset`` records after its write for the opposite reason: its
+    # record says a calibration command is in flight, which a write that never
+    # went out must not claim.
     try:
         self.real_trvs[entity_id].last_temperature = rounded
     except Exception as e:
@@ -175,34 +226,33 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
 
 
 async def set_offset(self, entity_id, offset) -> bool:
-    """Set new target offset.
+    """Set new target offset and record the value that was asked for.
 
-    An adapter answers ``True`` once the offset write went out and ``False``
-    when the device has no offset channel to write to. Only ``True`` counts
-    as a command in flight: it is what records the requested value and what
-    tells the caller to arm the confirmation watchdog. The written offset
-    itself is not a usable answer, because the legitimate value 0.0 reads
-    the same as a device that wrote nothing.
+    An adapter answers ``True`` once the offset write went out and
+    ``False`` when the device has no offset channel to write to. Only
+    ``True`` counts as a command in flight: it is what records
+    ``last_calibration_requested`` and what tells the caller to arm the
+    confirmation watchdog. The written offset itself is not a usable
+    answer, because the legitimate value 0.0 reads the same as a device
+    that wrote nothing.
 
-    The requested value is recorded on a write only, so a command that never
-    left the house neither counts as issued nor suppresses the retry on the
-    next control cycle.
+    ``last_calibration_requested`` is written on a write only: a
+    swallowed failure would otherwise look like a command in flight.
 
     Parameters
     ----------
     self : BetterThermostat
-        The Better Thermostat climate entity instance.
+        The Better Thermostat climate entity instance
     entity_id : str
-        Entity id of the TRV to write the offset to.
+        Entity ID of the TRV to write to
     offset : float
-        Calibration offset to request, before the adapter's own clamp to the
-        device's declared offset range.
+        The offset asked for, before the adapter's own range clamp
 
     Returns
     -------
     bool
         True when the adapter put the offset on the wire, False when the
-        device has no offset channel or every retry raised.
+        device has no offset channel or every retry raised
     """
 
     @async_retry(retries=5)
@@ -233,69 +283,112 @@ async def set_offset(self, entity_id, offset) -> bool:
     return True
 
 
-@async_retry(retries=5)
-async def set_valve(self, entity_id, valve):
-    """Set new target valve.
+async def set_valve(self, entity_id, valve) -> bool:
+    """Set a new valve position and record the value that went out.
 
-    Prefers adapter/number entity if available; otherwise, falls back to model quirks
-    override_set_valve. Records last_valve_percent and last_valve_method accordingly.
-    Returns True on handled write, False otherwise.
+    A model quirk's ``override_set_valve`` owns the valve channel where
+    one exists and is asked first; a quirk that answers it did not take
+    the position falls through to the adapter's own channel. Whichever
+    wrote records ``last_valve_percent`` and ``last_valve_method``.
+
+    A device with no valve channel is not a failure and is answered
+    ``False`` without a single attempt: no number of attempts turns a
+    missing channel into one. A write that raises is an infrastructure
+    failure and is retried; only once the attempts are spent is it
+    reported and answered ``False``, which leaves the caller free to
+    re-derive the position on its next cycle.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    valve : int
+        The valve position to take, in percent
+
+    Returns
+    -------
+    bool
+        True when a position was put on the wire, False when the device
+        has no valve channel or every attempt raised
     """
     try:
         target_pct = int(valve)
-    except Exception:
-        target_pct = valve
-    try:
-        trv_state = self.real_trvs.get(entity_id)
-
-        # Check if the override_set_valve method is implemented in the model quirks of the trv
-        # This takes precedence over the standard adapter set_valve
-        _override_set_valve = getattr(
-            trv_state.model_quirks if trv_state is not None else None,
-            "override_set_valve",
-            None,
-        )
-        if _override_set_valve is not None:
-            ok = await _override_set_valve(self, entity_id, target_pct)
-            if ok:
-                try:
-                    self.real_trvs[entity_id].last_valve_percent = int(target_pct)
-                    self.real_trvs[entity_id].last_valve_method = "override"
-                except Exception:
-                    _LOGGER.exception(
-                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
-                        getattr(self, "device_name", "unknown"),
-                        entity_id,
-                    )
-                return True
-
-        valve_entity = (
-            trv_state.valve_position_entity if trv_state is not None else None
-        )
-        valve_writable = (
-            trv_state.valve_position_writable if trv_state is not None else None
-        )
-
-        # Only write to a helper entity when we know it's writable.
-        if valve_entity and valve_writable is True:
-            await self.real_trvs[entity_id].adapter.set_valve(
-                self, entity_id, target_pct
-            )
-            try:
-                self.real_trvs[entity_id].last_valve_percent = int(target_pct)
-                self.real_trvs[entity_id].last_valve_method = "adapter"
-            except Exception as exc:
-                _LOGGER.debug(
-                    "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
-                    getattr(self, "device_name", "unknown"),
-                    entity_id,
-                    exc,
-                )
-            return True
-    except Exception:
-        _LOGGER.debug(
-            "better_thermostat %s: delegate.set_valve failed for %s",
+    except TypeError, ValueError, OverflowError:
+        # `int()` refuses the infinities with OverflowError rather than
+        # ValueError, and a position that cannot be converted is not one to
+        # raise on: the caller re-derives it on the next cycle either way.
+        _LOGGER.error(
+            "better_thermostat %s: valve position %r for %s is not a number, "
+            "nothing was written",
             getattr(self, "device_name", "unknown"),
+            valve,
             entity_id,
         )
+        return False
+
+    trv_state = self.real_trvs.get(entity_id)
+
+    # The answer says a command went out, so the adapter's channel is tied to
+    # the adapter's own declaration rather than to the discovered entity: an
+    # ecosystem that declares no valve channel writes nothing, and reporting
+    # the discovery as a completed write would tell the caller a position was
+    # taken that the device never saw. An adapter without a declaration falls
+    # back to the discovered surface, as elsewhere.
+    declared = getattr(getattr(trv_state, "adapter", None), "CAPABILITIES", None)
+    adapter_writes_valve = declared is None or declared.valve_write
+    # An adapter whose valve channel is an ecosystem service call has no
+    # helper entity to discover. `Trv.capabilities` already reads the flag
+    # that way, so requiring an entity here would report a TRV as valve
+    # capable and then never write to it.
+    adapter_needs_valve_entity = declared is None or declared.valve_needs_entity
+    valve_entity = getattr(trv_state, "valve_position_entity", None)
+    valve_writable = getattr(trv_state, "valve_position_writable", None)
+    adapter_write = getattr(getattr(trv_state, "adapter", None), "set_valve", None)
+
+    # Each channel carries whether its own answer decides the outcome: a quirk
+    # reports whether it took the position, while an adapter call that returns
+    # is the write. The adapter's channel exists once a helper entity was
+    # discovered and is known to be writable, or once the adapter declares it
+    # needs no such entity because its valve channel is a service call.
+    channels = []
+    quirk_write = getattr(
+        getattr(trv_state, "model_quirks", None), "override_set_valve", None
+    )
+    if quirk_write is not None:
+        channels.append(("override", quirk_write, True))
+    if (
+        adapter_write is not None
+        and adapter_writes_valve
+        and (
+            (valve_entity and valve_writable is True) or not adapter_needs_valve_entity
+        )
+    ):
+        channels.append(("adapter", adapter_write, False))
+
+    @async_retry(
+        retries=5,
+        identifier=f"{getattr(self, 'device_name', 'unknown')} valve {entity_id}",
+    )
+    async def write_position(write: Callable[..., Awaitable[bool | None]]):
+        return await write(self, entity_id, target_pct)
+
+    for method, write, answer_decides in channels:
+        try:
+            answer = await write_position(write)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat %s: valve position %s%% for %s could not be "
+                "written; will retry on the next cycle",
+                getattr(self, "device_name", "unknown"),
+                target_pct,
+                entity_id,
+            )
+            return False
+        if answer_decides and not answer:
+            continue
+        trv_state.last_valve_percent = target_pct
+        trv_state.last_valve_method = method
+        return True
     return False

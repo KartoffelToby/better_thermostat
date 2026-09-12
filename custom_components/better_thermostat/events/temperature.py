@@ -8,13 +8,14 @@ propagated to the target devices.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 import math
 from time import monotonic
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
@@ -24,6 +25,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,10 +76,50 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
+def temperature_filter_lock(self) -> asyncio.Lock:
+    """Return the lock that serialises this entity's temperature filter.
+
+    The filter carries state from one reading to the next: the accumulated
+    delta, the pending plateau value and its timer. Home Assistant handles
+    every sensor update in its own task, and applying a reading suspends
+    while the value is written to the TRVs. Without the lock a reading that
+    arrives during such a write is decided against, and committed on top of,
+    a half-applied predecessor. The lock is created on first use and lives
+    on the entity, so each Better Thermostat only queues behind itself.
+
+    Everything that writes the room temperature to the TRVs takes this
+    lock: the sensor readings, the plateau timer and the keepalive tick.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    asyncio.Lock
+            the entity's own lock, created on first use
+    """
+    lock = getattr(self, "_temperature_filter_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        self._temperature_filter_lock = lock
+    return lock
+
+
 async def _apply_temperature_update(self, new_temp):
-    """Apply the new external temperature and trigger updates."""
+    """Apply the new external temperature once the filter is free."""
+    async with temperature_filter_lock(self):
+        await _commit_temperature_update(self, new_temp)
+
+
+async def _commit_temperature_update(self, new_temp):
+    """Apply the new external temperature and trigger updates.
+
+    Callers hold the filter lock.
+    """
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update called with %.2f",
+        "better_thermostat %s: _commit_temperature_update called with %.2f",
         self.device_name,
         new_temp,
     )
@@ -124,27 +166,49 @@ async def _apply_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Write the value used by BT (self.cur_temp) to the TRV
+    # Write the value used by BT (self.cur_temp) to the TRV. The heads are
+    # read from `real_trvs`, which is what carries the quirks the write goes
+    # through: an id from anywhere else resolves to no TRV and no write.
+    entity_ids: list[str] = []
     try:
-        trv_ids = list(self.real_trvs.keys())
-        if not trv_ids and hasattr(self, "entity_ids"):
-            trv_ids = list(self.entity_ids or [])
-        for trv_id in trv_ids:
-            _trv = self.real_trvs.get(trv_id) if hasattr(self, "real_trvs") else None
+        entity_ids = list(self.real_trvs.keys())
+    except (AttributeError, TypeError) as exc:
+        _LOGGER.warning(
+            "better_thermostat %s: no TRV list to write external_temperature to: %s",
+            self.device_name,
+            exc,
+        )
+    for entity_id in entity_ids:
+        try:
+            _trv = self.real_trvs.get(entity_id)
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                await quirks.maybe_set_external_temperature(
+                    self, entity_id, self.cur_temp
+                )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
                     self.device_name,
-                    trv_id,
+                    entity_id,
                 )
-    except AttributeError, KeyError, TypeError, ValueError, RuntimeError:
-        _LOGGER.debug(
-            "better_thermostat %s: external_temperature write to TRV failed (non critical)",
-            self.device_name,
-        )
+        except (
+            HomeAssistantError,
+            OSError,
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            RuntimeError,
+        ) as exc:
+            # A device that refuses the value keeps its old one; the other TRVs
+            # still get the reading, and the control cycle below runs on it.
+            _LOGGER.warning(
+                "better_thermostat %s: external_temperature write to %s failed: %s",
+                self.device_name,
+                entity_id,
+                exc,
+            )
     # Enqueue control action (skip during valve maintenance to avoid overwriting exercise).
     # Still mark that a control cycle is needed after maintenance so we immediately
     # resume with the latest temperature.
@@ -152,15 +216,23 @@ async def _apply_temperature_update(self, new_temp):
         if getattr(self, "in_maintenance", False):
             self._control_needed_after_maintenance = True
         else:
-            await self.control_queue_task.put(self)
+            request_control_cycle(self)
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update finished", self.device_name
+        "better_thermostat %s: _commit_temperature_update finished", self.device_name
     )
 
 
-@callback
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
+
+    Decides whether one external temperature reading is applied. Readings
+    are handled one at a time, so a reading that arrives while an earlier
+    one is still being applied waits its turn instead of being dropped and
+    is then judged against the state the earlier one left behind.
+
+    Callers hold the filter lock (see :func:`temperature_filter_lock`);
+    the decision reads and rewrites filter state that must not be shared
+    with a second reading.
 
     Parameters
     ----------
@@ -237,6 +309,12 @@ async def trigger_temperature_change(self, event):
             },
         )
         return
+
+    # A plausible reading clears the repair issue an implausible one raised,
+    # so a sensor that recovers does not leave the warning standing.
+    ir.async_delete_issue(
+        self.hass, DOMAIN, f"invalid_external_temperature_{self.device_name}"
+    )
 
     _now = dt_util.now()
     try:
@@ -355,7 +433,7 @@ async def trigger_temperature_change(self, event):
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
-        await _apply_temperature_update(self, _incoming_temperature_q)
+        await _commit_temperature_update(self, _incoming_temperature_q)
     else:
         _LOGGER.debug(
             "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s "

@@ -163,14 +163,13 @@ class TestPresetCoolNumber:
         bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
 
     @pytest.mark.asyncio
-    async def test_active_preset_keeps_the_cool_target_in_range_at_max(self):
-        """A heat target at ``max_temp`` leaves the cool target resting on it.
+    async def test_active_preset_keeps_the_cool_target_inside_the_range(self):
+        """With the heat target at ``max_temp`` the cool target stops there.
 
-        The applied cool target is reported as ``target_temperature_high`` and
-        written to the cooler, so it stays inside the range the entity
-        advertises even though no value above the heat target exists in it.
-        Cooling is gated on the room being warmer than the heat target, so the
-        two targets meeting does not run the cooler against the TRVs.
+        The pre-clamp bump lifts ``cool_value`` to ``heat + step`` and the
+        ``max_temp`` clamp pulls it back down to ``max_temp``. The range holds no
+        value above that, and both the active target and the persisted preset are
+        written to the cooler, so the two targets meet at the maximum instead.
         """
         from custom_components.better_thermostat.climate import BetterThermostat
 

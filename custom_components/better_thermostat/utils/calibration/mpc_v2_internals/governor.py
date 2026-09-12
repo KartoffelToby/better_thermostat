@@ -6,8 +6,10 @@ Kolmanovsky (Automatica 75, 2017). Each step computes
     v_k = v_{k-1} + κ · (T_sp − v_{k-1})
 
 with ``κ ∈ [0,1]`` the largest value for which the steady-state input
-implied by ``v_k`` stays inside ``[u_min + δ, u_max − δ]``. When the user
-setpoint is already feasible, the governor is transparent (``κ = 1``).
+implied by ``v_k`` stays inside ``[u_min + δ, u_max − δ]``. Shaping guards
+the open rail: a setpoint the valve can hold without saturating open passes
+through untouched (``κ = 1``), because a heating valve reaches any reference
+that needs *less* flow simply by closing further.
 
 Only the static feasibility variant is implemented. The dynamic (rollout)
 variant is out of scope: it needs per-plant tuning of horizon and overshoot
@@ -62,26 +64,70 @@ class ScalarReferenceGovernor:
         """Restore a previously persisted governed reference."""
         self._v_C = v_C
 
-    def _u_steady_for(self, v_C: float, T_outdoor_C: float) -> float:
-        return self.plant.steady_input(v_C, T_outdoor_C)
+    def _u_steady_for(
+        self, v_C: float, T_outdoor_C: float, D_hat_K_per_min: float
+    ) -> float:
+        return self.plant.steady_input(v_C, T_outdoor_C, D_hat_K_per_min)
 
-    def _is_feasible(self, v_C: float, T_outdoor_C: float) -> bool:
-        u_ss = self._u_steady_for(v_C, T_outdoor_C)
+    def _is_holdable(
+        self, v_C: float, T_outdoor_C: float, D_hat_K_per_min: float
+    ) -> bool:
+        """Return whether the valve can hold ``v_C`` without saturating open.
+
+        Only the upper bound decides whether a reference is attainable at all.
+        A reference below the tightened lower bound asks for less flow than the
+        margin, and the valve delivers that by closing further — holding the
+        governed reference above such a setpoint would keep heating a room the
+        user asked to cool down.
+        """
+        u_ss = self._u_steady_for(v_C, T_outdoor_C, D_hat_K_per_min)
+        return u_ss <= self.params.u_max - self.params.safety_margin
+
+    def _is_feasible(
+        self, v_C: float, T_outdoor_C: float, D_hat_K_per_min: float
+    ) -> bool:
+        """Return whether ``v_C`` keeps the steady-state input strictly interior.
+
+        Applied to the intermediate references the bisection walks over, which
+        keep margin on both rails so the optimiser retains authority in either
+        direction while the reference travels.
+        """
+        u_ss = self._u_steady_for(v_C, T_outdoor_C, D_hat_K_per_min)
         delta = self.params.safety_margin
         return self.params.u_min + delta <= u_ss <= self.params.u_max - delta
 
-    def update(self, T_sp: float, T_outdoor_C: float, T_room_now: float) -> float:
+    def update(
+        self,
+        T_sp: float,
+        T_outdoor_C: float,
+        T_room_now: float,
+        D_hat_K_per_min: float = 0.0,
+    ) -> float:
         """Return the governed reference for this step.
 
-        Passes ``T_sp`` through unchanged when disabled or already feasible.
-        Otherwise bisects ``κ ∈ [0,1]`` to find the largest feasible step from
-        the previous reference toward ``T_sp`` and advances by that fraction.
+        Passes ``T_sp`` through unchanged when disabled, or when the valve can
+        hold it without saturating open. Otherwise bisects ``κ ∈ [0,1]`` to
+        find the largest feasible step from the previous reference toward
+        ``T_sp`` and advances by that fraction.
+
+        Parameters
+        ----------
+        T_sp : float
+            User setpoint the reference travels toward.
+        T_outdoor_C : float
+            Outdoor temperature driving the steady-state loss term.
+        T_room_now : float
+            Current room temperature; seeds the reference on the first call.
+        D_hat_K_per_min : float, optional
+            Estimated lumped disturbance, in K/min. Passing the same estimate
+            the optimiser plans with keeps both judging reachability on one
+            model — solar gain lowers the flow a setpoint needs.
         """
         if not self.params.enabled:
             return T_sp
         if self._v_C is None:
             self._v_C = T_room_now
-        if self._is_feasible(T_sp, T_outdoor_C):
+        if self._is_holdable(T_sp, T_outdoor_C, D_hat_K_per_min):
             self._v_C = T_sp
             return self._v_C
         v_prev = self._v_C
@@ -89,7 +135,7 @@ class ScalarReferenceGovernor:
         for _ in range(self.params.bisection_iters):
             mid = 0.5 * (lo + hi)
             v_trial = v_prev + mid * (T_sp - v_prev)
-            if self._is_feasible(v_trial, T_outdoor_C):
+            if self._is_feasible(v_trial, T_outdoor_C, D_hat_K_per_min):
                 lo = mid
             else:
                 hi = mid

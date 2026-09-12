@@ -236,18 +236,24 @@ class TestConvertToFloat:
         # Expected behavior: 0.0015 rounded to 0.0 due to 0.01 step
         assert result == 0.0
 
-    @pytest.mark.parametrize("value", ["inf", "-inf", float("inf"), float("-inf")])
-    def test_returns_none_for_infinity(self, value):
-        """Infinite readings degrade to None instead of raising.
+    @pytest.mark.parametrize(
+        "value",
+        [float("nan"), float("inf"), float("-inf"), "nan", "inf", "-inf", "Infinity"],
+    )
+    def test_returns_none_for_non_finite(self, value):
+        """Test that NaN/inf values (numeric or string) return None."""
+        result = convert_to_float(value, "test", "temperature")
+        assert result is None
 
-        The 0.01 step rounding converts to an integer number of steps, which
-        rejects infinity with OverflowError rather than ValueError.
+    @pytest.mark.parametrize("value", ["1e308", 1e308, -1e308, 10**400])
+    def test_returns_none_for_a_value_that_overflows_the_step_grid(self, value):
+        """A finite value too large for the step rounding degrades to None.
+
+        The 0.01 grid divides before rounding to an integer step count, so a
+        value near the float maximum overflows there rather than failing the
+        finiteness check. An integer beyond the float range overflows one
+        stage earlier, in the float conversion itself.
         """
-        assert convert_to_float(value, "test", "temperature") is None
-
-    @pytest.mark.parametrize("value", ["nan", float("nan")])
-    def test_returns_none_for_nan(self, value):
-        """NaN readings degrade to None instead of raising."""
         assert convert_to_float(value, "test", "temperature") is None
 
 

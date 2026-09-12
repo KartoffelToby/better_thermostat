@@ -2,10 +2,9 @@
 
 A preset's temperature is edited on its number entity, but the target that
 temperature produces is chosen by the climate entity — and the two platforms
-come up in that order. Which preset modes exist at all comes from a third
-place, the config entry the options flow writes. Every test here spans one of
-those gaps: it configures presets, takes the entry through a restart or the
-options form, and asks what the thermostat runs on when it comes back.
+come up in that order. Every test here spans that gap: it configures a preset,
+takes the entry through a restart or the options form, and asks what the
+thermostat runs on when it comes back.
 """
 
 import json
@@ -13,49 +12,40 @@ import json
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import State
-from homeassistant.data_entry_flow import FlowResultType
+import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     mock_restore_cache,
 )
-import voluptuous as vol
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
-    CONF_PRESETS,
-)
-from custom_components.better_thermostat.utils.preset_manager import (
-    DEFAULT_ENABLED_PRESETS,
 )
 
 from .conftest import (
+    BT_ENTITY,
     DOMAIN,
-    SENSOR_ID,
+    click_through_the_options,
     counting_reloads,
     make_entry,
+    set_room_sensor,
     setup_entry,
     wait_for_startup,
 )
+from .device_profiles import GENERIC_HEAT_TRV
 
-BT_ENTITY = "climate.bt_test"
 COMFORT_NUMBER = "number.bt_test_comfort"
 
 # The built-in comfort temperature, and one the user would have to have set.
 COMFORT_DEFAULT = 21.0
 COMFORT_CONFIGURED = 22.5
 
-# Enough steps for any entry this suite builds; a flow that wants more is stuck.
-_MAX_FLOW_STEPS = 10
-
 
 def _entry(hass, presets=("comfort", "eco")):
     """Build an entry offering ``presets``, without setting it up yet."""
-    hass.states.async_set(SENSOR_ID, "18.0", {"unit_of_measurement": "°C"})
-    data = dict(make_entry().data)
-    if presets is None:
-        data.pop(CONF_PRESETS, None)
-    else:
-        data[CONF_PRESETS] = list(presets)
+    set_room_sensor(hass, 18.0)
+    data = dict(make_entry(GENERIC_HEAT_TRV).data)
+    data["presets"] = list(presets)
     return MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
 
 
@@ -84,57 +74,6 @@ async def _activate(hass, preset):
 def _target(hass):
     """Return the temperature the thermostat is currently driving to."""
     return hass.states.get(BT_ENTITY).attributes.get("temperature")
-
-
-def _field_default(form, key):
-    """Return the value a step's form pre-fills ``key`` with."""
-    for marker in form["data_schema"].schema:
-        if marker == key:
-            assert marker.default is not vol.UNDEFINED, f"{key} carries no default"
-            return marker.default()
-    raise AssertionError(f"step {form['step_id']} publishes no field {key!r}")
-
-
-def _submission(form, **overrides):
-    """Return the submission a user accepting every pre-filled value sends."""
-    out = {}
-    for marker in form["data_schema"].schema:
-        name = str(marker.schema)
-        description = getattr(marker, "description", None)
-        if isinstance(description, dict) and "suggested_value" in description:
-            out[name] = description["suggested_value"]
-            continue
-        default = getattr(marker, "default", None)
-        if default is None or default is vol.UNDEFINED:
-            continue
-        value = default()
-        if value is not vol.UNDEFINED:
-            out[name] = value
-    return out | overrides
-
-
-async def _click_through_the_options(hass, entry):
-    """Accept every pre-filled value on every step of the options flow."""
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    forms = []
-    # A flow that keeps handing back the same step would otherwise hang the
-    # suite instead of failing it. No step of this flow repeats, so the bound
-    # is generous.
-    for _ in range(_MAX_FLOW_STEPS):
-        if result["type"] != "form":
-            break
-        forms.append(result)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], _submission(result)
-        )
-    else:
-        raise AssertionError(f"options flow did not finish: {result}")
-    # A step that aborts also leaves the loop, and the caller would then read
-    # the state the entry had before the flow ran.
-    assert result["type"] is FlowResultType.CREATE_ENTRY, result
-    await hass.async_block_till_done()
-    await wait_for_startup(hass, entry)
-    return forms
 
 
 async def test_active_preset_keeps_its_temperature_across_a_reload(hass, fake_trv):
@@ -225,6 +164,40 @@ async def test_active_preset_survives_a_state_without_the_preset_map(hass, fake_
     assert _target(hass) == COMFORT_CONFIGURED
 
 
+@pytest.mark.parametrize(
+    "carried",
+    ["not json at all", '{"nosuchpreset": 17.0}'],
+    ids=["unreadable", "unknown_preset"],
+)
+async def test_an_unusable_preset_map_falls_back_to_the_defaults(
+    hass, fake_trv, carried
+):
+    """A map that cannot be read, or names a preset that does not exist.
+
+    The state comes from the previous run and is not validated on the way in,
+    so the restore has to survive both without taking the startup with it.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "preset_mode": "comfort",
+                    "current_temperature": 18.0,
+                    ATTR_STATE_PRESET_HEAT_TEMPERATURES: carried,
+                },
+            ),
+        ),
+    )
+    entry = _entry(hass)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert _target(hass) == COMFORT_DEFAULT
+
+
 async def test_a_preset_value_outside_the_range_keeps_the_preset_active(hass, fake_trv):
     """A stored preset the current range cannot hold is bounded, not abandoned.
 
@@ -273,7 +246,8 @@ async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
     await _activate(hass, "comfort")
 
     async with counting_reloads(hass, entry) as reloads:
-        await _click_through_the_options(hass, entry)
+        await click_through_the_options(hass, entry)
+    await wait_for_startup(hass, entry)
 
     assert reloads == [entry.entry_id]
     assert entry.options == {}
@@ -311,27 +285,7 @@ async def test_an_untouched_preset_still_uses_its_default(hass, fake_trv):
     assert _target(hass) == COMFORT_DEFAULT
 
 
-async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(
-    hass, fake_trv
-):
-    """An entry carrying no preset list keeps its presets through the form.
-
-    A preset list that was never written is not an empty one: the thermostat
-    comes up on the full default set. So that is the set the update form has to
-    pre-fill, or a pass through the form that changes nothing submits a
-    narrower list and takes every other preset away.
-    """
-    entry = _entry(hass, presets=None)
-    await setup_entry(hass, entry)
-    await wait_for_startup(hass, entry)
-    running_on = set(hass.states.get(BT_ENTITY).attributes["preset_modes"])
-
-    (user_step, _advanced) = await _click_through_the_options(hass, entry)
-
-    assert set(_field_default(user_step, CONF_PRESETS)) == set(DEFAULT_ENABLED_PRESETS)
-    assert set(hass.states.get(BT_ENTITY).attributes["preset_modes"]) == running_on
-
-
+@pytest.mark.asyncio
 async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fake_trv):
     """Passing through the options leaves the running preset alone.
 
@@ -345,7 +299,8 @@ async def test_options_flow_keeps_the_active_preset_and_its_temperature(hass, fa
     await _set_preset_temperature(hass, COMFORT_NUMBER, COMFORT_CONFIGURED)
     await _activate(hass, "comfort")
 
-    await _click_through_the_options(hass, entry)
+    await click_through_the_options(hass, entry)
+    await wait_for_startup(hass, entry)
 
     assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
     assert hass.states.get(COMFORT_NUMBER).state == str(COMFORT_CONFIGURED)

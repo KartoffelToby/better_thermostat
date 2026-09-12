@@ -27,6 +27,8 @@ from custom_components.better_thermostat.calibration import (
     _compute_mpc_v2_balance,
     _compute_tpi_balance,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import MpcState
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
@@ -39,6 +41,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
+from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 
 _HAS_DAQP = importlib.util.find_spec("daqp") is not None
 
@@ -51,7 +54,8 @@ class _InMemoryStateManager:
         self._mpc: dict[str, MpcState] = {}
         self._mpc_v2: dict[str, MpcV2State] = {}
         self._tpi: dict[str, TpiState] = {}
-        self.state = SimpleNamespace(mpc=self._mpc)
+        self._mpc_v2_reid: dict[str, MpcV2ReidRuntime] = {}
+        self.state = SimpleNamespace(mpc=self._mpc, mpc_v2_reid={})
 
     def get_mpc(self, key: str) -> MpcState:
         """Return the MPC v1 state for key, creating it on first use."""
@@ -68,6 +72,14 @@ class _InMemoryStateManager:
     def set_mpc_v2_live(self, key: str, state: MpcV2State) -> None:
         """Store the live MPC v2 state for key."""
         self._mpc_v2[key] = state
+
+    def get_mpc_v2_reid(self, key: str) -> None:
+        """Report no persisted re-identification result."""
+        return None
+
+    def get_mpc_v2_reid_runtime(self, key: str) -> MpcV2ReidRuntime:
+        """Return the re-ID collection state for key, creating it on first use."""
+        return self._mpc_v2_reid.setdefault(key, MpcV2ReidRuntime())
 
     def get_tpi(self, key: str) -> TpiState:
         """Return the TPI state for key, creating it on first use."""
@@ -120,6 +132,10 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
         entry_id="bt_contact_gate_entry",
         state_mgr=_InMemoryStateManager(),
         schedule_save_state=lambda: None,
+        kernel_state=SimpleNamespace(
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+        ),
+        clock=FakeClock(monotonic_value=1_000_000.0),
     )
 
 

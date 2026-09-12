@@ -676,8 +676,27 @@ class TestPIDController:
         assert key == "test_bt:climate.test:tunknown"
 
 
-class TestPidIntegrationStepBound:
-    """The integration step is bounded so a stale timestamp cannot wind up."""
+class TestPidTimeHandling:
+    """Injected timestamps and the integration-step upper bound."""
+
+    def test_injected_now_yields_deterministic_dt_without_wall_clock(self):
+        """Passing ``now`` drives dt directly; the wall clock is never read."""
+        params = PIDParams(
+            auto_tune=False, kp=10.0, ki=1.0, kd=0.0, min_hold_time_s=0.0
+        )
+        state = PIDState()
+        with patch(
+            "custom_components.better_thermostat.utils.calibration.pid.monotonic",
+            side_effect=AssertionError("wall clock must not be read"),
+        ):
+            _, _, state = compute_pid(
+                params, 22.0, 20.0, 21.0, 0.0, "k", state=state, now=1000.0
+            )
+            _, debug, state = compute_pid(
+                params, 22.0, 20.0, 21.0, 0.0, "k", state=state, now=1010.0
+            )
+        assert debug["dt_s"] == 10.0
+        assert state.pid_last_time == 1010.0
 
     def test_stale_last_time_bounds_the_integral_step(self):
         """An hours-old ``pid_last_time`` integrates at most MAX_DT_S seconds."""
@@ -688,13 +707,9 @@ class TestPidIntegrationStepBound:
         state.pid_last_time = 100.0
         stale_now = 100.0 + 6 * 3600.0
 
-        with patch(
-            "custom_components.better_thermostat.utils.calibration.pid.monotonic",
-            return_value=stale_now,
-        ):
-            _, debug, state = compute_pid(
-                params, 22.0, 21.0, 21.0, 0.0, "k", state=state
-            )
+        _, debug, state = compute_pid(
+            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=stale_now
+        )
 
         assert debug["dt_s"] == MAX_DT_S
         # error = 1 K -> integral step = ki * e * MAX_DT_S, not ki * e * 6 h.

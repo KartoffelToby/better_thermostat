@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
+import math
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from homeassistant.components.sensor import (
@@ -137,6 +139,33 @@ async def _setup_algorithm_sensors(
 
         _LOGGER.debug(
             "Better Thermostat %s: Created MPC sensors for entry %s",
+            bt_climate.device_name,
+            entry_id,
+        )
+
+    # Keep the MPC v1 diagnostic surface available for the dashboard, but map
+    # it to the corresponding MPC v2 controller diagnostics.  These are only
+    # observations; they never feed back into the controller.
+    if CalibrationMode.MPC_V2_CALIBRATION in current_algorithms:
+        mpc_v2_sensors = [
+            BetterThermostatMpcV2VirtualTempSensor(bt_climate),
+            BetterThermostatMpcV2CouplingSensor(bt_climate),
+            BetterThermostatMpcV2DisturbanceSensor(bt_climate),
+            BetterThermostatMpcV2RoomTimeConstantSensor(bt_climate),
+        ]
+        algorithm_sensors.extend(mpc_v2_sensors)
+
+        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
+            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
+        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_V2_CALIBRATION] = [
+            f"{bt_climate.unique_id}_virtual_temp",
+            f"{bt_climate.unique_id}_mpc_gain",
+            f"{bt_climate.unique_id}_mpc_loss",
+            f"{bt_climate.unique_id}_mpc_ka",
+        ]
+
+        _LOGGER.debug(
+            "Better Thermostat %s: Created MPC v2 diagnostic sensors for entry %s",
             bt_climate.device_name,
             entry_id,
         )
@@ -305,7 +334,7 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
         return set()
 
     active_algorithms: set[CalibrationMode] = set()
-    for trv_id, trv in bt_climate.real_trvs.items():
+    for trv_entity_id, trv in bt_climate.real_trvs.items():
         advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         if calibration_mode:
@@ -318,7 +347,7 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
                         "Better Thermostat %s: Invalid calibration mode '%s' for TRV %s",
                         bt_climate.device_name,
                         calibration_mode,
-                        trv_id,
+                        trv_entity_id,
                     )
                     continue
             active_algorithms.add(calibration_mode)
@@ -331,8 +360,8 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     pid_trvs: set[str] = set()
     if not bt_climate.real_trvs:
         return pid_trvs
-    for trv_entity_id, trv_data in bt_climate.real_trvs.items():
-        advanced = trv_data.advanced or {}
+    for trv_entity_id, trv in bt_climate.real_trvs.items():
+        advanced = trv.advanced or {}
         calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
         # Normalize string values to CalibrationMode enum
         if isinstance(calibration_mode, str):
@@ -438,8 +467,8 @@ async def _cleanup_pid_number_entities(
     # Find PID number entities to remove
     entities_to_remove = []
     for pid_unique_id, meta in tracked_pid_numbers.items():
-        trv_id = meta.get("trv")
-        if trv_id and trv_id not in current_pid_trvs:
+        trv_entity_id = meta.get("trv")
+        if trv_entity_id and trv_entity_id not in current_pid_trvs:
             entities_to_remove.append(pid_unique_id)
 
     # Remove entities from registry – only delete tracking key on success
@@ -494,16 +523,16 @@ async def _cleanup_pid_switch_entities(
     # Find switch entities to remove using stored metadata
     entities_to_remove = []
     for switch_unique_id, meta in tracked_switches.items():
-        trv_id = meta.get("trv")
+        trv_entity_id = meta.get("trv")
         kind = meta.get("type")
         should_remove = False
 
         if kind == "pid_auto_tune":
-            if trv_id not in current_pid_trvs:
+            if trv_entity_id not in current_pid_trvs:
                 should_remove = True
         elif kind == "child_lock":
             # Remove child lock switches for TRVs that no longer exist
-            if not bt_climate.real_trvs or trv_id not in bt_climate.real_trvs:
+            if not bt_climate.real_trvs or trv_entity_id not in bt_climate.real_trvs:
                 should_remove = True
 
         if should_remove:
@@ -660,8 +689,8 @@ class _BtMpcSensorBase(_BtSensorBase):
         """Update state from calibration_balance debug data."""
         val = None
         if self._bt_climate.real_trvs:
-            for trv_data in self._bt_climate.real_trvs.values():
-                cal_bal = trv_data.calibration_balance
+            for trv in self._bt_climate.real_trvs.values():
+                cal_bal = trv.calibration_balance
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
                     if self._debug_key in debug:
@@ -739,9 +768,6 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
 
     def _update_ema(self, new_value: float) -> None:
         """Update the 1h EMA with a new value."""
-        import math
-        from time import monotonic
-
         now = monotonic()
         prev_ts = self._last_update_ts
         prev_ema = self._ema_value
@@ -850,6 +876,80 @@ class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     _attr_icon = "mdi:home-thermometer-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_ka"
+    _unique_id_suffix = "mpc_ka"
+
+
+class _BtMpcV2SensorBase(_BtMpcSensorBase):
+    """Base class for MPC v2 diagnostic sensors.
+
+    MPC v2 publishes a typed diagnostic payload instead of the MPC v1 keys.
+    Reusing the established entity suffixes keeps existing debug dashboards
+    working while exposing the closest v2 quantities with correct labels.
+    """
+
+    _v2_debug_key: str
+
+    def _update_state(self) -> None:
+        """Update state from the MPC v2 debug payload."""
+        val = None
+        if self._bt_climate.real_trvs:
+            for trv in self._bt_climate.real_trvs.values():
+                cal_bal = trv.calibration_balance
+                debug = cal_bal.get("debug") if cal_bal else None
+                if (
+                    isinstance(debug, dict)
+                    and str(debug.get("controller_version")).lower() == "v2"
+                    and self._v2_debug_key in debug
+                ):
+                    val = debug[self._v2_debug_key]
+                    break
+
+        try:
+            self._attr_native_value = float(val) if val is not None else None
+        except ValueError, TypeError:
+            self._attr_native_value = None
+
+
+class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 estimated room temperature."""
+
+    _attr_translation_key = "mpc_v2_virtual_temp"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_icon = "mdi:thermometer-auto"
+    _v2_debug_key = "T_room_hat"
+    _unique_id_suffix = "virtual_temp"
+
+
+class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 radiator-to-room coupling."""
+
+    _attr_translation_key = "mpc_v2_coupling"
+    _attr_icon = "mdi:heat-wave"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _v2_debug_key = "coupling_rad_room"
+    _unique_id_suffix = "mpc_gain"
+
+
+class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 estimated unmodelled heat disturbance."""
+
+    _attr_translation_key = "mpc_v2_disturbance"
+    _attr_native_unit_of_measurement = "K/min"
+    _attr_icon = "mdi:thermometer-minus"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _v2_debug_key = "D_hat_K_per_min"
+    _unique_id_suffix = "mpc_loss"
+
+
+class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
+    """Representation of the MPC v2 room time constant."""
+
+    _attr_translation_key = "mpc_v2_room_time_constant"
+    _attr_native_unit_of_measurement = "min"
+    _attr_icon = "mdi:home-clock-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _v2_debug_key = "tau_room_min"
     _unique_id_suffix = "mpc_ka"
 
 

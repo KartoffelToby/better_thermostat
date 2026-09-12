@@ -58,6 +58,23 @@ reviews:
         here; what a docstring has to say is what the test pins and why.
         Follow the existing patterns: MagicMock + real dicts for `real_trvs`,
         `State()` for HA states, `AsyncMock` for async collaborators.
+    - path: "custom_components/better_thermostat/utils/controlling.py"
+      instructions: >-
+        `control_trv` deliberately records a setpoint as a possible echo
+        BEFORE the write leaves for the device (`remember_setpoint_written`
+        ahead of `override_set_temperature`/`set_temperature`), and records
+        the value the delegate actually sent afterwards. This is the fix for
+        a device that takes a write Better Thermostat never sees confirmed
+        and then keeps reporting it: the service call and the device's own
+        state are not one transaction, so a write that raises, times out or
+        is cancelled may still have reached the device. Do NOT suggest moving
+        the recording after a successful dispatch, and do NOT suggest
+        removing the entry when the write fails — either would drop the echo
+        candidate for exactly the failure path the mechanism exists for, and
+        `trigger_trv_change()` would then adopt the device's echo as a user
+        press. The known cost is stated in the code: a knob turned onto a
+        remembered write before the device confirms reads as an echo. That
+        candidate is bounded and a confirmation retires it.
     - path: "custom_components/better_thermostat/**"
       instructions: >-
         Home Assistant custom integration. Comments must describe the current
@@ -80,8 +97,7 @@ reviews:
     # ruff is the linter and formatter of record for this repo.
     ruff:
       enabled: true
-    # Disabled: pylint crashed in CodeRabbit's sandbox on a prior review and
-    # would only duplicate ruff.
+    # pylint would only repeat the PL rules ruff already selects.
     pylint:
       enabled: false
 

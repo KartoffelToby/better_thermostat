@@ -12,7 +12,9 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     """Normalize local calibration offset for TS0601 devices.
 
     This function performs model-specific rounding/adjustment to avoid
-    spurious values that would lead to incorrect behavior.
+    spurious values that would lead to incorrect behavior. The adjustment
+    compares the room temperature against the setpoint; without either of
+    them the offset is returned unchanged.
 
     Parameters
     ----------
@@ -30,6 +32,9 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     """
     _cur_external_temp = self.cur_temp
     _target_temp = self.bt_target_temp
+
+    if _cur_external_temp is None or _target_temp is None:
+        return offset
 
     if (_cur_external_temp + 0.1) >= _target_temp:
         offset = round(offset + 0.5, 1)

@@ -49,7 +49,8 @@ condition:
   # Throttle: only fire once every 24 hours per device
   - condition: template
     value_template: >
-      {% set last = state_attr('automation.' ~ this.entity_id | regex_replace('[^a-z0-9_]', '_'), 'last_triggered') %}
+      {% set last = state_attr('automation.' ~ this.entity_id
+      | regex_replace('[^a-z0-9_]', '_'), 'last_triggered') %}
       {{ last is none or (now() - last).total_seconds() > 86400 }}
 
 action:

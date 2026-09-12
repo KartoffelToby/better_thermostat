@@ -1,5 +1,9 @@
 """Tests for the pure startup-restore helpers in utils/restore.py."""
 
+from homeassistant.components.climate.const import (
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
+)
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import State
 import pytest
@@ -15,6 +19,8 @@ from custom_components.better_thermostat.utils.restore import (
     clamp_heating_power,
     mean_trv_target,
     restore_target_temperature,
+    saved_cooling_target,
+    saved_heating_target,
 )
 
 DEV = "Test BT"
@@ -92,6 +98,79 @@ class TestMeanTrvTarget:
             [_trv(20.0)], DEV, system_unit=UnitOfTemperature.CELSIUS
         )
         assert result == pytest.approx(20.0)
+
+
+# ---------------------------------------------------------------------------
+# saved_heating_target / saved_cooling_target
+# ---------------------------------------------------------------------------
+
+
+class TestSavedHeatingTarget:
+    """saved_heating_target reads the key the thermostat published it under."""
+
+    def test_single_target_thermostat_publishes_temperature(self):
+        """A thermostat offering one target saves it as `temperature`."""
+        assert saved_heating_target({ATTR_TEMPERATURE: 21.5}) == 21.5
+
+    def test_range_publishing_thermostat_publishes_the_lower_bound(self):
+        """A thermostat offering a range saves the heating target as the lower bound.
+
+        Home Assistant writes `temperature` only for an entity that supports a
+        single target, so the attributes of a range-publishing one hold the
+        heating target under `target_temp_low` and no `temperature` at all.
+        """
+        assert (
+            saved_heating_target(
+                {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
+            )
+            == 20.0
+        )
+
+    def test_the_single_target_wins_over_a_lower_bound(self):
+        """With both keys present the single target is the one that was published."""
+        assert (
+            saved_heating_target({ATTR_TEMPERATURE: 21.5, ATTR_TARGET_TEMP_LOW: 18.0})
+            == 21.5
+        )
+
+    def test_a_zero_target_is_a_value(self):
+        """A saved 0.0 is read as a target rather than as a missing one."""
+        assert (
+            saved_heating_target({ATTR_TEMPERATURE: 0.0, ATTR_TARGET_TEMP_LOW: 18.0})
+            == 0.0
+        )
+
+    def test_an_empty_temperature_falls_through_to_the_lower_bound(self):
+        """A `temperature` present but unset leaves the lower bound to answer."""
+        assert (
+            saved_heating_target({ATTR_TEMPERATURE: None, ATTR_TARGET_TEMP_LOW: 20.0})
+            == 20.0
+        )
+
+    def test_neither_key_yields_none(self):
+        """Attributes carrying no target at all yield None."""
+        assert saved_heating_target({}) is None
+
+
+class TestSavedCoolingTarget:
+    """saved_cooling_target reads the upper bound of a published range."""
+
+    def test_range_publishing_thermostat_publishes_the_upper_bound(self):
+        """A thermostat offering a range saves the cooling target as the upper bound."""
+        assert (
+            saved_cooling_target(
+                {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
+            )
+            == 23.0
+        )
+
+    def test_a_single_target_thermostat_has_no_cooling_target(self):
+        """A thermostat offering one target publishes no upper bound."""
+        assert saved_cooling_target({ATTR_TEMPERATURE: 21.5}) is None
+
+    def test_a_zero_target_is_a_value(self):
+        """A saved 0.0 is read as a target rather than as a missing one."""
+        assert saved_cooling_target({ATTR_TARGET_TEMP_HIGH: 0.0}) == 0.0
 
 
 # ---------------------------------------------------------------------------

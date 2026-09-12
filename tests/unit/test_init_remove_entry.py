@@ -48,6 +48,22 @@ def _make_hass():
     return hass
 
 
+@pytest.fixture(autouse=True)
+def patched_remove_store():
+    """Keep the state store out of the repair-issue assertions.
+
+    Removing the store is a separate concern that reaches for the config
+    directory; the Home Assistant double here has none, and answers the
+    lookup with a coroutine nobody awaits.
+    """
+    with patch(
+        "custom_components.better_thermostat.utils.state_manager"
+        ".StateManager.async_remove_store",
+        new_callable=AsyncMock,
+    ):
+        yield
+
+
 @pytest.fixture
 def patched_delete_issue():
     """Patch ``ir.async_delete_issue`` and return the mock for assertions."""

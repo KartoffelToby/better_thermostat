@@ -1,0 +1,14 @@
+extends: default
+
+ignore-from-file: .gitignore
+
+rules:
+  # GitHub Actions, HACS and Home Assistant all read single-document files;
+  # an explicit "---" carries no meaning for them.
+  document-start: disable
+  line-length:
+    max: 100
+    allow-non-breakable-inline-mappings: true
+  # "on:" is the GitHub Actions trigger key, not a YAML 1.1 boolean.
+  truthy:
+    check-keys: false

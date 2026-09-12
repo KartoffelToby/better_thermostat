@@ -85,12 +85,6 @@ class TestModelDetectionFromString:
         assert result == "Model (v2) Pro"
 
 
-@pytest.fixture
-def anyio_backend() -> str:
-    """Configure anyio to use asyncio backend."""
-    return "asyncio"
-
-
 class TestGetDeviceModelFunction:
     """Integration tests for the get_device_model function."""
 
@@ -103,7 +97,6 @@ class TestGetDeviceModelFunction:
         mock.model = "configured_model"
         return mock
 
-    @pytest.mark.anyio
     async def test_get_device_model_z2m_format(self, mock_self):
         """Test get_device_model with Z2M format device.model."""
         from custom_components.better_thermostat.utils.helpers import get_device_model
@@ -142,7 +135,6 @@ class TestGetDeviceModelFunction:
                     f"Expected 'TS0601 _TZE284_cvub6xbb' but got '{result}'"
                 )
 
-    @pytest.mark.anyio
     async def test_get_device_model_with_model_id(self, mock_self):
         """Test that model_id takes priority over model string."""
         from custom_components.better_thermostat.utils.helpers import get_device_model
@@ -176,7 +168,6 @@ class TestGetDeviceModelFunction:
                 # model_id should take priority
                 assert result == "TS0601"
 
-    @pytest.mark.anyio
     async def test_get_device_model_plain_string(self, mock_self):
         """Test model detection with plain string (no parentheses)."""
         from custom_components.better_thermostat.utils.helpers import get_device_model

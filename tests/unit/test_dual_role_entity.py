@@ -19,12 +19,12 @@ from custom_components.better_thermostat.utils.helpers import (
 SHARED_ID = "climate.reversible_ac"
 
 
-def _make_bt(*, cooler_entity_id, real_trvs, last_cooler_mode_decided=None):
+def _make_bt(*, cooler_entity_id, real_trvs, hvac_mode_decided=None):
     """Build a minimal stand-in carrying only what the helpers read."""
     bt = MagicMock()
     bt.cooler_entity_id = cooler_entity_id
     bt.real_trvs = real_trvs
-    bt.last_cooler_mode_decided = last_cooler_mode_decided
+    bt._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
     bt.hass = MagicMock()
     bt.hass.states.get.return_value = None
     return bt
@@ -60,11 +60,11 @@ class TestCoolingOwnsDualRoleDevice:
         bt = _make_bt(
             cooler_entity_id=SHARED_ID,
             real_trvs={SHARED_ID: MagicMock()},
-            last_cooler_mode_decided=HVACMode.COOL,
+            hvac_mode_decided=HVACMode.COOL,
         )
         assert cooling_owns_dual_role_device(bt, SHARED_ID) is True
 
-        bt.last_cooler_mode_decided = HVACMode.OFF
+        bt._cooler_last_sent["hvac_mode_decided"] = HVACMode.OFF
         assert cooling_owns_dual_role_device(bt, SHARED_ID) is False
 
     def test_cooling_owns_dual_role_device_falls_back_to_the_reported_mode_while_unlatched(
@@ -81,12 +81,20 @@ class TestCoolingOwnsDualRoleDevice:
         bt.hass.states.get.return_value = None
         assert cooling_owns_dual_role_device(bt, SHARED_ID) is False
 
+    def test_cooling_owns_dual_role_device_reads_a_cache_no_cycle_has_written(self):
+        """An instance whose cooler never ran yet carries no cache at all."""
+        bt = _make_bt(cooler_entity_id=SHARED_ID, real_trvs={SHARED_ID: MagicMock()})
+        bt._cooler_last_sent = None
+        bt.hass.states.get.return_value = State(SHARED_ID, HVACMode.COOL)
+
+        assert cooling_owns_dual_role_device(bt, SHARED_ID) is True
+
     def test_cooling_owns_dual_role_device_is_false_for_a_distinct_cooler(self):
         """No entity carries both roles, so the cooling channel owns no device."""
         bt = _make_bt(
             cooler_entity_id="climate.split_unit",
             real_trvs={"climate.radiator": MagicMock()},
-            last_cooler_mode_decided=HVACMode.COOL,
+            hvac_mode_decided=HVACMode.COOL,
         )
         assert cooling_owns_dual_role_device(bt, "climate.split_unit") is False
         assert cooling_owns_dual_role_device(bt, "climate.radiator") is False
@@ -104,7 +112,7 @@ class TestCoolingOwnsDualRoleReport:
 
         assert cooling_owns_dual_role_report(bt, SHARED_ID, HVACMode.HEAT) is False
 
-        bt.last_cooler_mode_decided = HVACMode.COOL
+        bt._cooler_last_sent["hvac_mode_decided"] = HVACMode.COOL
         assert cooling_owns_dual_role_report(bt, SHARED_ID, HVACMode.HEAT) is True
 
     def test_cooling_owns_dual_role_report_is_false_for_a_distinct_cooler(self):
@@ -112,7 +120,7 @@ class TestCoolingOwnsDualRoleReport:
         bt = _make_bt(
             cooler_entity_id="climate.split_unit",
             real_trvs={"climate.radiator": MagicMock()},
-            last_cooler_mode_decided=HVACMode.COOL,
+            hvac_mode_decided=HVACMode.COOL,
         )
         assert cooling_owns_dual_role_report(bt, "climate.radiator", HVACMode.COOL) is (
             False

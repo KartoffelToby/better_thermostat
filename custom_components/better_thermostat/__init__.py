@@ -23,6 +23,7 @@ from .utils.const import (
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
+    GENERIC_MODEL,
     NORMALIZED_ID_NAMES,
     CalibrationMode,
 )
@@ -103,11 +104,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up everything this Better Thermostat instance left behind.
 
     Repair-registry issues are scoped by ``device_name`` or by individual
-    ``entity_id`` and persist in HA's issue registry until explicitly
-    deleted, so they have to be cleaned up here to avoid stale warnings
-    after a config entry is gone. The reload lock and the recorded
-    entity-id names outlive the entry's unload by design, so removal is
-    where they are dropped.
+    ``entity_id`` and persist until explicitly deleted; the unified state
+    store is a per-entry file that would otherwise be orphaned. The reload
+    lock and the recorded entity-id names outlive the entry's unload by
+    design, so removal is where they are dropped.
 
     Parameters
     ----------
@@ -116,8 +116,22 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     entry : ConfigEntry
         The config entry being removed.
     """
+    # Runtime import: config_flow and the three device-automation modules
+    # execute this package for DOMAIN alone, on installs that may have no
+    # entry set up. A module-level import would put the state store, and the
+    # calibration models and numpy behind it, on those paths.
+    from .utils.state_manager import StateManager  # noqa: PLC0415
+
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
     hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
+
+    try:
+        await StateManager.async_remove_store(hass, entry.entry_id)
+    except Exception:
+        _LOGGER.exception(
+            "better_thermostat: failed to remove state store for entry %s",
+            entry.entry_id,
+        )
 
     device_name = entry.data.get(CONF_NAME, entry.title)
 
@@ -130,9 +144,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     entity_ids: list[str] = []
     for trv in entry.data.get(CONF_HEATER) or []:
-        trv_id = trv.get("trv")
-        if trv_id:
-            entity_ids.append(trv_id)
+        trv_entity_id = trv.get("trv")
+        if trv_entity_id:
+            entity_ids.append(trv_entity_id)
     for conf_key in (
         CONF_SENSOR,
         CONF_HUMIDITY,
@@ -190,11 +204,22 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         )()
         heaters = new.get(CONF_HEATER, [])
         for trv in heaters:
-            entity_id = trv.get("entity_id")
+            entity_id = trv.get("trv")
             if entity_id:
-                trv["model"] = await get_device_model(migration_context, entity_id)
+                detected_model = await get_device_model(migration_context, entity_id)
+                # The lookup answers GENERIC_MODEL for a device the registry
+                # cannot identify, and a migration runs once, so that answer
+                # must not replace a model the entry already carries. An entry
+                # without one takes it: the quirks loader drives a generic
+                # model with the same default module as a missing one.
+                if (
+                    isinstance(detected_model, str)
+                    and detected_model
+                    and detected_model != GENERIC_MODEL
+                ) or not trv.get("model"):
+                    trv["model"] = detected_model
                 _LOGGER.debug(
-                    "Migration to version 1.8: TRV %s model updated to %s",
+                    "Migration to version 1.8: TRV %s carries model %s",
                     entity_id,
                     trv["model"],
                 )

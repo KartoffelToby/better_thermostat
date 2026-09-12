@@ -334,7 +334,7 @@ class TestMpcSensorAvailability:
     """Tests for the shared availability logic of MPC sensors."""
 
     @pytest.mark.parametrize(
-        "SensorClass",
+        "sensor_class",
         [
             BetterThermostatVirtualTempSensor,
             BetterThermostatMpcGainSensor,
@@ -342,14 +342,14 @@ class TestMpcSensorAvailability:
             BetterThermostatMpcKaSensor,
         ],
     )
-    def test_available_when_all_ok(self, SensorClass):
+    def test_available_when_all_ok(self, sensor_class):
         """Available when all ok."""
         bt = _make_bt_climate(_available=True, window_open=False, hvac_mode="heat")
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         assert sensor.available is True
 
     @pytest.mark.parametrize(
-        "SensorClass",
+        "sensor_class",
         [
             BetterThermostatVirtualTempSensor,
             BetterThermostatMpcGainSensor,
@@ -357,14 +357,14 @@ class TestMpcSensorAvailability:
             BetterThermostatMpcKaSensor,
         ],
     )
-    def test_unavailable_when_climate_unavailable(self, SensorClass):
+    def test_unavailable_when_climate_unavailable(self, sensor_class):
         """Unavailable when climate unavailable."""
         bt = _make_bt_climate(_available=False)
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         assert sensor.available is False
 
     @pytest.mark.parametrize(
-        "SensorClass",
+        "sensor_class",
         [
             BetterThermostatVirtualTempSensor,
             BetterThermostatMpcGainSensor,
@@ -372,14 +372,14 @@ class TestMpcSensorAvailability:
             BetterThermostatMpcKaSensor,
         ],
     )
-    def test_unavailable_when_window_open(self, SensorClass):
+    def test_unavailable_when_window_open(self, sensor_class):
         """Unavailable when window open."""
         bt = _make_bt_climate(window_open=True)
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         assert sensor.available is False
 
     @pytest.mark.parametrize(
-        "SensorClass",
+        "sensor_class",
         [
             BetterThermostatVirtualTempSensor,
             BetterThermostatMpcGainSensor,
@@ -387,14 +387,14 @@ class TestMpcSensorAvailability:
             BetterThermostatMpcKaSensor,
         ],
     )
-    def test_unavailable_when_hvac_off(self, SensorClass):
+    def test_unavailable_when_hvac_off(self, sensor_class):
         """Unavailable when hvac off."""
         bt = _make_bt_climate(hvac_mode="off")
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         assert sensor.available is False
 
     @pytest.mark.parametrize(
-        "SensorClass",
+        "sensor_class",
         [
             BetterThermostatVirtualTempSensor,
             BetterThermostatMpcGainSensor,
@@ -402,11 +402,11 @@ class TestMpcSensorAvailability:
             BetterThermostatMpcKaSensor,
         ],
     )
-    def test_available_false_when_not_available(self, SensorClass):
+    def test_available_false_when_not_available(self, sensor_class):
         """If _available is False, sensor should be unavailable."""
         bt = _make_bt_climate()
         bt._available = False
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         assert sensor.available is False
 
 
@@ -518,7 +518,7 @@ class TestPidSensorState:
         }
 
     @pytest.mark.parametrize(
-        ("SensorClass", "debug_key", "value"),
+        ("sensor_class", "debug_key", "value"),
         [
             (BetterThermostatPidKpSensor, "kp", 60.0),
             (BetterThermostatPidKiSensor, "ki", 0.01),
@@ -527,10 +527,10 @@ class TestPidSensorState:
             (BetterThermostatPidErrorSensor, "e_K", -0.3),
         ],
     )
-    def test_reads_value_from_debug(self, SensorClass, debug_key, value):
+    def test_reads_value_from_debug(self, sensor_class, debug_key, value):
         """Each PID sensor reads its debug key from calibration_balance."""
         bt = _make_bt_climate(real_trvs=self._make_trv_with_debug(**{debug_key: value}))
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         sensor._update_state()
         assert sensor._attr_native_value == value
 
@@ -549,7 +549,7 @@ class TestPidSensorState:
         assert sensor._attr_native_value is None
 
     @pytest.mark.parametrize(
-        "SensorClass",
+        "sensor_class",
         [
             BetterThermostatPidKpSensor,
             BetterThermostatPidKiSensor,
@@ -558,10 +558,10 @@ class TestPidSensorState:
             BetterThermostatPidErrorSensor,
         ],
     )
-    def test_unavailable_when_hvac_off(self, SensorClass):
+    def test_unavailable_when_hvac_off(self, sensor_class):
         """PID sensors are unavailable when the thermostat is off."""
         bt = _make_bt_climate(hvac_mode="off")
-        sensor = SensorClass(bt)
+        sensor = sensor_class(bt)
         assert sensor.available is False
 
 
