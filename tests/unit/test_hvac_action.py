@@ -286,25 +286,25 @@ class TestComputeHvacAction:
 
     def test_trv_hvac_action_override(self):
         """Test Trv hvac action override."""
-        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.HEATING
 
     def test_trv_valve_position_override(self):
         """Test Trv valve position override."""
-        snap = TrvSnapshot(trv_id="trv1", valve_position=0.5)
+        snap = TrvSnapshot(entity_id="trv1", valve_position=0.5)
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.HEATING
 
     def test_trv_last_valve_percent_override(self):
         """Test Trv last valve percent override."""
-        snap = TrvSnapshot(trv_id="trv1", last_valve_percent=30.0)
+        snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.HEATING
 
     def test_ignore_states_skips_trv_override(self):
         """Test Ignore states skips trv override."""
-        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=20.7, ignore_states=True, trv_snapshots=[snap])
         )
@@ -312,13 +312,15 @@ class TestComputeHvacAction:
 
     def test_ignore_trv_states_per_trv(self):
         """Test Ignore trv states per trv."""
-        snap = TrvSnapshot(trv_id="trv1", ignore_trv_states=True, hvac_action="heating")
+        snap = TrvSnapshot(
+            entity_id="trv1", ignore_trv_states=True, hvac_action="heating"
+        )
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.IDLE
 
     def test_trv_zero_valve_no_override(self):
         """Test Trv zero valve no override."""
-        snap = TrvSnapshot(trv_id="trv1", valve_position=0.0)
+        snap = TrvSnapshot(entity_id="trv1", valve_position=0.0)
         r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
         assert r.action == HVACAction.IDLE
 
@@ -326,7 +328,7 @@ class TestComputeHvacAction:
 
     def test_trv_hvac_action_no_override_above_target(self):
         """Above target, a TRV reporting heating must not lift action above IDLE."""
-        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
         )
@@ -334,7 +336,7 @@ class TestComputeHvacAction:
 
     def test_trv_valve_position_no_override_above_target(self):
         """Valve still partially open after overshoot must not lift action above IDLE."""
-        snap = TrvSnapshot(trv_id="trv1", valve_position=0.15)
+        snap = TrvSnapshot(entity_id="trv1", valve_position=0.15)
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
         )
@@ -342,7 +344,7 @@ class TestComputeHvacAction:
 
     def test_trv_last_valve_percent_no_override_above_target(self):
         """Stale last_valve_percent above target must not lift action above IDLE."""
-        snap = TrvSnapshot(trv_id="trv1", last_valve_percent=30.0)
+        snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
         )
@@ -350,7 +352,7 @@ class TestComputeHvacAction:
 
     def test_trv_override_at_target_boundary(self):
         """At cur == target, override is suppressed (heat-off threshold reached)."""
-        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=21.0, target_temp=21.0, trv_snapshots=[snap])
         )
@@ -358,7 +360,7 @@ class TestComputeHvacAction:
 
     def test_trv_override_still_fires_in_band(self):
         """Inside the hysteresis band (below target), TRV override still fires."""
-        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(cur_temp=20.7, target_temp=21.0, trv_snapshots=[snap])
         )
@@ -396,7 +398,7 @@ class TestHysteresisTransitions:
         The FSM state and tolerance_decision must still reflect tolerance.
         """
         hyst = ToleranceHysteresis(last_action=HVACAction.IDLE)
-        snap = TrvSnapshot(trv_id="trv1", hvac_action="heating")
+        snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(hysteresis=hyst, cur_temp=20.7, trv_snapshots=[snap])
         )
