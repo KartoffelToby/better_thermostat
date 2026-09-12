@@ -2396,9 +2396,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 trv_data.target_temp_step = self.bt_target_temp_step
             else:
                 trv_data.target_temp_step = 0.5
-            trv_data.temperature = attr_to_celsius(
-                self, _s, "temperature", 5, "startup"
-            )
             trv_data.hvac_modes = _attrs.get("hvac_modes", None)
             trv_data.hvac_mode = _s.state if _s else None
             trv_data.last_hvac_mode = _s.state if _s else None

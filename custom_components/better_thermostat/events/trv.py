@@ -8,6 +8,7 @@ convert thermostat states and prepare outbound payloads.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -49,7 +50,48 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.trv import Trv
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def accepts_user_setpoint(
+    trv: Trv, *, is_echo: bool, child_lock: bool | None, contact_open: bool
+) -> bool:
+    """Decide whether a setpoint a TRV reports is a user press to adopt.
+
+    Parameters
+    ----------
+    trv
+        The device that reported the setpoint. ``target_temp_received``
+        and ``system_mode_received`` say whether BT's own commands have
+        landed, ``hvac_mode`` says whether the device is off, and
+        ``ignore_trv_states`` is set while BT drives the device.
+    is_echo
+        Whether the reported value is a BT write coming back.
+    child_lock
+        Whether the device is configured as child-locked, so a press on
+        its knob does not speak for the user. ``None`` is an unset
+        option and reads as not locked.
+    contact_open
+        Whether a window or door contact of the room is open.
+
+    Returns
+    -------
+    bool
+        ``True`` when the report is a user press BT adopts as its own
+        target, ``False`` when any guard suppresses it.
+    """
+    return (
+        not is_echo
+        and not child_lock
+        and trv.target_temp_received is True
+        and trv.system_mode_received is True
+        and trv.hvac_mode != HVACMode.OFF
+        and contact_open is False
+        and not trv.ignore_trv_states
+    )
 
 
 async def trigger_trv_change(self, event):
@@ -350,14 +392,8 @@ async def trigger_trv_change(self, event):
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
-        _accept_user_setpoint = (
-            not _is_echo
-            and not child_lock
-            and trv.target_temp_received is True
-            and trv.system_mode_received is True
-            and trv.hvac_mode != HVACMode.OFF
-            and self.contact_open is False
-            and not trv.ignore_trv_states
+        _accept_user_setpoint = accepts_user_setpoint(
+            trv, is_echo=_is_echo, child_lock=child_lock, contact_open=self.contact_open
         )
         if _accept_user_setpoint:
             if _setpoint.clamped:
