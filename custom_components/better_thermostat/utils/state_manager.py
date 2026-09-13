@@ -193,7 +193,7 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
                 if not math.isfinite(number):
                     continue
                 setattr(state, attr, number)
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             continue
     return state
 
@@ -207,7 +207,7 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
             continue
         try:
             setattr(state, attr, float(value))
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -236,7 +236,7 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
                 if not math.isfinite(number):
                     continue
                 setattr(state, attr, number)
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             continue
     return state
 
@@ -256,7 +256,7 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             if not math.isfinite(number):
                 continue
             setattr(state, attr, number)
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             continue
     return state
 
@@ -297,7 +297,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
             heating_power = float(heating_power) if heating_power is not None else None
             if heating_power is not None and not math.isfinite(heating_power):
                 heating_power = None
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             heating_power = None
         try:
             heat_loss_rate = (
@@ -305,7 +305,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
             )
             if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
                 heat_loss_rate = None
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             heat_loss_rate = None
         state.thermal = ThermalStats(
             heating_power=heating_power, heat_loss_rate=heat_loss_rate
@@ -316,7 +316,7 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
         for name, temp in presets_raw.items():
             try:
                 state.presets[str(name)] = float(temp)
-            except TypeError, ValueError, OverflowError:
+            except (TypeError, ValueError, OverflowError):
                 continue
 
     return state
@@ -507,7 +507,7 @@ class StateManager:
                 heating_power = clamp(
                     float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
                 )
-            except TypeError, ValueError, OverflowError:
+            except (TypeError, ValueError, OverflowError):
                 heating_power = None
 
         heat_loss_rate: float | None = None
@@ -516,7 +516,7 @@ class StateManager:
                 heat_loss_rate = clamp(
                     float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
                 )
-            except TypeError, ValueError, OverflowError:
+            except (TypeError, ValueError, OverflowError):
                 heat_loss_rate = None
 
         return heating_power, heat_loss_rate

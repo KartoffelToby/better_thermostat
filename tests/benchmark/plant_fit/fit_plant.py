@@ -61,7 +61,7 @@ def _load_csv(path: str) -> dict[str, TimeSeries]:
             try:
                 ts = datetime.fromisoformat(t_str).timestamp()
                 val = float(val_str)
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 continue
             if not math.isfinite(val):
                 continue

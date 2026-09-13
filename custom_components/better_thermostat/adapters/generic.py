@@ -38,7 +38,7 @@ def _option_to_offset(option) -> float | None:
     """
     try:
         return float(str(option).replace("k", ""))
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
 
 
@@ -98,7 +98,7 @@ async def get_current_offset(self, entity_id):
             # For SELECT entities, remove the 'k' suffix if present (e.g., "1.5k" -> "1.5")
             state_str = str(state.state).replace("k", "")
             return float(state_str)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             _LOGGER.warning(
                 "better_thermostat %s: Could not convert calibration offset '%s' to float, using 0",
                 self.device_name,
@@ -139,7 +139,7 @@ async def get_min_offset(self, entity_id):
                     # Extract numeric values from options (remove 'k' suffix)
                     values = [float(opt.replace("k", "")) for opt in options]
                     return min(values)
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     return -6.0
             return -6.0
 
@@ -166,7 +166,7 @@ async def get_max_offset(self, entity_id):
                     # Extract numeric values from options (remove 'k' suffix)
                     values = [float(opt.replace("k", "")) for opt in options]
                     return max(values)
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     return 6.0
             return 6.0
 

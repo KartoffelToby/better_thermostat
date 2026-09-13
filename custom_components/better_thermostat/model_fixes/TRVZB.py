@@ -52,7 +52,7 @@ def _cancel_pending_valve_bump(trv_state) -> bool:
         if task.done():
             return False
         task.cancel()
-    except asyncio.CancelledError, RuntimeError:
+    except (asyncio.CancelledError, RuntimeError):
         return False
     return True
 
@@ -318,7 +318,7 @@ async def override_set_valve(self, entity_id, percent: int):
         last_pct_raw = trv_state.last_valve_percent
         try:
             last_pct = None if last_pct_raw is None else int(last_pct_raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             last_pct = None
 
         # If we don't know the last commanded percent, just set directly.
@@ -371,7 +371,7 @@ async def override_set_valve(self, entity_id, percent: int):
         # write was carrying never reaches the device.
         ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
         return bool(ok)
-    except TypeError, ValueError, KeyError, AttributeError:
+    except (TypeError, ValueError, KeyError, AttributeError):
         return False
 
 
@@ -591,7 +591,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
         # Clamp and round
         try:
             val = float(temperature)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature got non-float: %s",
                 self.device_name,

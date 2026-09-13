@@ -556,7 +556,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.min_cooler_resend_interval_s: float = max(
                 0.0, float(min_cooler_resend_interval or 0)
             )
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             self.min_cooler_resend_interval_s = 0.0
         self.window_id = window_id or None
         self.window_delay = window_delay or 0
@@ -586,7 +586,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         parsed_off,
                     )
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 _LOGGER.warning(
                     "better_thermostat %s: invalid off_temperature '%s', ignoring",
                     self.device_name,
@@ -598,7 +598,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.tolerance = float(tolerance) if tolerance is not None else 0.0
             if unit == UnitOfTemperature.FAHRENHEIT:
                 self.tolerance = self.tolerance * 5.0 / 9.0
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             _LOGGER.warning(
                 "better_thermostat %s: invalid tolerance '%s', falling back to 0.0",
                 self.device_name,
@@ -1112,13 +1112,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             self.device_name,
                             trv_id,
                         )
-                except OSError, RuntimeError, AttributeError, TypeError:
+                except (OSError, RuntimeError, AttributeError, TypeError):
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature keepalive write failed for %s (non critical)",
                         self.device_name,
                         trv_id,
                     )
-        except OSError, RuntimeError, AttributeError, TypeError:
+        except (OSError, RuntimeError, AttributeError, TypeError):
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature keepalive encountered an error",
                 self.device_name,
@@ -1543,7 +1543,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_ema,
                     )
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
             # Restore temp_slope if available
@@ -1556,7 +1556,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         _restored_slope,
                     )
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     pass
 
             _LOGGER.debug(
@@ -1622,7 +1622,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                         )
                     )
-                except TypeError, json.JSONDecodeError:
+                except (TypeError, json.JSONDecodeError):
                     _LOGGER.debug(
                         "better_thermostat %s: could not restore preset cool temperatures",
                         self.device_name,
@@ -1653,7 +1653,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             )
                         )
                     )
-                except TypeError, json.JSONDecodeError:
+                except (TypeError, json.JSONDecodeError):
                     _LOGGER.debug(
                         "better_thermostat %s: could not restore preset heat temperatures",
                         self.device_name,
@@ -2446,7 +2446,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in trvs:
                 try:
                     self.real_trvs[trv_id].ignore_trv_states = True
-                except KeyError, TypeError:
+                except (KeyError, TypeError):
                     pass
 
             # Build snapshots (skips TRVs with state=None)
@@ -2460,7 +2460,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 if trv_id not in serviced_ids:
                     try:
                         self.real_trvs[trv_id].ignore_trv_states = False
-                    except KeyError, TypeError:
+                    except (KeyError, TypeError):
                         pass
 
             # Bind adapter callbacks to self
@@ -2498,7 +2498,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             for trv_id in serviced_ids:
                 try:
                     self.real_trvs[trv_id].ignore_trv_states = False
-                except KeyError, TypeError:
+                except (KeyError, TypeError):
                     pass
 
             # Schedule next run
@@ -3778,7 +3778,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     def _bucket(temp):
                         try:
                             return format_bucket(round_to_bucket(temp))
-                        except TypeError, ValueError:
+                        except (TypeError, ValueError):
                             return None
 
                     # Build list of candidate buckets: current and ±0.5°C neighbors
@@ -3794,7 +3794,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             ]
                         elif bucket_tag:
                             buckets = [bucket_tag]
-                    except TypeError, ValueError:
+                    except (TypeError, ValueError):
                         if bucket_tag:
                             buckets = [bucket_tag]
                     uid = resolve_unique_id(self)

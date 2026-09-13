@@ -98,7 +98,7 @@ def import_mpc_v2_state(
         if value is not None:
             try:
                 setattr(state, attr, float(value))
-            except TypeError, ValueError, OverflowError:
+            except (TypeError, ValueError, OverflowError):
                 pass
     # The fallback-WARN latch is per controller instance; restoring it keeps
     # the throttle intact across the export/import round-trip the dispatcher

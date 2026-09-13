@@ -134,7 +134,7 @@ async def override_set_valve(self, entity_id, percent):
         return False
     try:
         value = int(round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
 
     _LOGGER.debug(

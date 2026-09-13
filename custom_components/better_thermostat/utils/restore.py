@@ -106,7 +106,7 @@ def clamp_heating_power(raw: str | int | float | None, device_name: str) -> floa
     """
     try:
         value = 0.01 if raw is None else float(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         value = 0.01
     bounded = clamp(value, MIN_HEATING_POWER, MAX_HEATING_POWER)
     if bounded != value:
@@ -128,6 +128,6 @@ def clamp_heat_loss(raw: str | int | float | None) -> float | None:
         return None
     try:
         value = float(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return clamp(value, MIN_HEAT_LOSS, MAX_HEAT_LOSS)

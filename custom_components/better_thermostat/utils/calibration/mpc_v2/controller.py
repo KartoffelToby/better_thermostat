@@ -89,7 +89,7 @@ class ControllerSnapshot:
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
             )
-        except TypeError, ValueError, OverflowError:
+        except (TypeError, ValueError, OverflowError):
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
             return None
         numbers = [

@@ -293,7 +293,7 @@ def _render(template_text: str, context: dict, states: dict):
     rendered = env.from_string(template_text).render(**context).strip()
     try:
         return literal_eval(rendered)
-    except ValueError, TypeError, SyntaxError, MemoryError:
+    except (ValueError, TypeError, SyntaxError, MemoryError):
         return rendered
 
 
