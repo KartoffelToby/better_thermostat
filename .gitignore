@@ -90,7 +90,6 @@ node_modules
 .memory/
 .opencode/
 .playwright-mcp/
-AGENTS.md
 CLAUDE.md
 STACK.md
 opencode.json

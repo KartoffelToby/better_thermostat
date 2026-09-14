@@ -28,6 +28,28 @@ document in a pull request.
 - Test BT in a specific HA version -> Run "Install a specific version of Home Assistant" in Task Runner and the version you want to test in the terminal prompt.
 - Test BT with the latest HA version -> Run "upgrade Home Assistant to latest dev" in Task Runner
 
+## Python version
+
+The floor is Python 3.14.2, inherited from Home Assistant: `hacs.json` names the
+minimum core release, and that release declares `Requires-Python: >=3.14.2`.
+`pyproject.toml` repeats the floor for the tooling, in `requires-python`, in
+ruff's `target-version = "py314"`, and in the pyrefly and pyright settings.
+
+The code uses the grammar 3.14 allows. An `except` clause that binds no name
+lists its types bare, as [PEP 758](https://peps.python.org/pep-0758/) permits
+since 3.14:
+
+```python
+except TypeError, ValueError:
+```
+
+Both types are caught. Python 3.13 and older reject the line with
+`SyntaxError: multiple exception types must be parenthesized`, so a checker or
+an editor that flags it is running below the floor. Two contributors have read
+it as Python 2 instead, where the name after the comma would have been the bound
+exception. No Python 3 ever did that, and adding the parentheses back changes no
+behaviour.
+
 ## Architecture
 
 Better Thermostat separates a pure decision core from an imperative shell.
