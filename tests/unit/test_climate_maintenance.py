@@ -49,9 +49,15 @@ async def test_critical_entities_unavailable_returns_early(bt):
 @pytest.mark.asyncio
 async def test_availability_check_exception_returns(bt):
     """An exception during the availability check aborts the tick safely."""
-    with patch(
-        f"{_CLIMATE}.check_critical_entities",
-        AsyncMock(side_effect=RuntimeError("boom")),
+    with (
+        patch(
+            f"{_CLIMATE}.check_critical_entities",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ),
+        # Neutralised like in the sibling tests: this test is about the
+        # exception path of the critical check, and the degraded-mode pass
+        # reads batteries for the mock's unconfigured entities.
+        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
     bt.hass.async_create_background_task.assert_not_called()
