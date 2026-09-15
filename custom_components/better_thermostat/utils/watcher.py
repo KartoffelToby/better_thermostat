@@ -125,10 +125,14 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
     """Queue a battery read for an available entity, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    a background task plus an entity state write. A battery value is only
-    ever new on the first pass after startup, while it is still unpopulated,
-    or when the entity has just come back from an outage, so those are the
-    passes that read it.
+    a background task plus an entity state write, so a read is only queued
+    when it can learn something: on the first pass after startup, when the
+    entity has just come back from an outage, or when the battery entity
+    itself now reports a different value than the stored one. The last case
+    is what keeps the reading honest in between: a battery ages, is replaced
+    or is recalibrated on its own schedule, and it does so while the device
+    it belongs to stays available the entire time. Comparing against the
+    live state is a plain in-memory lookup, so the check itself is free.
 
     Parameters
     ----------
@@ -146,7 +150,20 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
         # get_battery_status to read.
         return
 
-    if recovered or info.get("battery") is None:
+    battery_state = self.hass.states.get(info["battery_id"])
+    current_battery = None if battery_state is None else battery_state.state
+
+    if current_battery in UNAVAILABLE_STATES or current_battery in UNKNOWN_STATES:
+        # The battery entity has nothing to report right now. Keep the last
+        # known reading instead of overwriting it with an unavailable state;
+        # a later pass picks up the value once it is back.
+        return
+
+    if (
+        recovered
+        or info.get("battery") is None
+        or current_battery != info.get("battery")
+    ):
         self.hass.async_create_background_task(
             get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
         )

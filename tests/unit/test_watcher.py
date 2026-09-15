@@ -532,12 +532,138 @@ class TestCheckCriticalEntities:
         assert mock_ir.async_delete_issue.called
 
 
+class TestScheduleBatteryRefresh:
+    """Scheduling rules for battery reads.
+
+    schedule_battery_refresh runs on nearly every event, so it must only queue
+    a get_battery_status background task when the reading can actually change:
+    on the first pass, on recovery, and when the battery entity reports a value
+    that differs from the stored one.
+    """
+
+    @staticmethod
+    def _bt(mock_bt_instance, battery_id, stored):
+        """Wire a BT instance to one entity with a mapped battery entity."""
+
+        def mock_get(entity_id):
+            if entity_id != battery_id:
+                return None
+            state = MagicMock()
+            state.state = stored
+            return state
+
+        mock_bt_instance.devices_states = {
+            "climate.trv_1": {"battery_id": battery_id, "battery": stored}
+        }
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        return mock_bt_instance
+
+    def test_no_read_without_a_mapped_battery(self, mock_bt_instance):
+        """An entity without a battery mapping is never read."""
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        mock_bt_instance.devices_states = {"climate.trv_1": {"battery_id": None}}
+
+        schedule_battery_refresh(mock_bt_instance, "climate.trv_1", recovered=False)
+
+        assert mock_bt_instance.hass.async_create_background_task.call_count == 0
+
+    def test_reads_an_unpopulated_battery(self, mock_bt_instance):
+        """The first pass after startup fills in the reading."""
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "sensor.b1", "80")
+        bt.devices_states["climate.trv_1"]["battery"] = None
+
+        schedule_battery_refresh(bt, "climate.trv_1", recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+    def test_reads_on_recovery(self, mock_bt_instance):
+        """An entity that comes back refreshes even an unchanged reading."""
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "sensor.b1", "80")
+
+        schedule_battery_refresh(bt, "climate.trv_1", recovered=True)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+    def test_reads_a_changed_battery_value(self, mock_bt_instance):
+        """A battery that reports a new value is read while its device stays up.
+
+        The battery entity changes on its own schedule - it ages, is replaced
+        or is recalibrated - so waiting for the next outage of the device would
+        leave the stored reading stale forever.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "sensor.b1", "80")
+        bt.devices_states["climate.trv_1"]["battery"] = "90"
+
+        schedule_battery_refresh(bt, "climate.trv_1", recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 1
+
+    def test_no_read_when_the_value_is_unchanged(self, mock_bt_instance):
+        """A steady reading spawns no task and no state write."""
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "sensor.b1", "80")
+
+        schedule_battery_refresh(bt, "climate.trv_1", recovered=False)
+
+        assert bt.hass.async_create_background_task.call_count == 0
+
+    @pytest.mark.parametrize("live_state", ["unavailable", "unknown", "missing"])
+    def test_keeps_the_last_reading_when_the_battery_has_nothing_to_say(
+        self, mock_bt_instance, live_state
+    ):
+        """An unavailable battery entity does not overwrite the stored value."""
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        bt = self._bt(mock_bt_instance, "sensor.b1", live_state)
+        bt.devices_states["climate.trv_1"]["battery"] = "80"
+
+        schedule_battery_refresh(bt, "climate.trv_1", recovered=True)
+
+        assert bt.hass.async_create_background_task.call_count == 0
+
+    def test_no_read_when_the_battery_entity_is_gone(self, mock_bt_instance):
+        """A battery entity that is not in the state machine is left alone."""
+        from custom_components.better_thermostat.utils.watcher import (
+            schedule_battery_refresh,
+        )
+
+        mock_bt_instance.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"}
+        }
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: None
+
+        schedule_battery_refresh(mock_bt_instance, "climate.trv_1", recovered=True)
+
+        assert mock_bt_instance.hass.async_create_background_task.call_count == 0
+
+
 class TestCheckCriticalEntitiesBattery:
     """Battery-refresh de-duplication in check_critical_entities.
 
     check_critical_entities runs on nearly every event, so it must not queue a
     get_battery_status background task on every call. A refresh is spawned only
-    on the first pass (battery still unpopulated) or when a TRV recovers.
+    when the reading can change: on the first pass (battery still unpopulated),
+    when a TRV recovers, or when the battery entity reports a new value.
     """
 
     @staticmethod
@@ -548,14 +674,27 @@ class TestCheckCriticalEntitiesBattery:
         mock_bt_instance.devices_errors = []
         return mock_bt_instance
 
+    @staticmethod
+    def _let_batteries_report(mock_bt_instance, batteries):
+        """Answer availability checks with 'heat' and battery reads with a value."""
+
+        def mock_get(entity_id):
+            state = MagicMock()
+            state.state = batteries.get(entity_id, "heat")
+            return state
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        return mock_bt_instance
+
     @pytest.mark.anyio
     async def test_no_task_when_battery_already_populated(self, mock_bt_instance):
-        """Steady state: populated battery values spawn no background task."""
+        """Steady state: unchanged battery values spawn no background task."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
         bt = self._make_available(mock_bt_instance)
+        bt = self._let_batteries_report(bt, {"sensor.b1": "80", "sensor.b2": "90"})
         bt.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
@@ -564,6 +703,24 @@ class TestCheckCriticalEntitiesBattery:
             await check_critical_entities(bt)
 
         assert bt.hass.async_create_background_task.call_count == 0
+
+    @pytest.mark.anyio
+    async def test_task_when_a_battery_reports_a_new_value(self, mock_bt_instance):
+        """A battery that changed value is re-read on the next pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_critical_entities,
+        )
+
+        bt = self._make_available(mock_bt_instance)
+        bt = self._let_batteries_report(bt, {"sensor.b1": "79", "sensor.b2": "90"})
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
+        }
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_critical_entities(bt)
+
+        assert bt.hass.async_create_background_task.call_count == 1
 
     @pytest.mark.anyio
     async def test_task_on_initial_unpopulated_battery(self, mock_bt_instance):
@@ -590,6 +747,7 @@ class TestCheckCriticalEntitiesBattery:
         )
 
         bt = self._make_available(mock_bt_instance)
+        bt = self._let_batteries_report(bt, {"sensor.b1": "80", "sensor.b2": "90"})
         bt.devices_errors = ["climate.trv_1", "climate.trv_2"]
         bt.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
@@ -751,13 +909,25 @@ class TestCheckAndUpdateDegradedMode:
         )
 
     @staticmethod
-    def _with_batteries(mock_bt_instance, *, battery):
-        """Give every watched sensor a battery entity in the given read state."""
+    def _with_batteries(mock_bt_instance, *, battery, live=None):
+        """Give every watched sensor a battery entity in the given read state.
+
+        ``battery`` is what the previous pass stored, ``live`` what the battery
+        entity reports now. The two are equal unless a test wants them to
+        differ, and the availability lookups keep answering with a temperature.
+        """
+        live = battery if live is None else live
         mock_bt_instance.devices_states = {
             entity: {"battery_id": f"{entity}_battery", "battery": battery}
             for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
         }
-        TestCheckAndUpdateDegradedMode._all_sensors_reporting(mock_bt_instance)
+        reported = {
+            f"{entity}_battery": live
+            for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
+        }
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, reported.get(entity_id, "20.0")
+        )
 
     @staticmethod
     async def _run(mock_bt_instance):
@@ -780,7 +950,7 @@ class TestCheckAndUpdateDegradedMode:
         self, mock_bt_instance
     ):
         """First pass after startup: every available sensor gets one read."""
-        self._with_batteries(mock_bt_instance, battery=None)
+        self._with_batteries(mock_bt_instance, battery=None, live="87")
 
         assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
@@ -796,6 +966,17 @@ class TestCheckAndUpdateDegradedMode:
         self._with_batteries(mock_bt_instance, battery="87")
 
         assert await self._run(mock_bt_instance) == 0
+
+    @pytest.mark.asyncio
+    async def test_rereads_a_battery_that_reports_a_new_value(self, mock_bt_instance):
+        """A battery that changed value is picked up while its device stays up.
+
+        The battery entity ages on its own schedule, so the stored reading has
+        to follow it instead of waiting for the next outage of the sensor.
+        """
+        self._with_batteries(mock_bt_instance, battery="87", live="82")
+
+        assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
     @pytest.mark.asyncio
     async def test_rereads_the_battery_of_a_sensor_that_just_recovered(
