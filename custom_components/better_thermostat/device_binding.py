@@ -51,12 +51,11 @@ async def async_bind_trv_device(
         )
         return False
 
-    trv_id = next(iter(trv_device.identifiers))
-    dr_reg.async_get_or_create(
+    bt_device = dr_reg.async_get_or_create(
         config_entry_id=bt_entry_id,
         identifiers={(DOMAIN, bt_unique_id)},
-        via_device=trv_id,
     )
+    dr_reg.async_update_device(bt_device.id, via_device_id=trv_device.id)
 
     _LOGGER.debug(
         "better_thermostat %s: bound to TRV device %s (%s)",
