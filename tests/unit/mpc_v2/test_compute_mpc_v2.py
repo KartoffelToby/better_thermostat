@@ -63,11 +63,11 @@ def test_missing_current_temp_returns_none() -> None:
 
 
 def test_first_call_creates_controller_and_returns_percent() -> None:
-    """First call builds a controller and returns a bounded valve percent."""
+    """First call builds a controller and a cold room gets a partial opening."""
     out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
     assert out is not None
     assert isinstance(out.valve_percent, int)
-    assert 0 <= out.valve_percent <= 100
+    assert 0 < out.valve_percent < 100
     assert state.controller is not None
     assert state.last_percent == float(out.valve_percent)
 
