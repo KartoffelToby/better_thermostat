@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
 from custom_components.better_thermostat.core.safety import clamp
 from custom_components.better_thermostat.core.snapshot import (
@@ -49,9 +51,10 @@ def test_setpoint_above_max_is_capped():
     assert out.trvs["climate.trv"].setpoint == 30.0
 
 
-def test_frost_floor_holds_for_any_intent():
+@pytest.mark.parametrize("mode", list(HvacMode))
+def test_frost_floor_holds_for_any_intent(mode):
     """The min-temp floor applies regardless of the intent's mode."""
-    out = clamp(_desired(setpoint=1.0, mode=HvacMode.OFF), _snapshot())
+    out = clamp(_desired(setpoint=1.0, mode=mode), _snapshot())
     assert out.trvs["climate.trv"].setpoint == 5.0
 
 

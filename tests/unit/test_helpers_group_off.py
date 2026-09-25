@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
+import pytest
 
 from custom_components.better_thermostat.utils.helpers import group_all_members_off
 
@@ -36,10 +37,11 @@ def _fake_self(members, states, system_unit=UnitOfTemperature.CELSIUS):
     return self_
 
 
-def test_single_member_always_true():
+@pytest.mark.parametrize("mode", ["heat", "off", "auto", "unavailable"])
+def test_single_member_always_true(mode):
     """Single-TRV instances always "agree", regardless of that valve's mode."""
     self_ = _fake_self(
-        {"climate.a": _member()}, {"climate.a": _state("climate.a", "heat")}
+        {"climate.a": _member()}, {"climate.a": _state("climate.a", mode)}
     )
     assert group_all_members_off(self_) is True
 
