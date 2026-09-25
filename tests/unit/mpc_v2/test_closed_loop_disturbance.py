@@ -80,10 +80,10 @@ class _Trace:
 def _simulate(
     *,
     plant: PlantParams,
-    outdoor_C: float,
-    free_heat_K_per_min: float,
+    outdoor: float,
+    free_heat_k_per_min: float,
     setpoint_at: Callable[[float], float],
-    start_C: float,
+    start: float,
     window_open_h: tuple[float, float] | None = None,
 ) -> _Trace:
     """Run ``compute_mpc_v2`` against a simulated room for ``HOURS``.
@@ -94,7 +94,7 @@ def _simulate(
     """
     params = MpcV2Params(plant=plant)
     room = PlantModelRC2(plant, dt_s=ROOM_STEP_S)
-    x = np.array([start_C, start_C])
+    x = np.array([start, start])
     state: MpcV2State | None = None
     applied_pct: int | None = None
     hours: list[float] = []
@@ -115,7 +115,7 @@ def _simulate(
                 target_temp_C=setpoint,
                 current_temp_C=float(x[0]),
                 trv_temp_C=float(x[1]),
-                outdoor_temp_C=outdoor_C,
+                outdoor_temp_C=outdoor,
                 window_open=is_open,
                 applied_valve_pct=None if applied_pct is None else float(applied_pct),
             ),
@@ -134,16 +134,16 @@ def _simulate(
         setpoints.append(setpoint)
         valves.append(applied_pct)
         windows.append(is_open)
-        drift = free_heat_K_per_min + (DRAFT_K_PER_MIN if is_open else 0.0)
+        drift = free_heat_k_per_min + (DRAFT_K_PER_MIN if is_open else 0.0)
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
-            x = room.discrete_step(x, applied_pct / 100.0, outdoor_C, drift)
+            x = room.discrete_step(x, applied_pct / 100.0, outdoor, drift)
             t_s += ROOM_STEP_S
     return _Trace(
         tuple(hours), tuple(rooms), tuple(setpoints), tuple(valves), tuple(windows)
     )
 
 
-def _ceiling(plant: PlantParams, outdoor_C: float, free_heat: float) -> float:
+def _ceiling(plant: PlantParams, outdoor: float, free_heat: float) -> float:
     """Return the room temperature a fully open valve settles at.
 
     Solves both RC2 balances at ``u = 1``: the radiator delivers
@@ -152,41 +152,41 @@ def _ceiling(plant: PlantParams, outdoor_C: float, free_heat: float) -> float:
     """
     g, c, water = plant.gain_heater, plant.coupling_rad_room, plant.T_water_C
     k = (g + 1.0) / c
-    return (g * water + k * (outdoor_C + free_heat * plant.tau_room_min)) / (g + k)
+    return (g * water + k * (outdoor + free_heat * plant.tau_room_min)) / (g + k)
 
 
-def _start_temp(outdoor_C: float, free_heat: float, setpoint_C: float) -> float:
-    """Return a start temperature the room can hold at ``setpoint_C``."""
-    return min(setpoint_C, _ceiling(PlantParams(), outdoor_C, free_heat) - 0.5)
+def _start_temp(outdoor: float, free_heat: float, setpoint: float) -> float:
+    """Return a start temperature the room can hold at ``setpoint``."""
+    return min(setpoint, _ceiling(PlantParams(), outdoor, free_heat) - 0.5)
 
 
 @cache
-def _step_run(outdoor_C: float, free_heat: float) -> _Trace:
+def _step_run(outdoor: float, free_heat: float) -> _Trace:
     """Settle on a lower setpoint, then step up to ``SETPOINT_C``."""
     return _simulate(
         plant=PlantParams(),
-        outdoor_C=outdoor_C,
-        free_heat_K_per_min=free_heat,
+        outdoor=outdoor,
+        free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: STEP_FROM_C if h < STEP_AT_H else SETPOINT_C,
-        start_C=_start_temp(outdoor_C, free_heat, STEP_FROM_C),
+        start=_start_temp(outdoor, free_heat, STEP_FROM_C),
     )
 
 
 @cache
-def _gap_run(outdoor_C: float, free_heat: float) -> _Trace:
+def _gap_run(outdoor: float, free_heat: float) -> _Trace:
     """Hold ``SETPOINT_C`` with a quarter hour of open window in between."""
     return _simulate(
         plant=PlantParams(),
-        outdoor_C=outdoor_C,
-        free_heat_K_per_min=free_heat,
+        outdoor=outdoor,
+        free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: SETPOINT_C,
-        start_C=_start_temp(outdoor_C, free_heat, SETPOINT_C),
+        start=_start_temp(outdoor, free_heat, SETPOINT_C),
         window_open_h=WINDOW_OPEN_H,
     )
 
 
-def _reachable(outdoor_C: float, free_heat: float) -> bool:
-    return _ceiling(PlantParams(), outdoor_C, free_heat) >= SETPOINT_C + 0.5
+def _reachable(outdoor: float, free_heat: float) -> bool:
+    return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT_C + 0.5
 
 
 _OFFSET = pytest.mark.xfail(
@@ -222,14 +222,14 @@ def _cells(marks: dict[tuple[float, float], pytest.MarkDecorator]) -> list:
     """Return the outdoor × free-heat grid with the given per-cell marks."""
     return [
         pytest.param(
-            outdoor_C,
+            outdoor,
             free_heat,
-            marks=[marks[(outdoor_C, free_heat)]]
-            if (outdoor_C, free_heat) in marks
+            marks=[marks[(outdoor, free_heat)]]
+            if (outdoor, free_heat) in marks
             else [],
-            id=f"outdoor{outdoor_C:+.0f}-free_heat{free_heat:.2f}",
+            id=f"outdoor{outdoor:+.0f}-free_heat{free_heat:.2f}",
         )
-        for outdoor_C in OUTDOOR_C
+        for outdoor in OUTDOOR_C
         for free_heat in FREE_HEAT_K_PER_MIN
     ]
 
@@ -245,8 +245,8 @@ _SETTLED_MARKS = {
 _STEP_MARKS = {
     (0.0, 0.0): _WINDUP_AFTER_STEP,
     **{
-        (outdoor_C, free_heat): _OFFSET_PLUS_WINDUP
-        for outdoor_C in OUTDOOR_C
+        (outdoor, free_heat): _OFFSET_PLUS_WINDUP
+        for outdoor in OUTDOOR_C
         for free_heat in FREE_HEAT_K_PER_MIN
         if free_heat > 0.0
     },
@@ -254,8 +254,8 @@ _STEP_MARKS = {
 _GAP_MARKS = {
     (0.0, 0.0): _WINDUP_AFTER_GAP,
     **{
-        (outdoor_C, free_heat): _OFFSET_PLUS_WINDUP
-        for outdoor_C in OUTDOOR_C
+        (outdoor, free_heat): _OFFSET_PLUS_WINDUP
+        for outdoor in OUTDOOR_C
         for free_heat in FREE_HEAT_K_PER_MIN
         if free_heat > 0.0
     },
@@ -269,19 +269,19 @@ def test_grid_holds_reachable_and_unreachable_cells() -> None:
     two cold days, and every cell with free heat can reach it.
     """
     unreachable = {
-        (outdoor_C, free_heat)
-        for outdoor_C in OUTDOOR_C
+        (outdoor, free_heat)
+        for outdoor in OUTDOOR_C
         for free_heat in FREE_HEAT_K_PER_MIN
-        if not _reachable(outdoor_C, free_heat)
+        if not _reachable(outdoor, free_heat)
     }
     assert unreachable == {(-10.0, 0.0), (-16.0, 0.0)}
     assert _ceiling(PlantParams(), -10.0, 0.0) == pytest.approx(20.0)
     assert _ceiling(PlantParams(), -16.0, 0.0) == pytest.approx(16.4)
 
 
-@pytest.mark.parametrize(("outdoor_C", "free_heat"), _cells(_SETTLED_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_SETTLED_MARKS))
 def test_settled_room_holds_the_setpoint_under_standing_free_heat(
-    outdoor_C: float, free_heat: float
+    outdoor: float, free_heat: float
 ) -> None:
     """Hours after a setpoint step the room sits on the setpoint.
 
@@ -290,14 +290,14 @@ def test_settled_room_holds_the_setpoint_under_standing_free_heat(
     radiator. An unreachable one keeps the valve fully open on every settled
     cycle, with the room within half a kelvin of what an open valve delivers.
     """
-    trace = _step_run(outdoor_C, free_heat)
+    trace = _step_run(outdoor, free_heat)
     settled = trace.indices_from(SETTLED_FROM_H)
     errors = [trace.room[i] - trace.setpoint[i] for i in settled]
     # A frozen or empty window would satisfy every bound below.
     assert len(settled) == int((HOURS - SETTLED_FROM_H) * 3600.0 / CYCLE_S)
     assert len({round(trace.room[i], 6) for i in settled}) > 1
 
-    if _reachable(outdoor_C, free_heat):
+    if _reachable(outdoor, free_heat):
         assert abs(float(np.mean(errors))) <= MEAN_ERROR_BOUND_K, (
             f"mean settled error {np.mean(errors):+.3f} K, valve "
             f"{min(trace.valve_percent[i] for i in settled)}.."
@@ -305,12 +305,12 @@ def test_settled_room_holds_the_setpoint_under_standing_free_heat(
         )
     else:
         assert [trace.valve_percent[i] for i in settled] == [100] * len(settled)
-        ceiling = _ceiling(PlantParams(), outdoor_C, free_heat)
+        ceiling = _ceiling(PlantParams(), outdoor, free_heat)
         assert all(abs(trace.room[i] - ceiling) < 0.5 for i in settled)
 
 
 def _assert_recovery_without_overshoot(
-    trace: _Trace, event_end_h: float, outdoor_C: float, free_heat: float
+    trace: _Trace, event_end_h: float, outdoor: float, free_heat: float
 ) -> None:
     """Check the recovery that follows ``event_end_h``.
 
@@ -322,7 +322,7 @@ def _assert_recovery_without_overshoot(
     """
     after = trace.indices_from(event_end_h)
     valves = [trace.valve_percent[i] for i in after]
-    if not _reachable(outdoor_C, free_heat):
+    if not _reachable(outdoor, free_heat):
         first_rail = valves.index(100)
         assert first_rail <= 3
         assert valves[first_rail:] == [100] * (len(valves) - first_rail)
@@ -338,26 +338,26 @@ def _assert_recovery_without_overshoot(
     )
 
 
-@pytest.mark.parametrize(("outdoor_C", "free_heat"), _cells(_STEP_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_STEP_MARKS))
 def test_setpoint_step_is_reached_without_overshoot(
-    outdoor_C: float, free_heat: float
+    outdoor: float, free_heat: float
 ) -> None:
     """A setpoint raised by 3 K is approached from below and not overshot."""
-    trace = _step_run(outdoor_C, free_heat)
+    trace = _step_run(outdoor, free_heat)
     assert trace.setpoint[trace.indices_from(STEP_AT_H)[0] - 1] == STEP_FROM_C
-    _assert_recovery_without_overshoot(trace, STEP_AT_H, outdoor_C, free_heat)
+    _assert_recovery_without_overshoot(trace, STEP_AT_H, outdoor, free_heat)
 
 
-@pytest.mark.parametrize(("outdoor_C", "free_heat"), _cells(_GAP_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_GAP_MARKS))
 def test_ventilation_gap_is_recovered_without_overshoot(
-    outdoor_C: float, free_heat: float
+    outdoor: float, free_heat: float
 ) -> None:
     """After a quarter hour of airing the room returns without overshooting.
 
     The window cycles return no command and the valve stays closed, which
     costs the room more than half a kelvin before the recovery starts.
     """
-    trace = _gap_run(outdoor_C, free_heat)
+    trace = _gap_run(outdoor, free_heat)
     gap_cycles = [i for i, is_open in enumerate(trace.window_open) if is_open]
     after_gap = trace.indices_from(WINDOW_OPEN_H[1])[0]
     assert len(gap_cycles) == round(
@@ -365,7 +365,7 @@ def test_ventilation_gap_is_recovered_without_overshoot(
     )
     assert all(trace.valve_percent[i] == 0 for i in gap_cycles)
     assert trace.room[after_gap] < trace.room[gap_cycles[0]] - 0.5
-    _assert_recovery_without_overshoot(trace, WINDOW_OPEN_H[1], outdoor_C, free_heat)
+    _assert_recovery_without_overshoot(trace, WINDOW_OPEN_H[1], outdoor, free_heat)
 
 
 # A setpoint the large-room radiator reaches only with free heat on a -16 °C
@@ -408,10 +408,10 @@ def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None
     plant = replace(PLANT_PRESETS["large_room"])
     trace = _simulate(
         plant=plant,
-        outdoor_C=HARD_OUTDOOR_C,
-        free_heat_K_per_min=free_heat,
+        outdoor=HARD_OUTDOOR_C,
+        free_heat_k_per_min=free_heat,
         setpoint_at=lambda h: HARD_SETPOINT_C,
-        start_C=22.0,
+        start=22.0,
     )
     target = min(HARD_SETPOINT_C, _ceiling(plant, HARD_OUTDOOR_C, free_heat))
     cold = [i for i in trace.indices_from(1.0) if trace.room[i] < HARD_SETPOINT_C - 0.5]
@@ -528,19 +528,19 @@ def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(
     valve did and however long the observer has to propagate between two
     room readings.
     """
-    water_C = PlantParams().T_water_C
+    water = PlantParams().T_water_C
     controller = MpcV2Controller(MpcV2Params())
     controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
     controller.set_applied_u(1.0)
-    before_C = float(controller.kalman.x_hat[1])
+    before = float(controller.kalman.x_hat[1])
 
     _, diag = controller.step(
         t_s=1_000.0 + gap_s, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
     )
 
     # The open valve has to heat the estimate noticeably for the bound to bite.
-    assert diag.T_rad_hat > before_C + 10.0
-    assert diag.T_rad_hat <= water_C, (
+    assert diag.T_rad_hat > before + 10.0
+    assert diag.T_rad_hat <= water, (
         f"radiator estimate {diag.T_rad_hat:.1f} °C after {gap_s:.0f} s, water "
-        f"{water_C:.0f} °C"
+        f"{water:.0f} °C"
     )
