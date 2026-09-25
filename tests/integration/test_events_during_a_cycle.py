@@ -216,6 +216,27 @@ async def _start_off_room(hass):
 # ---------------------------------------------------------------------------
 
 
+async def test_a_held_write_keeps_the_cycle_that_sent_it_running(hass):
+    """The harness halts a cycle for as long as the test holds its write.
+
+    Everything below that drives a report into a running cycle rests on this:
+    a cycle that carried on regardless would put the report after the cycle
+    on a fast loop and inside it on a slow one.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(fake_trv, "async_set_temperature") as held:
+            await _command(hass, temperature=23.0)
+            await held.wait_reached(hass)
+            assert fake_trv.target_temperature == held.keyword_arguments["temperature"]
+
+            assert not await poll_until(hass, lambda: not bt.ignore_states, SETTLE_S)
+
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+
+
 @pytest.mark.xfail(
     strict=True,
     reason="a head switched on while a control cycle runs is taken into the mode "
