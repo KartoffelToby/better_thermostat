@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
+import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
@@ -44,12 +47,54 @@ def test_delta_u_constraint_clamps_first_step() -> None:
     assert 0.0 <= u <= 0.05 + 1e-6
 
 
-def test_box_constraint_clamps_to_u_max() -> None:
-    """The box constraint keeps the command at or below u_max."""
-    opt = _make_optimiser()
-    x_pred = np.array([10.0, 10.0])
-    u = opt.solve(x_pred, T_sp=25.0, T_outdoor_C=-20.0, u_last=1.0)
-    assert u <= 1.0 + 1e-6
+@pytest.mark.parametrize("solver", ["daqp", "portable"])
+def test_box_constraint_bounds_the_whole_horizon(monkeypatch, solver) -> None:
+    """Every planned step stays inside the valve box, and a cold room reaches it.
+
+    The first command is clamped once more on its way out, so only the
+    planned trajectory shows whether the optimiser itself honours the box.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    plans: list[np.ndarray] = []
+    if solver == "daqp":
+        if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
+            pytest.skip("the daqp solver is not installed")
+        real_solve = qp_optimiser._daqp.solve
+
+        def _recording_solve(*args):
+            result = real_solve(*args)
+            plans.append(np.asarray(result[0], dtype=float))
+            return result
+
+        monkeypatch.setattr(
+            qp_optimiser, "_daqp", SimpleNamespace(solve=_recording_solve)
+        )
+    else:
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+        monkeypatch.setattr(qp_optimiser, "_daqp", None)
+        real_descent = qp_optimiser.QpOptimiser._solve_coordinate_descent
+
+        def _recording_descent(self, *args):
+            result = real_descent(self, *args)
+            plans.append(np.asarray(result, dtype=float))
+            return result
+
+        monkeypatch.setattr(
+            qp_optimiser.QpOptimiser, "_solve_coordinate_descent", _recording_descent
+        )
+
+    plant = PlantModelRC2(PlantParams(), dt_s=300.0)
+    opt = QpOptimiser(plant, QpParams(delta_u_max=1.0, u_max=0.6))
+    opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=5.0, u_last=0.6)
+
+    assert len(plans) == 1
+    plan = plans[0]
+    assert plan.max() <= 0.6 + 1e-6, plan
+    assert plan.min() >= -1e-6, plan
+    assert plan[0] == pytest.approx(0.6, abs=1e-6), plan
 
 
 def test_anti_windup_skips_saturated_integration() -> None:
