@@ -1402,6 +1402,73 @@ class TestInitializeTrvEchoSetpoints:
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 
+_FALLBACK_READ_IN_THE_SYSTEM_UNIT = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the fallback range 5 to 30 is passed through the reader that converts "
+        "a published value from the system unit, so on a Fahrenheit system it "
+        "becomes -15 to -1.1 °C"
+    ),
+)
+
+
+class TestInitializeTrvRangeFallback:
+    """A device that publishes no range is given 5 to 30 °C, on any system.
+
+    The fallback is Better Thermostat's own range, stated in the Celsius it
+    computes in. It stands in for a value the device never published, so no
+    unit the device might have published in applies to it.
+    """
+
+    def _trv_only_bt(self, bt, unit, state):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = unit
+        bt.hass.states.get.return_value = state
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "unit",
+        [
+            pytest.param(UnitOfTemperature.CELSIUS, id="celsius"),
+            pytest.param(
+                UnitOfTemperature.FAHRENHEIT,
+                id="fahrenheit",
+                marks=_FALLBACK_READ_IN_THE_SYSTEM_UNIT,
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(State(TRV_ID, "heat", {}), id="no_range_attributes"),
+            pytest.param(None, id="no_state"),
+        ],
+    )
+    async def test_a_device_without_a_range_gets_5_to_30_celsius(
+        self, bt, unit, published
+    ):
+        """The range fallback is 5 to 30 °C whatever the system unit."""
+        bt = self._trv_only_bt(bt, unit, published)
+        await self._run(bt)
+        trv = bt.real_trvs[TRV_ID]
+        assert (trv.min_temp, trv.max_temp) == (5.0, 30.0)
+
+
 class TestInitializeTrvCalibrationFallback:
     """The offset read's gaps are filled without overwriting its answers.
 
