@@ -2,9 +2,10 @@
 
 The canonical home of the recurring mock shapes: kernel inputs
 (``make_snapshot``/``make_state``), the entity mock for the control path
-(``make_bt``) and the one for the reported state attributes
-(``make_state_attributes_bt``). Tests import from here instead of
-re-declaring the MagicMock shape per file.
+(``make_bt``), the one for the reported state attributes
+(``make_state_attributes_bt``) and the entity registry with its entries
+(``make_registry_entry``/``make_entity_registry``). Tests import from here
+instead of re-declaring the MagicMock shape per file.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
+from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import (
@@ -29,6 +31,8 @@ from custom_components.better_thermostat.core.snapshot import (
 from custom_components.better_thermostat.trv import Trv
 
 DEFAULT_TRV_ID = "climate.trv"
+DEFAULT_CONFIG_ENTRY_ID = "config_entry_1"
+DEFAULT_DEVICE_ID = "device_1"
 
 
 def make_state(**overrides) -> KernelState:
@@ -214,3 +218,107 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     for name, value in overrides.items():
         setattr(bt, name, value)
     return bt
+
+
+def make_registry_entry(
+    entity_id: str,
+    *,
+    unique_id: str | None = None,
+    platform: str = "mqtt",
+    config_entry_id: str | None = DEFAULT_CONFIG_ENTRY_ID,
+    device_id: str | None = DEFAULT_DEVICE_ID,
+    disabled_by: er.RegistryEntryDisabler | None = None,
+    translation_key: str | None = None,
+    original_name: str | None = None,
+    original_device_class: str | None = None,
+    device_class: str | None = None,
+) -> er.RegistryEntry:
+    """Return a real entity registry entry; overridable per test.
+
+    A ``MagicMock`` in its place answers every field it was not told
+    about with a truthy mock, so ``disabled_by`` would read as disabled
+    and a missing ``translation_key`` as a key that matches nothing. The
+    real type answers ``None`` for both, as Home Assistant does.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id of the entry; the entry derives its domain from it.
+    unique_id : str | None
+        Unique id; the entity id when not given.
+    platform : str
+        Integration that registered the entity.
+    config_entry_id : str | None
+        Config entry the entity belongs to.
+    device_id : str | None
+        Device the entity belongs to; ``None`` for an entity without one.
+    disabled_by : er.RegistryEntryDisabler | None
+        Who disabled the entity; ``None`` for an enabled one.
+    translation_key : str | None
+        The integration's language-independent name for the entity.
+    original_name : str | None
+        The name the integration gave the entity.
+    original_device_class : str | None
+        The device class the integration gave the entity.
+    device_class : str | None
+        The device class the user set.
+
+    Returns
+    -------
+    er.RegistryEntry
+        The entry with the requested fields and HA's defaults otherwise.
+    """
+    return er.RegistryEntry(
+        entity_id=entity_id,
+        unique_id=unique_id if unique_id is not None else entity_id,
+        platform=platform,
+        capabilities=None,
+        config_entry_id=config_entry_id,
+        config_subentry_id=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        device_class=device_class,
+        device_id=device_id,
+        disabled_by=disabled_by,
+        entity_category=None,
+        has_entity_name=False,
+        hidden_by=None,
+        id=None,
+        object_id_base=None,
+        options=None,
+        original_device_class=original_device_class,
+        original_icon=None,
+        original_name=original_name,
+        suggested_object_id=None,
+        supported_features=0,
+        translation_key=translation_key,
+        unit_of_measurement=None,
+    )
+
+
+def make_entity_registry(*entries: er.RegistryEntry) -> MagicMock:
+    """Return an entity registry holding ``entries``.
+
+    The registry itself is a mock specced on ``er.EntityRegistry``, so a
+    call outside its surface fails instead of answering with a mock. Its
+    ``entities`` is HA's own container, so ``entities.values()``,
+    ``entities.get()`` and ``async_entries_for_config_entry`` answer from
+    the entries exactly as they do in Home Assistant, disabled ones
+    included. ``async_get`` resolves an entity id through that container.
+
+    Parameters
+    ----------
+    *entries : er.RegistryEntry
+        The entries the registry holds, in registration order.
+
+    Returns
+    -------
+    MagicMock
+        The registry, answering from ``entries``.
+    """
+    items = er.EntityRegistryItems(MagicMock())
+    for entry in entries:
+        items[entry.entity_id] = entry
+    registry = MagicMock(spec=er.EntityRegistry)
+    registry.entities = items
+    registry.async_get.side_effect = items.get
+    return registry

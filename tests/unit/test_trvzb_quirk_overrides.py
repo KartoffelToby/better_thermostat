@@ -9,6 +9,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import make_entity_registry, make_registry_entry
 
 quirk = importlib.import_module("custom_components.better_thermostat.model_fixes.TRVZB")
 
@@ -200,16 +201,11 @@ class TestOverrideSetValve:
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
 
-def _registry_entry(entity_id, *, domain, translation_key=None, device_id="dev1"):
-    """A registry entry stand-in with the fields the lookup reads."""
-    entry = MagicMock()
-    entry.entity_id = entity_id
-    entry.domain = domain
-    entry.device_id = device_id
-    entry.unique_id = entity_id
-    entry.translation_key = translation_key
-    entry.original_name = None
-    return entry
+def _registry_entry(entity_id, *, translation_key=None, device_id="dev1"):
+    """A registry entry on the TRV's device; its domain is the entity id's."""
+    return make_registry_entry(
+        entity_id, translation_key=translation_key, device_id=device_id
+    )
 
 
 def _make_selector_self(
@@ -224,18 +220,14 @@ def _make_selector_self(
     """
     mock_self = _make_self()
     if trv is None:
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
     selector = _registry_entry(
         "select.trv1_temperature_sensor_select",
-        domain="select",
         translation_key="temperature_sensor_select",
     )
-    registry = MagicMock()
-    registry.async_get.return_value = trv
-    registry.entities.values.return_value = (
-        entries if entries is not None else [trv, selector]
+    mock_self._registry = make_entity_registry(
+        *(entries if entries is not None else [trv, selector])
     )
-    mock_self._registry = registry
 
     selector_state = None
     if state is not None:
@@ -319,10 +311,9 @@ class TestMaybeSelectExternalSensor:
         to the selector's translation key or id fragment would be written
         as if it sat on this TRV.
         """
-        trv = _registry_entry("climate.trv1", domain="climate", device_id=None)
+        trv = _registry_entry("climate.trv1", device_id=None)
         stray = _registry_entry(
             "select.somewhere_else_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
             device_id=None,
         )
@@ -368,13 +359,10 @@ class TestMaybeSelectExternalSensor:
         out first, so matching per entry would write to it and never
         reach the entry that names itself.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
-        decoy = _registry_entry(
-            "select.trv1_temperature_sensor_select_old", domain="select"
-        )
+        trv = _registry_entry("climate.trv1")
+        decoy = _registry_entry("select.trv1_temperature_sensor_select_old")
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, decoy, selector])
@@ -397,10 +385,8 @@ class TestMaybeSelectExternalSensor:
         The id is the only handle left on such an entry, so it stays the
         fallback for the siblings that carry no key.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
-        unnamed = _registry_entry(
-            "select.trv1_temperature_sensor_select", domain="select"
-        )
+        trv = _registry_entry("climate.trv1")
+        unnamed = _registry_entry("select.trv1_temperature_sensor_select")
         mock_self = _make_selector_self("internal", entries=[trv, unnamed])
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -419,13 +405,12 @@ class TestMaybeSelectExternalSensor:
         Guessing at its id would write the sensor choice into whatever
         else the device exposes, so the fallback passes it by.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         named_otherwise = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="valve_opening_degree",
         )
-        unrelated = _registry_entry("select.trv1_backlight", domain="select")
+        unrelated = _registry_entry("select.trv1_backlight")
         mock_self = _make_selector_self(
             "internal", entries=[trv, named_otherwise, unrelated]
         )
@@ -442,7 +427,7 @@ class TestMaybeSelectExternalSensor:
     @pytest.mark.asyncio
     async def test_a_device_without_a_selector_is_not_written(self, monkeypatch):
         """Nothing on the device answers for the sensor choice."""
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         mock_self = _make_selector_self("internal", entries=[trv])
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -466,15 +451,13 @@ class TestExternalTemperatureWriteSelectsTheSensor:
         has to happen on the path that writes the value, because that is
         the only path that knows a value was written.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
-            domain="number",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])
@@ -515,7 +498,7 @@ WRITE_REFUSAL_IDS = ["unreachable", "out_of_range", "transport"]
 
 def _valve_number(entity_id, translation_key=None):
     """A number entity on the TRV's device that the valve write can pick up."""
-    return _registry_entry(entity_id, domain="number", translation_key=translation_key)
+    return _registry_entry(entity_id, translation_key=translation_key)
 
 
 class TestValveWriteTheDeviceRefuses:
@@ -533,10 +516,8 @@ class TestValveWriteTheDeviceRefuses:
     @staticmethod
     def _trvzb_carrying(monkeypatch, numbers):
         """A TRVZB whose device carries the given number entities."""
-        trv = _registry_entry(ENTITY, domain="climate")
-        registry = MagicMock()
-        registry.async_get.return_value = trv
-        registry.entities.values.return_value = [trv, *numbers]
+        trv = _registry_entry(ENTITY)
+        registry = make_entity_registry(trv, *numbers)
         monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
 
         mock_self = _make_self()
@@ -629,15 +610,13 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
     @staticmethod
     def _device_on_the_internal_sensor(monkeypatch):
         """A TRVZB whose device carries both the input and the selector."""
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
-            domain="number",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])

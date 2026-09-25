@@ -20,6 +20,7 @@ from custom_components.better_thermostat.config_flow import (
 )
 from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
 from custom_components.better_thermostat.utils.helpers import get_device_model
+from tests.factories import make_entity_registry
 
 GENERIC_TRV = "climate.generic_thermostat"
 STORED_TRV = "climate.stored_trv"
@@ -71,8 +72,7 @@ def _make_adapter():
 
 def _patch_empty_registries():
     """Patch both registries so the entity resolves to no device."""
-    entity_registry = MagicMock()
-    entity_registry.async_get.return_value = None
+    entity_registry = make_entity_registry()
     return (
         patch(
             "custom_components.better_thermostat.utils.helpers.er.async_get",

@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.factories import make_entity_registry, make_registry_entry
+
 
 @pytest.fixture
 def mock_hass():
@@ -40,8 +42,7 @@ class TestFindBatteryEntity:
             find_battery_entity,
         )
 
-        mock_registry = MagicMock()
-        mock_registry.entities.get.return_value = None
+        mock_registry = make_entity_registry()
 
         with patch(
             "custom_components.better_thermostat.utils.helpers.er.async_get",
@@ -58,19 +59,19 @@ class TestFindBatteryEntity:
             find_battery_entity,
         )
 
-        # Mock entity registry
-        mock_window_entity = MagicMock()
-        mock_window_entity.device_id = "device_123"
+        # Entity registry
+        mock_window_entity = make_registry_entry(
+            "binary_sensor.window", device_id="device_123"
+        )
 
-        mock_battery_entity = MagicMock()
-        mock_battery_entity.device_id = "device_123"
-        mock_battery_entity.device_class = "battery"
-        mock_battery_entity.original_device_class = "battery"
-        mock_battery_entity.entity_id = "sensor.window_battery"
+        mock_battery_entity = make_registry_entry(
+            "sensor.window_battery",
+            device_id="device_123",
+            device_class="battery",
+            original_device_class="battery",
+        )
 
-        mock_registry = MagicMock()
-        mock_registry.entities.get.return_value = mock_window_entity
-        mock_registry.entities.values.return_value = [mock_battery_entity]
+        mock_registry = make_entity_registry(mock_window_entity, mock_battery_entity)
 
         with patch(
             "custom_components.better_thermostat.utils.helpers.er.async_get",
@@ -88,11 +89,9 @@ class TestFindBatteryEntity:
         )
 
         # Virtual entity with no device_id
-        mock_entity = MagicMock()
-        mock_entity.device_id = None
+        mock_entity = make_registry_entry("binary_sensor.virtual", device_id=None)
 
-        mock_registry = MagicMock()
-        mock_registry.entities.get.return_value = mock_entity
+        mock_registry = make_entity_registry(mock_entity)
 
         # State has no entity_id attribute (not a group)
         mock_state = MagicMock()
@@ -115,44 +114,41 @@ class TestFindBatteryEntity:
         )
 
         # Group entity with no device_id
-        mock_group_entity = MagicMock()
-        mock_group_entity.device_id = None
+        mock_group_entity = make_registry_entry(
+            "binary_sensor.window_group", platform="group", device_id=None
+        )
 
         # Member entities with device_ids
-        mock_member1_entity = MagicMock()
-        mock_member1_entity.device_id = "device_1"
+        mock_member1_entity = make_registry_entry(
+            "binary_sensor.window1", device_id="device_1"
+        )
 
-        mock_member2_entity = MagicMock()
-        mock_member2_entity.device_id = "device_2"
+        mock_member2_entity = make_registry_entry(
+            "binary_sensor.window2", device_id="device_2"
+        )
 
         # Battery entities for members
-        mock_battery1 = MagicMock()
-        mock_battery1.device_id = "device_1"
-        mock_battery1.device_class = "battery"
-        mock_battery1.original_device_class = "battery"
-        mock_battery1.entity_id = "sensor.window1_battery"
+        mock_battery1 = make_registry_entry(
+            "sensor.window1_battery",
+            device_id="device_1",
+            device_class="battery",
+            original_device_class="battery",
+        )
 
-        mock_battery2 = MagicMock()
-        mock_battery2.device_id = "device_2"
-        mock_battery2.device_class = "battery"
-        mock_battery2.original_device_class = "battery"
-        mock_battery2.entity_id = "sensor.window2_battery"
+        mock_battery2 = make_registry_entry(
+            "sensor.window2_battery",
+            device_id="device_2",
+            device_class="battery",
+            original_device_class="battery",
+        )
 
-        def mock_entities_get(entity_id):
-            if entity_id == "binary_sensor.window_group":
-                return mock_group_entity
-            elif entity_id == "binary_sensor.window1":
-                return mock_member1_entity
-            elif entity_id == "binary_sensor.window2":
-                return mock_member2_entity
-            return None
-
-        def mock_entities_values():
-            return [mock_battery1, mock_battery2]
-
-        mock_registry = MagicMock()
-        mock_registry.entities.get.side_effect = mock_entities_get
-        mock_registry.entities.values.return_value = mock_entities_values()
+        mock_registry = make_entity_registry(
+            mock_group_entity,
+            mock_member1_entity,
+            mock_member2_entity,
+            mock_battery1,
+            mock_battery2,
+        )
 
         # Group state with members
         mock_group_state = MagicMock()
@@ -195,23 +191,17 @@ class TestFindBatteryEntity:
         )
 
         # Group entity with no device_id
-        mock_group_entity = MagicMock()
-        mock_group_entity.device_id = None
+        mock_group_entity = make_registry_entry(
+            "binary_sensor.window_group", platform="group", device_id=None
+        )
 
         # Member entity with no battery
-        mock_member_entity = MagicMock()
-        mock_member_entity.device_id = "device_1"
+        mock_member_entity = make_registry_entry(
+            "binary_sensor.window1", device_id="device_1"
+        )
 
-        def mock_entities_get(entity_id):
-            if entity_id == "binary_sensor.window_group":
-                return mock_group_entity
-            elif entity_id == "binary_sensor.window1":
-                return mock_member_entity
-            return None
-
-        mock_registry = MagicMock()
-        mock_registry.entities.get.side_effect = mock_entities_get
-        mock_registry.entities.values.return_value = []  # No battery entities
+        # No battery entities
+        mock_registry = make_entity_registry(mock_group_entity, mock_member_entity)
 
         # Group state with members
         mock_group_state = MagicMock()

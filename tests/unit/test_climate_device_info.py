@@ -12,6 +12,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import DOMAIN
+from tests.factories import make_entity_registry, make_registry_entry
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 BT_UID = "bt_uid"
@@ -30,10 +31,9 @@ def _bt(all_trvs):
 
 def _registries(trv_device, *, device_id="trv_device_id"):
     """Build the entity and device registries device_info reads."""
-    entity_entry = MagicMock()
-    entity_entry.device_id = device_id
-    er_reg = MagicMock()
-    er_reg.async_get.return_value = entity_entry
+    er_reg = make_entity_registry(
+        make_registry_entry("climate.trv", device_id=device_id)
+    )
 
     dr_reg = MagicMock()
     dr_reg.async_get.return_value = trv_device
@@ -71,10 +71,9 @@ def _non_real_device_registries(kind, *, device_id="trv_device_id"):
     while ``include_composite_devices`` is set. Switching that flag off yields
     nothing, which is what the registry does for such an id.
     """
-    entity_entry = MagicMock()
-    entity_entry.device_id = device_id
-    er_reg = MagicMock()
-    er_reg.async_get.return_value = entity_entry
+    er_reg = make_entity_registry(
+        make_registry_entry("climate.trv", device_id=device_id)
+    )
 
     device = _device(device_id, {("mqtt", "0x1234")})
 
