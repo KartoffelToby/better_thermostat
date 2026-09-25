@@ -166,12 +166,11 @@ def _device_setpoint(hass) -> float:
 async def _run_create_flow(hass, user_input, advanced=None):
     """Run the create flow over its three steps, submitting through Home Assistant.
 
-    Returns the user form and the entry it created.
+    Returns the entry it created.
     """
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
-    user_form = result
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input
     )
@@ -183,7 +182,7 @@ async def _run_create_flow(hass, user_input, advanced=None):
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
     (entry,) = hass.config_entries.async_entries(DOMAIN)
-    return user_form, entry
+    return entry
 
 
 def _step_label(token: str) -> str:
@@ -195,23 +194,32 @@ def _step_label(token: str) -> str:
 # -- setpoint -----------------------------------------------------------------
 
 
+_WHOLE_DEGREE_LOST_ROUNDING_DOWN = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the whole-degree step is rounded to 0.56 K and the target to two "
+        "decimals, so a whole degree Fahrenheit lies just below a point of the "
+        "grid it is rounded on, and rounding down for a room warmer than the "
+        "target writes one degree less"
+    ),
+)
+
+
 @pytest.mark.parametrize(
     ("fake_trv", "requested"),
     [
         pytest.param(FAHRENHEIT_TRV, 70.0, id="fahrenheit_trv-heating"),
         pytest.param(
             FAHRENHEIT_TRV,
+            63.0,
+            id="fahrenheit_trv-idle-63",
+            marks=_WHOLE_DEGREE_LOST_ROUNDING_DOWN,
+        ),
+        pytest.param(
+            FAHRENHEIT_TRV,
             64.0,
-            id="fahrenheit_trv-idle",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the whole-degree step is held as 0.5556 K, slightly more "
-                    "than 5/9 K, so 64 °F lies just below a grid point in "
-                    "Celsius, and rounding the setpoint down for a room warmer "
-                    "than the target writes 63 °F"
-                ),
-            ),
+            id="fahrenheit_trv-idle-64",
+            marks=_WHOLE_DEGREE_LOST_ROUNDING_DOWN,
         ),
         pytest.param(
             OFF_GRID_FAHRENHEIT_TRV, 70.0, id="off_grid_fahrenheit_trv-heating"
@@ -229,7 +237,8 @@ async def test_setpoint_reaches_the_device_in_the_system_unit(
     and the write goes out in the system unit again. Whole degrees Fahrenheit
     sit on the grid of both devices, so the value that arrives is the one that
     was asked for, whichever way the room makes the thermostat round: up for a
-    room calling for heat (70 °F), down for a room already warmer (64 °F). A
+    room calling for heat (70 °F), down for a room already warmer (63 and
+    64 °F). A
     value on the grid is not moved by rounding in either direction.
     """
     profile = fake_trv.profile
@@ -602,7 +611,7 @@ async def test_accepting_the_suggested_off_temperature_keeps_a_cold_room_heating
     profile = fake_trv.profile
     _publish_room_at_device_reading(hass, profile)
     _publish_outdoor(hass, 40.0)
-    _, entry = await _run_create_flow(
+    entry = await _run_create_flow(
         hass,
         {
             "name": "BT Test",
@@ -629,7 +638,7 @@ async def test_configured_bounds_are_read_in_the_unit_their_label_names(hass):
     """
     (fake_trv,) = await build_devices(hass, FAHRENHEIT_TRV)
     _publish_room_at_device_reading(hass, fake_trv.profile)
-    _, entry = await _run_create_flow(
+    entry = await _run_create_flow(
         hass,
         {
             "name": "BT Test",
@@ -668,7 +677,7 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     labelled_value, labelled_unit = label.split(" ")
     assert labelled_unit == UnitOfTemperature.CELSIUS
 
-    _, entry = await _run_create_flow(
+    entry = await _run_create_flow(
         hass,
         {
             "name": "BT Test",
