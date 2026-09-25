@@ -991,7 +991,7 @@ class TestDeserializeEdgeCases:
         assert state.tpi == {}
 
     def test_non_dict_mpc_payload_skipped(self):
-        """Non-dict payloads inside mpc section are skipped."""
+        """An mpc entry that is not a mapping leaves no key behind."""
         raw = {"version": 1, "mpc": {"key1": "not_a_dict", "key2": 42}}
         state = _deserialize(raw)
         assert "key1" not in state.mpc
@@ -1002,6 +1002,137 @@ class TestDeserializeEdgeCases:
         raw = {"version": 1, "thermal": "garbage"}
         state = _deserialize(raw)
         assert state.thermal.heating_power is None
+
+
+_VALID_REID = {"tau_room_min": 240.0, "gain_heater": 3.0}
+
+
+def _warnings(caplog) -> list[str]:
+    """Return the WARNING-or-worse messages the state manager logged."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.WARNING and record.name == _SM
+    ]
+
+
+class TestDroppedStoredValuesAreReported:
+    """A stored value the load cannot use is named when it is dropped.
+
+    Past the load path a dropped field or entry carries the default a first
+    start leaves there, so a value the store lost looks exactly like one it
+    never held. The load is the only place that can still say so.
+    """
+
+    @pytest.mark.parametrize(
+        ("deserialize", "raw", "field"),
+        [
+            pytest.param(
+                deserialize_mpc,
+                {"gain_est": "abc"},
+                "gain_est",
+                id="mpc",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="an unreadable MPC field is skipped without a log line",
+                ),
+            ),
+            pytest.param(
+                deserialize_pid,
+                {"pid_kp": "abc"},
+                "pid_kp",
+                id="pid",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="an unreadable PID field is skipped without a log line",
+                ),
+            ),
+            pytest.param(
+                deserialize_tpi,
+                {"last_percent": "bad"},
+                "last_percent",
+                id="tpi",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="an unreadable TPI field is skipped without a log line",
+                ),
+            ),
+            pytest.param(
+                deserialize_mpc_v2_reid,
+                {**_VALID_REID, "rmse_fit_K": "later"},
+                "rmse_fit_K",
+                id="mpc_v2_reid",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="an unreadable re-identification field is skipped "
+                    "without a log line",
+                ),
+            ),
+            pytest.param(
+                deserialize_mpc_v2, {"created_ts": "later"}, "created_ts", id="mpc_v2"
+            ),
+        ],
+    )
+    def test_an_unreadable_field_is_named(self, caplog, deserialize, raw, field):
+        """A field of the wrong type keeps its default and is reported by name."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            deserialize(raw)
+
+        assert any(field in message for message in _warnings(caplog)), _warnings(caplog)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="a re-identification result outside the plausible band is "
+        "dropped without a log line",
+    )
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("tau_room_min", 1e300),
+            ("tau_room_min", 5e-324),
+            ("gain_heater", 0.4),
+            ("gain_heater", 5.1),
+        ],
+    )
+    def test_an_out_of_band_reid_result_is_named(self, caplog, field, value):
+        """A stored fit outside the plausible band is refused and reported."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            assert deserialize_mpc_v2_reid({**_VALID_REID, field: value}) is None
+
+        assert any(field in message for message in _warnings(caplog)), _warnings(caplog)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="an entry that is not a mapping is dropped without a log line",
+    )
+    @pytest.mark.parametrize("section", ["mpc", "mpc_v2", "mpc_v2_reid", "pid", "tpi"])
+    def test_a_misshapen_entry_is_named(self, caplog, section):
+        """An entry that is not a mapping is dropped and reported with its key."""
+        raw = {"version": 1, section: {"room_key": "not_a_dict"}}
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize(raw)
+
+        assert getattr(state, section) == {}
+        assert any(
+            section in message and "room_key" in message
+            for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="a section that is not a mapping is dropped without a log line",
+    )
+    @pytest.mark.parametrize(
+        "section", ["mpc", "mpc_v2", "mpc_v2_reid", "pid", "tpi", "thermal", "filters"]
+    )
+    def test_a_misshapen_section_is_named(self, caplog, section):
+        """A whole section of the wrong shape is dropped and reported by name."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize({"version": 1, section: "garbage"})
+
+        assert any(section in message for message in _warnings(caplog)), _warnings(
+            caplog
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1723,6 +1854,31 @@ class TestUnreadableStoreIsKeptForRecovery:
 
         assert mgr.state.mpc == {}
         assert "could not set the unreadable state aside" in caplog.text
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="an entry reset for a non-finite value leaves no copy of what it held",
+    )
+    @pytest.mark.asyncio
+    async def test_a_poisoned_entry_is_set_aside_before_it_is_reset(self):
+        """A learned entry reset on load is kept aside like an unreadable store.
+
+        The reset entry's defaults overwrite the stored one on the next save,
+        which is the loss the set-aside copy exists to prevent.
+        """
+        payload = {
+            "version": 1,
+            "mpc": {"k1": {"gain_est": 0.5, "loss_est": 0.02, "kalman_P": None}},
+        }
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = payload
+            await mgr.load()
+
+        assert mgr.state.mpc["k1"].gain_est is None
+        assert _SET_ASIDE_KEY in stores
+        stores[_SET_ASIDE_KEY].async_save.assert_awaited_once()
+        assert stores[_SET_ASIDE_KEY].async_save.await_args[0][0] == payload
 
     @pytest.mark.asyncio
     async def test_removing_the_entry_removes_the_copy_too(self):
