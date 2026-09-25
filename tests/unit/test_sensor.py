@@ -8,6 +8,7 @@ Covers:
   - Unload cleanup
 """
 
+import logging
 import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
@@ -100,6 +101,16 @@ def _make_entity_registry():
     reg.async_get_entity_id = MagicMock(return_value=None)
     reg.async_remove = MagicMock()
     return reg
+
+
+def _trvs_in_modes(*modes):
+    """Build one real Trv per calibration mode, keyed trv_1, trv_2, ..."""
+    return {
+        f"trv_{index}": Trv.from_legacy_dict(
+            f"trv_{index}", {"advanced": {CONF_CALIBRATION_MODE: mode}}
+        )
+        for index, mode in enumerate(modes, start=1)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -813,34 +824,90 @@ class TestSetupAlgorithmSensors:
             )
         assert sensors == []
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="MPC tracking lists an mpc_status unique_id that no sensor carries",
+    )
     @pytest.mark.asyncio
-    async def test_mpc_tracking_registered(self):
-        """Mpc tracking registered."""
-        hass = MagicMock()
-        entry = _make_entry()
+    async def test_mpc_tracking_names_exactly_the_created_sensors(self):
+        """The tracked MPC unique_ids are the ones of the sensors just created.
+
+        Cleanup removes what it tracks; an id without a sensor can never be
+        removed, and a sensor without an id is never cleaned up.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+
+        tracked_ids = _ACTIVE_ALGORITHM_ENTITIES["entry_1"][
+            CalibrationMode.MPC_CALIBRATION
+        ]
+        assert sorted(tracked_ids) == sorted(s.unique_id for s in sensors)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="MPC stays tracked after every sensor it created was removed",
+    )
+    @pytest.mark.asyncio
+    async def test_dropping_mpc_removes_it_from_tracking(self):
+        """Once MPC is no longer configured and its sensors are gone, it is untracked.
+
+        The registry knows exactly the sensors setup created; removing all of
+        them is a complete cleanup.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+
+        registered = {s.unique_id: f"sensor.{s.unique_id}" for s in sensors}
+        reg = _make_entity_registry()
+        reg.async_get_entity_id.side_effect = lambda _domain, _platform, unique_id: (
+            registered.get(unique_id)
+        )
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=reg,
+        ):
+            await _cleanup_stale_algorithm_entities(
+                hass=MagicMock(),
+                entry_id="entry_1",
+                bt_climate=bt,
+                current_algorithms=set(),
+            )
+
+        assert reg.async_remove.call_count == len(registered)
+        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
+
+    @pytest.mark.xfail(
+        strict=True, reason="MPC v1 and MPC v2 sensors share their unique_ids"
+    )
+    @pytest.mark.asyncio
+    async def test_mpc_and_mpc_v2_sensors_have_distinct_unique_ids(self):
+        """Heads calibrated by MPC v1 and v2 in one room get separate sensors.
+
+        Home Assistant rejects a second entity with a unique_id it already
+        knows, so a shared id silently drops one of the two sets.
+        """
         bt = _make_bt_climate(
-            real_trvs={
-                "trv_1": Trv.from_legacy_dict(
-                    "trv_1",
-                    {
-                        "advanced": {
-                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
-                        }
-                    },
-                )
-            }
+            real_trvs=_trvs_in_modes(
+                CalibrationMode.MPC_CALIBRATION, CalibrationMode.MPC_V2_CALIBRATION
+            )
         )
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
             return_value=_make_entity_registry(),
         ):
-            await _setup_algorithm_sensors(hass, entry, bt)
-        assert "entry_1" in _ACTIVE_ALGORITHM_ENTITIES
-        assert CalibrationMode.MPC_CALIBRATION in _ACTIVE_ALGORITHM_ENTITIES["entry_1"]
-        tracked_ids = _ACTIVE_ALGORITHM_ENTITIES["entry_1"][
-            CalibrationMode.MPC_CALIBRATION
-        ]
-        assert len(tracked_ids) == 5  # 4 sensors + mpc_status
+            sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+
+        unique_ids = [s.unique_id for s in sensors]
+        assert len(unique_ids) == 8
+        assert len(set(unique_ids)) == len(unique_ids), unique_ids
 
 
 # ===========================================================================
@@ -1005,10 +1072,10 @@ class TestCleanupStaleAlgorithmEntities:
 
     @pytest.mark.asyncio
     async def test_partial_removal_keeps_tracking(self):
-        """If not all entities could be removed, tracking should remain."""
+        """A removal that failed keeps the algorithm tracked for the next cleanup."""
         reg = _make_entity_registry()
-        # First entity found, second not found
-        reg.async_get_entity_id.side_effect = ["sensor.found", None]
+        reg.async_get_entity_id.side_effect = ["sensor.first", "sensor.second"]
+        reg.async_remove.side_effect = [None, RuntimeError("registry error")]
 
         _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
             CalibrationMode.MPC_CALIBRATION: ["uid_1", "uid_2"]
@@ -1026,16 +1093,15 @@ class TestCleanupStaleAlgorithmEntities:
                 current_algorithms=set(),
             )
 
-        # Only 1 entity removed (other not found in registry)
-        assert reg.async_remove.call_count == 1
-        # Since only 1 of 2 removed, algorithm tracking should remain
+        assert reg.async_remove.call_count == 2
+        # Only 1 of 2 was removed, so the algorithm stays tracked
         assert CalibrationMode.MPC_CALIBRATION in _ACTIVE_ALGORITHM_ENTITIES.get(
             "entry_1", {}
         )
 
     @pytest.mark.asyncio
-    async def test_remove_exception_handled_gracefully(self):
-        """If async_remove raises, it should be caught and logged."""
+    async def test_remove_exception_handled_gracefully(self, caplog):
+        """A registry error during removal is logged with the entity, not raised."""
         reg = _make_entity_registry()
         reg.async_get_entity_id.return_value = "sensor.entity"
         reg.async_remove.side_effect = RuntimeError("registry error")
@@ -1044,18 +1110,27 @@ class TestCleanupStaleAlgorithmEntities:
             CalibrationMode.MPC_CALIBRATION: ["uid_1"]
         }
 
-        with patch(
-            "custom_components.better_thermostat.sensor.async_get_entity_registry",
-            return_value=reg,
+        with (
+            patch(
+                "custom_components.better_thermostat.sensor.async_get_entity_registry",
+                return_value=reg,
+            ),
+            caplog.at_level(
+                logging.WARNING, logger="custom_components.better_thermostat.sensor"
+            ),
         ):
             bt = _make_bt_climate()
-            # Should not raise
             await _cleanup_stale_algorithm_entities(
                 hass=MagicMock(),
                 entry_id="entry_1",
                 bt_climate=bt,
                 current_algorithms=set(),
             )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "sensor.entity" in warnings[0].getMessage()
+        assert "registry error" in warnings[0].getMessage()
 
 
 # ===========================================================================
@@ -1372,17 +1447,6 @@ class TestEdgeCasesAndPotentialBugs:
         # This might crash with TypeError: cannot unpack non-iterable NoneType
         sensor._update_state()
         assert sensor._attr_native_value is None
-
-    def test_mpc_sensor_real_trvs_is_list_not_dict(self):
-        """If real_trvs is a list instead of dict, .items() would fail."""
-        bt = _make_bt_climate()
-        bt.real_trvs = [{"calibration_balance": {"debug": {"mpc_virtual_temp": 22.0}}}]
-        sensor = BetterThermostatVirtualTempSensor(bt)
-        # list doesn't have .items() → should it crash?
-        try:
-            sensor._update_state()
-        except AttributeError:
-            pass  # documents the bug
 
     def test_solar_sensor_negative_intensity(self):
         """What happens if solar intensity returns a negative value?."""
