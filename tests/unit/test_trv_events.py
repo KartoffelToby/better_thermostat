@@ -2489,6 +2489,16 @@ class TestConvertInboundStates:
                 id="both_spellings",
             ),
             pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
+                "heat_cool",
+                id="both_spellings_reporting_heat_cool",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="a device offering heat and heat_cool that reports "
+                    "heat_cool is decoded as no mode at all",
+                ),
+            ),
+            pytest.param(
                 [HVACMode.OFF, HVACMode.HEAT_COOL], "heat_cool", id="heat_cool_only"
             ),
         ],
@@ -2527,6 +2537,22 @@ class TestConvertInboundStates:
 
         assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
 
+    def test_an_unswapped_device_reporting_auto_is_decoded_as_off(self, mock_bt):
+        """A reported AUTO without the swap option reaches the adoption as OFF.
+
+        AUTO names the device's heating mode only when the swap option says
+        so; without it the report is read as the device leaving the heating
+        mode, which is what the remap's error about the swap option explains.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.OFF,
+            HVACMode.HEAT,
+            HVACMode.AUTO,
+        ]
+        state = _make_state(state_str="auto")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
+
     def test_unsupported_mode_returns_none(self, mock_bt):
         """Return None for unsupported HVAC modes like COOL."""
         state = _make_state(state_str="cool")
@@ -2538,12 +2564,12 @@ class TestConvertInboundStates:
         assert result is None
 
     def test_heat_cool_mode_returns_none(self, mock_bt):
-        """Return None for HEAT_COOL.
+        """Only OFF and HEAT leave the decoder.
 
-        A device that names its heating mode heat_cool is decoded into HEAT by
-        the remap, so a HEAT_COOL reaching this point is a mode the entity does
-        not adopt. The mode adoption downstream relies on that: it only ever
-        sees OFF, HEAT or nothing.
+        Translating a device's own spelling of its heating mode into HEAT is
+        the remap's job, which the tests running the real remap pin. The mode
+        adoption downstream relies on this function carrying nothing else on:
+        it only ever sees OFF, HEAT or nothing.
         """
         state = _make_state(state_str="heat_cool")
         with patch(
