@@ -1611,7 +1611,7 @@ class TestRestoreState:
 
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
-        """Test Target clamped to min."""
+        """A restored target below the minimum comes back as the minimum."""
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 2.0}  # below min
@@ -1623,11 +1623,11 @@ class TestRestoreState:
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.bt_target_temp is not None
+        assert bt.bt_target_temp == 5.0
 
     @pytest.mark.asyncio
     async def test_target_clamped_to_max(self, bt):
-        """Test Target clamped to max."""
+        """A restored target above the maximum comes back as the maximum."""
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 35.0}  # above max
@@ -1639,7 +1639,7 @@ class TestRestoreState:
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.bt_target_temp is not None
+        assert bt.bt_target_temp == 30.0
 
     @pytest.mark.asyncio
     async def test_restores_preset_mode(self, bt):
@@ -1921,15 +1921,14 @@ class TestRestoreState:
 
     @pytest.mark.asyncio
     async def test_no_old_state_uses_trv_defaults(self, bt):
-        """Test No old state uses trv defaults."""
+        """Without a stored state the target is taken from the TRV's setpoint."""
         bt.async_get_last_state = AsyncMock(return_value=None)
         bt.bt_target_temp = None
 
         states = [_make_trv_state(attrs={ATTR_TEMPERATURE: 20.0})]
         await BetterThermostat._restore_state(bt, states)
 
-        # Should have set bt_target_temp from TRV states
-        assert bt.bt_target_temp is not None
+        assert bt.bt_target_temp == 20.0
 
     @pytest.mark.asyncio
     async def test_call_for_heat_not_restored(self, bt):
