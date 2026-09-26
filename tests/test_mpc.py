@@ -4,13 +4,19 @@ State is threaded explicitly through a test-local state dict, mirroring how
 the StateManager owns controller state in production.
 """
 
+from unittest.mock import patch
+
+import pytest
+
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     MpcState,
+    _post_process_percent,
     compute_mpc as _compute_mpc,
 )
 
+_MPC = "custom_components.better_thermostat.utils.calibration.mpc"
 _STATES: dict[str, MpcState] = {}
 
 
@@ -68,46 +74,31 @@ class TestMPCController:
         )
         result, _ = compute_mpc(inp, params)
         assert result is not None
-        # With error=0.5, should compute some positive percent <100
-        assert 0 <= result.valve_percent <= 100
+        # A 0.5 K error opens the valve part of the way, not to a rail.
+        assert 0 < result.valve_percent < 100
 
-    def test_negative_error_shutoff(self):
-        """Test that valve is set to 0% when error <= -0.3K."""
+    @pytest.mark.parametrize("current_temp", [22.2, 22.3, 22.4])
+    def test_negative_error_shutoff(self, current_temp):
+        """A room above its target gets a closed valve from the controller itself.
+
+        The forced loss calibration, which also closes the valve above
+        target, is kept from triggering so the controller's own answer is
+        what the test sees.
+        """
         params = MpcParams(mpc_adapt=False)
-        key = "test_shutoff"
-
-        # Test case 1: error = -0.3 (exactly threshold)
-        inp1 = MpcInput(
+        key = f"test_shutoff_{current_temp}"
+        _STATES[key] = MpcState(loss_learn_count=100)
+        inp = MpcInput(
             key=key,
             target_temp_C=22.0,
-            current_temp_C=22.3,  # error = -0.3
+            current_temp_C=current_temp,
             temp_slope_K_per_min=0.0,
         )
-        result1, _ = compute_mpc(inp1, params)
-        assert result1 is not None
-        assert result1.valve_percent == 0.0
-
-        # Test case 2: error = -0.4 (below threshold)
-        inp2 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=22.4,  # error = -0.4
-            temp_slope_K_per_min=0.0,
-        )
-        result2, _ = compute_mpc(inp2, params)
-        assert result2 is not None
-        assert result2.valve_percent == 0.0
-
-        # Test case 3: error = -0.2 (above threshold, should run MPC)
-        inp3 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=22.2,  # error = -0.2
-            temp_slope_K_per_min=0.0,
-        )
-        result3, _ = compute_mpc(inp3, params)
-        assert result3 is not None
-        assert result3.valve_percent >= 0.0  # Should be calculated by MPC
+        with patch(f"{_MPC}.random.random", return_value=0.99):
+            result, _ = compute_mpc(inp, params)
+        assert result is not None
+        assert result.debug.get("calib_active") is None
+        assert result.valve_percent == 0
 
     def test_filtered_temperature_only_affects_cost(self):
         """Ensure filtered temperature reduces valve demand without confusing learning."""
@@ -360,59 +351,96 @@ class TestMPCController:
         assert res is not None
         assert float(st.loss_est) >= loss_before
 
-    def test_dead_zone_detection(self):
-        """Test dead-zone detection and raising minimum effective percent."""
+    @staticmethod
+    def _dead_zone_run(hits_required, cycles):
+        """Hold a 20 % command against a TRV that barely warms, return the state.
+
+        The command is small, the room is 2 K below target and the TRV
+        warms by 1 mK per 120 s evaluation: every evaluation is a weak
+        response to a small command.
+        """
         params = MpcParams(
+            enable_min_effective_percent=True,
             deadzone_threshold_pct=50.0,
             deadzone_temp_delta_K=0.05,
-            deadzone_time_s=0.1,  # Short for test
-            deadzone_hits_required=2,
+            deadzone_time_s=60.0,
+            deadzone_hits_required=hits_required,
             deadzone_raise_pct=5.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
         )
-        key = "test_deadzone"
+        state = MpcState()
+        for cycle in range(cycles):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=20.0,
+                trv_temp_C=21.0 + 0.001 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 20.0, None
+            )
+        return state
 
-        # First call: set up TRV temp
-        inp1 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=20.0,
-            trv_temp_C=21.0,
-            tolerance_K=0.0,
+    def test_dead_zone_detection(self):
+        """A weak response to a small command raises the minimum opening.
+
+        With one hit required, the first evaluation that sees the TRV not
+        warming lifts the minimum effective opening to the command plus the
+        configured raise.
+        """
+        state = self._dead_zone_run(hits_required=1, cycles=2)
+
+        assert state.min_effective_percent == 25.0
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="the first dead-zone hit classifies the TRV profile, which ends "
+        "dead-zone evaluation before a second hit can count",
+    )
+    def test_repeated_dead_zone_hits_raise_the_minimum_opening(self):
+        """Weak responses keep counting until the required number of hits.
+
+        A threshold-like TRV is the case dead-zone learning exists for, so
+        classifying the TRV as one does not stop the hits from counting.
+        """
+        state = self._dead_zone_run(hits_required=2, cycles=3)
+
+        assert state.min_effective_percent == 25.0
+
+    @pytest.mark.parametrize(
+        ("raw_percent", "seconds_since_update", "expected"),
+        [
+            pytest.param(40.6, 60.0, 40, id="small_change_is_held"),
+            pytest.param(42.0, 60.0, 42, id="large_change_passes"),
+            pytest.param(60.0, 0.5, 40, id="change_too_soon_is_held"),
+        ],
+    )
+    def test_hysteresis(self, raw_percent, seconds_since_update, expected):
+        """Small or too-early changes keep the previous command.
+
+        A change under the hysteresis band, or any change within the minimum
+        update interval, keeps the last command; a larger change after the
+        interval reaches the valve.
+        """
+        params = MpcParams(
+            percent_hysteresis_pts=1.0,
+            min_update_interval_s=1.0,
+            min_percent_hold_time_s=0.0,
+            mpc_du_max_pct=None,
         )
-        _ = compute_mpc(inp1, params)
+        state = MpcState()
+        state.last_percent = 40.0
+        state.last_target_C = 22.0
+        state.last_update_ts = 1000.0
+        inp = MpcInput(key="hyst", target_temp_C=22.0, current_temp_C=20.0)
 
-        # Second call: small command, needs heat, weak response
-        inp2 = MpcInput(
-            key=key,
-            target_temp_C=22.0,
-            current_temp_C=20.0,
-            trv_temp_C=21.01,  # Small change
-            tolerance_K=0.0,
+        percent_out, _debug, _ = _post_process_percent(
+            inp, params, state, 1000.0 + seconds_since_update, raw_percent, None
         )
-        _ = compute_mpc(inp2, params)
 
-        # Should detect dead zone and raise min_effective_percent
-        # But may need multiple calls
-
-    def test_hysteresis(self):
-        """Test hysteresis and minimum update interval."""
-        params = MpcParams(percent_hysteresis_pts=1.0, min_update_interval_s=1.0)
-        key = "test_hyst"
-
-        # First call
-        inp = MpcInput(key=key, target_temp_C=22.0, current_temp_C=20.0)
-        result1, _ = compute_mpc(inp, params)
-        assert result1 is not None
-        _ = result1.valve_percent
-
-        # Second call with small change
-        inp.current_temp_C = 20.1  # Small change in error
-        result2, _ = compute_mpc(inp, params)
-        assert result2 is not None
-        _ = result2.valve_percent
-
-        # Due to hysteresis, might keep previous value
-        # But depends on the calculation
+        assert percent_out == expected
 
     def test_tolerance_hysteresis_stops_and_restarts(self):
         """MPC should stop at target and restart only below target - tolerance."""

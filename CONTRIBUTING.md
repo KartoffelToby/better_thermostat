@@ -28,6 +28,28 @@ document in a pull request.
 - Test BT in a specific HA version -> Run "Install a specific version of Home Assistant" in Task Runner and the version you want to test in the terminal prompt.
 - Test BT with the latest HA version -> Run "upgrade Home Assistant to latest dev" in Task Runner
 
+## Python version
+
+The floor is Python 3.14.2, inherited from Home Assistant: `hacs.json` names the
+minimum core release, and that release declares `Requires-Python: >=3.14.2`.
+`pyproject.toml` repeats the floor for the tooling, in `requires-python`, in
+ruff's `target-version = "py314"`, and in the pyrefly and pyright settings.
+
+The code uses the grammar 3.14 allows. An `except` clause that binds no name
+lists its types bare, as [PEP 758](https://peps.python.org/pep-0758/) permits
+since 3.14:
+
+```python
+except TypeError, ValueError:
+```
+
+Both types are caught. Python 3.13 and older reject the line with
+`SyntaxError: multiple exception types must be parenthesized`, so a checker or
+an editor that flags it is running below the floor. Two contributors have read
+it as Python 2 instead, where the name after the comma would have been the bound
+exception. No Python 3 ever did that, and adding the parentheses back changes no
+behaviour.
+
 ## Architecture
 
 Better Thermostat separates a pure decision core from an imperative shell.
@@ -374,6 +396,19 @@ wherever they appear, the calibration modules included, and `.naming-budget.json
 charges every one of them. The ruff exemption buys nothing there. A separate
 change decides whether the glossary gains an exception for the notation or those
 names come out.
+
+## Blind exception handlers
+
+Ruff's `BLE001` flags an `except Exception` that neither re-raises nor logs the
+traceback. `.blind-except-budget.json` records per file how many such handlers
+the file carries today; a file may not exceed its number, and a file that is not
+in the budget may not have one at all. The scan ignores ruff's configuration and
+every `noqa`, so the budget file is the only place a silent handler is recorded.
+
+```bash
+uv run python scripts/blind_except_budget.py check     # what CI runs
+uv run python scripts/blind_except_budget.py update    # after converting handlers
+```
 
 ## Docstring type
 

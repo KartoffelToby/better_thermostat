@@ -5,6 +5,9 @@ a heuristic formula to map temperature difference and heating power to
 an expected valve opening percentage.
 """
 
+import pytest
+
+from custom_components.better_thermostat.utils.const import MIN_HEATING_POWER
 from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
 )
@@ -34,17 +37,19 @@ class TestHeatingPowerValvePosition:
         # When temp_diff is 0, formula gives 0
         assert result == 0.0
 
-    def test_returns_value_between_0_and_1(self):
-        """Test that valve position is always between 0 and 1."""
-        # Normal case
-        mock_bt = MockThermostat(bt_target_temp=22.0, cur_temp=20.0, heating_power=0.02)
-        result = heating_power_valve_position(mock_bt, "climate.test")
-        assert 0.0 <= result <= 1.0
+    @pytest.mark.parametrize(
+        ("target", "current"), [(22.0, 20.0), (25.0, 15.0)], ids=["2K", "10K"]
+    )
+    def test_returns_value_between_0_and_1(self, target, current):
+        """A demand beyond the formula's range opens the valve fully, not further.
 
-        # Large temp difference
-        mock_bt = MockThermostat(bt_target_temp=25.0, cur_temp=15.0, heating_power=0.02)
-        result = heating_power_valve_position(mock_bt, "climate.test")
-        assert 0.0 <= result <= 1.0
+        With 2 K or more to go at the default heating power the formula
+        exceeds 1, and the result is capped at a fully open valve.
+        """
+        mock_bt = MockThermostat(
+            bt_target_temp=target, cur_temp=current, heating_power=0.02
+        )
+        assert heating_power_valve_position(mock_bt, "climate.test") == 1.0
 
     def test_higher_temp_diff_gives_higher_valve_position(self):
         """Test that larger temperature difference gives higher valve position."""
@@ -166,18 +171,24 @@ class TestHeatingPowerValvePosition:
         # With 10°C difference and low heating power, should be at or near 100%
         assert result >= 0.95
 
-    def test_zero_heating_power(self):
-        """Test that heating_power of 0 is handled without errors."""
-        mock_bt = MockThermostat(bt_target_temp=22.0, cur_temp=20.0, heating_power=0.0)
+    @pytest.mark.parametrize("heating_power", [0.0, -0.01], ids=["zero", "negative"])
+    def test_zero_heating_power(self, heating_power):
+        """A heating power at or below zero is read as the lowest plausible one.
 
-        result = heating_power_valve_position(mock_bt, "climate.test")
-        assert 0.0 <= result <= 1.0
-
-    def test_negative_heating_power(self):
-        """Test that negative heating_power is clamped to MIN_HEATING_POWER."""
+        The formula divides by the heating power, so an unlearned or corrupt
+        value is raised to MIN_HEATING_POWER before it is used.
+        """
+        at_floor = heating_power_valve_position(
+            MockThermostat(
+                bt_target_temp=20.1, cur_temp=20.0, heating_power=MIN_HEATING_POWER
+            ),
+            "climate.test",
+        )
         mock_bt = MockThermostat(
-            bt_target_temp=22.0, cur_temp=20.0, heating_power=-0.01
+            bt_target_temp=20.1, cur_temp=20.0, heating_power=heating_power
         )
 
         result = heating_power_valve_position(mock_bt, "climate.test")
-        assert 0.0 <= result <= 1.0
+
+        assert 0.0 < result < 1.0
+        assert result == pytest.approx(at_floor)

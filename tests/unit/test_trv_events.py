@@ -2489,6 +2489,16 @@ class TestConvertInboundStates:
                 id="both_spellings",
             ),
             pytest.param(
+                [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
+                "heat_cool",
+                id="both_spellings_reporting_heat_cool",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="a device offering heat and heat_cool that reports "
+                    "heat_cool is decoded as no mode at all",
+                ),
+            ),
+            pytest.param(
                 [HVACMode.OFF, HVACMode.HEAT_COOL], "heat_cool", id="heat_cool_only"
             ),
         ],
@@ -2527,6 +2537,22 @@ class TestConvertInboundStates:
 
         assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
 
+    def test_an_unswapped_device_reporting_auto_is_decoded_as_off(self, mock_bt):
+        """A reported AUTO without the swap option reaches the adoption as OFF.
+
+        AUTO names the device's heating mode only when the swap option says
+        so; without it the report is read as the device leaving the heating
+        mode, which is what the remap's error about the swap option explains.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.OFF,
+            HVACMode.HEAT,
+            HVACMode.AUTO,
+        ]
+        state = _make_state(state_str="auto")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
+
     def test_unsupported_mode_returns_none(self, mock_bt):
         """Return None for unsupported HVAC modes like COOL."""
         state = _make_state(state_str="cool")
@@ -2538,12 +2564,12 @@ class TestConvertInboundStates:
         assert result is None
 
     def test_heat_cool_mode_returns_none(self, mock_bt):
-        """Return None for HEAT_COOL.
+        """Only OFF and HEAT leave the decoder.
 
-        A device that names its heating mode heat_cool is decoded into HEAT by
-        the remap, so a HEAT_COOL reaching this point is a mode the entity does
-        not adopt. The mode adoption downstream relies on that: it only ever
-        sees OFF, HEAT or nothing.
+        Translating a device's own spelling of its heating mode into HEAT is
+        the remap's job, which the tests running the real remap pin. The mode
+        adoption downstream relies on this function carrying nothing else on:
+        it only ever sees OFF, HEAT or nothing.
         """
         state = _make_state(state_str="heat_cool")
         with patch(
@@ -3353,3 +3379,102 @@ class TestDualRoleEntityReports:
 
         assert mock_bt.bt_target_temp == 23.5
         mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Outage report through the entity's listener
+# ---------------------------------------------------------------------------
+
+
+def _prepare_outage_room(bt, *, with_peer: bool):
+    """Make ``bt`` a room whose head ``ENTITY_ID`` has just gone off the air.
+
+    With ``with_peer`` a second head that is still on the air shares the room.
+    The stand-in carries what the listener in climate.py reads before it hands
+    the event on, and collects the handler it hands it to.
+    """
+    if with_peer:
+        _add_homematicip_peer(bt)
+    unavailable = State(ENTITY_ID, "unavailable")
+    peer_state = State(
+        PEER_ID, "heat", attributes={"current_temperature": 20.0, "temperature": 19.0}
+    )
+    bt.hass.states.get.side_effect = lambda entity_id: (
+        unavailable if entity_id == ENTITY_ID else peer_state
+    )
+    bt.in_maintenance = False
+    bt.devices_errors = []
+    bt.devices_states = {}
+    bt._critical_grace_until = None
+    spawned = []
+    bt._spawn_owned = lambda coro, name=None: spawned.append(coro)
+    return unavailable, spawned
+
+
+class TestOutageReportThroughTheListener:
+    """The report of a head going off the air, from the listener to the handler.
+
+    ``BetterThermostat._trigger_trv_change`` receives the state change and
+    hands it to ``trigger_trv_change``, whose outage branch drops the head's
+    internal temperature and lets the first reading after the outage past the
+    debounce. The two run together here, with the real availability check in
+    front of the handler, because that is the way the report arrives.
+    """
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "the listener's availability check fails on the head that reports "
+            "the outage and returns before the handler, so the head keeps its "
+            "last internal temperature and the next reading stays debounced"
+        ),
+    )
+    @pytest.mark.parametrize(
+        "with_peer", [True, False], ids=["one_of_two_heads", "the_only_head"]
+    )
+    @pytest.mark.asyncio
+    async def test_the_outage_report_reaches_the_handler(self, mock_bt, with_peer):
+        """A head that goes off the air stops counting as a live reading.
+
+        Its last internal temperature is dropped, and its first reading after
+        the outage is taken without waiting out the debounce, whether or not
+        the room has another head.
+        """
+        unavailable, spawned = _prepare_outage_room(mock_bt, with_peer=with_peer)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        recovered = _make_state(attributes={"current_temperature": 21.0})
+        routed_states = mock_bt.hass.states.get.side_effect
+
+        with (
+            patch("custom_components.better_thermostat.utils.watcher.ir"),
+            patch(
+                "custom_components.better_thermostat.climate."
+                "check_and_update_degraded_mode",
+                AsyncMock(),
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.request_control_cycle"
+            ),
+        ):
+            await BetterThermostat._trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=unavailable)
+            )
+            for handler in spawned:
+                await handler
+            spawned.clear()
+
+            assert trv.current_temperature is None
+            assert trv.accept_next_internal_temp is True
+
+            mock_bt.hass.states.get.side_effect = lambda entity_id: (
+                recovered if entity_id == ENTITY_ID else routed_states(entity_id)
+            )
+            await BetterThermostat._trigger_trv_change(
+                mock_bt,
+                _make_event(mock_bt, new_state=recovered, old_state=unavailable),
+            )
+            for handler in spawned:
+                await handler
+
+        assert trv.current_temperature == 21.0

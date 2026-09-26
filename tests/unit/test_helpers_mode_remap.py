@@ -297,6 +297,16 @@ class TestModeRemapTranslationOnAReportedSpelling:
             pytest.param(["off", "heat"], "heat", id="heat_only"),
             pytest.param(["off", "heat", "auto"], "heat", id="heat_and_auto"),
             pytest.param(["off", "heat", "heat_cool"], "heat", id="both_spellings"),
+            pytest.param(
+                ["off", "heat", "heat_cool"],
+                "heat_cool",
+                id="both_spellings_reporting_heat_cool",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="a device offering heat and heat_cool keeps a reported "
+                    "heat_cool untranslated",
+                ),
+            ),
             pytest.param(["off", "heat_cool"], "heat_cool", id="heat_cool_only"),
         ],
     )
@@ -481,16 +491,24 @@ class TestModeRemapUnsupportedOutboundMode:
         assert mode_remap(mock_bt, "climate.test", "cool", inbound=True) == "cool"
         assert mode_remap(mock_bt, "climate.test", "dry", inbound=True) == "dry"
 
-    def test_inbound_auto_still_reaches_the_auto_branch(self):
-        """An inbound AUTO the device does not offer keeps returning OFF.
+    def test_an_unswapped_device_reporting_auto_reads_as_off(self, caplog):
+        """A reported AUTO without the swap option is read as OFF and explained.
 
-        The AUTO branch does not distinguish direction, and convert_inbound_states
-        maps the result to "not a mode BT tracks".
+        The instance never publishes AUTO, so the only AUTO that reaches this
+        branch is one a device reports. Without the swap option AUTO is not a
+        heating mode this instance knows; the report is decoded as OFF, and
+        the error names the swap option as the likely missing setting.
         """
         mock_bt = MockThermostat()
-        mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
+        mock_bt.add_trv(
+            "climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        )
 
-        assert mode_remap(mock_bt, "climate.test", "auto", inbound=True) == HVACMode.OFF
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            result = mode_remap(mock_bt, "climate.test", "auto", inbound=True)
+
+        assert result == HVACMode.OFF
+        assert len(_forgotten_swap_records(caplog)) == 1
 
     def test_unreported_mode_list_disables_the_clamp(self):
         """hvac_modes=None keeps the pass-through for no-system-mode devices."""

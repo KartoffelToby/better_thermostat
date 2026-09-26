@@ -1,90 +1,66 @@
 """Tests for device model detection.
 
-Issue #1672: Wrong model detection from Z2M
-
-The bug: Z2M reports device models as "MODEL_ID (Description)" but the code
-was extracting text from inside parentheses instead of before them.
-
-Example:
-- Input: "TS0601 _TZE284_cvub6xbb (Beok wall thermostat)"
-- Expected: "TS0601 _TZE284_cvub6xbb" (the model identifier)
-- Actual (bug): "Beok wall thermostat" (the description in parentheses)
+Zigbee2MQTT registers a device's model as ``MODEL_ID (Description)``, for
+example ``TS0601 _TZE284_cvub6xbb (Beok wall thermostat)``; the model
+identifier is ``TS0601 _TZE284_cvub6xbb``, the text before the description.
 """
 
-import re
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.better_thermostat.utils.helpers import get_device_model
 
 from tests.factories import make_entity_registry, make_registry_entry
 
 
-class TestModelDetectionFromString:
-    """Tests for model string parsing logic."""
+@pytest.mark.parametrize(
+    ("registry_model", "expected"),
+    [
+        pytest.param(
+            "TS0601 _TZE284_cvub6xbb (Beok wall thermostat)",
+            "TS0601 _TZE284_cvub6xbb",
+            id="z2m_model_with_description",
+        ),
+        pytest.param("SNZB-02 (Temperature sensor)", "SNZB-02", id="short_model"),
+        pytest.param("TRV (Sonoff TRVZB)", "TRV", id="description_names_a_model"),
+        pytest.param("TRVZB", "TRVZB", id="no_parentheses"),
+        pytest.param(
+            "Thermostat radiator valve",
+            "Thermostat radiator valve",
+            id="words_without_parentheses",
+        ),
+        pytest.param("Model123 (Some Description) ", "Model123", id="trailing_space"),
+        pytest.param(" Model123 (Description)", "Model123", id="leading_space"),
+        pytest.param("Model (Description (with nested))", "Model", id="nested"),
+        pytest.param("Model (v2) Pro", "Model (v2) Pro", id="parentheses_in_middle"),
+    ],
+)
+async def test_registry_model_is_read_up_to_its_description(
+    hass, registry_model, expected
+):
+    """The device model is the registry model without a trailing description.
 
-    def test_z2m_format_extracts_model_before_parentheses(self):
-        """Test that Z2M format 'MODEL (Description)' extracts the model correctly.
+    Zigbee2MQTT registers a device's model as ``MODEL (Description)``; the
+    identifier is the part before the parenthesised description. A model
+    without a trailing description is used as it stands.
+    """
+    config_entry = MockConfigEntry(domain="mqtt")
+    config_entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={("mqtt", "trv_device")},
+        model=registry_model,
+    )
+    entity = er.async_get(hass).async_get_or_create(
+        "climate", "mqtt", "trv_unique", device_id=device.id, config_entry=config_entry
+    )
+    host = SimpleNamespace(hass=hass, device_name="Test Thermostat", model=None)
 
-        This is the core bug from issue #1672.
-        """
-        model_str = "TS0601 _TZE284_cvub6xbb (Beok wall thermostat)"
-
-        # Current buggy behavior - extracts from inside parentheses
-        buggy_matches = re.findall(r"\((.+?)\)", model_str)
-        buggy_result = buggy_matches[-1].strip() if buggy_matches else model_str
-        assert buggy_result == "Beok wall thermostat"  # This is the bug!
-
-        # Expected behavior - extract text BEFORE parentheses
-        # Remove everything from first '(' onwards
-        expected_result = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
-        assert expected_result == "TS0601 _TZE284_cvub6xbb"
-
-    def test_model_without_parentheses_unchanged(self):
-        """Test that models without parentheses are returned as-is."""
-        model_str = "TRVZB"
-
-        # No parentheses, should return as-is
-        result = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
-        assert result == "TRVZB"
-
-    def test_model_with_parentheses_at_end(self):
-        """Test various Z2M format strings."""
-        test_cases = [
-            # (input, expected_output)
-            (
-                "TS0601 _TZE284_cvub6xbb (Beok wall thermostat)",
-                "TS0601 _TZE284_cvub6xbb",
-            ),
-            ("SNZB-02 (Temperature sensor)", "SNZB-02"),
-            ("TRV (Sonoff TRVZB)", "TRV"),
-            ("TRVZB", "TRVZB"),  # No parentheses
-            (
-                "Thermostat radiator valve",
-                "Thermostat radiator valve",
-            ),  # No parentheses
-            ("Model123 (Some Description) ", "Model123"),  # Trailing space
-            (" Model123 (Description)", "Model123"),  # Leading space
-        ]
-
-        for input_str, expected in test_cases:
-            result = re.sub(r"\s*\(.*\)\s*$", "", input_str).strip()
-            assert result == expected, f"Failed for input: {input_str!r}"
-
-    def test_nested_parentheses_handled(self):
-        """Test that nested parentheses are handled correctly."""
-        # Edge case: nested parentheses - should remove trailing parentheses and everything within
-        model_str = "Model (Description (with nested))"
-        result = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
-        assert result == "Model"
-
-    def test_parentheses_in_middle_preserved(self):
-        """Test that parentheses not at end are preserved."""
-        # Parentheses in middle (not at end) - should preserve
-        model_str = "Model (v2) Pro"
-        # This is a tricky case - the regex only removes trailing parentheses
-        result = re.sub(r"\s*\(.*\)\s*$", "", model_str).strip()
-        # Since ") Pro" doesn't match "\)\s*$", nothing is removed
-        assert result == "Model (v2) Pro"
+    assert await get_device_model(host, entity.entity_id) == expected
 
 
 class TestGetDeviceModelFunction:

@@ -210,10 +210,19 @@ class TestCheckWeatherPrediction:
         bt = make_bt(make_hass(), weather_entity=None)
         assert await check_weather_prediction(bt) is False
 
-    async def test_off_temperature_none_returns_false(self):
-        """A missing off_temperature short-circuits to False."""
+    @pytest.mark.xfail(
+        strict=True,
+        reason="a missing off_temperature is answered with False, which "
+        "check_weather applies as a warm forecast",
+    )
+    async def test_missing_off_temperature_gives_no_opinion(self):
+        """Without an off_temperature the forecast has nothing to be compared to.
+
+        A missing threshold is a configuration gap, not a weather verdict, so
+        the prediction answers None like every other case it cannot decide.
+        """
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID, off_temperature=None)
-        assert await check_weather_prediction(bt) is False
+        assert await check_weather_prediction(bt) is None
 
     async def test_no_forecast_support_returns_none(self):
         """An entity without any forecast feature yields None (no opinion)."""
@@ -624,16 +633,40 @@ class TestCheckWeather:
         assert changed is False
         assert bt.call_for_heat is True
 
-    async def test_weather_none_response_keeps_default_heat(self):
-        """A None prediction is not applied; the default heat wins."""
+    @pytest.mark.parametrize(
+        "previous",
+        [
+            pytest.param(True, id="heating"),
+            pytest.param(
+                False,
+                id="summer_mode",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="a prediction without an opinion resets call_for_heat "
+                    "to True and logs summer_mode_off",
+                ),
+            ),
+        ],
+    )
+    async def test_no_opinion_keeps_the_previous_decision(self, previous):
+        """A prediction without an opinion leaves call_for_heat where it was.
+
+        No temperature is known in that case, so neither the decision nor the
+        logbook may change.
+        """
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
-        bt.call_for_heat = False
-        with patch(
-            f"{WEATHER_MOD}.check_weather_prediction", AsyncMock(return_value=None)
+        bt.call_for_heat = previous
+        logbook = AsyncMock()
+        with (
+            patch(
+                f"{WEATHER_MOD}.check_weather_prediction", AsyncMock(return_value=None)
+            ),
+            patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook),
         ):
-            await check_weather(bt)
-        # None is not applied; the default (True) set at the top wins.
-        assert bt.call_for_heat is True
+            changed = await check_weather(bt)
+        assert bt.call_for_heat is previous
+        assert changed is False
+        logbook.assert_not_awaited()
 
     async def test_outdoor_available_but_no_cache_still_heats(self):
         """An available sensor with no cache yet still forces heat."""
@@ -713,16 +746,98 @@ class TestCheckWeather:
         # The outdoor sensor's verdict replaces the weather prediction.
         assert bt.call_for_heat is False
 
-    async def test_transient_weather_failure_keeps_heating(self):
-        """A transient weather-service failure leaves heating enabled.
+    @pytest.mark.parametrize(
+        "previous",
+        [
+            pytest.param(True, id="heating"),
+            pytest.param(
+                False,
+                id="summer_mode",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="a transient weather failure resets call_for_heat to "
+                    "True and logs summer_mode_off",
+                ),
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "transient",
+        [
+            "no_forecast_feature",
+            "service_error",
+            "service_not_supported",
+            "empty_forecast",
+            "malformed_response",
+        ],
+    )
+    async def test_transient_weather_failure_keeps_the_previous_decision(
+        self, transient, previous
+    ):
+        """A weather entity that cannot answer leaves call_for_heat unchanged.
 
-        A HomeAssistantError from the forecast service yields no opinion, so
-        check_weather keeps call_for_heat at its current value.
+        Every way the forecast can fail to arrive carries no temperature, so
+        it may neither resume nor stop heating, and the logbook stays quiet.
         """
-        states = {WEATHER_ID: weather_state()}
+        features = 0 if transient == "no_forecast_feature" else None
+        states = {
+            WEATHER_ID: weather_state()
+            if features is None
+            else weather_state(features=features)
+        }
         hass = make_hass(states=states)
-        hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
+        if transient == "service_error":
+            hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
+        elif transient == "service_not_supported":
+            hass.services.async_call = AsyncMock(
+                side_effect=ServiceNotSupported("weather", "get_forecasts", WEATHER_ID)
+            )
+        elif transient == "empty_forecast":
+            hass.services.async_call = AsyncMock(
+                return_value={WEATHER_ID: {"forecast": []}}
+            )
+        elif transient == "malformed_response":
+            hass.services.async_call = AsyncMock(return_value=None)
         bt = make_bt(hass, weather_entity=WEATHER_ID, outdoor_sensor=None)
-        bt.call_for_heat = True
-        await check_weather(bt)
-        assert bt.call_for_heat is True
+        bt.call_for_heat = previous
+        logbook = AsyncMock()
+        with patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook):
+            changed = await check_weather(bt)
+        assert bt.call_for_heat is previous
+        assert changed is False
+        logbook.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "previous",
+        [
+            pytest.param(
+                True,
+                id="heating",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="a missing off_temperature switches a weather-only "
+                    "setup into summer mode",
+                ),
+            ),
+            pytest.param(False, id="summer_mode"),
+        ],
+    )
+    async def test_missing_off_temperature_keeps_the_previous_decision(self, previous):
+        """A weather-only setup without a threshold does not change its decision.
+
+        The forecast cannot be judged without an off_temperature, so the
+        room keeps heating, or keeps resting, as it did before.
+        """
+        states = {WEATHER_ID: weather_state(temperature=25.0)}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [25.0, 25.0])
+        )
+        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=None)
+        bt.call_for_heat = previous
+        logbook = AsyncMock()
+        with patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook):
+            changed = await check_weather(bt)
+        assert bt.call_for_heat is previous
+        assert changed is False
+        logbook.assert_not_awaited()

@@ -8,7 +8,10 @@ import pytest
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.controlling import control_queue
+from custom_components.better_thermostat.utils.controlling import (
+    TaskManager,
+    control_queue,
+)
 
 
 def _tracked_trv(entity_id: str) -> Trv:
@@ -27,6 +30,9 @@ class TestControlQueue:
         mock_self.ignore_states = False
         mock_self.startup_running = False
         mock_self.device_name = "test_thermostat"
+        # A Mock answers every attribute; deleting it makes the entity start
+        # without one, which is the case under test.
+        del mock_self.task_manager
 
         # Create a queue that will cancel the loop after first iteration
         queue = asyncio.Queue()
@@ -51,9 +57,7 @@ class TestControlQueue:
 
         await cancel_task
 
-        # TaskManager should be created
-        assert hasattr(mock_self, "task_manager")
-        assert mock_self.task_manager is not None
+        assert isinstance(mock_self.task_manager, TaskManager)
 
     @pytest.mark.asyncio
     async def test_skips_when_in_maintenance(self):

@@ -19,6 +19,7 @@ from enum import StrEnum
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 TRV_ID = "climate.fake_trv"
 SPARE_TRV_ID = "climate.spare_trv"
@@ -75,6 +76,16 @@ class DeviceProfile:
     device that reports none. It is what selects the quirk module a device is
     driven by, so a profile whose behaviour rides on a quirk names it here;
     it needs ``has_device_registry_entry`` to be readable at all.
+
+    ``system_unit`` is the unit system of the Home Assistant instance, and
+    ``None`` puts the instance on the device's own unit. A device on a system
+    in the other unit has every temperature attribute converted and rounded to
+    ``precision`` by Home Assistant before Better Thermostat sees it, and every
+    setpoint converted back before the device sees it; ``published_unit``
+    names the unit that is left for Better Thermostat to read.
+
+    ``valve_maintenance`` is the per-device option of the same name in the
+    config entry.
     """
 
     name: str
@@ -100,6 +111,51 @@ class DeviceProfile:
     configured_target_temp_step: str = "0.0"
     offset_channel: OffsetChannel = OffsetChannel.NONE
     valve_channel: ValveChannel = ValveChannel.NONE
+    system_unit: UnitOfTemperature | None = None
+    valve_maintenance: bool = False
+
+
+def published_unit(profile: DeviceProfile) -> UnitOfTemperature:
+    """Return the unit the device's temperature attributes are published in.
+
+    A climate entity publishes no unit of its own: Home Assistant converts
+    every temperature attribute into the system unit, so that is the unit
+    Better Thermostat reads the device in, whatever the device works in.
+    """
+    return profile.system_unit or profile.temperature_unit
+
+
+def published_precision(profile: DeviceProfile) -> float:
+    """Return the precision Home Assistant rounds this device's temperatures to.
+
+    A climate entity that sets no precision of its own is rounded to tenths
+    on a Celsius system and to whole degrees on a Fahrenheit one.
+    """
+    if profile.precision is not None:
+        return profile.precision
+    if published_unit(profile) is UnitOfTemperature.CELSIUS:
+        return 0.1
+    return 1.0
+
+
+def published_temperature(profile: DeviceProfile, value: float) -> float:
+    """Return ``value`` as Home Assistant publishes it for this device.
+
+    ``value`` is in the device's own unit. It is converted into the system
+    unit and rounded to the published precision by the rule Home Assistant's
+    ``display_temp`` applies to a climate entity's ``min_temp``, ``max_temp``
+    and temperature readings, so a device bound that does not sit on that grid
+    comes out as a different temperature.
+    """
+    converted = TemperatureConverter.convert(
+        value, profile.temperature_unit, published_unit(profile)
+    )
+    precision = published_precision(profile)
+    if precision == 0.5:
+        return round(converted * 2) / 2.0
+    if precision == 0.1:
+        return round(converted, 1)
+    return float(round(converted))
 
 
 def offset_number_id(profile: DeviceProfile) -> str:
@@ -238,6 +294,35 @@ system unit is the only thing Better Thermostat can read a device unit from.
 ``precision`` is pinned to a tenth because a climate entity on a Fahrenheit
 system otherwise rounds every published temperature to a whole degree, which
 is a third of a degree Celsius of drift on top of the value under test.
+"""
+
+OFF_GRID_FAHRENHEIT_TRV = DeviceProfile(
+    name="off_grid_fahrenheit_trv",
+    integration="mqtt",
+    calibration="local_calibration_based",
+    has_device_registry_entry=True,
+    min_temp=4.0,
+    max_temp=30.5,
+    current_temperature=20.0,
+    target_temperature=20.0,
+    system_unit=UnitOfTemperature.FAHRENHEIT,
+    offset_channel=OffsetChannel.NUMBER_ENTITY,
+    valve_maintenance=True,
+)
+"""A Zigbee2MQTT head working in Celsius on a Fahrenheit system.
+
+The shape of a Sonoff TRVZB or a Homematic IP head in a US installation: the
+device's range is 4 to 30.5 °C, and Home Assistant publishes it in whole
+degrees Fahrenheit because the entity sets no precision of its own. Neither
+bound survives that: 4 °C is 39.2 °F and is published as 39 °F, which is
+3.89 °C, below what the device accepts, and 30.5 °C is 86.9 °F, published as
+87 °F, which is 30.56 °C, above it. Home Assistant checks a setpoint against
+the unrounded bounds, so a setpoint written at a published bound is refused.
+
+The readings, 20 °C, are 68 °F exactly, so every other value this device
+publishes survives the rounding and the bounds are the only thing off grid.
+It carries a calibration number and valve maintenance, which are the two
+write paths besides the setpoint that a unit conversion can get wrong.
 """
 
 MQTT_OFFSET_TRV = DeviceProfile(
@@ -487,6 +572,7 @@ SINGLE_ROLE_PROFILES = (
     HEAT_COOL_TRV,
     INTEGER_GRID_TRV,
     FAHRENHEIT_TRV,
+    OFF_GRID_FAHRENHEIT_TRV,
     MQTT_OFFSET_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,

@@ -1402,6 +1402,73 @@ class TestInitializeTrvEchoSetpoints:
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 
+_FALLBACK_READ_IN_THE_SYSTEM_UNIT = pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the fallback range 5 to 30 is passed through the reader that converts "
+        "a published value from the system unit, so on a Fahrenheit system it "
+        "becomes -15 to -1.1 °C"
+    ),
+)
+
+
+class TestInitializeTrvRangeFallback:
+    """A device that publishes no range is given 5 to 30 °C, on any system.
+
+    The fallback is Better Thermostat's own range, stated in the Celsius it
+    computes in. It stands in for a value the device never published, so no
+    unit the device might have published in applies to it.
+    """
+
+    def _trv_only_bt(self, bt, unit, state):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = unit
+        bt.hass.states.get.return_value = state
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", autospec=True),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak",
+                autospec=True,
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "unit",
+        [
+            pytest.param(UnitOfTemperature.CELSIUS, id="celsius"),
+            pytest.param(
+                UnitOfTemperature.FAHRENHEIT,
+                id="fahrenheit",
+                marks=_FALLBACK_READ_IN_THE_SYSTEM_UNIT,
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(State(TRV_ID, "heat", {}), id="no_range_attributes"),
+            pytest.param(None, id="no_state"),
+        ],
+    )
+    async def test_a_device_without_a_range_gets_5_to_30_celsius(
+        self, bt, unit, published
+    ):
+        """The range fallback is 5 to 30 °C whatever the system unit."""
+        bt = self._trv_only_bt(bt, unit, published)
+        await self._run(bt)
+        trv = bt.real_trvs[TRV_ID]
+        assert (trv.min_temp, trv.max_temp) == (5.0, 30.0)
+
+
 class TestInitializeTrvCalibrationFallback:
     """The offset read's gaps are filled without overwriting its answers.
 
@@ -1611,7 +1678,7 @@ class TestRestoreState:
 
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
-        """Test Target clamped to min."""
+        """A restored target below the minimum comes back as the minimum."""
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 2.0}  # below min
@@ -1623,11 +1690,11 @@ class TestRestoreState:
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.bt_target_temp is not None
+        assert bt.bt_target_temp == 5.0
 
     @pytest.mark.asyncio
     async def test_target_clamped_to_max(self, bt):
-        """Test Target clamped to max."""
+        """A restored target above the maximum comes back as the maximum."""
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 35.0}  # above max
@@ -1639,7 +1706,7 @@ class TestRestoreState:
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.bt_target_temp is not None
+        assert bt.bt_target_temp == 30.0
 
     @pytest.mark.asyncio
     async def test_restores_preset_mode(self, bt):
@@ -1921,15 +1988,14 @@ class TestRestoreState:
 
     @pytest.mark.asyncio
     async def test_no_old_state_uses_trv_defaults(self, bt):
-        """Test No old state uses trv defaults."""
+        """Without a stored state the target is taken from the TRV's setpoint."""
         bt.async_get_last_state = AsyncMock(return_value=None)
         bt.bt_target_temp = None
 
         states = [_make_trv_state(attrs={ATTR_TEMPERATURE: 20.0})]
         await BetterThermostat._restore_state(bt, states)
 
-        # Should have set bt_target_temp from TRV states
-        assert bt.bt_target_temp is not None
+        assert bt.bt_target_temp == 20.0
 
     @pytest.mark.asyncio
     async def test_call_for_heat_not_restored(self, bt):

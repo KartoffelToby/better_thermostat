@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.util.unit_conversion import TemperatureConverter
 import pytest
 from pytest_homeassistant_custom_component.common import (
     async_capture_events,
@@ -44,6 +45,7 @@ from .device_profiles import (
     HEAT_COOL_TRV,
     INTEGER_GRID_TRV,
     MQTT_OFFSET_TRV,
+    OFF_GRID_FAHRENHEIT_TRV,
     RANGED_COOLER,
     ROLE_SCENARIOS,
     SEPARATE_COOLER,
@@ -57,6 +59,8 @@ from .device_profiles import (
     DeviceProfile,
     GroupScenario,
     RoleScenario,
+    published_temperature,
+    published_unit,
 )
 
 
@@ -207,22 +211,33 @@ async def test_device_without_an_offered_heating_mode_keeps_its_mode(
 
 
 @pytest.mark.parametrize(
-    ("fake_trv", "expected_setpoint"),
+    ("fake_trv", "requested", "expected_setpoint"),
     [
-        pytest.param(GENERIC_HEAT_TRV, 20.5, id="generic_heat_trv"),
-        pytest.param(INTEGER_GRID_TRV, 21.0, id="integer_grid_trv"),
+        pytest.param(GENERIC_HEAT_TRV, 20.5, 20.5, id="generic_heat_trv"),
+        pytest.param(INTEGER_GRID_TRV, 20.5, 21.0, id="integer_grid_trv"),
+        pytest.param(FAHRENHEIT_TRV, 68.5, 69.0, id="fahrenheit_trv"),
     ],
     indirect=["fake_trv"],
 )
-async def test_setpoint_rounds_to_the_device_grid(hass, fake_trv, expected_setpoint):
+async def test_setpoint_rounds_to_the_device_grid(
+    hass, fake_trv, requested, expected_setpoint
+):
     """The setpoint arrives snapped to the grid the device publishes.
 
     The room sensor reads what the device reads, so the calibration is a
     no-op and the value under test is the target itself. A room demanding
     heat rounds it up onto the grid, so the whole-degree device receives
     the next full degree instead of a setpoint it is already sitting at.
+    Target and setpoint are both in the unit the device is published in: on
+    a Fahrenheit system the grid is whole degrees Fahrenheit, which is 5/9 K
+    in the Celsius the rounding happens in.
     """
-    set_room_sensor(hass, fake_trv.profile.current_temperature)
+    profile = fake_trv.profile
+    set_room_sensor(
+        hass,
+        published_temperature(profile, profile.current_temperature),
+        published_unit(profile),
+    )
     entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
@@ -234,7 +249,7 @@ async def test_setpoint_rounds_to_the_device_grid(hass, fake_trv, expected_setpo
         await hass.services.async_call(
             "climate",
             "set_temperature",
-            {"entity_id": BT_ENTITY, "temperature": 20.5},
+            {"entity_id": BT_ENTITY, "temperature": requested},
             blocking=True,
         )
         assert await wait_for(
@@ -272,16 +287,34 @@ async def test_fahrenheit_device_is_read_and_written_in_its_own_unit(hass, fake_
     assert_on_device_grid(written, profile)
 
 
-@pytest.mark.parametrize("fake_trv", [MQTT_OFFSET_TRV], indirect=True, ids=profile_id)
+@pytest.mark.parametrize(
+    "fake_trv",
+    [MQTT_OFFSET_TRV, OFF_GRID_FAHRENHEIT_TRV],
+    indirect=True,
+    ids=profile_id,
+)
 async def test_offset_reaches_the_calibration_number_entity(hass, fake_trv):
     """A device with a calibration number is corrected through that entity.
 
     The channel only exists because the device carries a registry entry: the
     calibration entity is found by walking the device the head belongs to.
+
+    The offset is a difference in Kelvin whatever unit the system publishes
+    in: a room 2 K warmer than the device reads is corrected by 2, not by the
+    3.6 the same difference measures in Fahrenheit.
     """
-    room = 21.0
-    expected_offset = room - fake_trv.profile.current_temperature
-    set_room_sensor(hass, room)
+    profile = fake_trv.profile
+    unit = published_unit(profile)
+    device_reading = TemperatureConverter.convert(
+        published_temperature(profile, profile.current_temperature),
+        unit,
+        UnitOfTemperature.CELSIUS,
+    )
+    expected_offset = 2.0
+    room = TemperatureConverter.convert(
+        device_reading + expected_offset, UnitOfTemperature.CELSIUS, unit
+    )
+    set_room_sensor(hass, room, unit)
     entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
