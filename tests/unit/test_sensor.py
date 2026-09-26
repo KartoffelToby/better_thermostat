@@ -1099,6 +1099,54 @@ class TestCleanupStaleAlgorithmEntities:
             "entry_1", {}
         )
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="an entity removed by an earlier cleanup still counts as not removed",
+    )
+    @pytest.mark.asyncio
+    async def test_retry_after_partial_removal_clears_tracking(self):
+        """A later cleanup finishes what a partial one started.
+
+        The entity removed the first time is gone from the registry; once the
+        remaining one is removed too, nothing of the algorithm is left to track.
+        """
+        registered = {"uid_1": "sensor.first", "uid_2": "sensor.second"}
+        reg = _make_entity_registry()
+        reg.async_get_entity_id.side_effect = lambda _domain, _platform, unique_id: (
+            registered.get(unique_id)
+        )
+        failures = iter([None, RuntimeError("registry error")])
+
+        def remove(entity_id):
+            failure = next(failures, None)
+            if failure is not None:
+                raise failure
+            registered.pop(
+                next(uid for uid, eid in registered.items() if eid == entity_id)
+            )
+
+        reg.async_remove.side_effect = remove
+
+        _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {
+            CalibrationMode.MPC_CALIBRATION: ["uid_1", "uid_2"]
+        }
+
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=reg,
+        ):
+            bt = _make_bt_climate()
+            for _ in range(2):
+                await _cleanup_stale_algorithm_entities(
+                    hass=MagicMock(),
+                    entry_id="entry_1",
+                    bt_climate=bt,
+                    current_algorithms=set(),
+                )
+
+        assert registered == {}
+        assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
+
     @pytest.mark.asyncio
     async def test_remove_exception_handled_gracefully(self, caplog):
         """A registry error during removal is logged with the entity, not raised."""
