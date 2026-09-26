@@ -66,11 +66,15 @@ from .device_profiles import (
     RoleScenario,
     ValveChannel,
     offset_number_id,
+    published_precision,
+    published_temperature,
+    published_unit,
     valve_number_id,
 )
 
 DOMAIN = "better_thermostat"
 SENSOR_ID = "sensor.room_temperature"
+OUTDOOR_ID = "sensor.outdoor_temperature"
 WINDOW_ID = "binary_sensor.window"
 HUMIDITY_ID = "sensor.room_humidity"
 
@@ -356,8 +360,8 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     """Register one simulated device per profile and return the entities.
 
     Profiles must agree on ``has_device_registry_entry``: the two
-    registration routes are mutually exclusive. They must agree on
-    ``temperature_unit`` too, because the unit is a property of the
+    registration routes are mutually exclusive. They must agree on the unit
+    they are published in too, because the unit system is a property of the
     Home Assistant instance the devices share, not of one device.
 
     They must not share an ``entity_id``: each profile becomes its own device,
@@ -370,9 +374,9 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     with_device = profiles[0].has_device_registry_entry
     if any(p.has_device_registry_entry is not with_device for p in profiles):
         raise ValueError("profiles must agree on has_device_registry_entry")
-    unit = profiles[0].temperature_unit
-    if any(p.temperature_unit is not unit for p in profiles):
-        raise ValueError("profiles must agree on temperature_unit")
+    unit = published_unit(profiles[0])
+    if any(published_unit(p) is not unit for p in profiles):
+        raise ValueError("profiles must agree on the unit system")
     # A number entity is discovered through the device registry entry and is
     # registered along the config-entry route only, so the combination below
     # would build a device whose channel is silently absent.
@@ -391,6 +395,8 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
     # fallback behind every unit resolution, so it has to be in place before
     # the devices exist — a device unit alone changes nothing Better
     # Thermostat can observe, because a climate entity publishes no unit.
+    # The device's own unit is the entity's native unit, which Home Assistant
+    # converts from and to on its own.
     if unit is UnitOfTemperature.FAHRENHEIT:
         hass.config.units = US_CUSTOMARY_SYSTEM
 
@@ -512,6 +518,8 @@ def make_entry(
     with_humidity: bool = False,
     name: str = "BT Test",
     heat_auto_swapped: bool = False,
+    with_outdoor_sensor: bool = False,
+    off_temperature: int = 5,
 ) -> MockConfigEntry:
     """Build a config entry for ``devices``, matching the current entry schema.
 
@@ -521,6 +529,10 @@ def make_entry(
 
     The heads of a group must agree on ``configured_target_temp_step``: the
     entry carries one, and it overrides every head's own grid.
+
+    ``off_temperature`` is stored as the flow stores it, in the system unit;
+    it only takes effect with ``with_outdoor_sensor``, which wires the sensor
+    at ``OUTDOOR_ID``.
     """
     if isinstance(devices, GroupScenario):
         profiles, cooler = list(devices.profiles), None
@@ -551,7 +563,7 @@ def make_entry(
                     "protect_overheating": False,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": heat_auto_swapped,
-                    "valve_maintenance": False,
+                    "valve_maintenance": profile.valve_maintenance,
                     "child_lock": False,
                     "homematicip": False,
                 },
@@ -562,8 +574,10 @@ def make_entry(
         "model": "Generic",
         "target_temp_step": profiles[0].configured_target_temp_step,
         "tolerance": 0.3,
-        "off_temperature": 5,
+        "off_temperature": off_temperature,
     }
+    if with_outdoor_sensor:
+        data["outdoor_sensor"] = OUTDOOR_ID
     if cooler is not None:
         data["cooler"] = cooler
     if with_window:
@@ -802,16 +816,20 @@ def assert_profile_adopted(bt, profile: DeviceProfile) -> None:
     """
     trv = bt.real_trvs[profile.entity_id]
     assert trv.hvac_modes == list(profile.hvac_modes)
+    # Home Assistant publishes the step as the device states it, unconverted,
+    # so it is read in the unit everything else is published in.
     assert trv.target_temp_step == pytest.approx(
-        _celsius_step(profile.target_temperature_step, profile.temperature_unit),
+        _celsius_step(profile.target_temperature_step, published_unit(profile)),
         abs=1e-3,
     )
-    assert trv.min_temp == pytest.approx(
-        _celsius(profile.min_temp, profile.temperature_unit), abs=1e-2
-    )
-    assert trv.max_temp == pytest.approx(
-        _celsius(profile.max_temp, profile.temperature_unit), abs=1e-2
-    )
+    for bound, read in (
+        (profile.min_temp, trv.min_temp),
+        (profile.max_temp, trv.max_temp),
+    ):
+        assert read == pytest.approx(
+            _celsius(bound, profile.temperature_unit),
+            abs=_bound_tolerance(profile, bound),
+        )
     assert trv.capabilities().supports_off_mode is (HVACMode.OFF in profile.hvac_modes)
     assert trv.capabilities().supports_offset_write is (
         profile.offset_channel is not OffsetChannel.NONE
@@ -821,6 +839,22 @@ def assert_profile_adopted(bt, profile: DeviceProfile) -> None:
     # publish no valve entity at all.
     valve_entity = bool(trv.valve_position_entity and trv.valve_position_writable)
     assert valve_entity is (profile.valve_channel is ValveChannel.NUMBER_ENTITY)
+
+
+def _bound_tolerance(profile: DeviceProfile, bound: float) -> float:
+    """Return how far a bound Better Thermostat read may sit from the device's.
+
+    A bound that survives publication is read exactly. One that Home
+    Assistant rounded to its precision on the way out is only known to within
+    half a precision step, and where inside that window the integration
+    places it is its own business, as long as it is the device's bound it
+    places there.
+    """
+    unit = published_unit(profile)
+    published = _celsius(published_temperature(profile, bound), unit)
+    if published == pytest.approx(_celsius(bound, profile.temperature_unit), abs=1e-9):
+        return 1e-2
+    return _celsius_step(published_precision(profile), unit) / 2
 
 
 def _celsius(value: float, unit: UnitOfTemperature) -> float:
