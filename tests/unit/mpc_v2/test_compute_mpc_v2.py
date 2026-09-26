@@ -63,11 +63,11 @@ def test_missing_current_temp_returns_none() -> None:
 
 
 def test_first_call_creates_controller_and_returns_percent() -> None:
-    """First call builds a controller and returns a bounded valve percent."""
+    """First call builds a controller and a cold room gets a partial opening."""
     out, state = compute_mpc_v2(_baseline_input(), MpcV2Params(), None)
     assert out is not None
     assert isinstance(out.valve_percent, int)
-    assert 0 <= out.valve_percent <= 100
+    assert 0 < out.valve_percent < 100
     assert state.controller is not None
     assert state.last_percent == float(out.valve_percent)
 
@@ -169,15 +169,47 @@ def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
     assert seen_previous_input == [0.2]
 
 
-def test_integral_uses_elapsed_control_interval() -> None:
-    """A delayed replan integrates over its real prior valve interval."""
+def _integral_after_one_replan(gap_s: float) -> tuple[float, float]:
+    """Return the error integral after a replan ``gap_s`` after the first one.
+
+    The room sits 2 K below target with the valve mid-rail, so the
+    anti-windup guard never skips the step. Also returns the replan interval.
+    """
     params = MpcV2Params()
     params.governor.enabled = False
     controller = MpcV2Controller(params)
     controller.step(100.0, 20.0, 22.0, 5.0)
     controller.set_applied_u(0.5)
-    controller.step(1000.0, 20.0, 22.0, 5.0)
-    assert controller.optimiser.e_integral_K_min == pytest.approx(-30.0)
+    controller.step(100.0 + gap_s, 20.0, 22.0, 5.0)
+    return controller.optimiser.e_integral_K_min, controller.params.qp.step_s
+
+
+def test_integral_covers_an_on_schedule_replan_interval() -> None:
+    """A replan on schedule integrates the error over the interval it held."""
+    params = MpcV2Params()
+    params.governor.enabled = False
+    step_s = MpcV2Controller(params).params.qp.step_s
+
+    integral, _ = _integral_after_one_replan(step_s)
+
+    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="a replan after a gap integrates the error over the whole gap, "
+    "not over one replan interval",
+)
+def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
+    """A gap between replans adds no more error than one interval would.
+
+    While no plan ran, the controller neither commanded nor observed the
+    loop it integrates, so the time it was away is not tracking error.
+    """
+    integral, step_s = _integral_after_one_replan(900.0)
+
+    assert step_s < 900.0
+    assert integral == pytest.approx(-2.0 * step_s / 60.0)
 
 
 def test_snapshot_round_trip_preserves_last_u() -> None:
@@ -392,7 +424,8 @@ def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
     u, _diag = controller.step(
         t_s=1000.0, T_room_C=19.0, T_target_C=22.0, T_outdoor_C=5.0
     )
-    assert 0.0 <= u <= 1.0
+    # A room 3 K below target opens the valve, within the valve's range.
+    assert 0.0 < u <= 1.0
 
 
 def test_snapshot_carries_version_tag() -> None:
@@ -514,10 +547,15 @@ def test_cooling_case_settles_at_zero_valve() -> None:
 
 
 def test_zero_error_holds_steady() -> None:
-    """target == current should not provoke valve oscillation."""
+    """A room held at its target settles on one partial opening.
+
+    Once the controller has settled, the command stays within one
+    percentage point (the rounding step) and on neither rail: the valve
+    neither swings nor parks fully open or closed.
+    """
     state: MpcV2State | None = None
-    last_pct = None
-    for _ in range(20):
+    commands: list[int] = []
+    for cycle in range(60):
         out, state = compute_mpc_v2(
             _baseline_input(
                 key="zero-err-key",
@@ -527,11 +565,13 @@ def test_zero_error_holds_steady() -> None:
             ),
             MpcV2Params(),
             state,
+            now=1000.0 + 300.0 * cycle,
         )
         assert out is not None
-        last_pct = out.valve_percent
-    # Settled to a steady, non-negative, non-saturated value.
-    assert 0 <= last_pct <= 100
+        commands.append(out.valve_percent)
+    settled = commands[30:]
+    assert max(settled) - min(settled) <= 1, settled
+    assert 0 < min(settled) and max(settled) < 100, settled
 
 
 def test_controller_drives_simulated_plant_toward_setpoint() -> None:

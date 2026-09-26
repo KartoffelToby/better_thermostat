@@ -366,10 +366,10 @@ class TestComputeMpcBasic:
     """Tests for basic compute_mpc behavior."""
 
     def test_returns_mpc_output(self):
-        """Test that compute_mpc returns a valid MpcOutput."""
+        """A room 2 K below target gets an MpcOutput with the valve opened."""
         result = _compute(_inp(), _default_params())
         assert isinstance(result, MpcOutput)
-        assert 0 <= result.valve_percent <= 100
+        assert result.valve_percent > 0
 
     def test_window_open_returns_zero(self):
         """Test that window_open forces valve to 0%."""
