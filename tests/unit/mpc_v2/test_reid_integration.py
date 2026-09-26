@@ -417,6 +417,50 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     assert len(calls) == 1
 
 
+def test_accepted_fit_is_stamped_on_the_wall_clock(monkeypatch) -> None:
+    """An accepted fit records when it happened on the wall clock.
+
+    The stamp is persisted and outlives a host reboot, which starts the
+    monotonic clock over; the wall clock continues across it.
+    """
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
+        ReidOutcome,
+        ReidSample,
+    )
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    bt.real_trvs["climate.x"].last_valve_percent = 50
+    _compute_mpc_v2_balance(bt, "climate.x")
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
+    runtime.buffer.samples.clear()
+    for i in range(300):
+        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room_C=20.0, u_frac=0.5))
+    runtime.last_fit_attempt_ts = 0.0
+    monkeypatch.setattr(
+        cal,
+        "run_reid_fit",
+        lambda samples, prior: ReidOutcome(
+            status="accepted",
+            tau_room_min=_REID.tau_room_min,
+            gain_heater=_REID.gain_heater,
+            rmse_prior_K=0.4,
+            rmse_fit_K=0.1,
+            n_segments=4,
+            n_samples=300,
+        ),
+    )
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+
+    adopted = bt.state_mgr.get_mpc_v2_reid(key)
+    assert adopted is not None
+    assert adopted.fitted_ts == bt.clock.now().timestamp()
+    assert adopted.fitted_ts != bt.clock.monotonic()
+
+
 # -- Target-independent re-ID keying ------------------------------------------
 
 
