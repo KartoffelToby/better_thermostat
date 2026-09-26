@@ -397,7 +397,7 @@ HARD_SETPOINT_C = 25.0
     ],
 )
 def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None:
-    """A room below its setpoint never gets a closed valve.
+    """A room below its setpoint keeps its valve open.
 
     With a setpoint at or beyond what the radiator can hold without help,
     free heat decides whether it is reachable. Either way the room must not
@@ -522,7 +522,7 @@ def test_disturbance_estimate_matches_a_standing_heat_gain(
 def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(
     gap_s: float,
 ) -> None:
-    """The radiator estimate never exceeds the supply water temperature.
+    """The radiator estimate stays at or below the supply water temperature.
 
     A radiator cannot get hotter than the water that feeds it, whatever the
     valve did and however long the observer has to propagate between two
