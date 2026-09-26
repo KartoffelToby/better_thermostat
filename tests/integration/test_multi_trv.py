@@ -8,29 +8,52 @@ gone, whether two heads of different models each get what they can express,
 and how one room-level valve command is split between them.
 """
 
-from unittest.mock import patch
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
+from datetime import timedelta
+import time
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_HVAC_MODE,
     HVACMode,
 )
+from homeassistant.components.weather import (
+    DOMAIN as WEATHER_DOMAIN,
+    WeatherEntityFeature,
+)
 from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.core import Context, SupportsResponse
+from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_capture_events
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_capture_events,
+    async_fire_time_changed,
+)
 
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 from .conftest import (
     BT_ENTITY,
+    COOLER_RESEND,
+    DOMAIN,
+    HUMIDITY_ID,
+    WINDOW_ID,
     WRITE_BUDGET,
+    SimulatedClimate,
     assert_profile_adopted,
     assert_write_is,
+    build_devices,
     make_entry,
     mode_commands,
     profile_id,
+    set_room_humidity,
     set_room_sensor,
     setpoint_commands,
     setup_entry,
@@ -38,9 +61,11 @@ from .conftest import (
     wait_for_startup,
 )
 from .device_profiles import (
+    COOLER_ID,
     GROUP_OF_THREE,
     GROUP_SCENARIOS,
     MIXED_GRID_GROUP,
+    ROOM_AC_COOLER,
     VALVE_GROUP,
 )
 
@@ -268,3 +293,364 @@ async def test_the_colder_head_of_a_valve_group_is_opened_further(hass, trv_grou
     assert bt.real_trvs[cold_head.entity_id].last_valve_percent > (
         bt.real_trvs[warm_head.entity_id].last_valve_percent
     )
+
+
+DOOR_ID = "binary_sensor.door"
+OUTDOOR_ID = "sensor.outdoor_temperature"
+WEATHER_ID = "weather.home"
+
+# Either side of the entry's off temperature of 5 °C: heating is wanted below
+# it and summer mode takes over above it.
+COLD_OUTSIDE = 0.0
+WARM_OUTSIDE = 30.0
+
+# The ambient check averages the outdoor sensor's recorder history. The recorder
+# commits in batches, so a reading published a moment ago is not in it yet and
+# the average would still be the previous one. Without any history the check
+# falls back to the current reading, which is the reading under test.
+OUTDOOR_HISTORY = (
+    "custom_components.better_thermostat.utils.weather.history."
+    "state_changes_during_period"
+)
+
+# The control-cycle request under the name the entity's handlers call it by.
+ENTITY_CYCLE_REQUEST = (
+    "custom_components.better_thermostat.climate.request_control_cycle"
+)
+
+# How long a reaction is waited for. Everything under test answers within a
+# few loop turns, and a case that is expected to fail waits this out in full.
+REACTION_TIMEOUT_S = 3.0
+
+
+@dataclass
+class OutageRoom:
+    """A three-head room with every input it can be given, and its thermostat.
+
+    ``present`` are the heads that are still on the air, ``absent`` the head
+    taken off it (``None`` while every head is there). ``cycle_requests``
+    records the control cycles the entity's own handlers ask for.
+    """
+
+    hass: object
+    bt: object
+    present: list[SimulatedClimate]
+    absent: SimulatedClimate | None
+    cooler: SimulatedClimate
+    forecast: list[float]
+    cycle_requests: MagicMock
+
+    def publish_forecast(self, temperature: float) -> None:
+        """Let the weather entity forecast ``temperature`` from now on."""
+        self.forecast[:] = [temperature, temperature]
+        self.hass.states.async_set(
+            WEATHER_ID,
+            "sunny",
+            {
+                "temperature": temperature,
+                "supported_features": WeatherEntityFeature.FORECAST_DAILY,
+            },
+        )
+
+
+@dataclass(frozen=True)
+class Entrance:
+    """One way news reaches the room, and what the room does about it.
+
+    ``config`` names the input in the config entry, ``report`` puts the news
+    on the bus the way the device or the clock would, and ``reached`` says
+    whether the heads or the thermostat acted on it.
+    """
+
+    name: str
+    config: Mapping[str, object]
+    report: Callable[[OutageRoom], Awaitable[None]]
+    reached: Callable[[OutageRoom], bool]
+
+
+def _present_heads_are_off(room: OutageRoom) -> bool:
+    """Whether every reachable head was last commanded off."""
+    return all(head.set_hvac_mode_calls[-1:] == [HVACMode.OFF] for head in room.present)
+
+
+async def _window_opens(room: OutageRoom) -> None:
+    room.hass.states.async_set(WINDOW_ID, "on")
+
+
+async def _door_opens(room: OutageRoom) -> None:
+    room.hass.states.async_set(DOOR_ID, "on")
+
+
+async def _room_sensor_reports(room: OutageRoom) -> None:
+    set_room_sensor(room.hass, 21.3)
+
+
+async def _humidity_sensor_reports(room: OutageRoom) -> None:
+    set_room_humidity(room.hass, 61.0)
+
+
+def _report_on_its_own(device: SimulatedClimate) -> None:
+    """Publish the device's state as a report of its own.
+
+    The entity still holds the context of the last command Better Thermostat
+    sent it, and a state written under that context is read as the echo of
+    that command. A device that reports by itself does so under a new one.
+    """
+    device.async_set_context(Context())
+    device.async_write_ha_state()
+
+
+async def _present_head_reports(room: OutageRoom) -> None:
+    head = room.present[-1]
+    head._attr_current_temperature = 16.5
+    _report_on_its_own(head)
+
+
+async def _cooler_reports(room: OutageRoom) -> None:
+    room.cooler._attr_target_temperature = 26.0
+    _report_on_its_own(room.cooler)
+
+
+async def _outdoor_sensor_reports(room: OutageRoom) -> None:
+    room.hass.states.async_set(
+        OUTDOOR_ID, str(WARM_OUTSIDE), {"unit_of_measurement": "°C"}
+    )
+
+
+async def _weather_tick_fires(room: OutageRoom) -> None:
+    room.publish_forecast(WARM_OUTSIDE)
+    async_fire_time_changed(room.hass, dt_util.utcnow() + timedelta(hours=1, seconds=1))
+
+
+async def _periodic_tick_fires(room: OutageRoom) -> None:
+    async_fire_time_changed(
+        room.hass, dt_util.utcnow() + timedelta(minutes=5, seconds=1)
+    )
+
+
+WINDOW_OPENS = Entrance(
+    "window_opens",
+    {"window_sensors": WINDOW_ID, "window_off_delay": 0, "window_off_delay_after": 0},
+    _window_opens,
+    _present_heads_are_off,
+)
+
+ENTRANCES = [
+    WINDOW_OPENS,
+    Entrance(
+        "door_opens",
+        {"door_sensors": DOOR_ID, "door_off_delay": 0, "door_off_delay_after": 0},
+        _door_opens,
+        _present_heads_are_off,
+    ),
+    Entrance(
+        "room_sensor_reports",
+        {},
+        _room_sensor_reports,
+        lambda room: room.bt.cur_temp == pytest.approx(21.3),
+    ),
+    Entrance(
+        "humidity_sensor_reports",
+        {"humidity_sensor": HUMIDITY_ID},
+        _humidity_sensor_reports,
+        lambda room: room.bt.current_humidity == pytest.approx(61.0),
+    ),
+    Entrance(
+        "reachable_head_reports",
+        {},
+        _present_head_reports,
+        lambda room: (
+            room.bt.real_trvs[room.present[-1].entity_id].current_temperature
+            == pytest.approx(16.5)
+        ),
+    ),
+    Entrance(
+        "cooler_reports",
+        {"cooler": COOLER_ID},
+        _cooler_reports,
+        lambda room: room.bt.bt_target_cooltemp == pytest.approx(26.0),
+    ),
+    Entrance(
+        "outdoor_sensor_reports",
+        {"outdoor_sensor": OUTDOOR_ID},
+        _outdoor_sensor_reports,
+        _present_heads_are_off,
+    ),
+    Entrance(
+        "hourly_weather_tick",
+        {"weather": WEATHER_ID},
+        _weather_tick_fires,
+        _present_heads_are_off,
+    ),
+    Entrance(
+        "periodic_tick",
+        {},
+        _periodic_tick_fires,
+        lambda room: room.cycle_requests.called,
+    ),
+]
+
+
+def entrance_id(entrance: Entrance) -> str:
+    """Name a parametrized case after the entrance it drives."""
+    return entrance.name
+
+
+async def open_room(hass, entrance: Entrance, *, one_head_gone: bool) -> OutageRoom:
+    """Start a heating three-head room wired for ``entrance``.
+
+    Every input the room can have is published before startup, cold outside
+    and all contacts shut, but only the one the entrance needs is in the
+    entry, so no other input can answer for it. With ``one_head_gone`` the
+    middle head drops off the air once the room is running.
+    """
+    *heads, cooler = await build_devices(hass, *GROUP_OF_THREE.profiles, ROOM_AC_COOLER)
+    set_room_sensor(hass, 19.5)
+    set_room_humidity(hass, 40.0)
+    hass.states.async_set(WINDOW_ID, "off")
+    hass.states.async_set(DOOR_ID, "off")
+    hass.states.async_set(OUTDOOR_ID, str(COLD_OUTSIDE), {"unit_of_measurement": "°C"})
+    forecast: list[float] = []
+
+    async def get_forecasts(call):
+        return {WEATHER_ID: {"forecast": [{"temperature": t} for t in forecast]}}
+
+    hass.services.async_register(
+        WEATHER_DOMAIN,
+        "get_forecasts",
+        get_forecasts,
+        supports_response=SupportsResponse.ONLY,
+    )
+    base = make_entry(GROUP_OF_THREE)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=base.version,
+        data={**base.data, **entrance.config},
+        title=base.title,
+    )
+    room = OutageRoom(hass, None, heads, None, cooler, forecast, MagicMock())
+    room.publish_forecast(COLD_OUTSIDE)
+    await setup_entry(hass, entry)
+    room.bt = await wait_for_startup(hass, entry)
+
+    target = (
+        {"target_temp_low": 22.0, "target_temp_high": 25.0}
+        if "cooler" in entrance.config
+        else {"temperature": 22.0}
+    )
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            "set_temperature",
+            {"entity_id": BT_ENTITY, **target},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+    assert room.bt.hvac_mode != HVACMode.OFF
+
+    if one_head_gone:
+        room.absent = heads[1]
+        room.present = [head for head in heads if head is not room.absent]
+        room.absent.set_available(False)
+        await hass.async_block_till_done()
+    return room
+
+
+async def report_and_wait(room: OutageRoom, entrance: Entrance) -> bool:
+    """Put the entrance's news on the bus and wait for the room to act on it."""
+    with (
+        patch(WRITE_BUDGET, 0.0),
+        patch(COOLER_RESEND, 0.0),
+        patch(ENTITY_CYCLE_REQUEST, wraps=request_control_cycle) as requests,
+    ):
+        room.cycle_requests = requests
+        await entrance.report(room)
+        return await wait_for(
+            room.hass, lambda: entrance.reached(room), timeout_s=REACTION_TIMEOUT_S
+        )
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
+async def test_every_entrance_reaches_a_room_with_all_heads(hass, entrance):
+    """Every input of a room reaches it while all of its heads are there.
+
+    The baseline for the case below: each entrance is wired and observed here
+    exactly as it is there, so a failure below is about the gone head and not
+    about the wiring.
+    """
+    with patch(OUTDOOR_HISTORY, return_value={}):
+        room = await open_room(hass, entrance, one_head_gone=False)
+        assert await report_and_wait(room, entrance)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "every trigger wrapper returns before its handler as soon as any "
+        "head of the room is unavailable, so the room ignores its window, "
+        "door, sensors, cooler, weather and periodic tick"
+    ),
+)
+@pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
+async def test_every_entrance_reaches_the_room_while_one_head_is_gone(hass, entrance):
+    """A head off the air takes only itself out of the room.
+
+    The room still has heads that can heat it and a user who can open its
+    window, so every input keeps reaching it: a window or door opening turns
+    the reachable heads off, summer mode does the same, a sensor reading
+    becomes the room's reading, a reachable head's report is taken in, and
+    the periodic tick keeps asking for control cycles. The absent head is
+    what the reachability backoff and the repair issue are for.
+    """
+    with patch(OUTDOOR_HISTORY, return_value={}):
+        room = await open_room(hass, entrance, one_head_gone=True)
+        assert await report_and_wait(room, entrance)
+
+
+async def let_two_hours_pass(room: OutageRoom) -> None:
+    """Run two hours of periodic ticks past the startup grace windows."""
+    # The grace windows and the degradation ladder read the entity's clock,
+    # which is driven here together with Home Assistant's timers.
+    clock = FakeClock(monotonic_value=time.monotonic(), now_value=dt_util.now())
+    room.bt.clock = clock
+    with patch(WRITE_BUDGET, 0.0):
+        for step in range(1, 25):
+            clock.advance(300)
+            async_fire_time_changed(
+                room.hass, dt_util.utcnow() + timedelta(minutes=5 * step, seconds=1)
+            )
+            await room.hass.async_block_till_done()
+
+
+async def test_a_head_gone_for_hours_is_the_only_one_reported(hass):
+    """The room reports the head that stays away, and only that head.
+
+    Two hours after the startup grace windows, the absent head is the one
+    entry in the room's device errors; the reachable heads are not listed.
+    """
+    room = await open_room(hass, WINDOW_OPENS, one_head_gone=True)
+    await let_two_hours_pass(room)
+
+    assert room.bt.devices_errors == [room.absent.entity_id]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the gate on the trigger wrappers does not lift with time: after the "
+        "startup grace windows have closed and two hours of periodic ticks, "
+        "an opened window still leaves the reachable heads heating"
+    ),
+)
+async def test_a_room_with_a_head_gone_for_hours_still_answers_its_window(hass):
+    """A head that stays away does not leave the room deaf for its absence.
+
+    The grace windows only decide when the outage is announced; once it is,
+    and for as long as the head stays away, the reachable heads keep
+    following the room. Two hours of periodic ticks after the announcement,
+    an opened window still turns them off.
+    """
+    room = await open_room(hass, WINDOW_OPENS, one_head_gone=True)
+    await let_two_hours_pass(room)
+
+    assert await report_and_wait(room, WINDOW_OPENS)
