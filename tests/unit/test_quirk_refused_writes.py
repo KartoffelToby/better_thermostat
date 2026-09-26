@@ -36,6 +36,7 @@ import pytest
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
+from tests.factories import make_entity_registry, make_registry_entry
 
 # The device name carries a hyphen, so the module is reached by name.
 TV02 = import_module("custom_components.better_thermostat.model_fixes.TV02-Zigbee")
@@ -250,24 +251,19 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
     @staticmethod
     def _registry_holding_a_mode_select():
         """An entity registry whose device carries a TRV mode select."""
-        climate_entry = MagicMock(
-            entity_id=ENTITY_ID,
-            domain="climate",
+        climate_entry = make_registry_entry(
+            ENTITY_ID,
             device_id="device1",
             unique_id="0x1234_climate",
             original_name="TRV",
         )
-        select_entry = MagicMock(
-            entity_id="select.trv_trv_mode",
-            domain="select",
+        select_entry = make_registry_entry(
+            "select.trv_trv_mode",
             device_id="device1",
             unique_id="0x1234_trv_mode",
             original_name="Trv mode",
         )
-        registry = MagicMock()
-        registry.async_get.return_value = climate_entry
-        registry.entities.values.return_value = [climate_entry, select_entry]
-        return registry
+        return make_entity_registry(climate_entry, select_entry)
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
     @pytest.mark.asyncio

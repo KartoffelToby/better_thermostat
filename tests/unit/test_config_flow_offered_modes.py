@@ -30,6 +30,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_HEATER,
     CalibrationType,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 
 def _flow_with_modes(modes):
@@ -159,8 +160,9 @@ def _a_device_of_model(model):
     modules that ship with the package, and the TRV is served by an adapter
     that publishes no valve channel.
     """
-    entity_registry = MagicMock()
-    entity_registry.async_get.return_value = SimpleNamespace(device_id="device")
+    entity_registry = make_entity_registry(
+        make_registry_entry(TRV_ID, device_id="device")
+    )
     device_registry = MagicMock()
     device_registry.async_get.return_value = SimpleNamespace(
         manufacturer="Vendor",

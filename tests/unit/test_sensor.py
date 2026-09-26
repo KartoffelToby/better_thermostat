@@ -13,6 +13,7 @@ import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.sensor import (
@@ -96,8 +97,8 @@ def _make_entry(entry_id="entry_1"):
 
 
 def _make_entity_registry():
-    """Create a mock EntityRegistry."""
-    reg = MagicMock()
+    """Create a mock EntityRegistry that holds none of the looked-up ids."""
+    reg = MagicMock(spec=er.EntityRegistry)
     reg.async_get_entity_id = MagicMock(return_value=None)
     reg.async_remove = MagicMock()
     return reg

@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
+from tests.factories import make_entity_registry, make_registry_entry
 
 _HELPERS = "custom_components.better_thermostat.utils.helpers"
 
@@ -30,8 +31,9 @@ def _bt(model: str | None = None) -> MagicMock:
 
 def _registries(device: object | None):
     """Patch the entity and device registries to resolve to *device*."""
-    entity_reg = MagicMock()
-    entity_reg.async_get.return_value = SimpleNamespace(device_id="dev1")
+    entity_reg = make_entity_registry(
+        make_registry_entry("climate.trv", device_id="dev1")
+    )
     dev_reg = MagicMock()
     dev_reg.async_get.return_value = device
     return (

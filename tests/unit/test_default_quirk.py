@@ -24,6 +24,7 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 DEVICE_ID = "device-1"
@@ -84,9 +85,9 @@ def _registry(device_id=DEVICE_ID, known=True):
     known : bool
         Whether the registry knows the entity at all.
     """
-    registry = MagicMock()
-    registry.async_get.return_value = MagicMock(device_id=device_id) if known else None
-    return registry
+    if not known:
+        return make_entity_registry()
+    return make_entity_registry(make_registry_entry(ENTITY_ID, device_id=device_id))
 
 
 def _discovering(**found):

@@ -13,6 +13,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
+from tests.factories import make_entity_registry, make_registry_entry
 
 
 @pytest.mark.parametrize(
@@ -78,8 +79,7 @@ class TestGetDeviceModelFunction:
         from custom_components.better_thermostat.utils.helpers import get_device_model
 
         # Mock entity registry
-        mock_entry = MagicMock()
-        mock_entry.device_id = "device_123"
+        mock_entry = make_registry_entry("climate.test_trv", device_id="device_123")
 
         # Mock device with Z2M format model string
         mock_device = MagicMock()
@@ -95,8 +95,7 @@ class TestGetDeviceModelFunction:
             with patch(
                 "custom_components.better_thermostat.utils.helpers.dr.async_get"
             ) as mock_dr:
-                mock_entity_reg = MagicMock()
-                mock_entity_reg.async_get.return_value = mock_entry
+                mock_entity_reg = make_entity_registry(mock_entry)
                 mock_er.return_value = mock_entity_reg
 
                 mock_dev_reg = MagicMock()
@@ -115,8 +114,7 @@ class TestGetDeviceModelFunction:
         """Test that model_id takes priority over model string."""
         from custom_components.better_thermostat.utils.helpers import get_device_model
 
-        mock_entry = MagicMock()
-        mock_entry.device_id = "device_123"
+        mock_entry = make_registry_entry("climate.test_trv", device_id="device_123")
 
         mock_device = MagicMock()
         mock_device.model_id = "TS0601"  # Has model_id
@@ -131,8 +129,7 @@ class TestGetDeviceModelFunction:
             with patch(
                 "custom_components.better_thermostat.utils.helpers.dr.async_get"
             ) as mock_dr:
-                mock_entity_reg = MagicMock()
-                mock_entity_reg.async_get.return_value = mock_entry
+                mock_entity_reg = make_entity_registry(mock_entry)
                 mock_er.return_value = mock_entity_reg
 
                 mock_dev_reg = MagicMock()
@@ -148,8 +145,7 @@ class TestGetDeviceModelFunction:
         """Test model detection with plain string (no parentheses)."""
         from custom_components.better_thermostat.utils.helpers import get_device_model
 
-        mock_entry = MagicMock()
-        mock_entry.device_id = "device_123"
+        mock_entry = make_registry_entry("climate.test_trv", device_id="device_123")
 
         mock_device = MagicMock()
         mock_device.model_id = None
@@ -164,8 +160,7 @@ class TestGetDeviceModelFunction:
             with patch(
                 "custom_components.better_thermostat.utils.helpers.dr.async_get"
             ) as mock_dr:
-                mock_entity_reg = MagicMock()
-                mock_entity_reg.async_get.return_value = mock_entry
+                mock_entity_reg = make_entity_registry(mock_entry)
                 mock_er.return_value = mock_entity_reg
 
                 mock_dev_reg = MagicMock()
