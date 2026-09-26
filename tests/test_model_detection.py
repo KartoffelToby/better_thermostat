@@ -13,7 +13,6 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
-
 from tests.factories import make_entity_registry, make_registry_entry
 
 
