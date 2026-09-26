@@ -607,6 +607,33 @@ async def test_every_entrance_reaches_the_room_while_one_head_is_gone(hass, entr
         assert await report_and_wait(room, entrance)
 
 
+async def let_two_hours_pass(room: OutageRoom) -> None:
+    """Run two hours of periodic ticks past the startup grace windows."""
+    # The grace windows and the degradation ladder read the entity's clock,
+    # which is driven here together with Home Assistant's timers.
+    clock = FakeClock(monotonic_value=time.monotonic(), now_value=dt_util.now())
+    room.bt.clock = clock
+    with patch(WRITE_BUDGET, 0.0):
+        for step in range(1, 25):
+            clock.advance(300)
+            async_fire_time_changed(
+                room.hass, dt_util.utcnow() + timedelta(minutes=5 * step, seconds=1)
+            )
+            await room.hass.async_block_till_done()
+
+
+async def test_a_head_gone_for_hours_is_the_only_one_reported(hass):
+    """The room reports the head that stays away, and only that head.
+
+    Two hours after the startup grace windows, the absent head is the one
+    entry in the room's device errors; the reachable heads are not listed.
+    """
+    room = await open_room(hass, WINDOW_OPENS, one_head_gone=True)
+    await let_two_hours_pass(room)
+
+    assert room.bt.devices_errors == [room.absent.entity_id]
+
+
 @pytest.mark.xfail(
     strict=True,
     reason=(
@@ -624,17 +651,6 @@ async def test_a_room_with_a_head_gone_for_hours_still_answers_its_window(hass):
     an opened window still turns them off.
     """
     room = await open_room(hass, WINDOW_OPENS, one_head_gone=True)
-    # The grace windows and the degradation ladder read the entity's clock,
-    # which is driven here together with Home Assistant's timers.
-    clock = FakeClock(monotonic_value=time.monotonic(), now_value=dt_util.now())
-    room.bt.clock = clock
-    with patch(WRITE_BUDGET, 0.0):
-        for step in range(1, 25):
-            clock.advance(300)
-            async_fire_time_changed(
-                hass, dt_util.utcnow() + timedelta(minutes=5 * step, seconds=1)
-            )
-            await hass.async_block_till_done()
+    await let_two_hours_pass(room)
 
-    assert room.bt.devices_errors == [room.absent.entity_id]
     assert await report_and_wait(room, WINDOW_OPENS)

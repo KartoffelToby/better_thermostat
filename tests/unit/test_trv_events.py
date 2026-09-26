@@ -3415,7 +3415,10 @@ class TestOutageReportThroughTheListener:
         the room has another head.
         """
         unavailable, spawned = _prepare_outage_room(mock_bt, with_peer=with_peer)
-        event = _make_event(mock_bt, new_state=unavailable)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        recovered = _make_state(attributes={"current_temperature": 21.0})
+        routed_states = mock_bt.hass.states.get.side_effect
 
         with (
             patch("custom_components.better_thermostat.utils.watcher.ir"),
@@ -3428,10 +3431,24 @@ class TestOutageReportThroughTheListener:
                 "custom_components.better_thermostat.events.trv.request_control_cycle"
             ),
         ):
-            await BetterThermostat._trigger_trv_change(mock_bt, event)
+            await BetterThermostat._trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=unavailable)
+            )
+            for handler in spawned:
+                await handler
+            spawned.clear()
+
+            assert trv.current_temperature is None
+            assert trv.accept_next_internal_temp is True
+
+            mock_bt.hass.states.get.side_effect = lambda entity_id: (
+                recovered if entity_id == ENTITY_ID else routed_states(entity_id)
+            )
+            await BetterThermostat._trigger_trv_change(
+                mock_bt,
+                _make_event(mock_bt, new_state=recovered, old_state=unavailable),
+            )
             for handler in spawned:
                 await handler
 
-        trv = mock_bt.real_trvs[ENTITY_ID]
-        assert trv.current_temperature is None
-        assert trv.accept_next_internal_temp is True
+        assert trv.current_temperature == 21.0
