@@ -21,5 +21,4 @@ proposed twice and declined twice.
 Beyond the tests, CI holds six recorded files against the tree:
 `.blind-except-budget.json`, `.naming-budget.json`, `.pep8-naming-budget.json`,
 `.restated-contract-budget.json`, `.coverage-floors.json` and
-`.forward-port-gaps.json`. `CONTRIBUTING.md` says what each one guards and what
-re-recording it costs.
+`.forward-port-gaps.json`. `CONTRIBUTING.md` says what each one guards.
