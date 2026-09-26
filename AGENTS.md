@@ -18,5 +18,8 @@ reads as Python 2 to you, the grammar you learned predates October 2025: run
 `uv run python -VV` before reporting it. Adding the parentheses back has been
 proposed twice and declined twice.
 
-Beyond the tests, CI holds five recorded budgets against the tree.
-`CONTRIBUTING.md` names them and says what re-recording one costs.
+Beyond the tests, CI holds six recorded files against the tree:
+`.blind-except-budget.json`, `.naming-budget.json`, `.pep8-naming-budget.json`,
+`.restated-contract-budget.json`, `.coverage-floors.json` and
+`.forward-port-gaps.json`. `CONTRIBUTING.md` says what each one guards and what
+re-recording it costs.

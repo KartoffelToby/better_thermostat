@@ -397,6 +397,19 @@ charges every one of them. The ruff exemption buys nothing there. A separate
 change decides whether the glossary gains an exception for the notation or those
 names come out.
 
+## Blind exception handlers
+
+Ruff's `BLE001` flags an `except Exception` that neither re-raises nor logs the
+traceback. `.blind-except-budget.json` records per file how many such handlers
+the file carries today; a file may not exceed its number, and a file that is not
+in the budget may not have one at all. The scan ignores ruff's configuration and
+every `noqa`, so the budget file is the only place a silent handler is recorded.
+
+```bash
+uv run python scripts/blind_except_budget.py check     # what CI runs
+uv run python scripts/blind_except_budget.py update    # after converting handlers
+```
+
 ## Docstring type
 
 We use numpy type docstrings. Documentation can be found here:
