@@ -237,12 +237,6 @@ async def test_a_held_write_keeps_the_cycle_that_sent_it_running(hass):
             assert await poll_until(hass, lambda: not bt.ignore_states)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a head switched on while a control cycle runs is taken into the mode "
-    "cache at the end of the cycle, so its next report reads as no change and the "
-    "room stays off",
-)
 async def test_a_head_switched_on_while_a_cycle_drives_another_head_is_adopted(hass):
     """A head the user switches on during a cycle switches the room on.
 
@@ -277,12 +271,6 @@ async def test_a_head_switched_on_while_a_cycle_drives_another_head_is_adopted(h
     assert bt.bt_hvac_mode == HVACMode.HEAT
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the mode cache still holds the mode the head reported before the cycle "
-    "switched it off, so the head switched back on reads as no change and the room "
-    "stays off",
-)
 async def test_a_head_switched_back_on_during_the_cycle_that_switched_it_off_is_adopted(
     hass,
 ):

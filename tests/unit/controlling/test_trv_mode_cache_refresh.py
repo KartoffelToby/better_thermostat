@@ -207,19 +207,33 @@ class TestModeCacheAfterACycle:
         assert thermostat.bt_target_temp == 22.0
 
     @pytest.mark.asyncio
-    async def test_the_entity_keeps_the_mode_it_was_left_with(
+    async def test_a_mode_switched_during_the_cycle_is_read_on_the_next_report(
         self, thermostat, reported_states
     ):
-        """Switching a TRV off during a cycle leaves the room heating.
+        """A TRV switched off during a cycle switches the room off on its next report.
 
-        The cache follows the device, the entity does not: a mode reported
-        while the handler stood down was not adopted as user intent, and the
-        end of the cycle is too late to read it as one.
+        The end of the cycle does not read the mode into the entity: nobody
+        read that report. The cache keeps the mode Better Thermostat
+        commanded, so the device's next report reaches the handler as the
+        change it is, and the handler takes it as the user's.
         """
         await _run_one_cycle(thermostat, reported_states, _reported_state("off"))
 
-        assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "off"
+        assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "heat"
         assert thermostat.bt_hvac_mode == HVACMode.HEAT
+
+        old_state = reported_states[ENTITY_ID]
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": _reported_state("off"),
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        await trigger_trv_change(thermostat, event)
+
+        assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "off"
+        assert thermostat.bt_hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
     async def test_an_unavailable_device_keeps_its_cached_mode(
