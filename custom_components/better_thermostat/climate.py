@@ -1295,9 +1295,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(async_at_started(self.hass, _async_startup))
 
     async def _trigger_check_weather(self, event=None):
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         await check_weather(self)
@@ -1326,9 +1323,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await check_critical_entities(self)
 
     async def _trigger_time(self, event=None):
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
@@ -1354,9 +1348,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ``call_for_heat`` actually flips, so frequent outdoor readings that
         stay on the same side of the threshold do not spam the queue.
         """
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
@@ -1410,9 +1401,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         would end up regulated on the older of the two.
         """
         async with temperature_filter_lock(self):
-            # The degradation ladder and the repair issues follow every event.
-            # An unreachable head does not hold the event back: the control
-            # cycle leaves that head out and serves the rest of the room.
             await check_and_update_degraded_mode(self)
             await check_critical_entities(self)
             self.async_set_context(event.context)
@@ -1515,9 +1503,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
     async def _trigger_humidity_change(self, event):
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         self.async_set_context(event.context)
@@ -1535,9 +1520,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
@@ -1559,9 +1541,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _trigger_contact_change(self, event, trigger_fn, task_label):
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         self.async_set_context(event.context)
@@ -1583,9 +1562,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self._trigger_contact_change(event, trigger_door_change, "door")
 
     async def _trigger_cooler_change(self, event):
-        # The degradation ladder and the repair issues follow every event.
-        # An unreachable head does not hold the event back: the control
-        # cycle leaves that head out and serves the rest of the room.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         self.async_set_context(event.context)
@@ -2479,7 +2455,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def _post_grace_recheck(
         self,
         grace_until: datetime | None,
-        recheck: Callable[[BetterThermostat], Awaitable[bool]],
+        recheck: Callable[[BetterThermostat], Awaitable[object]],
     ) -> None:
         """Re-run an availability check once a startup grace window elapses.
 
@@ -2494,7 +2470,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         grace_until : datetime | None
             End of the grace window; ``None`` or a past instant runs the
             recheck immediately.
-        recheck : Callable[[BetterThermostat], Awaitable[bool]]
+        recheck : Callable[[BetterThermostat], Awaitable[object]]
             Availability check coroutine function, invoked with this
             thermostat instance.
         """

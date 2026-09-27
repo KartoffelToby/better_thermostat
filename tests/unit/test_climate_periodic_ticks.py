@@ -39,7 +39,21 @@ def bt():
     mock._last_call_for_heat = True
     mock.async_update_ha_state = AsyncMock()
     mock.hass = MagicMock()
+    mock.devices_errors = []
     return mock
+
+
+def _critical_check(*, trv_gone):
+    """Stand in for the critical check; with ``trv_gone`` it finds a TRV away.
+
+    The check only keeps the error list current, so a TRV found away shows
+    up there and nowhere else.
+    """
+
+    def record_gone_trv(self):
+        self.devices_errors.append("climate.gone_trv")
+
+    return AsyncMock(side_effect=record_gone_trv if trv_gone else None)
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +61,7 @@ def bt():
 # ---------------------------------------------------------------------------
 
 
-async def _run_check_weather(bt, event, *, critical_ok=True, flips_call_for_heat=False):
+async def _run_check_weather(bt, event, *, trv_gone=False, flips_call_for_heat=False):
     """Call the hourly tick; return the weather check and the cycle request."""
 
     async def check_weather(self):
@@ -59,7 +73,7 @@ async def _run_check_weather(bt, event, *, critical_ok=True, flips_call_for_heat
     with (
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(
-            f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=critical_ok)
+            f"{_CLIMATE}.check_critical_entities", _critical_check(trv_gone=trv_gone)
         ),
         patch(f"{_CLIMATE}.check_weather", weather),
         patch(f"{_CLIMATE}.request_control_cycle", request),
@@ -83,7 +97,7 @@ async def test_an_unavailable_critical_entity_does_not_stop_the_hourly_tick(bt):
     Summer mode is the room's state, not the valve's; the valves that are
     reachable follow it, and the absent one picks it up when it returns.
     """
-    weather, _ = await _run_check_weather(bt, None, critical_ok=False)
+    weather, _ = await _run_check_weather(bt, None, trv_gone=True)
 
     weather.assert_awaited_once_with(bt)
 
@@ -128,14 +142,14 @@ async def test_a_flip_during_startup_requests_no_control_cycle(bt):
 # ---------------------------------------------------------------------------
 
 
-async def _run_trigger_time(bt, event, *, critical_ok=True):
+async def _run_trigger_time(bt, event, *, trv_gone=False):
     """Call the control tick; return the ambient check and the cycle request."""
     ambient = AsyncMock()
     request = MagicMock()
     with (
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(
-            f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=critical_ok)
+            f"{_CLIMATE}.check_critical_entities", _critical_check(trv_gone=trv_gone)
         ),
         patch(f"{_CLIMATE}.check_ambient_air_temperature", ambient),
         patch(f"{_CLIMATE}.request_control_cycle", request),
@@ -186,7 +200,7 @@ async def test_an_unavailable_critical_entity_does_not_stop_the_control_tick(bt)
 
     The cycle itself leaves the unreachable valve out and drives the rest.
     """
-    ambient, request = await _run_trigger_time(bt, MagicMock(), critical_ok=False)
+    ambient, request = await _run_trigger_time(bt, MagicMock(), trv_gone=True)
 
     ambient.assert_awaited_once_with(bt)
     request.assert_called_once_with(bt)

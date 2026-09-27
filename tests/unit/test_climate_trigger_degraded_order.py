@@ -51,8 +51,9 @@ def bt():
 @pytest.mark.asyncio
 async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
     """The ladder leaves OPTIMAL, and the tick runs on, while the TRV is gone."""
+    bt.devices_errors = []
+    bt._critical_grace_until = None
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=False)),
         patch(f"{_CLIMATE}.check_ambient_air_temperature", AsyncMock()) as ambient,
         patch(f"{_WATCHER}.ir.async_create_issue"),
         patch(f"{_WATCHER}.async_fire_logbook_entry", AsyncMock()),
@@ -67,6 +68,7 @@ async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
     assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
     assert bt.kernel_state.control_mode.mode == ControlMode.HOLD
     assert bt.kernel_state.control_mode.degraded is True
-    # The unavailable TRV does not end the tick: both passes refresh the
-    # outdoor average.
+    # The unavailable TRV is reported, and it does not end the tick: both
+    # passes refresh the outdoor average.
+    assert bt.devices_errors == [TRV_ID]
     assert ambient.await_count == 2

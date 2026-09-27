@@ -249,10 +249,13 @@ def get_critical_entities(self) -> list:
     return critical
 
 
-async def check_critical_entities(self) -> bool:
-    """Check only critical entities (TRVs).
+async def check_critical_entities(self) -> None:
+    """Keep the error list and the repair issues of the TRVs current.
 
-    Returns True if all TRVs are available. Does not block on optional sensors.
+    Every event handler runs it, and none waits on its outcome: an
+    unavailable TRV holds back no event, because the control cycle leaves
+    unreachable TRVs out and serves the rest of the room. Optional sensors
+    are not checked here.
 
     During a startup grace period (``_critical_grace_until``), unavailable
     TRVs do not raise a Home Assistant repair issue — slow integrations
@@ -262,17 +265,11 @@ async def check_critical_entities(self) -> bool:
     When an entity becomes available again, any previously raised
     ``missing_entity_*`` issue is cleared automatically (and idempotently,
     so stale issues from a previous run are also removed).
-
-    Returns
-    -------
-    bool
-        True if all critical entities are available
     """
     critical = get_critical_entities(self)
     grace_until = getattr(self, "_critical_grace_until", None)
     in_grace = grace_until is not None and self.clock.now() < grace_until
 
-    all_available = True
     for entity in critical:
         if not is_trv_available(self, entity):
             if in_grace:
@@ -309,7 +306,6 @@ async def check_critical_entities(self) -> bool:
                         "name": str(self.device_name),
                     },
                 )
-            all_available = False
         else:
             recovered = entity in self.devices_errors
             # Clear error if entity is now available (covers recovery after an
@@ -319,7 +315,6 @@ async def check_critical_entities(self) -> bool:
                 self.async_write_ha_state()
             ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
             refresh_battery_reading(self, entity, recovered=recovered)
-    return all_available
 
 
 # Default delays for the optional-sensor startup retry loop.
