@@ -180,6 +180,10 @@ class Trv:
     # Outbound HVAC modes already annunciated as not offered by this
     # device, so the error is logged once per mode instead of per cycle.
     unsupported_modes_logged: set[str] = field(default_factory=set)
+    # Helper entities (calibration, valve) already annunciated as disabled
+    # in Home Assistant, so the warning is logged once per entity while it
+    # stays disabled instead of per lookup or write.
+    disabled_siblings_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None

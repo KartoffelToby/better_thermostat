@@ -31,6 +31,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.adapters import (
+    delegate,
     generic,
     mqtt,
     valve_entity,
@@ -415,14 +416,15 @@ def _disabled_sibling_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 @pytest.mark.parametrize("name", list(WARNED_ROLES))
 @pytest.mark.asyncio
-async def test_a_disabled_sibling_left_alone_is_named_once(name, caplog, monkeypatch):
+async def test_a_disabled_sibling_left_alone_is_named_once(name, caplog):
     """A disabled entry that was the TRV's only helper is named once on WARNING.
 
     Without it the user sees offset or valve control missing and has no
-    hint that enabling the entity brings it back. The lookups run on every
-    discovery, so the warning is given once per entity, not per lookup.
+    hint that enabling the entity and reloading Better Thermostat brings it
+    back. The TRV record carries the warning, so repeated lookups for one
+    TRV name the entity once, and a reload, which builds a new record,
+    names it again.
     """
-    monkeypatch.setattr(helpers, "_REPORTED_DISABLED_SIBLINGS", set())
     lookup = LOOKUPS[name]
     candidate = make_registry_entry(
         lookup.candidate,
@@ -430,27 +432,34 @@ async def test_a_disabled_sibling_left_alone_is_named_once(name, caplog, monkeyp
         disabled_by=er.RegistryEntryDisabler.INTEGRATION,
         **lookup.fields,
     )
+    trv = make_registry_entry(TRV_ID, device_id=TRV_DEVICE)
+    registry = make_entity_registry(trv, candidate)
+    host = _host(registry, lookup, candidate.entity_id)
 
-    await _adopts(lookup, candidate)
-    await _adopts(lookup, candidate)
+    with _registry_in_place(registry):
+        await lookup.adopts(host, registry, candidate.entity_id)
+        await lookup.adopts(host, registry, candidate.entity_id)
 
-    warnings = _disabled_sibling_warnings(caplog)
-    assert len(warnings) == 1
-    assert candidate.entity_id in warnings[0]
-    assert WARNED_ROLES[name] in warnings[0]
+        warnings = _disabled_sibling_warnings(caplog)
+        assert len(warnings) == 1
+        assert candidate.entity_id in warnings[0]
+        assert WARNED_ROLES[name] in warnings[0]
+        assert "reloaded" in warnings[0]
+
+        reloaded = _host(registry, lookup, candidate.entity_id)
+        await lookup.adopts(reloaded, registry, candidate.entity_id)
+
+    assert len(_disabled_sibling_warnings(caplog)) == 2
 
 
 @pytest.mark.parametrize("name", list(WARNED_ROLES))
 @pytest.mark.asyncio
-async def test_a_disabled_entry_beside_an_enabled_sibling_goes_unnamed(
-    name, caplog, monkeypatch
-):
+async def test_a_disabled_entry_beside_an_enabled_sibling_goes_unnamed(name, caplog):
     """A disabled duplicate is not worth a warning when an enabled sibling serves.
 
     The TRV gets its helper, so nothing is missing and there is nothing for
     the user to fix.
     """
-    monkeypatch.setattr(helpers, "_REPORTED_DISABLED_SIBLINGS", set())
     lookup = LOOKUPS[name]
     disabled = make_registry_entry(
         lookup.candidate.replace(".trv_", ".trv_spare_", 1),
@@ -496,3 +505,83 @@ async def test_a_trv_missing_from_the_registry_has_no_siblings(name):
         assert not await lookup.adopts(host, registry, candidate.entity_id), (
             f"{name} took {candidate.entity_id} for an unregistered TRV"
         )
+
+
+def _written_to(host: Any, entity_id: str) -> bool:
+    return entity_id in _written(host)
+
+
+def _runtime_host(helper: Any) -> MagicMock:
+    """A running thermostat that adopted ``helper`` while it was enabled."""
+    host = MagicMock()
+    host.device_name = "Test BT"
+    host.context = None
+    host.hass.services.async_call = AsyncMock(return_value=None)
+    host.hass.states.get = lambda entity_id: State(
+        entity_id, "0", {"min": 0, "max": 100, "step": 1}
+    )
+    record = Trv(entity_id=TRV_ID, model="generic", advanced={})
+    record.model_quirks = MagicMock(spec=[])
+    if helper.domain == "number" and "valve" in helper.entity_id:
+        record.adapter = mqtt
+        record.valve_position_entity = helper.entity_id
+        record.valve_position_writable = True
+    else:
+        record.adapter = generic
+        record.local_temperature_calibration_entity = helper.entity_id
+    host.real_trvs = {TRV_ID: record}
+    return host
+
+
+async def _write(host: Any) -> bool:
+    record = host.real_trvs[TRV_ID]
+    if record.valve_position_entity is not None:
+        return await delegate.set_valve(host, TRV_ID, 40)
+    with (
+        patch.object(generic, "get_max_offset", AsyncMock(return_value=5.0)),
+        patch.object(generic, "get_min_offset", AsyncMock(return_value=-5.0)),
+    ):
+        return await delegate.set_offset(host, TRV_ID, 1.5)
+
+
+RUNTIME_HELPERS = {
+    "calibration": "number.trv_local_temperature_calibration",
+    "valve": "number.trv_valve_opening_degree",
+}
+
+
+@pytest.mark.parametrize("helper_id", RUNTIME_HELPERS.values(), ids=RUNTIME_HELPERS)
+@pytest.mark.asyncio
+async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
+    """A helper disabled after discovery receives no write, and says so once.
+
+    Home Assistant drops a service call aimed at a disabled entity. The
+    write answers ``False``, so the caller does not wait on a command that
+    never reaches the device, and the skip is named once on WARNING while
+    the entity stays disabled. Once it is enabled again, writes resume and
+    a later disable is named again.
+    """
+    enabled = make_registry_entry(helper_id, device_id=TRV_DEVICE)
+    disabled = make_registry_entry(
+        helper_id, device_id=TRV_DEVICE, disabled_by=er.RegistryEntryDisabler.USER
+    )
+    host = _runtime_host(enabled)
+
+    async def write_with(entry: Any) -> bool:
+        host.hass.services.async_call.reset_mock()
+        registry = make_entity_registry(entry)
+        with patch(f"{helpers.__name__}.er.async_get", return_value=registry):
+            return await _write(host)
+
+    assert await write_with(enabled) is True
+    assert _written_to(host, helper_id)
+
+    assert await write_with(disabled) is False
+    assert not _written_to(host, helper_id)
+    assert await write_with(disabled) is False
+    assert len(_disabled_sibling_warnings(caplog)) == 1
+
+    assert await write_with(enabled) is True
+    assert _written_to(host, helper_id)
+    assert await write_with(disabled) is False
+    assert len(_disabled_sibling_warnings(caplog)) == 2

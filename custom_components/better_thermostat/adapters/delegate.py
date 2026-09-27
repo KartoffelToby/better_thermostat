@@ -8,7 +8,10 @@ import math
 
 from homeassistant.helpers.importlib import async_import_module
 
-from custom_components.better_thermostat.utils.helpers import round_by_step
+from custom_components.better_thermostat.utils.helpers import (
+    round_by_step,
+    sibling_disabled_at_write,
+)
 
 from ..utils.retry import async_retry
 
@@ -239,6 +242,10 @@ async def set_offset(self, entity_id, offset) -> bool:
     ``last_calibration_requested`` is written on a write only: a
     swallowed failure would otherwise look like a command in flight.
 
+    A calibration entity disabled in Home Assistant since it was adopted
+    is not written to: the call would be dropped, and answering ``True``
+    would leave the caller waiting on an offset that never arrives.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -252,8 +259,16 @@ async def set_offset(self, entity_id, offset) -> bool:
     -------
     bool
         True when the adapter put the offset on the wire, False when the
-        device has no offset channel or every retry raised
+        device has no offset channel, its calibration entity is disabled,
+        or every retry raised
     """
+    calibration_entity = getattr(
+        self.real_trvs[entity_id], "local_temperature_calibration_entity", None
+    )
+    if calibration_entity is not None and sibling_disabled_at_write(
+        self, entity_id, calibration_entity, "local calibration"
+    ):
+        return False
 
     @async_retry(retries=5)
     async def inner():
@@ -358,12 +373,19 @@ async def set_valve(self, entity_id, valve) -> bool:
     )
     if quirk_write is not None:
         channels.append(("override", quirk_write, True))
+    # A valve entity disabled in Home Assistant since it was adopted drops
+    # every write, so it is no channel until it is enabled again.
+    valve_entity_usable = (
+        bool(valve_entity)
+        and valve_writable is True
+        and not sibling_disabled_at_write(
+            self, entity_id, valve_entity, "valve position"
+        )
+    )
     if (
         adapter_write is not None
         and adapter_writes_valve
-        and (
-            (valve_entity and valve_writable is True) or not adapter_needs_valve_entity
-        )
+        and (valve_entity_usable or not adapter_needs_valve_entity)
     ):
         channels.append(("adapter", adapter_write, False))
 

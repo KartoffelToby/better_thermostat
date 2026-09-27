@@ -117,25 +117,64 @@ def is_sibling_entry(entry: er.RegistryEntry, device_id: str | None) -> bool:
     return _shares_device(entry, device_id) and entry.disabled_by is None
 
 
-# Disabled entities already named in a warning, so each is named once and
-# not on every lookup that passes over it.
-_REPORTED_DISABLED_SIBLINGS: set[str] = set()
+# Discovery runs when a Better Thermostat entry is set up, so an entity
+# enabled later is only picked up by the next setup.
+_ENABLE_AND_RELOAD: Final = (
+    "Better Thermostat picks it up once it is enabled and this Better "
+    "Thermostat entry is reloaded"
+)
 
 
 def _report_disabled_sibling(
-    sibling_entity_id: str, trv_entity_id: str, role: str
+    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
 ) -> None:
-    """Warn once that the only ``role`` entity of a TRV is disabled."""
-    if sibling_entity_id in _REPORTED_DISABLED_SIBLINGS:
-        return
-    _REPORTED_DISABLED_SIBLINGS.add(sibling_entity_id)
+    """Warn that the ``role`` entity of a TRV is disabled in Home Assistant.
+
+    The TRV record remembers the warning, so it is logged once per entity
+    while the entity stays disabled. A host without TRV records, such as
+    the config flow, warns on every call.
+    """
+    trvs = getattr(self, "real_trvs", None)
+    trv = trvs.get(trv_entity_id) if isinstance(trvs, dict) else None
+    if trv is not None:
+        if sibling_entity_id in trv.disabled_siblings_logged:
+            return
+        trv.disabled_siblings_logged.add(sibling_entity_id)
     _LOGGER.warning(
-        "better thermostat: %s would be the %s entity of %s but is disabled in "
-        "Home Assistant; enable it to let Better Thermostat use it",
+        "better_thermostat %s: %s, the %s entity of %s, is disabled in Home "
+        "Assistant; %s",
+        getattr(self, "device_name", "unknown"),
         sibling_entity_id,
         role,
         trv_entity_id,
+        outcome,
     )
+
+
+def sibling_disabled_at_write(
+    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str
+) -> bool:
+    """Whether a helper entity adopted for a TRV is disabled right now.
+
+    An entity disabled after discovery is still the TRV's adopted helper,
+    but Home Assistant drops a service call aimed at it. The caller does
+    not write, and the first such skip is logged as a warning. Once the
+    entity is enabled again its warning is re-armed.
+    """
+    entry = er.async_get(self.hass).async_get(sibling_entity_id)
+    if entry is None or entry.disabled_by is None:
+        trv = self.real_trvs.get(trv_entity_id)
+        if trv is not None:
+            trv.disabled_siblings_logged.discard(sibling_entity_id)
+        return False
+    _report_disabled_sibling(
+        self,
+        trv_entity_id,
+        sibling_entity_id,
+        role,
+        "nothing is written to it until it is enabled again",
+    )
+    return True
 
 
 def find_device_entity(
@@ -1925,7 +1964,9 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
         return readonly_candidate
 
     if disabled_match is not None:
-        _report_disabled_sibling(disabled_match, entity_id, "valve position")
+        _report_disabled_sibling(
+            self, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
+        )
     _LOGGER.debug(
         "better thermostat: Could not find valve position entity for %s", entity_id
     )
@@ -2130,7 +2171,9 @@ async def find_local_calibration_entity(self, entity_id) -> str | None:
 
     if calibration_entity is None:
         if disabled_match is not None:
-            _report_disabled_sibling(disabled_match, entity_id, "local calibration")
+            _report_disabled_sibling(
+                self, entity_id, disabled_match, "local calibration", _ENABLE_AND_RELOAD
+            )
         _LOGGER.debug(
             "better thermostat: Could not find local calibration entity for %s",
             entity_id,

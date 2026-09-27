@@ -46,6 +46,7 @@ from custom_components.better_thermostat.utils.controlling import (
     check_target_temperature,
     control_trv,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -3371,6 +3372,16 @@ class TestSnappingSelectOffsetConverges:
     intent stays what the cycle asked for, so an unchanged intent does not
     re-arm the write once the device holds the snapped option.
     """
+
+    @pytest.fixture(autouse=True)
+    def _calibration_select_registered_and_enabled(self):
+        """The registry holds the calibration select as an enabled entry."""
+        registry = make_entity_registry(make_registry_entry(SELECT_CALIBRATION_ENTITY))
+        with patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get",
+            return_value=registry,
+        ):
+            yield
 
     def _wire(self, device):
         """Return a thermostat whose calibration entity is ``device``.
