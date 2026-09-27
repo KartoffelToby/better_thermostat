@@ -214,8 +214,8 @@ class MpcV2Controller:
         x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C, dt_s=dt_s)
         # The disturbance observer takes the share of the residual the filter
         # moved its room estimate by, not the raw innovation.
-        room_correction_K = float(x_hat[0]) - (T_room_C - innovation)
-        self.dob.update(room_correction_K, dt_s)
+        room_correction = float(x_hat[0]) - (T_room_C - innovation)
+        self.dob.update(room_correction, dt_s)
 
         # The governor runs behind the observer so it judges which setpoints
         # are reachable on the same disturbance estimate the QP plans with.

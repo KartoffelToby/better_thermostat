@@ -79,7 +79,7 @@ class PlantModelRC2:
         return self._euler_step(x, u, T_outdoor_C, D_K_per_min, self.dt_min)
 
     def propagate(
-        self, x: FloatArray, u: float, T_outdoor_C: float, dt_s: float
+        self, x: FloatArray, u: float, outdoor_temperature: float, dt_s: float
     ) -> FloatArray:
         """Advance ``x`` over ``dt_s`` under a constant valve fraction.
 
@@ -90,17 +90,18 @@ class PlantModelRC2:
         """
         n_steps, dt_min = self._substeps(dt_s)
         for _ in range(n_steps):
-            x = self._euler_step(x, u, T_outdoor_C, 0.0, dt_min)
+            x = self._euler_step(x, u, outdoor_temperature, 0.0, dt_min)
         return x
 
     def _euler_step(
         self,
         x: FloatArray,
         u: float,
-        T_outdoor_C: float,
-        D_K_per_min: float,
+        outdoor_temperature: float,
+        disturbance_rate: float,
         dt_min: float,
     ) -> FloatArray:
+        """Advance ``x`` by one Euler step of ``dt_min``; the rate is in K/min."""
         p = self.params
         u_clamped = max(0.0, min(1.0, u))
         T_room, T_rad = float(x[0]), float(x[1])
@@ -108,10 +109,10 @@ class PlantModelRC2:
             p.gain_heater * u_clamped * (p.T_water_C - T_rad) - (T_rad - T_room)
         ) / p.tau_rad_min
         dT_room = (
-            p.coupling_rad_room * (T_rad - T_room) - (T_room - T_outdoor_C)
+            p.coupling_rad_room * (T_rad - T_room) - (T_room - outdoor_temperature)
         ) / p.tau_room_min
         return np.array(
-            [T_room + (dT_room + D_K_per_min) * dt_min, T_rad + dT_rad * dt_min]
+            [T_room + (dT_room + disturbance_rate) * dt_min, T_rad + dT_rad * dt_min]
         )
 
     def _substeps(self, dt_s: float | None) -> tuple[int, float]:
@@ -138,8 +139,8 @@ class PlantModelRC2:
         n_steps, dt_min = self._substeps(dt_s)
         a_rad_room = dt_min / p.tau_rad_min
         a_rad_rad = 1.0 - dt_min / p.tau_rad_min
-        valve_drive_K = max(p.T_water_C - T_rad_op_C, MIN_VALVE_DRIVE_K)
-        b_rad = dt_min * p.gain_heater * valve_drive_K / p.tau_rad_min
+        valve_drive = max(p.T_water_C - T_rad_op_C, MIN_VALVE_DRIVE_K)
+        b_rad = dt_min * p.gain_heater * valve_drive / p.tau_rad_min
         a_room_room = 1.0 - dt_min * (p.coupling_rad_room + 1.0) / p.tau_room_min
         a_room_rad = dt_min * p.coupling_rad_room / p.tau_room_min
         d_room = dt_min * T_outdoor_C / p.tau_room_min

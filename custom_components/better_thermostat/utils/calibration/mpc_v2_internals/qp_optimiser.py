@@ -75,7 +75,7 @@ class QpParams:
     # within this band (K). Larger errors belong to a setpoint ramp or a
     # recovery the plan already drives at full effort, and integrating them
     # leaves an overshoot that takes hours to unwind.
-    integral_error_band_K: float = 0.5
+    integral_error_band: float = 0.5
     # Plant-aware step-size scaling. With ``adaptive_step_s=True`` the
     # ``step_s`` field above is recomputed at controller construction as
     # ``clamp(min, max, tau_room · per_tau)`` so fast envelopes get a finer
@@ -130,12 +130,12 @@ class QpOptimiser:
 
         Skips accumulation when the applied input is saturated and the error
         sign would only grow the integral further, or when the error lies
-        outside ``integral_error_band_K``. The interval counts at most one
+        outside ``integral_error_band``. The interval counts at most one
         re-plan step: time without a plan is not tracking error. The running
         total is clipped to ``±integral_clip_K_min``.
         """
         err = T_room - T_sp
-        if abs(err) > self.params.integral_error_band_K:
+        if abs(err) > self.params.integral_error_band:
             return
         band = self.params.saturation_band
         at_upper = u_applied >= self.params.u_max - band
@@ -167,9 +167,11 @@ class QpOptimiser:
 
         # The operating point and the drift both carry the disturbance
         # estimate, so the prediction settles where ``u_ss`` holds the room.
-        x_target = self._steady_state_for(T_sp, T_outdoor_C, D_hat_K_per_min)
+        radiator_operating_point = self.plant.steady_radiator_temp(
+            T_sp, T_outdoor_C, D_hat_K_per_min
+        )
         u_ss = self._steady_input_for(T_sp, T_outdoor_C, D_hat_K_per_min)
-        A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, float(x_target[1]))
+        A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, radiator_operating_point)
         d_vec = d_vec + np.array([D_hat_K_per_min * self.plant.dt_min, 0.0])
 
         A_pow = [np.eye(n)]
@@ -326,12 +328,6 @@ class QpOptimiser:
             if max_change < 1e-8:
                 break
         return x
-
-    def _steady_state_for(
-        self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
-    ) -> FloatArray:
-        T_rad_ss = self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min)
-        return np.array([T_sp, T_rad_ss])
 
     def _steady_input_for(
         self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0

@@ -182,11 +182,11 @@ def _integral_after_one_replan(gap_s: float) -> tuple[float, float]:
     params = MpcV2Params()
     params.governor.enabled = False
     controller = MpcV2Controller(params)
-    assert abs(_REPLAN_ERROR_K) < controller.params.qp.integral_error_band_K
-    room_C = 22.0 + _REPLAN_ERROR_K
-    controller.step(100.0, room_C, 22.0, 5.0)
+    assert abs(_REPLAN_ERROR_K) < controller.params.qp.integral_error_band
+    room_temperature = 22.0 + _REPLAN_ERROR_K
+    controller.step(100.0, room_temperature, 22.0, 5.0)
     controller.set_applied_u(0.5)
-    controller.step(100.0 + gap_s, room_C, 22.0, 5.0)
+    controller.step(100.0 + gap_s, room_temperature, 22.0, 5.0)
     return controller.optimiser.e_integral_K_min, controller.params.qp.step_s
 
 

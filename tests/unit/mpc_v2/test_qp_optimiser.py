@@ -31,9 +31,9 @@ def test_cold_room_commands_heat() -> None:
     assert u > 0.1, f"expected substantial heat call, got u={u}"
 
 
-@pytest.mark.parametrize("T_sp", [25.0, 30.0])
+@pytest.mark.parametrize("target_temperature", [25.0, 30.0])
 def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
-    T_sp: float,
+    target_temperature: float,
 ) -> None:
     """A setpoint whose steady radiator lies above the supply water still heats.
 
@@ -43,9 +43,10 @@ def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
     """
     plant_params = PlantParams(tau_room_min=720.0)
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
-    assert opt.plant.steady_radiator_temp(T_sp, -16.0) > plant_params.T_water_C
+    target = target_temperature
+    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
 
-    u = opt.solve(np.array([T_sp - 3.0, T_sp - 3.0]), T_sp, -16.0, u_last=0.0)
+    u = opt.solve(np.array([target - 3.0, target - 3.0]), target, -16.0, u_last=0.0)
 
     assert u == pytest.approx(QpParams().delta_u_max)
 
@@ -137,23 +138,24 @@ def test_anti_windup_skips_saturated_integration() -> None:
 
 
 @pytest.mark.parametrize(
-    ("T_room", "expected_K_min"), [(21.4, 0.0), (21.6, -2.0), (22.4, 2.0), (22.6, 0.0)]
+    ("room_temperature", "expected_integral"),
+    [(21.4, 0.0), (21.6, -2.0), (22.4, 2.0), (22.6, 0.0)],
 )
 def test_integral_collects_only_errors_inside_the_band(
-    T_room: float, expected_K_min: float
+    room_temperature: float, expected_integral: float
 ) -> None:
-    """Errors beyond ``integral_error_band_K`` leave the integral untouched.
+    """Errors beyond ``integral_error_band`` leave the integral untouched.
 
     A room 0.6 K off the setpoint is still being driven there by the plan,
     while 0.4 K counts as residual offset. The valve sits mid-rail, so only
     the band decides.
     """
     opt = _make_optimiser()
-    assert opt.params.integral_error_band_K == 0.5
+    assert opt.params.integral_error_band == 0.5
 
-    opt.update_integral(T_room=T_room, T_sp=22.0, u_applied=0.5, dt_s=300.0)
+    opt.update_integral(T_room=room_temperature, T_sp=22.0, u_applied=0.5, dt_s=300.0)
 
-    assert opt.e_integral_K_min == pytest.approx(expected_K_min)
+    assert opt.e_integral_K_min == pytest.approx(expected_integral)
 
 
 def test_integral_clipping() -> None:
