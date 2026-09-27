@@ -53,6 +53,7 @@ class _Case:
     max_moves: int
     max_valve_span_pct: int
     max_mean_abs_error: float
+    setpoint: float = SETPOINT_C
 
 
 _CASES = {
@@ -98,7 +99,7 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
     rng = np.random.default_rng(7)
     params = MpcV2Params(plant=case.model)
     room = PlantModelRC2(case.room, dt_s=ROOM_STEP_S)
-    x = np.array([SETPOINT_C, SETPOINT_C])
+    x = np.array([case.setpoint, case.setpoint])
     state = None
     applied_pct: int | None = None
     valves: list[int] = []
@@ -113,7 +114,7 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
         out, state = compute_mpc_v2(
             MpcV2Input(
                 key="valve-calm",
-                target_temp_C=SETPOINT_C,
+                target_temp_C=case.setpoint,
                 current_temp_C=reading,
                 trv_temp_C=float(x[1]),
                 outdoor_temp_C=case.outdoor_temperature,
@@ -128,14 +129,44 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
         applied_pct = out.valve_percent
         if t_s / 3600.0 >= SETTLED_FROM_H:
             valves.append(applied_pct)
-            errors.append(float(x[0]) - SETPOINT_C)
+            errors.append(float(x[0]) - case.setpoint)
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
             x = room.discrete_step(x, applied_pct / 100.0, case.outdoor_temperature)
             t_s += ROOM_STEP_S
     return valves, errors
 
 
-@pytest.mark.parametrize("name", list(_CASES))
+# A setpoint between two 0.5 K readings leaves every reading 0.2 or 0.3 K off
+# it, so the valve cycles between the two readings. The bounds are what the
+# controller did before free heat entered its plan (up to 192 moves, a 57 %
+# span over outdoor 0..+10 °C); the planning reading of the disturbance
+# follows that cycle and widens the span to 85..88 %.
+_OFF_QUANTUM_CASES = {
+    f"quantum0.5-setpoint{setpoint:.1f}-outdoor+0": _Case(
+        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 192, 57, 0.25, setpoint=setpoint
+    )
+    for setpoint in (21.2, 21.3)
+}
+_CASES.update(_OFF_QUANTUM_CASES)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(
+            name,
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="the planning reading of the disturbance follows the "
+                "cycle between two quantised readings and widens the valve "
+                "span beyond what the controller showed without it",
+            ),
+        )
+        if name in _OFF_QUANTUM_CASES
+        else name
+        for name in _CASES
+    ],
+)
 def test_valve_stays_calm_on_a_noisy_sensor_or_a_mismatched_model(name: str) -> None:
     """The settled valve neither hunts nor wanders while the room holds.
 
