@@ -1949,12 +1949,17 @@ async def control_trv(
                         # maintenance drives the device through the delegate
                         # and nothing confirms those writes.
                         trv.remember_setpoint_written(trv.last_temperature)
-                        if trv.target_temp_received is True:
-                            trv.target_temp_received = False
-                            self.task_manager.create_task(
-                                check_target_temperature(self, entity_id),
-                                name=f"bt_check_target_temp_{entity_id}",
-                            )
+                        # Every write is watched on its own: a watchdog still
+                        # waiting on an earlier write steps aside for this one
+                        # rather than holding the channel for a command the
+                        # device may never report.
+                        trv.target_temp_received = False
+                        self.task_manager.create_task(
+                            check_target_temperature(
+                                self, entity_id, trv.last_setpoint_write_id
+                            ),
+                            name=f"bt_check_target_temp_{entity_id}",
+                        )
                     else:
                         # A deferred setpoint re-derives on the catch-up cycle
                         # once the slot is free again. Falling through to the
@@ -2043,7 +2048,9 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
     return True
 
 
-async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bool:
+async def check_target_temperature(
+    self: BetterThermostat, entity_id: str, write_id: int | None = None
+) -> bool:
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
@@ -2057,12 +2064,21 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     that write and the ones before it and leaves anything written while the
     wait ran. An unreadable setpoint ends the wait without confirming one.
 
+    Each control write starts a watchdog of its own. Once a newer write has
+    gone out, this one no longer speaks for the channel: it still records a
+    report of its own command as confirmed, but otherwise ends without
+    waiting for the timeout, and only the watchdog of the newest write
+    releases ``target_temp_received``.
+
     Parameters
     ----------
     self : BetterThermostat
         The Better Thermostat climate entity instance
     entity_id : str
         Entity ID of the TRV to check
+    write_id : int | None, optional
+        Id of the write this watchdog was started for; ``None`` watches the
+        last write issued
 
     Returns
     -------
@@ -2072,7 +2088,7 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     _timeout = 0
     trv = self.real_trvs[entity_id]
     _awaited_setpoint = trv.last_temperature
-    _awaited_write_id = trv.last_setpoint_write_id
+    _awaited_write_id = trv.last_setpoint_write_id if write_id is None else write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2112,6 +2128,14 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
             trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break
+        if trv.last_setpoint_write_id != _awaited_write_id:
+            _LOGGER.debug(
+                "better_thermostat %s: a newer setpoint write superseded the one "
+                "%s was being watched for, leaving the channel to its watchdog",
+                self.device_name,
+                entity_id,
+            )
+            return True
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
@@ -2128,7 +2152,8 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
         _timeout += 1
     await asyncio.sleep(2)
 
-    trv.target_temp_received = True
+    if trv.last_setpoint_write_id == _awaited_write_id:
+        trv.target_temp_received = True
     return True
 
 

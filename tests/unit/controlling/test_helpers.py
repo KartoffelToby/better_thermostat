@@ -552,27 +552,22 @@ class TestCheckTargetTemperature:
 
     @pytest.mark.asyncio
     async def test_writes_made_during_the_wait_survive_the_confirmation(self):
-        """Only one write is watched, so 24.0 and 25.0 are still in flight.
+        """A confirmation retires the watched write and leaves the newer ones.
 
-        The watchdog reads the command and its id at entry. The control loop
-        then writes 24.0 and 25.0 while the wait runs — neither gets a
-        watchdog of its own. When the device finally reports 23.0, the
-        confirmation must retire 23.0 alone.
+        The control loop writes 24.0 and 25.0 while the wait for 23.0 runs,
+        each under a watchdog of its own. When the device then reports 23.0,
+        the confirmation retires 23.0 alone, and the channel stays closed for
+        the watchdog of the newest write to release.
         """
         trv = Trv.from_legacy_dict(
             "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
         )
-        trv.remember_setpoint_written(23.0)
-
-        polls: list[int] = []
+        watched = trv.remember_setpoint_written(23.0)
 
         def report(_entity_id):
-            polls.append(1)
-            if len(polls) == 1:
-                # The control loop writes again while the wait runs.
-                trv.remember_setpoint_written(24.0)
-                trv.remember_setpoint_written(25.0)
-                return State("climate.trv1", HVACMode.HEAT, {"temperature": 20.0})
+            # The control loop writes again while the wait runs.
+            trv.remember_setpoint_written(24.0)
+            trv.remember_setpoint_written(25.0)
             return State("climate.trv1", HVACMode.HEAT, {"temperature": 23.0})
 
         mock_hass = MagicMock()
@@ -585,11 +580,76 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await check_target_temperature(mock_self, "climate.trv1", watched)
 
         assert result is True
         assert trv.confirmed_setpoint == 23.0
         assert trv.echo_setpoint_values() == [24.0, 25.0]
+        assert trv.target_temp_received is False
+
+    @pytest.mark.asyncio
+    async def test_a_superseded_watchdog_ends_without_waiting_for_its_write(self):
+        """A write a newer one replaced holds the channel no longer.
+
+        The device never reports 23.0, and a newer write went out while the
+        wait ran. The watchdog for 23.0 ends at once, without the timeout and
+        without a warning; it confirms nothing and leaves the channel to the
+        watchdog of the newer write.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+        )
+        watched = trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_written(24.0)
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 24.0}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        durations, sleep_patch = _sleep_recorder()
+
+        with sleep_patch, patch(f"{_CTRL}._LOGGER") as logger:
+            result = await check_target_temperature(mock_self, "climate.trv1", watched)
+
+        assert result is True
+        assert durations == []
+        logger.warning.assert_not_called()
+        assert trv.confirmed_setpoint is None
+        assert trv.echo_setpoint_values() == [23.0, 24.0]
+        assert trv.target_temp_received is False
+
+    @pytest.mark.asyncio
+    async def test_the_watchdog_of_the_newest_write_releases_the_channel(self):
+        """The newest write's watchdog confirms it and opens the channel again."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 24.0, "target_temp_received": False}
+        )
+        trv.remember_setpoint_written(23.0)
+        newest = trv.remember_setpoint_written(24.0)
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 24.0}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        _, sleep_patch = _sleep_recorder()
+
+        with sleep_patch:
+            result = await check_target_temperature(mock_self, "climate.trv1", newest)
+
+        assert result is True
+        assert trv.confirmed_setpoint == 24.0
+        assert trv.echo_setpoint_values() == []
+        assert trv.target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_a_maintenance_write_cannot_confirm_the_control_write(self):

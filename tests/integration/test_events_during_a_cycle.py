@@ -458,11 +458,6 @@ async def test_the_setpoint_watchdog_waits_while_the_device_reports_its_previous
     assert trv.confirmed_setpoint == pytest.approx(written)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the setpoint watchdog keeps waiting for the write a newer one replaced, "
-    "and holds user presses off until its timeout",
-)
 async def test_the_setpoint_watchdog_ends_once_the_device_confirms_a_newer_write(hass):
     """A setpoint write a newer one replaced no longer holds the device's channel.
 
@@ -487,6 +482,9 @@ async def test_the_setpoint_watchdog_ends_once_the_device_confirms_a_newer_write
             assert fake_trv.target_temperature == second
 
             assert await poll_until(hass, lambda: trv.target_temp_received, PROMPTLY_S)
+            # The turn has to land after the cycle that wrote the second
+            # setpoint: a turn inside a cycle is read on the next report.
+            assert await poll_until(hass, lambda: not bt.ignore_states)
             _operate(fake_trv, temperature=25.0)
             await poll_until(hass, lambda: bt.bt_target_temp == 25.0, SETTLE_S)
 

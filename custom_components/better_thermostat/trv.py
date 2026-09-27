@@ -141,9 +141,10 @@ class Trv:
     # confirms is read as an echo as well; that is the price of telling a
     # held write from a press.
     pending_setpoints: list[PendingSetpoint] = field(default_factory=list)
-    # The id the last setpoint write went out under. A watchdog records it at
-    # the start of its wait so the confirmation retires that command and the
-    # ones before it, never a write made while the wait ran.
+    # The id the last setpoint write went out under. Each write's watchdog
+    # holds the id of its own write, so the confirmation retires that command
+    # and the ones before it, never a write made while the wait ran, and a
+    # watchdog whose id is no longer the last one has been superseded.
     last_setpoint_write_id: int = 0
     # The highest write id a confirmation has already covered. Handing a
     # shared device over releases the heating channel's pending confirmation
@@ -264,11 +265,10 @@ class Trv:
         The device holds ``value`` now, so the writes through
         ``through_write_id`` cannot come back. The caller passes the command
         it waited on rather than the current ``last_temperature``, which
-        another task may have moved on to. Only one write is watched at a
-        time, so a write made while the wait ran carries a higher id and is
-        still on the wire; it stays. Matching on the id rather than the value
-        keeps a command that was sent again after the awaited one from
-        retiring the writes between them.
+        another task may have moved on to. A write made while the wait ran
+        carries a higher id and is still on the wire; it stays. Matching on
+        the id rather than the value keeps a command that was sent again
+        after the awaited one from retiring the writes between them.
 
         Parameters
         ----------
