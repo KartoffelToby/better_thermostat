@@ -651,7 +651,12 @@ def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -
             self, state, "min_temp", None, "member_counts_as_off()"
         )
     return setpoint_at_minimum(
-        setpoint, min_temp, self.hass.config.units.temperature_unit
+        setpoint,
+        min_temp,
+        step=member.target_temp_step,
+        whole_degrees=published_in_whole_fahrenheit(
+            state, self.hass.config.units.temperature_unit
+        ),
     )
 
 
@@ -1725,27 +1730,56 @@ def matches_any_setpoint(
 # Assistant published in whole degrees may lie above the one the device holds.
 _HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
 
+# The temperatures a climate state publishes at the precision of its entity.
+_PRECISION_ATTRIBUTES = ("min_temp", "max_temp", "current_temperature")
+
+
+def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) -> bool:
+    """Whether Home Assistant publishes this climate state in whole degrees Fahrenheit.
+
+    The state does not name the precision it was rounded to, so it is read
+    off the temperatures published with it: every one of them a whole
+    degree. An entity that states halves or tenths shows a finer value in
+    at least one of them nearly always.
+    """
+    if system_unit != UnitOfTemperature.FAHRENHEIT or state is None:
+        return False
+    values = [
+        convert_to_float(str(state.attributes.get(key)), "", "published precision")
+        for key in _PRECISION_ATTRIBUTES
+    ]
+    present = [value for value in values if value is not None]
+    return bool(present) and all(_published_grid(value) == 1.0 for value in present)
+
 
 def setpoint_at_minimum(
-    setpoint: float | None, min_temp: float | None, system_unit: str | None
+    setpoint: float | None,
+    min_temp: float | None,
+    *,
+    step: float | None,
+    whole_degrees: bool,
 ) -> bool:
     """Whether a setpoint a device reports sits at the thermostat's minimum.
 
     ``min_temp`` is the lowest setpoint Better Thermostat writes to the
-    device, and the device reports it back on the 0.01 grid of a reading.
-    On a Fahrenheit system that minimum lies inward of the device's own, so
-    a device turned down to its end stop reports less than it; and Home
-    Assistant publishes a device's setpoint rounded to its precision, whole
-    degrees unless the integration states finer, so a device parked at the
-    minimum may report up to half a degree above it. All of these are the
-    device at its minimum.
+    device, and the device holds the first point of its ``step`` grid at or
+    above it: that is where it is parked. It reports that back on the 0.01
+    grid of a reading. On a Fahrenheit system the minimum lies inward of the
+    device's own, so a device turned down to its end stop reports less than
+    it. And a device Home Assistant publishes in whole degrees Fahrenheit
+    (``whole_degrees``) may report a parked setpoint up to half a degree
+    above the one it holds. All of these are the device at its minimum; a
+    setpoint any higher is one the user chose.
     """
     if setpoint is None or min_temp is None:
         return False
+    parked = min_temp
+    if step:
+        parked = max(min_temp, round_by_step(min_temp, step, Rounding.up) or min_temp)
     slack = SETPOINT_MATCH_TOLERANCE
-    if system_unit == UnitOfTemperature.FAHRENHEIT:
+    if whole_degrees:
         slack += _HALF_FAHRENHEIT_DEGREE
-    return setpoint <= min_temp + slack
+    return setpoint <= parked + slack
 
 
 class Rounding:

@@ -44,6 +44,7 @@ from custom_components.better_thermostat.utils.helpers import (
     last_sent_cooler_temperature,
     mode_remap,
     normalize_step,
+    published_in_whole_fahrenheit,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
@@ -515,7 +516,10 @@ async def trigger_trv_change(self, event):
             if setpoint_at_minimum(
                 _raw_heating_setpoint,
                 trv.min_temp,
-                self.hass.config.units.temperature_unit,
+                step=trv.target_temp_step,
+                whole_degrees=published_in_whole_fahrenheit(
+                    new_state, self.hass.config.units.temperature_unit
+                ),
             ):
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
