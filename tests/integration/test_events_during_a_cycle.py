@@ -392,12 +392,6 @@ async def test_the_mode_watchdog_waits_while_the_device_reports_its_previous_mod
     assert fake_trv.hvac_mode == HVACMode.OFF
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the mode watchdog keeps waiting for a mode command the room no longer "
-    "wants when the device already holds the newer one, and holds user presses off "
-    "until its timeout",
-)
 async def test_the_mode_watchdog_ends_once_the_device_holds_the_newer_intent(hass):
     """A mode command the room has taken back no longer holds the device's channel.
 
@@ -422,6 +416,41 @@ async def test_the_mode_watchdog_ends_once_the_device_holds_the_newer_intent(has
             await poll_until(hass, lambda: bt.bt_target_temp == 25.0, SETTLE_S)
 
     assert bt.bt_target_temp == pytest.approx(25.0)
+
+
+async def test_a_mode_command_the_room_took_back_does_not_switch_the_room_when_it_lands(
+    hass,
+):
+    """A slow device applying a mode command the room has taken back is no press.
+
+    The room is switched off and straight back on before the slow device has
+    taken the off command, and the device applies it long after. That is
+    Better Thermostat's own command landing late: the room stays on, and the
+    device is brought back to the mode the room wants.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
+    trv = bt.real_trvs[TRV_ID]
+
+    with patch(WRITE_BUDGET, 0.0), patch(CONFIRM_TIMEOUT, 10**9):
+        async with deferring_next_write(fake_trv, "async_set_hvac_mode") as deferred:
+            await _command(hass, hvac_mode=HVACMode.OFF)
+            assert await poll_until(hass, lambda: deferred.apply is not None)
+            await _command(hass, hvac_mode=HVACMode.HEAT)
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+            assert await poll_until(hass, lambda: trv.system_mode_received, PROMPTLY_S)
+
+            # Long after the command went out, the device's report no longer
+            # carries the context of Better Thermostat's service call.
+            fake_trv.async_set_context(Context())
+            await deferred.land()
+            await _handled(hass, bt)
+            assert fake_trv.hvac_mode == HVACMode.OFF
+            assert bt.bt_hvac_mode == HVACMode.HEAT
+
+        await _run_reconcile_tick(hass, bt)
+
+    assert fake_trv.hvac_mode == HVACMode.HEAT
+    assert bt.bt_hvac_mode == HVACMode.HEAT
 
 
 # ---------------------------------------------------------------------------

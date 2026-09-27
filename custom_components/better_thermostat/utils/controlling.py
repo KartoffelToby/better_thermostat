@@ -1756,6 +1756,21 @@ async def control_trv(
             ):
                 _live_trv = _trv
             _reported_hvac_mode = _live_trv.state
+            _mode_trv = self.real_trvs[entity_id]
+            if (
+                _new_hvac_mode is not None
+                and _new_hvac_mode == _reported_hvac_mode
+                and _mode_trv.last_hvac_mode != _new_hvac_mode
+            ):
+                # The device already holds the mode the room wants, so an
+                # earlier command for another mode is no longer the one to
+                # wait for: the mode watchdog ends on the mode the device
+                # holds instead of holding the channel until its timeout.
+                # An unconfirmed command stays on the wire, and a slow device
+                # may still apply it, so it is remembered as withdrawn.
+                if _mode_trv.system_mode_received is False:
+                    _mode_trv.withdrawn_hvac_mode = _mode_trv.last_hvac_mode
+                _mode_trv.last_hvac_mode = _new_hvac_mode
             if (
                 _new_hvac_mode is not None
                 and _new_hvac_mode != _reported_hvac_mode
@@ -1772,6 +1787,7 @@ async def control_trv(
                     _new_hvac_mode,
                 )
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
+                self.real_trvs[entity_id].withdrawn_hvac_mode = None
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, entity_id, _new_hvac_mode
                 )

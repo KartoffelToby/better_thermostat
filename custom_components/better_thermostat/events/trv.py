@@ -327,8 +327,14 @@ async def trigger_trv_change(self, event):
             )
             trv.hvac_mode = _org_trv_state.state
             _main_change = True
+            # A mode the room took back before the device applied it is
+            # Better Thermostat's own command landing late, not a press.
+            _withdrawn_command_landed = trv.withdrawn_hvac_mode == _org_trv_state.state
+            if _withdrawn_command_landed:
+                trv.withdrawn_hvac_mode = None
             if (
                 not child_lock
+                and not _withdrawn_command_landed
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))

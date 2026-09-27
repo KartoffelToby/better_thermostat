@@ -153,6 +153,12 @@ class Trv:
     confirmed_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
+    # A mode command still on the wire that the room took back before the
+    # device confirmed it. The device already held the mode the room wanted
+    # again, so no newer command went out to replace it, and a slow device
+    # may still apply it. Its report is Better Thermostat's own command
+    # landing late, not a press at the device.
+    withdrawn_hvac_mode: str | None = None
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
