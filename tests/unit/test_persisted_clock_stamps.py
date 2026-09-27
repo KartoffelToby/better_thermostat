@@ -189,6 +189,23 @@ def test_output_follows_the_controller_on_the_first_cycle_after_a_host_reboot():
     assert percent != 40
 
 
+def test_hold_and_tuning_stamps_ahead_of_the_clock_reset_on_their_own():
+    """A hold or tuning stamp from the previous uptime is dropped by itself.
+
+    The measurement stamp can be missing from the store while the other
+    two survive; each stamp that lies ahead of the clock is from the
+    previous uptime whatever the others hold.
+    """
+    params = PIDParams(auto_tune=False)
+    state = _restored_after_reboot(_state_at_shutdown(pid_last_time=0.0))
+
+    percent, debug, state = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8)
+
+    assert percent == round(debug["u"])
+    assert percent != 40
+    assert state.last_tune_ts == 0.0
+
+
 def test_output_is_held_within_the_hold_time_after_a_core_restart():
     """Within one uptime the hold time still keeps a small change back.
 
