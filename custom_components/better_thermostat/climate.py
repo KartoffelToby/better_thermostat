@@ -927,16 +927,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp_max: float | None = _configured_temperature_bound(
             target_temp_max, name, CONF_TARGET_TEMP_MAX
         )
+        # The configured step is picked from options labelled in Celsius, the
+        # unit the configured range is picked in, so it is read as Celsius on
+        # every system.
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
-        if (
-            self.bt_target_temp_step is not None
-            and unit == UnitOfTemperature.FAHRENHEIT
-        ):
-            self.bt_target_temp_step = round(self.bt_target_temp_step * 5.0 / 9.0, 4)
         # ``bt_target_temp_step`` also absorbs the step derived from the child
         # entities, so the explicitly configured value is kept apart: it is the
         # only step that may override a device's own grid.

@@ -639,13 +639,6 @@ async def test_configured_bounds_are_read_in_the_unit_their_label_names(hass):
     assert state.attributes["max_temp"] == pytest.approx(_fahrenheit(24.0), abs=0.5)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the step picked as 0.5 °C is scaled by 5/9 as if it were a Fahrenheit "
-        "difference, so the device is written on a 0.28 °C grid"
-    ),
-)
 async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     """A step picked from a dropdown labelled in Celsius is a step in Celsius.
 
