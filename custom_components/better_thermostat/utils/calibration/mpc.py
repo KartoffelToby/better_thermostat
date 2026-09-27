@@ -208,7 +208,13 @@ def _update_perf_curve(
         state.last_room_temp_ts = now
         return
 
-    if state.last_room_temp_ts <= 0.0 or state.last_room_temp_C is None:
+    # A stamp ahead of the clock is left from before the wall clock stepped
+    # back; the reading it belongs to spans no known interval.
+    if (
+        state.last_room_temp_ts <= 0.0
+        or state.last_room_temp_ts > now
+        or state.last_room_temp_C is None
+    ):
         state.last_room_temp_C = float(inp.current_temp_C)
         state.last_room_temp_ts = now
         return

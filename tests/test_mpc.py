@@ -13,6 +13,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcParams,
     MpcState,
     _post_process_percent,
+    _update_perf_curve,
     compute_mpc as _compute_mpc,
 )
 
@@ -440,6 +441,35 @@ class TestMPCController:
 
         assert state.dead_zone_hits == 0
         assert state.min_effective_percent is None
+
+    def test_a_wall_clock_step_back_costs_at_most_one_evaluation(self):
+        """A room record stamped ahead of the clock is taken as no record.
+
+        After the wall clock steps back, the stored room stamp lies in the
+        future. The record is refreshed on that cycle, so a TRV and a room
+        that keep answering the command raise no minimum opening.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState()
+        now = 1_700_000_000.0
+        for cycle in range(200):
+            if cycle == 100:
+                now -= 3600.0
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=40.0,
+                current_temp_C=18.0 + 0.1 * cycle,
+                trv_temp_C=20.0 + 0.2 * (cycle % 50),
+                tolerance_K=0.0,
+            )
+            _post_process_percent(inp, params, state, now, 10.0, 0.5)
+            _update_perf_curve(state, inp, params, now, {})
+            assert state.min_effective_percent is None, cycle
+            now += 300.0
 
     def test_a_learned_minimum_decays_after_the_trv_reads_as_linear(self):
         """A minimum opening learned on a dead zone decays once the TRV responds.
