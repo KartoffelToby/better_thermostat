@@ -14,6 +14,7 @@ The module has three public coroutines plus a helper class:
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,6 +23,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 import pytest
 
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.weather import (
     DailyHistory,
     check_ambient_air_temperature,
@@ -68,6 +70,9 @@ def make_bt(hass, **kw):
         off_temperature=10.0,
         last_avg_outdoor_temp=None,
         call_for_heat=True,
+        clock=FakeClock(),
+        weather_verdict_missing_since=None,
+        weather_fallback_active=False,
     )
     for k, v in kw.items():
         setattr(bt, k, v)
@@ -803,3 +808,78 @@ class TestCheckWeather:
         assert bt.call_for_heat is previous
         assert changed is False
         logbook.assert_not_awaited()
+
+
+HOUR_S = 3600.0
+
+
+async def _hourly_checks(bt, verdicts):
+    """Run one weather check per hour, answering each with the next verdict."""
+    prediction = AsyncMock(side_effect=list(verdicts))
+    with (
+        patch(f"{WEATHER_MOD}.check_weather_prediction", prediction),
+        patch(f"{WEATHER_MOD}.async_fire_logbook_entry", AsyncMock()),
+    ):
+        for _ in verdicts:
+            await check_weather(bt)
+            bt.clock.advance(HOUR_S)
+
+
+def _fallback_warnings(caplog):
+    """Return the warnings announcing the fallback to heating."""
+    return [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and WEATHER_ID in r.getMessage()
+    ]
+
+
+class TestForecastOutage:
+    """How long a weather-only setup holds its decision without a forecast."""
+
+    async def test_a_lasting_outage_resumes_heating(self, caplog):
+        """A weather entity that stays silent cannot keep the room in summer mode.
+
+        After a warm forecast the room rests; once the entity has given no
+        verdict for longer than the hold, the room heats again, and the
+        fallback is announced once, naming the weather entity.
+        """
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        with caplog.at_level(logging.WARNING, logger=WEATHER_MOD):
+            await _hourly_checks(bt, [False] + [None] * 720)
+
+        assert bt.call_for_heat is True
+        assert len(_fallback_warnings(caplog)) == 1
+
+    async def test_a_short_outage_keeps_summer_mode(self):
+        """An outage within the hold leaves the room resting."""
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+
+        await _hourly_checks(bt, [False, None, None, None])
+
+        assert bt.call_for_heat is False
+
+    async def test_a_returning_verdict_rearms_the_hold(self, caplog):
+        """A verdict ends the outage, so the next outage gets the full hold again.
+
+        The return is logged once.
+        """
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        with caplog.at_level(logging.INFO, logger=WEATHER_MOD):
+            await _hourly_checks(bt, [False, None, None, False, None, None, None])
+
+        assert bt.call_for_heat is False
+        returns = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.INFO and WEATHER_ID in r.getMessage()
+        ]
+        assert len(returns) == 1
+
+    async def test_a_verdict_after_the_fallback_is_applied(self):
+        """A warm verdict after the fallback puts the room back into summer mode."""
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+
+        await _hourly_checks(bt, [False] + [None] * 5 + [False])
+
+        assert bt.call_for_heat is False

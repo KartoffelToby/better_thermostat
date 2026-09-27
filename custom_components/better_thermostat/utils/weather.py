@@ -22,6 +22,14 @@ from .helpers import async_fire_logbook_entry, convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
+# How long a weather-only setup keeps its decision while the weather entity
+# gives no forecast verdict. check_weather runs once an hour, so this holds
+# the decision across three silent checks: long enough to ride out a cloud
+# weather service that is rate-limited or reconnecting, short enough that an
+# entity gone for good cannot keep a room in summer mode, which is the side
+# the outdoor sensor path also falls back to when it has no data.
+WEATHER_VERDICT_HOLD = timedelta(hours=3)
+
 
 async def check_weather(self) -> bool:
     """Check weather predictions or ambient air temperature if available.
@@ -42,9 +50,37 @@ async def check_weather(self) -> bool:
 
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
-        # None means the prediction has no opinion; the previous decision stays.
         if isinstance(_call_for_heat_weather, bool):
+            if self.weather_verdict_missing_since is not None:
+                _LOGGER.info(
+                    "better_thermostat %s: weather entity %s gives a forecast "
+                    "verdict again",
+                    self.device_name,
+                    self.weather_entity,
+                )
+            self.weather_verdict_missing_since = None
+            self.weather_fallback_active = False
             self.call_for_heat = _call_for_heat_weather
+        else:
+            # None means the prediction has no opinion: the previous decision
+            # stays for WEATHER_VERDICT_HOLD, then the room heats.
+            _now = self.clock.now()
+            if self.weather_verdict_missing_since is None:
+                self.weather_verdict_missing_since = _now
+            if (
+                not self.weather_fallback_active
+                and _now - self.weather_verdict_missing_since >= WEATHER_VERDICT_HOLD
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: weather entity %s has given no forecast "
+                    "since %s, resuming heating until it does",
+                    self.device_name,
+                    self.weather_entity,
+                    self.weather_verdict_missing_since,
+                )
+                self.weather_fallback_active = True
+            if self.weather_fallback_active:
+                self.call_for_heat = True
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
