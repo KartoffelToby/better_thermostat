@@ -541,16 +541,7 @@ async def test_the_calibration_gate_stays_shut_while_the_device_reports_its_prev
     [
         pytest.param("none", id="device_repeats_the_written_setpoint"),
         pytest.param("away", id="knob_turned_away_from_the_target"),
-        pytest.param(
-            "toward",
-            id="knob_turned_toward_the_target",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the room target counts as a value Better Thermostat "
-                "wrote, so a turn that lands within one step of an off-grid "
-                "target is taken for an echo and dropped",
-            ),
-        ),
+        pytest.param("toward", id="knob_turned_toward_the_target"),
     ],
 )
 async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn):
