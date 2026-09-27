@@ -276,7 +276,7 @@ async def test_a_head_switched_on_while_a_cycle_drives_another_head_is_adopted(h
 
 
 async def test_a_head_switched_on_during_a_cycle_survives_the_next_cycle(hass):
-    """A head switched on during a cycle switches the room on even if a cycle comes first.
+    """A head switched on during a cycle switches the room on before the next cycle runs.
 
     The next cycle may start before the head reports again, here the
     five-minute reconciler, and it must not switch the head back off before
@@ -398,7 +398,7 @@ async def test_a_knob_turned_while_a_cycle_drives_another_head_is_adopted(hass):
 
 
 async def test_a_knob_turned_during_a_cycle_survives_the_next_cycle(hass):
-    """A setpoint turned during a cycle is the room's target even if a cycle comes first.
+    """A setpoint turned during a cycle is the room's target before the next cycle runs.
 
     The handler stands down while the cycle runs, so the turn is not read
     when it happens. The next cycle may start before the head reports again,

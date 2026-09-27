@@ -17,7 +17,13 @@ from homeassistant.const import (
     STATE_UNKNOWN,
     UnitOfTemperature,
 )
-from homeassistant.core import Context, Event, HomeAssistant, State
+from homeassistant.core import (
+    Context,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+)
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -768,7 +774,9 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
             continue
         held_report = Event(
             EVENT_STATE_CHANGED,
-            {"entity_id": entity_id, "old_state": state, "new_state": state},
+            EventStateChangedData(
+                entity_id=entity_id, old_state=state, new_state=state
+            ),
             context=Context(),
         )
         try:
