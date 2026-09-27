@@ -27,6 +27,12 @@ from ._types import FloatArray
 TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
 GAIN_HEATER_BOUNDS = (0.5, 5.0)
 
+# The slowest mode of the RC2 dynamics never exceeds
+# ``tau_room + (1 + coupling)·tau_rad``. After this many of them any state has
+# settled to within e^-20 of its fixed point, so a longer interval is
+# propagated over this span only.
+SETTLING_TIME_CONSTANTS = 20.0
+
 
 @dataclass
 class PlantParams:
@@ -109,9 +115,20 @@ class PlantModelRC2:
             [T_room + (dT_room + disturbance_rate) * dt_min, T_rad + dT_rad * dt_min]
         )
 
+    @property
+    def settling_time_s(self) -> float:
+        """Return the span after which the state sits on its fixed point."""
+        p = self.params
+        slowest_min = p.tau_room_min + (1.0 + p.coupling_rad_room) * p.tau_rad_min
+        return SETTLING_TIME_CONSTANTS * slowest_min * 60.0
+
     def _substeps(self, dt_s: float | None) -> tuple[int, float]:
-        """Return the count and length (min) of the sub-steps covering ``dt_s``."""
+        """Return the count and length (min) of the sub-steps covering ``dt_s``.
+
+        An interval beyond :attr:`settling_time_s` is covered only up to it.
+        """
         total_s = self.dt_s if dt_s is None else max(0.0, dt_s)
+        total_s = min(total_s, self.settling_time_s)
         n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
         return n_steps, (total_s / n_steps) / 60.0
 
