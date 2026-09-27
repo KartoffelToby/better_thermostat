@@ -71,6 +71,11 @@ class QpParams:
     # ``u_min`` / ``u_max`` we treat it as saturated and skip the integral
     # update if the error sign would only grow it.
     saturation_band: float = 1e-3
+    # Conditional integration: the integral only collects tracking errors
+    # within this band (K). Larger errors belong to a setpoint ramp or a
+    # recovery the plan already drives at full effort, and integrating them
+    # leaves an overshoot that takes hours to unwind.
+    integral_error_band_K: float = 0.5
     # Plant-aware step-size scaling. With ``adaptive_step_s=True`` the
     # ``step_s`` field above is recomputed at controller construction as
     # ``clamp(min, max, tau_room · per_tau)`` so fast envelopes get a finer
@@ -124,16 +129,21 @@ class QpOptimiser:
         """Accumulate the tracking error with anti-windup and clipping.
 
         Skips accumulation when the applied input is saturated and the error
-        sign would only grow the integral further, then clips the running total
-        to ``±integral_clip_K_min``.
+        sign would only grow the integral further, or when the error lies
+        outside ``integral_error_band_K``. The interval counts at most one
+        re-plan step: time without a plan is not tracking error. The running
+        total is clipped to ``±integral_clip_K_min``.
         """
         err = T_room - T_sp
+        if abs(err) > self.params.integral_error_band_K:
+            return
         band = self.params.saturation_band
         at_upper = u_applied >= self.params.u_max - band
         at_lower = u_applied <= self.params.u_min + band
         if (at_upper and err < 0) or (at_lower and err > 0):
             return
-        self.e_integral_K_min += (dt_s / 60.0) * err
+        interval_s = min(max(0.0, dt_s), self.params.step_s)
+        self.e_integral_K_min += (interval_s / 60.0) * err
         clip = self.params.integral_clip_K_min
         self.e_integral_K_min = max(-clip, min(clip, self.e_integral_K_min))
 

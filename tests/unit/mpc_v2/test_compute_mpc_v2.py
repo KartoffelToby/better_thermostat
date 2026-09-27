@@ -169,18 +169,24 @@ def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
     assert seen_previous_input == [0.2]
 
 
+_REPLAN_ERROR_K = -0.4
+
+
 def _integral_after_one_replan(gap_s: float) -> tuple[float, float]:
     """Return the error integral after a replan ``gap_s`` after the first one.
 
-    The room sits 2 K below target with the valve mid-rail, so the
-    anti-windup guard never skips the step. Also returns the replan interval.
+    The room sits ``_REPLAN_ERROR_K`` off the target, inside the integration
+    band, with the valve mid-rail, so the anti-windup guard never skips the
+    step. Also returns the replan interval.
     """
     params = MpcV2Params()
     params.governor.enabled = False
     controller = MpcV2Controller(params)
-    controller.step(100.0, 20.0, 22.0, 5.0)
+    assert abs(_REPLAN_ERROR_K) < controller.params.qp.integral_error_band_K
+    room_C = 22.0 + _REPLAN_ERROR_K
+    controller.step(100.0, room_C, 22.0, 5.0)
     controller.set_applied_u(0.5)
-    controller.step(100.0 + gap_s, 20.0, 22.0, 5.0)
+    controller.step(100.0 + gap_s, room_C, 22.0, 5.0)
     return controller.optimiser.e_integral_K_min, controller.params.qp.step_s
 
 
@@ -192,14 +198,9 @@ def test_integral_covers_an_on_schedule_replan_interval() -> None:
 
     integral, _ = _integral_after_one_replan(step_s)
 
-    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a replan after a gap integrates the error over the whole gap, "
-    "not over one replan interval",
-)
 def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
     """A gap between replans adds no more error than one interval would.
 
@@ -209,7 +210,7 @@ def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
     integral, step_s = _integral_after_one_replan(900.0)
 
     assert step_s < 900.0
-    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
 
 
 def test_snapshot_round_trip_preserves_last_u() -> None:

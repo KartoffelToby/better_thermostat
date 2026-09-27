@@ -234,8 +234,9 @@ class MpcV2Controller:
             x_hat, list(self._u_history), T_outdoor_C, plant_delay_s
         )
 
-        # Account for the time the previous valve input was actually in
-        # effect.  The first plan has no preceding control interval.
+        # Hand over the time since the previous plan; the optimiser counts at
+        # most one re-plan step of it. The first plan has no preceding
+        # control interval.
         if self._last_mpc_t_s >= 0.0:
             self.optimiser.update_integral(
                 T_room=T_room_C,

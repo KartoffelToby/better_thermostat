@@ -120,30 +120,50 @@ def test_anti_windup_skips_saturated_integration() -> None:
     """Integration must skip when u is pinned *against* the sign of the error."""
     # Mid-rail u — always integrates.
     opt = _make_optimiser()
-    opt.update_integral(T_room=21.0, T_sp=22.0, u_applied=0.5, dt_s=300.0)
-    assert opt.e_integral_K_min < 0.0  # err = -1, dt = 5 min ⇒ −5 K·min
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.5, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)  # err = -0.4, dt = 5 min
 
     # u = u_max with T_room < T_sp (we want more heat but valve already pinned
     # open against an err that would only grow the negative integrator).
     opt.reset_integral()
-    opt.update_integral(T_room=21.0, T_sp=22.0, u_applied=1.0, dt_s=300.0)
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=1.0, dt_s=300.0)
     assert opt.e_integral_K_min == 0.0
 
     # u = u_min with T_room > T_sp (valve closed, can't cool faster, positive
     # err would push the integrator up — skip).
     opt.reset_integral()
-    opt.update_integral(T_room=23.0, T_sp=22.0, u_applied=0.0, dt_s=300.0)
+    opt.update_integral(T_room=22.4, T_sp=22.0, u_applied=0.0, dt_s=300.0)
     assert opt.e_integral_K_min == 0.0
+
+
+@pytest.mark.parametrize(
+    ("T_room", "expected_K_min"), [(21.4, 0.0), (21.6, -2.0), (22.4, 2.0), (22.6, 0.0)]
+)
+def test_integral_collects_only_errors_inside_the_band(
+    T_room: float, expected_K_min: float
+) -> None:
+    """Errors beyond ``integral_error_band_K`` leave the integral untouched.
+
+    A room 0.6 K off the setpoint is still being driven there by the plan,
+    while 0.4 K counts as residual offset. The valve sits mid-rail, so only
+    the band decides.
+    """
+    opt = _make_optimiser()
+    assert opt.params.integral_error_band_K == 0.5
+
+    opt.update_integral(T_room=T_room, T_sp=22.0, u_applied=0.5, dt_s=300.0)
+
+    assert opt.e_integral_K_min == pytest.approx(expected_K_min)
 
 
 def test_integral_clipping() -> None:
     """The error integrator is clipped to its configured magnitude."""
     opt = _make_optimiser()
     opt.params.integral_clip_K_min = 5.0
-    # Hammer the integrator: T_room - T_sp = 10 K, dt = 5 min, 100 times.
+    # Hammer the integrator: T_room - T_sp = 0.4 K, dt = 5 min, 100 times.
     for _ in range(100):
-        opt.update_integral(T_room=30.0, T_sp=20.0, u_applied=0.5, dt_s=300.0)
-    assert abs(opt.e_integral_K_min) <= 5.0 + 1e-6
+        opt.update_integral(T_room=20.4, T_sp=20.0, u_applied=0.5, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(5.0)
 
 
 def test_numpy_fallback_obeys_constraints(monkeypatch) -> None:

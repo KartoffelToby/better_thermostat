@@ -189,57 +189,15 @@ def _reachable(outdoor: float, free_heat: float) -> bool:
     return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT_C + 0.5
 
 
-_WINDUP_AFTER_STEP = pytest.mark.xfail(
-    strict=True,
-    reason="the integral term accumulates the error of the whole valve ramp and "
-    "keeps the room more than 0.1 K above the new setpoint for hours",
-)
-_WINDUP_AFTER_GAP = pytest.mark.xfail(
-    strict=True,
-    reason="the first re-plan after the window closes integrates the error of the "
-    "whole gap, and the room overshoots the setpoint by more than 0.1 K",
-)
-_OFFSET_PLUS_WINDUP = pytest.mark.xfail(
-    strict=True,
-    reason="the room overshoots the setpoint: the offset from planning without "
-    "the free heat adds to the integral the recovery ramp winds up",
-)
-
-
-def _cells(marks: dict[tuple[float, float], pytest.MarkDecorator]) -> list:
-    """Return the outdoor × free-heat grid with the given per-cell marks."""
+def _cells() -> list:
+    """Return the outdoor × free-heat grid as test parameters."""
     return [
         pytest.param(
-            outdoor,
-            free_heat,
-            marks=[marks[(outdoor, free_heat)]]
-            if (outdoor, free_heat) in marks
-            else [],
-            id=f"outdoor{outdoor:+.0f}-free_heat{free_heat:.2f}",
+            outdoor, free_heat, id=f"outdoor{outdoor:+.0f}-free_heat{free_heat:.2f}"
         )
         for outdoor in OUTDOOR_C
         for free_heat in FREE_HEAT_K_PER_MIN
     ]
-
-
-_STEP_MARKS = {
-    (0.0, 0.0): _WINDUP_AFTER_STEP,
-    **{
-        (outdoor, free_heat): _OFFSET_PLUS_WINDUP
-        for outdoor in OUTDOOR_C
-        for free_heat in FREE_HEAT_K_PER_MIN
-        if free_heat > 0.0
-    },
-}
-_GAP_MARKS = {
-    (0.0, 0.0): _WINDUP_AFTER_GAP,
-    **{
-        (outdoor, free_heat): _OFFSET_PLUS_WINDUP
-        for outdoor in OUTDOOR_C
-        for free_heat in FREE_HEAT_K_PER_MIN
-        if free_heat > 0.0
-    },
-}
 
 
 def test_grid_holds_reachable_and_unreachable_cells() -> None:
@@ -259,7 +217,7 @@ def test_grid_holds_reachable_and_unreachable_cells() -> None:
     assert _ceiling(PlantParams(), -16.0, 0.0) == pytest.approx(16.4)
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells({}))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells())
 def test_settled_room_holds_the_setpoint_under_standing_free_heat(
     outdoor: float, free_heat: float
 ) -> None:
@@ -318,7 +276,7 @@ def _assert_recovery_without_overshoot(
     )
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_STEP_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells())
 def test_setpoint_step_is_reached_without_overshoot(
     outdoor: float, free_heat: float
 ) -> None:
@@ -328,7 +286,7 @@ def test_setpoint_step_is_reached_without_overshoot(
     _assert_recovery_without_overshoot(trace, STEP_AT_H, outdoor, free_heat)
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_GAP_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells())
 def test_ventilation_gap_is_recovered_without_overshoot(
     outdoor: float, free_heat: float
 ) -> None:
