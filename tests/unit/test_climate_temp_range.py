@@ -374,12 +374,31 @@ def test_a_fahrenheit_bound_off_every_published_grid_is_read_onto_a_tenth(lower,
     assert bound == pytest.approx(_celsius(read))
 
 
-def test_a_fahrenheit_system_publishes_the_thermostat_in_tenths(bt):
-    """On a Fahrenheit system the entity publishes its temperatures in tenths.
+@pytest.mark.parametrize(
+    "system_unit", [UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT]
+)
+def test_the_thermostat_publishes_in_tenths(bt, system_unit):
+    """The entity publishes its temperatures in tenths on every system.
 
-    Home Assistant would round them to whole degrees, which rounds the
-    range outward past the bounds the thermostat holds and moves a target
-    between two degrees onto one of them.
+    On a Fahrenheit system Home Assistant would round them to whole degrees,
+    which rounds the range outward past the bounds the thermostat holds and
+    moves a target between two degrees onto one of them.
     """
-    bt._unit = UnitOfTemperature.FAHRENHEIT
+    bt._unit = system_unit
     assert BetterThermostat.precision.fget(bt) == 0.1
+
+
+@pytest.mark.parametrize(
+    ("system_unit", "published"),
+    [
+        pytest.param(UnitOfTemperature.CELSIUS, 0.1, id="celsius"),
+        pytest.param(UnitOfTemperature.FAHRENHEIT, 1.0, id="fahrenheit"),
+    ],
+)
+def test_without_a_step_the_default_of_the_system_unit_is_published(
+    bt, system_unit, published
+):
+    """Without a step the entity publishes Home Assistant's default for the unit."""
+    bt.bt_target_temp_step = None
+    bt._unit = system_unit
+    assert BetterThermostat.target_temperature_step.fget(bt) == published

@@ -916,6 +916,34 @@ class TestAsyncSetPresetMode:
         assert mock_bt.bt_target_temp == 21.0  # configured comfort temp
 
     @pytest.mark.asyncio
+    async def test_a_preset_off_the_configured_step_applies_the_same_target_either_way(
+        self, mock_bt
+    ):
+        """A stored preset gives one target, whether selected or set by its number.
+
+        Comfort is stored as the 72 °F a user typed, 22.22 °C. Selecting the
+        preset and setting it through its number both put the target on the
+        configured 0.5 °C step, 22 °C.
+        """
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 22.222
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt._configured_target_temp_step = 0.5
+
+        await self._call(mock_bt, PRESET_COMFORT)
+        selected = mock_bt.bt_target_temp
+        await BetterThermostat.async_set_temperature(
+            mock_bt, **{ATTR_TEMPERATURE: 22.222}
+        )
+
+        assert selected == 22.0
+        assert mock_bt.bt_target_temp == selected
+        assert mock_bt.preset_mgr.mode == PRESET_COMFORT
+
+    @pytest.mark.asyncio
     async def test_comfort_to_none_restores(self, mock_bt):
         """Comfort → NONE: bt_target_temp restored, _preset_temperature cleared."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
@@ -1295,6 +1323,8 @@ class TestAsyncSetTemperature:
             pytest.param(0.5, 20.5, 20.5, id="on_grid_unchanged"),
             pytest.param(0.1, 20.3, 20.3, id="tenths_on_grid_unchanged"),
             pytest.param(None, 20.22, 20.22, id="no_configured_step"),
+            # Held as a clean grid value, not 21.200000000000003.
+            pytest.param(0.2, 21.11, 21.2, id="clean_grid_value"),
         ],
     )
     async def test_a_target_is_rounded_onto_the_configured_step(
@@ -1314,6 +1344,7 @@ class TestAsyncSetTemperature:
         mock_bt._configured_target_temp_step = configured_step
         await self._call(mock_bt, **{ATTR_TEMPERATURE: requested})
         assert mock_bt.bt_target_temp == applied
+        assert repr(mock_bt.bt_target_temp) == repr(applied)
 
     @pytest.mark.asyncio
     async def test_a_preset_off_the_configured_step_stays_active_when_applied(

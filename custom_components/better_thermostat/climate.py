@@ -39,6 +39,7 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
     PRECISION_TENTHS,
+    PRECISION_WHOLE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     Platform,
@@ -3380,17 +3381,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         room temperature, the target and the range) to it after converting
         into the system unit. Its default on a Fahrenheit system is whole
         degrees, which would round the thermostat's range outward past the
-        device's bounds and hide a target between two degrees, so a
-        Fahrenheit system publishes tenths, as a Celsius one does by default.
+        device's bounds and hide a target between two degrees, so every
+        system publishes tenths, which is Home Assistant's default on a
+        Celsius one.
 
         Returns
         -------
         float
                 Precision of the thermostat.
         """
-        if self._unit == UnitOfTemperature.FAHRENHEIT:
-            return PRECISION_TENTHS
-        return super().precision
+        return PRECISION_TENTHS
 
     @property
     def target_temperature_step(self) -> float | None:
@@ -3405,6 +3405,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         and tenths on a Celsius one, not the tenths this entity publishes
         its temperatures in.
 
+        The system unit is the one the entity was set up with; a change of
+        the unit system takes effect when the entry is reloaded.
+
         Returns
         -------
         float
@@ -3415,7 +3418,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 return round(self.bt_target_temp_step * 9.0 / 5.0, 2)
             return self.bt_target_temp_step
 
-        return super().precision
+        if self._unit == UnitOfTemperature.FAHRENHEIT:
+            return PRECISION_WHOLE
+        return PRECISION_TENTHS
 
     @property
     def temperature_unit(self) -> str:
@@ -4036,7 +4041,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         rounded = round_by_step(value, step)
         if rounded is None or abs(rounded - value) < 1e-9:
             return value
-        return rounded
+        # Clear of the float noise the multiplication leaves: 21.2, not
+        # 21.200000000000003.
+        return round(rounded, 10)
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
@@ -4350,7 +4357,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # can be preserved and restored when returning to PRESET_NONE.
             previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
-                self.bt_target_temp = new_temp
+                self.bt_target_temp = self._onto_target_grid(new_temp)
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE
