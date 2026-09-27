@@ -1091,6 +1091,35 @@ class TestDroppedStoredValuesAreReported:
             caplog
         )
 
+    @pytest.mark.parametrize(
+        ("section", "entry", "field"),
+        [
+            ("mpc", {"gain_est": float("nan")}, "gain_est"),
+            ("mpc", {"recent_errors": [0.1, None]}, "recent_errors element"),
+            ("mpc_v2", {"created_ts": float("inf")}, "created_ts"),
+            ("mpc_v2_reid", {**_VALID_REID, "fitted_ts": None}, "fitted_ts"),
+            ("pid", {"pid_kp": float("nan")}, "pid_kp"),
+            ("tpi", {"last_update_ts": float("nan")}, "last_update_ts"),
+        ],
+    )
+    def test_a_poisoned_entry_is_named(self, caplog, section, entry, field):
+        """An entry discarded for a non-finite value is reported with its key.
+
+        Its learning starts over from defaults, so the report names the room
+        the entry belonged to as well as the value that cost it.
+        """
+        poisoned: list[str] = []
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize(
+                {"version": 1, section: {"room_key": entry}}, poisoned=poisoned
+            )
+
+        assert poisoned == [f"{section}:room_key"]
+        assert any(
+            section in message and "room_key" in message and field in message
+            for message in _warnings(caplog)
+        ), _warnings(caplog)
+
 
 # ---------------------------------------------------------------------------
 # Migration

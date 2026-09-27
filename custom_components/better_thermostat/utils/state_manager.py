@@ -325,7 +325,7 @@ def finite_or_none(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
+def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
     """Let a stored null through, unless the declared type forbids one.
 
     A null where a number is declared is how a non-finite value gets back
@@ -340,16 +340,10 @@ def _null_or_poison(attr: str, kind: str, nullable: frozenset[str]) -> None:
     """
     if attr in nullable:
         return
-    _LOGGER.warning(
-        "better_thermostat: %s in stored %s state is null, which its declared "
-        "type cannot hold; discarding that entry's stored values",
-        attr,
-        kind,
-    )
-    raise _PoisonedStateError(attr)
+    raise _PoisonedStateError(f"{attr} is null, which its declared type cannot hold")
 
 
-def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
+def _finite_or_poison(value: Any, attr: str) -> float:
     """Parse one stored float; a non-finite number poisons the entry.
 
     Wrong types merely skip the field (schema evolution), but NaN or
@@ -359,13 +353,7 @@ def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
     """
     number = float(value)
     if not math.isfinite(number):
-        _LOGGER.warning(
-            "better_thermostat: non-finite %s in stored %s state; "
-            "discarding that entry's stored values",
-            attr,
-            kind,
-        )
-        raise _PoisonedStateError(attr)
+        raise _PoisonedStateError(f"{attr} is non-finite")
     return number
 
 
@@ -386,15 +374,26 @@ def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
     )
 
 
-def _record_poisoned_entry(
-    poisoned: list[str] | None, kind: str, key: str | None
+def _discard_poisoned_entry(
+    error: _PoisonedStateError, kind: str, key: str | None, poisoned: list[str] | None
 ) -> None:
-    """Note an entry whose stored values were discarded, when asked to."""
+    """Name an entry whose stored values are discarded, and note it when asked.
+
+    The entry's learning starts over from defaults, so the report names the
+    room it belonged to as well as the value that cost it.
+    """
+    _LOGGER.warning(
+        "better_thermostat: stored %s state for %s: %s; discarding that "
+        "entry's stored values",
+        kind,
+        key or "an unnamed state entry",
+        error,
+    )
     if poisoned is not None:
         poisoned.append(f"{kind}:{key}")
 
 
-def _finite_element(value: Any, attr: str, kind: str) -> float:
+def _finite_element(value: Any, attr: str) -> float:
     """Parse one number stored inside a collection field.
 
     ``recent_errors`` and the bins of ``perf_curve`` are declared to hold
@@ -404,13 +403,11 @@ def _finite_element(value: Any, attr: str, kind: str) -> float:
     costs the entry its stored values just as one does.
     """
     if value is None:
-        _null_or_poison(attr, kind, frozenset())
-    return _finite_or_poison(value, attr, kind)
+        _null_or_poison(attr, frozenset())
+    return _finite_or_poison(value, attr)
 
 
-def _finite_perf_curve(
-    value: Mapping[Any, Any], kind: str
-) -> dict[str, dict[str, float]]:
+def _finite_perf_curve(value: Mapping[Any, Any]) -> dict[str, dict[str, float]]:
     """Copy a stored performance curve, parsing every statistic in it.
 
     What the offending value is decides what it costs. A bin that is not a
@@ -426,7 +423,7 @@ def _finite_perf_curve(
         if not isinstance(stats, Mapping):
             raise TypeError("perf_curve bin is not a mapping of statistics")
         curve[label] = {
-            name: _finite_element(stat, "perf_curve statistic", kind)
+            name: _finite_element(stat, "perf_curve statistic")
             for name, stat in stats.items()
         }
     return curve
@@ -468,10 +465,10 @@ def deserialize_mpc(
         value = raw[attr]
         try:
             if value is None:
-                _null_or_poison(attr, "mpc", _MPC_NULLABLE_FIELDS)
+                _null_or_poison(attr, _MPC_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr == "perf_curve" and isinstance(value, Mapping):
-                setattr(state, attr, _finite_perf_curve(value, "mpc"))
+                setattr(state, attr, _finite_perf_curve(value))
             elif attr == "recent_errors" and isinstance(value, (list, tuple)):
                 # MpcState.recent_errors is a deque(maxlen=20).
                 setattr(
@@ -479,7 +476,7 @@ def deserialize_mpc(
                     attr,
                     deque(
                         (
-                            _finite_element(item, "recent_errors element", "mpc")
+                            _finite_element(item, "recent_errors element")
                             for item in value
                         ),
                         maxlen=20,
@@ -494,9 +491,9 @@ def deserialize_mpc(
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                setattr(state, attr, _finite_or_poison(value, attr, "mpc"))
-        except _PoisonedStateError:
-            _record_poisoned_entry(poisoned, "mpc", key)
+                setattr(state, attr, _finite_or_poison(value, attr))
+        except _PoisonedStateError as error:
+            _discard_poisoned_entry(error, "mpc", key, poisoned)
             return MpcState()
         except TypeError, ValueError, OverflowError:
             _report_unreadable_field(attr, "mpc", key)
@@ -549,12 +546,12 @@ def deserialize_mpc_v2(
         value = raw[attr]
         try:
             if value is None:
-                _null_or_poison(attr, "mpc_v2", _MPC_V2_NULLABLE_FIELDS)
+                _null_or_poison(attr, _MPC_V2_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             else:
-                setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2"))
-        except _PoisonedStateError:
-            _record_poisoned_entry(poisoned, "mpc_v2", key)
+                setattr(state, attr, _finite_or_poison(value, attr))
+        except _PoisonedStateError as error:
+            _discard_poisoned_entry(error, "mpc_v2", key, poisoned)
             return None
         except TypeError, ValueError, OverflowError:
             _report_unreadable_field(attr, "mpc_v2", key)
@@ -613,14 +610,14 @@ def deserialize_mpc_v2_reid(
         value = raw[attr]
         try:
             if value is None:
-                _null_or_poison(attr, "mpc_v2_reid", _MPC_V2_REID_NULLABLE_FIELDS)
+                _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr == "n_segments":
                 setattr(state, attr, _stored_count(value))
             else:
-                setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2_reid"))
-        except _PoisonedStateError:
-            _record_poisoned_entry(poisoned, "mpc_v2_reid", key)
+                setattr(state, attr, _finite_or_poison(value, attr))
+        except _PoisonedStateError as error:
+            _discard_poisoned_entry(error, "mpc_v2_reid", key, poisoned)
             return None
         except TypeError, ValueError, OverflowError:
             _report_unreadable_field(attr, "mpc_v2_reid", key)
@@ -683,7 +680,7 @@ def deserialize_pid(
         value = raw[attr]
         try:
             if value is None:
-                _null_or_poison(attr, "pid", _PID_NULLABLE_FIELDS)
+                _null_or_poison(attr, _PID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr in _COUNT_FIELDS:
                 setattr(state, attr, _stored_count(value))
@@ -692,9 +689,9 @@ def deserialize_pid(
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
-                setattr(state, attr, _finite_or_poison(value, attr, "pid"))
-        except _PoisonedStateError:
-            _record_poisoned_entry(poisoned, "pid", key)
+                setattr(state, attr, _finite_or_poison(value, attr))
+        except _PoisonedStateError as error:
+            _discard_poisoned_entry(error, "pid", key, poisoned)
             return PIDState()
         except TypeError, ValueError, OverflowError:
             _report_unreadable_field(attr, "pid", key)
@@ -730,12 +727,12 @@ def deserialize_tpi(
         value = raw[attr]
         try:
             if value is None:
-                _null_or_poison(attr, "tpi", _TPI_NULLABLE_FIELDS)
+                _null_or_poison(attr, _TPI_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             else:
-                setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
-        except _PoisonedStateError:
-            _record_poisoned_entry(poisoned, "tpi", key)
+                setattr(state, attr, _finite_or_poison(value, attr))
+        except _PoisonedStateError as error:
+            _discard_poisoned_entry(error, "tpi", key, poisoned)
             return TpiState()
         except TypeError, ValueError, OverflowError:
             _report_unreadable_field(attr, "tpi", key)
