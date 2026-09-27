@@ -77,11 +77,15 @@ async def test_the_hourly_tick_reads_the_weather(bt):
 
 
 @pytest.mark.asyncio
-async def test_an_unavailable_critical_entity_stops_the_hourly_tick(bt):
-    """Nothing to act on: the weather is not read either."""
+async def test_an_unavailable_critical_entity_does_not_stop_the_hourly_tick(bt):
+    """A valve off the air leaves the forecast to be read all the same.
+
+    Summer mode is the room's state, not the valve's; the valves that are
+    reachable follow it, and the absent one picks it up when it returns.
+    """
     weather, _ = await _run_check_weather(bt, None, critical_ok=False)
 
-    weather.assert_not_awaited()
+    weather.assert_awaited_once_with(bt)
 
 
 @pytest.mark.asyncio
@@ -177,12 +181,15 @@ async def test_a_running_valve_maintenance_skips_the_control_tick(bt):
 
 
 @pytest.mark.asyncio
-async def test_an_unavailable_critical_entity_stops_the_control_tick(bt):
-    """No reachable valve means no outdoor refresh and no cycle."""
+async def test_an_unavailable_critical_entity_does_not_stop_the_control_tick(bt):
+    """A valve off the air leaves the tick refreshing and asking for a cycle.
+
+    The cycle itself leaves the unreachable valve out and drives the rest.
+    """
     ambient, request = await _run_trigger_time(bt, MagicMock(), critical_ok=False)
 
-    ambient.assert_not_awaited()
-    request.assert_not_called()
+    ambient.assert_awaited_once_with(bt)
+    request.assert_called_once_with(bt)
 
 
 # ---------------------------------------------------------------------------

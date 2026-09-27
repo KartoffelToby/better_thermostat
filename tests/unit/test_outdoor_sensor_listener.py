@@ -79,15 +79,19 @@ async def test_outdoor_change_no_flip_does_not_enqueue():
 
 
 @pytest.mark.asyncio
-async def test_outdoor_change_skips_when_critical_unavailable():
-    """If a critical entity is unavailable, the threshold is not evaluated."""
+async def test_outdoor_change_is_evaluated_while_a_critical_entity_is_unavailable():
+    """A TRV off the air does not hold back the threshold evaluation.
+
+    Summer mode belongs to the room; the reachable TRVs follow the flip, and
+    the control cycle leaves the unreachable one out.
+    """
     bt = _make_self(call_for_heat_after=False, last_call_for_heat=True)
 
     with _patch_checks(bt, critical=False):
         await BetterThermostat._trigger_outdoor_change(bt, event=MagicMock())
 
-    bt._ambient_mock.assert_not_awaited()
-    bt.control_queue_task.put_nowait.assert_not_called()
+    bt._ambient_mock.assert_awaited_once()
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
 @pytest.mark.asyncio

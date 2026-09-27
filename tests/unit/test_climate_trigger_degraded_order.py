@@ -1,10 +1,9 @@
 """Degradation-ladder stepping in the recurring trigger handlers.
 
 Every recurring trigger advances the control-mode ladder via
-check_and_update_degraded_mode before the critical-entity check may abort
-the handler. The ladder therefore keeps stepping in the combined failure
-case (room sensor lost while a TRV is offline) instead of freezing at
-OPTIMAL behind the critical-entity early return.
+check_and_update_degraded_mode, and an unavailable TRV does not end the
+handler. The ladder therefore keeps stepping in the combined failure case
+(room sensor lost while a TRV is offline) instead of freezing at OPTIMAL.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -51,7 +50,7 @@ def bt():
 
 @pytest.mark.asyncio
 async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
-    """The ladder leaves OPTIMAL even though the critical check aborts."""
+    """The ladder leaves OPTIMAL, and the tick runs on, while the TRV is gone."""
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=False)),
         patch(f"{_CLIMATE}.check_ambient_air_temperature", AsyncMock()) as ambient,
@@ -68,5 +67,6 @@ async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
     assert bt.kernel_state.control_mode.mode != ControlMode.OPTIMAL
     assert bt.kernel_state.control_mode.mode == ControlMode.HOLD
     assert bt.kernel_state.control_mode.degraded is True
-    # The critical-entity early return still stops the rest of the handler.
-    ambient.assert_not_awaited()
+    # The unavailable TRV does not end the tick: both passes refresh the
+    # outdoor average.
+    assert ambient.await_count == 2
