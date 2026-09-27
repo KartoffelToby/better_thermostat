@@ -136,6 +136,8 @@ def mock_bt():
     bt._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         bt, value
     )
+    bt._configured_target_temp_step = None
+    bt._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(bt, value)
     return bt
 
 
@@ -1283,6 +1285,55 @@ class TestAsyncSetTemperature:
         assert mock_bt.preset_mgr.mode == PRESET_COMFORT
         assert mock_bt.preset_mgr.saved_temperature == 20.0
         assert mock_bt.bt_target_temp == 22.5
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("configured_step", "requested", "applied"),
+        [
+            # 68.4 °F from a 0.9 °F frontend step, onto the 0.5 °C grid.
+            pytest.param(0.5, 20.222, 20.0, id="off_grid_onto_the_step"),
+            pytest.param(0.5, 20.5, 20.5, id="on_grid_unchanged"),
+            pytest.param(0.1, 20.3, 20.3, id="tenths_on_grid_unchanged"),
+            pytest.param(None, 20.22, 20.22, id="no_configured_step"),
+        ],
+    )
+    async def test_a_target_is_rounded_onto_the_configured_step(
+        self, mock_bt, configured_step, requested, applied
+    ):
+        """A requested target lands on the configured step, once, on the way in.
+
+        Home Assistant converts a target set in Fahrenheit into Celsius before
+        handing it over, so a target on the Fahrenheit slider arrives between
+        two points of a Celsius step. A target already on the step, and every
+        target when no step is configured, is kept exactly as requested.
+        """
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt._configured_target_temp_step = configured_step
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: requested})
+        assert mock_bt.bt_target_temp == applied
+
+    @pytest.mark.asyncio
+    async def test_a_preset_off_the_configured_step_stays_active_when_applied(
+        self, mock_bt
+    ):
+        """A preset stored between two steps stays active when its number applies it.
+
+        The preset number stores what the user typed, 72 °F = 22.22 °C, and
+        applies it as a target, which lands on the configured step. The
+        preset is still the one running.
+        """
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 22.222
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt._configured_target_temp_step = 0.5
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.222})
+        assert mock_bt.bt_target_temp == 22.0
+        assert mock_bt.preset_mgr.mode == PRESET_COMFORT
 
     @pytest.mark.asyncio
     async def test_preset_none_change_does_not_trigger_deactivation_path(self, mock_bt):

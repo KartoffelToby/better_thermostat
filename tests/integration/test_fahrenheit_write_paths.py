@@ -732,3 +732,31 @@ async def test_the_thermostat_publishes_its_range_in_tenths_inside_the_device_ra
     assert state.attributes["max_temp"] == 86.5
     assert _fahrenheit(4.0) <= state.attributes["min_temp"]
     assert state.attributes["max_temp"] <= _fahrenheit(30.5)
+
+
+async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(hass):
+    """A target set in Fahrenheit is held on the Celsius step the user configured.
+
+    The frontend steps the target by 0.9 °F, the configured 0.5 °C, counted
+    from 0 °F, so it offers 68.4 °F, which is 20.22 °C. The thermostat holds
+    the point of its own step that is closest, 20 °C, and publishes it as
+    68 °F.
+    """
+    (fake_trv,) = await build_devices(hass, FAHRENHEIT_TRV)
+    _publish_room_at_device_reading(hass, fake_trv.profile)
+    entry = await _run_create_flow(
+        hass,
+        {
+            "name": "BT Test",
+            CONF_HEATER: [TRV_ID],
+            CONF_SENSOR: SENSOR_ID,
+            CONF_TARGET_TEMP_STEP: "step_0_5",
+        },
+    )
+    bt = await wait_for_startup(hass, entry)
+
+    with patch(WRITE_BUDGET, 0.0):
+        await _set_target(hass, 68.4)
+
+    assert bt.bt_target_temp == pytest.approx(20.0)
+    assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 68.0

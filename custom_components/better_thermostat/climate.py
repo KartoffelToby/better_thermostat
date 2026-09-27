@@ -194,6 +194,7 @@ from .utils.helpers import (
     read_bound_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
+    round_by_step,
     state_temperature_unit,
 )
 from .utils.hvac_action import (
@@ -4027,6 +4028,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ceiling = max(ceiling, self.bt_min_temp)
         return min(value, ceiling)
 
+    def _onto_target_grid(self, value: float | None) -> float | None:
+        """Round a requested target onto the configured step.
+
+        Only a configured step is a grid of the thermostat's own; one derived
+        from the devices is left to each device, which rounds onto its own
+        grid. A value already on the grid, and every value when no step is
+        configured, comes back unchanged.
+        """
+        step = self._configured_target_temp_step
+        if value is None or not isinstance(step, float) or step <= 0:
+            return value
+        rounded = round_by_step(value, step)
+        if rounded is None or abs(rounded - value) < 1e-9:
+            return value
+        return rounded
+
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(
@@ -4113,6 +4130,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return
 
+        # Home Assistant hands the target over converted from the unit the
+        # user set it in, so a whole or tenth degree Fahrenheit arrives off the
+        # Celsius grid; it is rounded onto the thermostat's step here, once,
+        # and then clamped into the range.
+        _new_setpoint = self._onto_target_grid(_new_setpoint)
+        _new_setpointlow = self._onto_target_grid(_new_setpointlow)
+        _new_setpointhigh = self._onto_target_grid(_new_setpointhigh)
+
         # Validate against min/max temps
         if _new_setpoint is not None:
             _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
@@ -4148,7 +4173,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and self.preset_mgr.mode != PRESET_NONE
         ):
             applied = float(self.bt_target_temp)
-            preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+            preset_stored = self._onto_target_grid(
+                self.preset_mgr.get_temperature(self.preset_mgr.mode)
+            )
             if preset_stored is None or abs(applied - float(preset_stored)) > 1e-3:
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
