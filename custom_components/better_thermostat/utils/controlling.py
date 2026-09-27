@@ -49,6 +49,7 @@ from custom_components.better_thermostat.events.trv import (
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
+    trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
@@ -777,14 +778,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
             continue
         trv.report_unread = False
         state = self.hass.states.get(entity_id)
-        if (
-            state is None
-            or state.state == STATE_UNAVAILABLE
-            or (
-                state.state == STATE_UNKNOWN
-                and not trv_state_unknown_as_available(self, entity_id)
-            )
-        ):
+        if trv_report_is_unreadable(self, entity_id, state):
             continue
         held_report = Event(
             EVENT_STATE_CHANGED,
