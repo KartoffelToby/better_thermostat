@@ -1705,6 +1705,30 @@ def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
         return
 
 
+def _decay_min_effective_percent(
+    state: _MpcState,
+    params: MpcParams,
+    temp_delta: float | None,
+    name: str,
+    entity: str,
+) -> None:
+    """Lower the learned minimum opening one step when the TRV responds."""
+    if (
+        state.min_effective_percent is None
+        or temp_delta is None
+        or temp_delta <= params.deadzone_temp_delta_K
+    ):
+        return
+    new_min = state.min_effective_percent - params.deadzone_decay_pct
+    state.min_effective_percent = new_min if new_min > 0.0 else None
+    _LOGGER.debug(
+        "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
+        name,
+        entity,
+        _round_for_debug(state.min_effective_percent, 2),
+    )
+
+
 def _post_process_percent(
     inp: MpcInput,
     params: MpcParams,
@@ -1910,22 +1934,9 @@ def _post_process_percent(
                 else:
                     # --- Reset / decay ---
                     prev_hits = state.dead_zone_hits
-                    if (
-                        state.min_effective_percent is not None
-                        and temp_delta is not None
-                        and temp_delta > params.deadzone_temp_delta_K
-                    ):
-                        new_min = (
-                            state.min_effective_percent - params.deadzone_decay_pct
-                        )
-                        state.min_effective_percent = new_min if new_min > 0.0 else None
-                        _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
-                            name,
-                            entity,
-                            _round_for_debug(state.min_effective_percent, 2),
-                        )
-
+                    _decay_min_effective_percent(
+                        state, params, temp_delta, name, entity
+                    )
                     state.dead_zone_hits = 0
                     if prev_hits:
                         _LOGGER.debug(
@@ -1937,9 +1948,13 @@ def _post_process_percent(
             else:
                 state.dead_zone_hits = 0
 
-        else:
-            # dead-zone evaluation is off for a linear or exponential TRV
-            pass
+        elif time_delta >= eval_after and bool(
+            getattr(params, "enable_min_effective_percent", True)
+        ):
+            # A linear or exponential TRV counts no dead-zone hits, but a
+            # minimum opening learned before it was classified still decays
+            # while the TRV responds to it.
+            _decay_min_effective_percent(state, params, temp_delta, name, entity)
 
         state.last_trv_temp = inp.trv_temp_C
         state.last_trv_temp_ts = now

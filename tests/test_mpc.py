@@ -404,6 +404,38 @@ class TestMPCController:
 
         assert state.min_effective_percent == 25.0
 
+    def test_a_learned_minimum_decays_after_the_trv_reads_as_linear(self):
+        """A minimum opening learned on a dead zone decays once the TRV responds.
+
+        The TRV profile can move from threshold to linear once the raised
+        minimum makes the TRV respond. Dead-zone hits no longer count then,
+        but the minimum is not frozen: each evaluation that sees the TRV
+        warm lowers it by one decay step.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_decay_pct=1.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState(trv_profile="linear", min_effective_percent=16.0)
+        for cycle in range(3):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=20.0,
+                trv_temp_C=21.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 20.0, None
+            )
+
+        assert state.trv_profile == "linear"
+        assert state.min_effective_percent == 14.0
+
     @pytest.mark.parametrize(
         ("raw_percent", "seconds_since_update", "expected"),
         [
