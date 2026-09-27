@@ -351,7 +351,11 @@ class TestReportsHeldDuringACycle:
 
         with (
             patch(f"{_CTRL}.trigger_trv_change", new=handler),
-            patch(f"{_CTRL}.trv_state_unknown_as_available", return_value=operating),
+            patch(
+                "custom_components.better_thermostat.model_fixes.model_quirks."
+                "trv_state_unknown_as_available",
+                return_value=operating,
+            ),
         ):
             await read_reports_held_during_cycle(thermostat)
 
