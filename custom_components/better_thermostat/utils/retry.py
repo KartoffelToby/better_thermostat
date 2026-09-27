@@ -9,7 +9,7 @@ import logging
 import random
 from typing import ParamSpec, TypeVar
 
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import ServiceNotFound, ServiceValidationError
 import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,6 +37,11 @@ UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     ServiceValidationError,
 )
 
+# Unrecoverable by type, yet momentary: Home Assistant raises
+# ``ServiceNotFound`` for a service whose integration is still loading or
+# reloading, and the service is back a few seconds later.
+RETRYABLE_DESPITE_TYPE: tuple[type[Exception], ...] = (ServiceNotFound,)
+
 
 def async_retry(
     retries: int = 1,
@@ -50,7 +55,8 @@ def async_retry(
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
 
-    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS` are re-raised on the first
+    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
+    :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first
     attempt even when ``exceptions`` covers them, so a broken call fails fast
     with its own traceback rather than after the whole backoff budget.
 
@@ -101,7 +107,9 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
-                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS):
+                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS) and not isinstance(
+                        e, RETRYABLE_DESPITE_TYPE
+                    ):
                         log_message = (
                             f"{log_prefix}{func.__name__} hit an error that "
                             f"retrying cannot fix: {e}{entity_suffix}"
