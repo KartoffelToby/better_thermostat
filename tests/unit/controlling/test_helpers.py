@@ -283,6 +283,14 @@ def _seed_pending(*values):
     }
 
 
+def _watch_last_write(mock_self, entity_id):
+    """Start the setpoint watchdog for the last write the TRV records."""
+    trv = mock_self.real_trvs[entity_id]
+    return check_target_temperature(
+        mock_self, entity_id, trv.last_setpoint_write_id, trv.last_temperature
+    )
+
+
 class TestCheckTargetTemperature:
     """Test check_target_temperature function."""
 
@@ -305,7 +313,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -330,7 +338,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -377,7 +385,7 @@ class TestCheckTargetTemperature:
         original_sleep_func = controlling_module.asyncio.sleep
         controlling_module.asyncio.sleep = mock_sleep
         try:
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
         finally:
             controlling_module.asyncio.sleep = original_sleep_func
 
@@ -416,7 +424,7 @@ class TestCheckTargetTemperature:
         }
 
         result = await asyncio.wait_for(
-            check_target_temperature(mock_self, "climate.trv1"), timeout=10
+            _watch_last_write(mock_self, "climate.trv1"), timeout=10
         )
 
         assert result is True
@@ -445,7 +453,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -469,7 +477,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -500,7 +508,7 @@ class TestCheckTargetTemperature:
 
         update_task = asyncio.create_task(update_temp())
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         await update_task
         assert result is True
@@ -543,7 +551,7 @@ class TestCheckTargetTemperature:
         controlling_module.asyncio.sleep = mock_sleep
 
         try:
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
             assert result is True
             assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -690,7 +698,7 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch, patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 3):
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert trv.confirmed_setpoint is None
@@ -725,7 +733,7 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
@@ -763,7 +771,7 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
@@ -799,7 +807,7 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch, caplog.at_level(logging.WARNING):
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
@@ -827,7 +835,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         # convert_to_float should handle string "21.0" and match float 21.0
@@ -1536,7 +1544,7 @@ class TestWriteConfirmTimeout:
         durations, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
-            await check_target_temperature(mock_self, "climate.trv1")
+            await _watch_last_write(mock_self, "climate.trv1")
 
         assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
 

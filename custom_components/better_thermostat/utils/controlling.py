@@ -2136,10 +2136,7 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
 
 
 async def check_target_temperature(
-    self: BetterThermostat,
-    entity_id: str,
-    write_id: int | None = None,
-    setpoint: float | None = None,
+    self: BetterThermostat, entity_id: str, write_id: int, setpoint: float | None
 ) -> bool:
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
@@ -2152,7 +2149,8 @@ async def check_target_temperature(
     path, so a maintenance value must not be able to confirm a control
     write. The id that command went out under is fixed with it, so the
     confirmation retires that write and the ones before it and leaves
-    anything written while the wait ran. An unreadable setpoint ends the wait without confirming one.
+    anything written while the wait ran. An unreadable setpoint ends the
+    wait without confirming one.
 
     Each control write starts a watchdog of its own. Once a newer write has
     gone out, this one no longer speaks for the channel: it still records a
@@ -2166,12 +2164,10 @@ async def check_target_temperature(
         The Better Thermostat climate entity instance
     entity_id : str
         Entity ID of the TRV to check
-    write_id : int | None, optional
-        Id of the write this watchdog was started for; ``None`` watches the
-        last write issued, read together with its value when the wait starts
-    setpoint : float | None, optional
-        The value that write sent, in °C; read only together with
-        ``write_id``
+    write_id : int
+        Id of the write this watchdog was started for
+    setpoint : float | None
+        The value that write sent, in °C
 
     Returns
     -------
@@ -2180,12 +2176,8 @@ async def check_target_temperature(
     """
     _timeout = 0
     trv = self.real_trvs[entity_id]
-    if write_id is None:
-        _awaited_setpoint = trv.last_temperature
-        _awaited_write_id = trv.last_setpoint_write_id
-    else:
-        _awaited_setpoint = setpoint
-        _awaited_write_id = write_id
+    _awaited_setpoint = setpoint
+    _awaited_write_id = write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
