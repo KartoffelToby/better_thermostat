@@ -192,6 +192,9 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         # Set min/max/step based on climate entity configuration
         self._attr_native_min_value = bt_climate.min_temp
         self._attr_native_max_value = bt_climate.max_temp
+        # Home Assistant converts this number's value and range into the
+        # system unit but publishes its step as given, so the step has to be
+        # the one of the system unit, as the climate entity publishes it.
         self._attr_native_step = bt_climate.target_temperature_step or 0.1
 
     async def async_added_to_hass(self) -> None:

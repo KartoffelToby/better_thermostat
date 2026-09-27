@@ -3388,11 +3388,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         float
                 Precision of the thermostat.
         """
-        hass = self.hass
-        if (
-            hass is not None
-            and hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
-        ):
+        if self._unit == UnitOfTemperature.FAHRENHEIT:
             return PRECISION_TENTHS
         return super().precision
 
@@ -3404,8 +3400,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         the system unit but publishes the step as given, and the frontend
         steps the converted target by it. ``bt_target_temp_step`` is a
         Celsius difference, so on a Fahrenheit system it is scaled into
-        Fahrenheit. The fallback, ``precision``, is already in the system
-        unit.
+        Fahrenheit. Without one the step is Home Assistant's default
+        precision for the system unit, whole degrees on a Fahrenheit system
+        and tenths on a Celsius one, not the tenths this entity publishes
+        its temperatures in.
 
         Returns
         -------
@@ -3413,11 +3411,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 Step size of target temperature.
         """
         if self.bt_target_temp_step is not None:
-            hass = self.hass
-            if (
-                hass is not None
-                and hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
-            ):
+            if self._unit == UnitOfTemperature.FAHRENHEIT:
                 return round(self.bt_target_temp_step * 9.0 / 5.0, 2)
             return self.bt_target_temp_step
 

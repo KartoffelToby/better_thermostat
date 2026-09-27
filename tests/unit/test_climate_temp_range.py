@@ -353,7 +353,7 @@ def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
     a Fahrenheit system and as 0.5 on a Celsius one.
     """
     bt.bt_target_temp_step = 0.5
-    bt.hass.config.units.temperature_unit = system_unit
+    bt._unit = system_unit
     step = BetterThermostat.target_temperature_step.fget(bt)
     assert step == pytest.approx(published)
 
@@ -381,5 +381,5 @@ def test_a_fahrenheit_system_publishes_the_thermostat_in_tenths(bt):
     range outward past the bounds the thermostat holds and moves a target
     between two degrees onto one of them.
     """
-    bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    bt._unit = UnitOfTemperature.FAHRENHEIT
     assert BetterThermostat.precision.fget(bt) == 0.1

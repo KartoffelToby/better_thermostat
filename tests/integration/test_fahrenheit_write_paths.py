@@ -760,3 +760,22 @@ async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(
 
     assert bt.bt_target_temp == pytest.approx(20.0)
     assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 68.0
+
+
+async def test_a_preset_number_steps_in_the_system_unit(hass):
+    """A preset number steps by the configured step, shown in Fahrenheit.
+
+    Home Assistant converts the number's value and range into Fahrenheit but
+    publishes its step as the number gives it, so the number gives the step
+    the thermostat publishes: 0.5 °C as 0.9 °F.
+    """
+    profile = replace(FAHRENHEIT_TRV, configured_target_temp_step="0.5")
+    (fake_trv,) = await build_devices(hass, profile)
+    _publish_room_at_device_reading(hass, profile)
+    data = dict(make_entry(profile).data) | {"presets": ["eco"]}
+    entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert hass.states.get("number.bt_test_eco").attributes["step"] == 0.9
+    assert hass.states.get(BT_ENTITY).attributes["target_temp_step"] == 0.9
