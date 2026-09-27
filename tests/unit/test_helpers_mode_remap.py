@@ -879,8 +879,33 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
         assert adopted == HVACMode.HEAT
         assert get_hvac_bt_mode(mock_bt, adopted) == HVACMode.HEAT_COOL
 
+    @pytest.mark.parametrize(
+        "hvac_modes",
+        [
+            pytest.param(["off", "heat_cool"], id="heat_cool_only"),
+            pytest.param(["off", "heat", "heat_cool"], id="heat_and_heat_cool"),
+            pytest.param(["off", "heat", "cool", "heat_cool"], id="heat_cool_and_cool"),
+        ],
+    )
+    def test_inbound_heat_cool_becomes_heat_without_an_offered_auto(self, hvac_modes):
+        """A swapped device without auto reports its heating mode as HEAT.
+
+        Such a device receives HEAT or HEAT_COOL as its heating mode, so a
+        reported HEAT_COOL is the device heating, as it is on an unswapped
+        device, and switching it on at the panel reaches the instance.
+        """
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", heat_auto_swapped=True, hvac_modes=hvac_modes)
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
+        assert result == HVACMode.HEAT
+
     def test_inbound_heat_cool_is_not_translated_by_the_swap(self):
-        """A reported HEAT_COOL passes the swapped branch unchanged."""
+        """A swapped device offering AUTO does not heat in HEAT_COOL.
+
+        AUTO is that device's heating mode, so a reported HEAT_COOL is not
+        translated into HEAT.
+        """
         mock_bt = MockThermostat()
         mock_bt.add_trv(
             "climate.test",

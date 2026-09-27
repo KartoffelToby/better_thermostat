@@ -551,6 +551,16 @@ def mode_remap(
         # and as HEAT everywhere else.
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
+        # A device without AUTO receives HEAT or HEAT_COOL as its heating
+        # mode, so a reported HEAT_COOL is it heating, as on an unswapped
+        # device. Where AUTO is offered, AUTO is the heating mode and a
+        # reported HEAT_COOL is some other mode of the device.
+        if (
+            inbound
+            and hvac_mode == HVACMode.HEAT_COOL
+            and not device_offers_mode(trv.hvac_modes or (), HVACMode.AUTO)
+        ):
+            return HVACMode.HEAT
         return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
     # A reported HEAT_COOL is the device heating, whichever other modes it

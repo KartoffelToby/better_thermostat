@@ -2565,6 +2565,19 @@ class TestConvertInboundStates:
 
         assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
 
+    def test_a_swapped_heat_cool_device_reporting_heat_cool_heats(self, mock_bt):
+        """A swapped device whose heating mode is heat_cool reports it as HEAT.
+
+        Better Thermostat writes heat_cool to such a device, so switching it
+        back on at the panel has to reach the adoption as heating.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
+        state = _make_state(state_str="heat_cool")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.HEAT
+
     def test_an_unswapped_device_reporting_auto_is_ignored(self, mock_bt):
         """A reported AUTO without the swap option reaches the adoption as no mode.
 
