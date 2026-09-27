@@ -13,6 +13,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
+    bound_to_celsius,
     group_all_members_off,
     setpoint_at_minimum,
 )
@@ -159,25 +160,28 @@ def test_all_unavailable_false():
     assert group_all_members_off(_fake_self(members, states)) is False
 
 
-# 42 °F: the lowest setpoint the thermostat writes to a head whose minimum is
-# published as 41 °F, read inside the degree Home Assistant may have rounded.
-_PARKED_MIN_CELSIUS = (42.0 - 32.0) * 5.0 / 9.0
+# The lowest setpoint the thermostat writes to a head whose minimum is
+# published as 41 °F: half a published degree inside it, 41.5 °F.
+_PARKED_MIN_CELSIUS = bound_to_celsius(
+    "41", UnitOfTemperature.FAHRENHEIT, lower=True, instance_name="test"
+)
 
 
 @pytest.mark.parametrize(
     "reported",
     [
-        pytest.param(42.0, id="parked_at_the_thermostat_minimum"),
+        pytest.param(41.5, id="parked_published_in_tenths"),
+        pytest.param(42.0, id="parked_published_in_whole_degrees"),
         pytest.param(41.0, id="turned_to_the_device_end_stop"),
     ],
 )
 def test_no_off_at_the_minimum_on_fahrenheit_counts_as_off(reported):
     """A Fahrenheit head at its minimum counts as off, however it got there.
 
-    The thermostat parks the head at 42 °F, which the head reports back on
-    the 0.01 grid of a reading (5.56 °C, above the 5.5556 °C written), and a
-    user may turn it further, to the device's own 41 °F, below it. Both are
-    the head at its minimum.
+    The thermostat parks the head at 41.5 °F. The head reports that back on
+    the 0.01 grid of a reading, or, when Home Assistant publishes it in whole
+    degrees, as 42 °F; and a user may turn it further, to the device's own
+    41 °F, below it. All of these are the head at its minimum.
     """
     members = {
         "climate.a": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
@@ -211,4 +215,4 @@ def test_no_off_one_degree_above_the_minimum_on_fahrenheit_heats():
 )
 def test_a_missing_setpoint_or_minimum_is_not_at_the_minimum(setpoint, min_temp):
     """Without both values there is nothing to say the head is at its minimum."""
-    assert setpoint_at_minimum(setpoint, min_temp) is False
+    assert setpoint_at_minimum(setpoint, min_temp, UnitOfTemperature.CELSIUS) is False

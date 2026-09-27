@@ -512,7 +512,11 @@ async def trigger_trv_change(self, event):
             )
 
         if advanced.get("no_off_system_mode", False):
-            if setpoint_at_minimum(_raw_heating_setpoint, trv.min_temp):
+            if setpoint_at_minimum(
+                _raw_heating_setpoint,
+                trv.min_temp,
+                self.hass.config.units.temperature_unit,
+            ):
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
                 # off heating - and only

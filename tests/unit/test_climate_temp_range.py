@@ -149,19 +149,18 @@ def _celsius(fahrenheit: float) -> float:
 
 
 # A bound published in whole degrees Fahrenheit may be Home Assistant's
-# rounding of the device's bound, so it is read half a degree inward and then
-# onto the whole degree the thermostat publishes its own range on: 42 °F and
-# 85 °F.
-_WHOLE_FAHRENHEIT_MIN_41 = _celsius(42.0)
-_WHOLE_FAHRENHEIT_MAX_86 = _celsius(85.0)
+# rounding of the device's bound, so it is read half a published degree
+# inward: 41.5 °F and 85.5 °F.
+_WHOLE_FAHRENHEIT_MIN_41 = _celsius(41.5)
+_WHOLE_FAHRENHEIT_MAX_86 = _celsius(85.5)
 
 
 def test_fahrenheit_bounds_and_step_converted(bt):
     """Fahrenheit bounds convert to Celsius; the step converts as a delta.
 
-    Whole-degree bounds are read inside the published range, on the first
-    whole degree past the half degree a device bound Home Assistant rounded
-    may lie outside it.
+    Whole-degree bounds are read half a degree inside the published range,
+    past the half degree a device bound Home Assistant rounded may lie
+    outside it.
     """
     states = [_trv(min_t=41.0, max_t=86.0, step=1.0, unit=UnitOfTemperature.FAHRENHEIT)]
     BetterThermostat._resolve_temperature_range(bt, states)
@@ -177,8 +176,8 @@ def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
     HA climate entities never expose ``temperature_unit`` /
     ``unit_of_measurement`` in their state attributes and always report in the
     configured system unit. With a Fahrenheit system the raw 41/86 bounds must
-    therefore be read as °F and converted to Celsius, inside the whole
-    degrees published — otherwise BT would treat 41 °F as 41 °C and
+    therefore be read as °F and converted to Celsius, half a degree inside
+    the whole degrees published — otherwise BT would treat 41 °F as 41 °C and
     clamp every setpoint far too high.
     """
     bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
@@ -192,10 +191,12 @@ def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
 @pytest.mark.parametrize(
     ("published_min", "published_max", "read_min", "read_max"),
     [
-        # Tenths: the device bound lies within 0.05 °F of the published one.
-        pytest.param(39.1, 86.9, 40.0, 86.0, id="tenths"),
-        # Halves: a Fritz!DECT maximum of 28 °C is 82.4 °F, published 82.5.
-        pytest.param(39.5, 82.5, 40.0, 82.0, id="halves"),
+        # Tenths: 0.05 °F inward, 39.15 and 86.85, then inward onto the
+        # tenths the thermostat publishes and writes in.
+        pytest.param(39.1, 86.9, 39.2, 86.8, id="tenths"),
+        # Halves: a Fritz!DECT maximum of 28 °C is 82.4 °F, published 82.5;
+        # 0.25 °F inward is 82.25, and inward onto the tenths 82.2.
+        pytest.param(39.5, 82.5, 39.8, 82.2, id="halves"),
     ],
 )
 def test_fahrenheit_bounds_off_the_whole_degree_stay_inside(
@@ -206,8 +207,8 @@ def test_fahrenheit_bounds_off_the_whole_degree_stay_inside(
     Home Assistant rounds a bound to the precision the integration states,
     so the device's own bound lies up to half of that step either side of
     the published value, and it checks a setpoint against the device's
-    bound. The bound is read past that half step, onto the whole degree the
-    thermostat publishes its own range on.
+    bound. The bound is read past that half step, onto the tenth of a degree
+    the thermostat publishes its own range and writes setpoints in.
     """
     bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
     states = [_trv(min_t=published_min, max_t=published_max, step=1.0)]
@@ -359,17 +360,26 @@ def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
 
 @pytest.mark.parametrize(
     ("lower", "read"),
-    [pytest.param(True, 40.0, id="min"), pytest.param(False, 39.0, id="max")],
+    [pytest.param(True, 39.3, id="min"), pytest.param(False, 39.2, id="max")],
 )
-def test_a_fahrenheit_bound_off_every_published_grid_is_read_onto_a_whole_degree(
-    lower, read
-):
+def test_a_fahrenheit_bound_off_every_published_grid_is_read_onto_a_tenth(lower, read):
     """A bound finer than tenths was not rounded by Home Assistant.
 
     It is the device's own bound, so it needs no half step of room, only the
-    whole degree the thermostat publishes its own range on, inward of it.
+    tenth of a degree the thermostat publishes and writes in, inward of it.
     """
     bound = bound_to_celsius(
         "39.25", UnitOfTemperature.FAHRENHEIT, lower=lower, instance_name="test"
     )
     assert bound == pytest.approx(_celsius(read))
+
+
+def test_a_fahrenheit_system_publishes_the_thermostat_in_tenths(bt):
+    """On a Fahrenheit system the entity publishes its temperatures in tenths.
+
+    Home Assistant would round them to whole degrees, which rounds the
+    range outward past the bounds the thermostat holds and moves a target
+    between two degrees onto one of them.
+    """
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    assert BetterThermostat.precision.fget(bt) == 0.1

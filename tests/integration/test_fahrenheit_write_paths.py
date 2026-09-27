@@ -712,3 +712,23 @@ async def test_the_thermostat_publishes_its_step_in_the_system_unit(
 
     state = hass.states.get(BT_ENTITY)
     assert state.attributes["target_temp_step"] == pytest.approx(published_step)
+
+
+async def test_the_thermostat_publishes_its_range_in_tenths_inside_the_device_range(
+    hass,
+):
+    """The range the thermostat publishes lies inside the device's, in tenths.
+
+    The device publishes 39 and 87 °F for a range of 4 to 30.5 °C. The
+    thermostat reads each half a published degree inward and publishes that
+    as it holds it, 39.5 and 86.5 °F, not rounded back out to whole degrees.
+    """
+    (fake_trv,) = await build_devices(hass, OFF_GRID_FAHRENHEIT_TRV)
+    _publish_room_at_device_reading(hass, fake_trv.profile)
+    await _start(hass, fake_trv.profile)
+
+    state = hass.states.get(BT_ENTITY)
+    assert state.attributes["min_temp"] == 39.5
+    assert state.attributes["max_temp"] == 86.5
+    assert _fahrenheit(4.0) <= state.attributes["min_temp"]
+    assert state.attributes["max_temp"] <= _fahrenheit(30.5)

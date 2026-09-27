@@ -650,7 +650,9 @@ def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -
         min_temp = attr_to_celsius(
             self, state, "min_temp", None, "member_counts_as_off()"
         )
-    return setpoint_at_minimum(setpoint, min_temp)
+    return setpoint_at_minimum(
+        setpoint, min_temp, self.hass.config.units.temperature_unit
+    )
 
 
 def group_all_members_off(self: BetterThermostat) -> bool:
@@ -918,6 +920,11 @@ def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> fl
     works in Celsius internally, while ``climate`` service payloads must
     carry the system unit. On Fahrenheit installs the value is converted
     and rounded to one decimal; otherwise it is returned unchanged.
+
+    Temperatures are held at full precision inside and rounded once, at the
+    edge, onto the grid of whoever receives them: here the tenth of a degree
+    Fahrenheit a setpoint is written in, as the entity publishes its own
+    temperatures in tenths too.
 
     Parameters
     ----------
@@ -1573,9 +1580,9 @@ def read_bound_celsius(
     so the published value may lie up to half a published step outside the
     device's bound. The bound is read half of the coarsest step its value
     fits inward, which puts it inside the device's range whatever precision
-    the integration stated, and then inward onto a whole degree Fahrenheit:
-    the thermostat publishes its own range in whole degrees, and a bound off
-    that grid would be published rounded outward again.
+    the integration stated, and then inward onto the tenth of a degree the
+    thermostat publishes its own range in and writes setpoints in: a bound
+    between two tenths would be rounded outward again at that edge.
 
     Parameters
     ----------
@@ -1621,9 +1628,9 @@ def bound_to_celsius(
     grid = _published_grid(bound)
     if grid is not None:
         bound += grid / 2 if lower else -grid / 2
-    # Rounded first, so float noise cannot tip a whole degree over the edge.
-    bound = round(bound, 6)
-    bound = float(math.ceil(bound) if lower else math.floor(bound))
+    # Rounded first, so float noise cannot tip a tenth over the edge.
+    tenths = round(bound * 10, 6)
+    bound = (math.ceil(tenths) if lower else math.floor(tenths)) / 10
     return TemperatureConverter.convert(
         bound, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
     )
@@ -1714,18 +1721,31 @@ def matches_any_setpoint(
     return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
 
 
-def setpoint_at_minimum(setpoint: float | None, min_temp: float | None) -> bool:
+# Half a whole degree Fahrenheit, in Kelvin: how far a setpoint Home
+# Assistant published in whole degrees may lie above the one the device holds.
+_HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
+
+
+def setpoint_at_minimum(
+    setpoint: float | None, min_temp: float | None, system_unit: str | None
+) -> bool:
     """Whether a setpoint a device reports sits at the thermostat's minimum.
 
     ``min_temp`` is the lowest setpoint Better Thermostat writes to the
-    device. On a Fahrenheit system that lies inward of the device's own
-    minimum, so a device turned down to its end stop reports less than
-    ``min_temp``, and one parked at ``min_temp`` reports it back on the 0.01
-    grid of a reading. Both are at the minimum.
+    device, and the device reports it back on the 0.01 grid of a reading.
+    On a Fahrenheit system that minimum lies inward of the device's own, so
+    a device turned down to its end stop reports less than it; and Home
+    Assistant publishes a device's setpoint rounded to its precision, whole
+    degrees unless the integration states finer, so a device parked at the
+    minimum may report up to half a degree above it. All of these are the
+    device at its minimum.
     """
     if setpoint is None or min_temp is None:
         return False
-    return setpoint <= min_temp + SETPOINT_MATCH_TOLERANCE
+    slack = SETPOINT_MATCH_TOLERANCE
+    if system_unit == UnitOfTemperature.FAHRENHEIT:
+        slack += _HALF_FAHRENHEIT_DEGREE
+    return setpoint <= min_temp + slack
 
 
 class Rounding:

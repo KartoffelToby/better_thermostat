@@ -850,15 +850,15 @@ def _bound_tolerance(profile: DeviceProfile, bound: float) -> float:
     places it is its own business, as long as it is the device's bound it
     places there.
 
-    On a Fahrenheit system the state does not say which precision the
-    entity published with, so the integration reads every bound half a
-    published step inward and then onto the whole degree Fahrenheit it
-    publishes its own range on: up to one degree from the device's bound.
+    A whole degree Fahrenheit is what that rounding produces for an entity
+    that states no precision of its own, and the state does not say whether
+    the entity stated one, so such a bound is only known to within half a
+    degree whatever the profile's precision.
     """
     unit = published_unit(profile)
     published = published_temperature(profile, bound)
-    if unit is UnitOfTemperature.FAHRENHEIT:
-        return _celsius_step(1.0, unit)
+    if unit is UnitOfTemperature.FAHRENHEIT and published == round(published):
+        return _celsius_step(1.0, unit) / 2
     if _celsius(published, unit) == pytest.approx(
         _celsius(bound, profile.temperature_unit), abs=1e-9
     ):

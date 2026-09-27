@@ -38,6 +38,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
+    PRECISION_TENTHS,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     Platform,
@@ -3372,13 +3373,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def precision(self):
-        """Return the precision of the system.
+        """Return the precision the entity's temperatures are published with.
+
+        Home Assistant rounds every temperature this entity publishes (the
+        room temperature, the target and the range) to it after converting
+        into the system unit. Its default on a Fahrenheit system is whole
+        degrees, which would round the thermostat's range outward past the
+        device's bounds and hide a target between two degrees, so a
+        Fahrenheit system publishes tenths, as a Celsius one does by default.
 
         Returns
         -------
         float
                 Precision of the thermostat.
         """
+        hass = self.hass
+        if (
+            hass is not None
+            and hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
+        ):
+            return PRECISION_TENTHS
         return super().precision
 
     @property
