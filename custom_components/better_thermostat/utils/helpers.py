@@ -516,7 +516,9 @@ def mode_remap(
     str | None
             remapped mode according to device's quirks, or ``None`` for an
             outbound mode the device does not offer, meaning the device's
-            mode is left untouched.
+            mode is left untouched, and for a reported AUTO on a device
+            without the heat auto swapped option, meaning the report is
+            ignored.
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -590,6 +592,11 @@ def mode_remap(
                 entity_id,
                 hvac_mode,
             )
+        # A reported AUTO is ambiguous without the swap option, so it is not
+        # decoded at all: the instance keeps its mode and the next control
+        # cycle writes that mode back to the device.
+        if inbound:
+            return None
         return HVACMode.OFF
 
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)

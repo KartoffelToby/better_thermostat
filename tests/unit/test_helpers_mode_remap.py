@@ -486,13 +486,13 @@ class TestModeRemapUnsupportedOutboundMode:
         assert mode_remap(mock_bt, "climate.test", "cool", inbound=True) == "cool"
         assert mode_remap(mock_bt, "climate.test", "dry", inbound=True) == "dry"
 
-    def test_an_unswapped_device_reporting_auto_reads_as_off(self, caplog):
-        """A reported AUTO without the swap option is read as OFF and explained.
+    def test_an_unswapped_device_reporting_auto_is_ignored(self, caplog):
+        """A reported AUTO without the swap option decodes to no mode and is explained.
 
-        The instance never publishes AUTO, so the only AUTO that reaches this
-        branch is one a device reports. Without the swap option AUTO is not a
-        heating mode this instance knows; the report is decoded as OFF, and
-        the error names the swap option as the likely missing setting.
+        Without the swap option AUTO may be the device's heating mode or its
+        own schedule, so the report names neither OFF nor HEAT. It decodes to
+        no mode at all, and the error names the swap option as the likely
+        missing setting.
         """
         mock_bt = MockThermostat()
         mock_bt.add_trv(
@@ -502,7 +502,7 @@ class TestModeRemapUnsupportedOutboundMode:
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             result = mode_remap(mock_bt, "climate.test", "auto", inbound=True)
 
-        assert result == HVACMode.OFF
+        assert result is None
         assert len(_forgotten_swap_records(caplog)) == 1
 
     def test_unreported_mode_list_disables_the_clamp(self):

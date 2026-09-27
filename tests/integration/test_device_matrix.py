@@ -8,14 +8,18 @@ simulated device rather than on what Better Thermostat believes it sent.
 """
 
 from dataclasses import replace
+from datetime import timedelta
 from unittest.mock import patch
 
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.const import EVENT_CALL_SERVICE, UnitOfTemperature
+from homeassistant.core import Context
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 import pytest
 from pytest_homeassistant_custom_component.common import (
     async_capture_events,
+    async_fire_time_changed,
     async_mock_service,
 )
 
@@ -536,3 +540,68 @@ def test_every_reported_shape_is_still_in_the_matrix(description, shape):
         matrix = SINGLE_ROLE_PROFILES
 
     assert shape in matrix, f"{description} is no longer part of the matrix"
+
+
+HEAT_AND_AUTO_TRV = replace(
+    GENERIC_HEAT_TRV,
+    name="heat_and_auto_trv",
+    hvac_modes=(HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF),
+)
+"""A head offering heat and, besides it, an auto mode that runs its own schedule."""
+
+
+@pytest.mark.parametrize(
+    "room_mode", [HVACMode.HEAT, HVACMode.OFF], ids=["heating", "off"]
+)
+@pytest.mark.parametrize("fake_trv", [HEAT_AND_AUTO_TRV], indirect=True, ids=profile_id)
+async def test_an_unswapped_device_turned_to_auto_is_put_back_into_the_room_mode(
+    hass, fake_trv, room_mode
+):
+    """A device turned to auto without the swap option returns to the room's mode.
+
+    Without the swap option auto names neither heating nor off, so the room
+    keeps the mode it had, and the next control cycle writes that mode back
+    to the device.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    with patch(WRITE_BUDGET, 0.0):
+        await hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": BT_ENTITY, "hvac_mode": room_mode},
+            blocking=True,
+        )
+        assert await wait_for(
+            hass, lambda: fake_trv.hvac_mode == room_mode and not bt.ignore_states
+        )
+    fake_trv.set_hvac_mode_calls.clear()
+
+    # A turn at the device reaches Home Assistant as a state the device
+    # publishes under a context of its own.
+    fake_trv._attr_hvac_mode = HVACMode.AUTO
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+    await hass.async_block_till_done()
+    assert await wait_for(
+        hass,
+        lambda: (
+            not any(
+                task.get_name().startswith("bt_trigger_trv_change")
+                for task in bt._owned_tasks
+            )
+        ),
+    )
+
+    assert bt.bt_hvac_mode == room_mode
+    assert hass.states.get(BT_ENTITY).state == room_mode
+
+    with patch(WRITE_BUDGET, 0.0):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=6))
+        assert await wait_for(hass, lambda: fake_trv.set_hvac_mode_calls)
+
+    assert fake_trv.set_hvac_mode_calls == [room_mode]
+    assert hass.states.get(TRV_ID).state == room_mode
+    assert bt.bt_hvac_mode == room_mode
