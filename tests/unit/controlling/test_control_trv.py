@@ -37,6 +37,7 @@ from custom_components.better_thermostat.core.fsm.window import WindowPhase, Win
 from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
+from custom_components.better_thermostat.model_fixes import TRVZB
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -186,6 +187,14 @@ def _default_trv_config(**overrides):
     }
     cfg.update(overrides)
     return Trv.from_legacy_dict("climate.trv1", cfg)
+
+
+def _with_valve_channel(trv):
+    """Give ``trv`` a writable valve number entity to take valve positions."""
+    trv.valve_position_entity = "number.trv1_valve_opening_degree"
+    trv.valve_position_writable = True
+    trv.adapter = SimpleNamespace(CAPABILITIES=None, set_valve=AsyncMock())
+    return trv
 
 
 # ---------------------------------------------------------------------------
@@ -797,12 +806,14 @@ class TestControlTrvAvailablePath:
             cur_temp=18.0,
             bt_target_temp=22.0,
             real_trvs={
-                "climate.trv1": _default_trv_config(
-                    advanced={
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    }
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
                 )
             },
         )
@@ -1024,13 +1035,15 @@ class TestControlTrvAvailablePath:
             trv_state=HVACMode.HEAT,
             trv_attrs={"temperature": 20.0},
             real_trvs={
-                "climate.trv1": _default_trv_config(
-                    system_mode_received=True,
-                    advanced={
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    },
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        system_mode_received=True,
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        },
+                    )
                 )
             },
         )
@@ -1690,12 +1703,14 @@ class TestBoostModeSafetyOverride:
             bt_target_temp=22.0,
             window_open=True,
             real_trvs={
-                "climate.trv1": _default_trv_config(
-                    advanced={
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    }
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
                 )
             },
         )
@@ -1863,19 +1878,24 @@ class TestValveWriteResult:
             cur_temp=18.0,
             bt_target_temp=22.0,
             real_trvs={
-                "climate.trv1": _default_trv_config(
-                    advanced={
-                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
-                        "no_off_system_mode": False,
-                    }
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        advanced={
+                            "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        }
+                    )
                 )
             },
         )
 
     @staticmethod
-    async def _run_cycle(mock_self, valve_result):
+    async def _run_cycle(mock_self, valve_result, write=None):
         """Run one control cycle with the delegate answering ``valve_result``.
+
+        ``write``, when given, stands in for the delegate's answer and is
+        what the valve write runs through.
 
         Returns the valve mock and the names of the tasks the cycle
         created.
@@ -1888,7 +1908,10 @@ class TestValveWriteResult:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["set_valve"], autospec=True, return_value=valve_result
+                _PATCHES["set_valve"],
+                autospec=True,
+                return_value=valve_result,
+                side_effect=write,
             ) as mock_set_valve,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
@@ -1991,6 +2014,106 @@ class TestValveWriteResult:
             assert await delegate.set_valve(mock_self, "climate.trv1", 100) is True
         quirk_write.assert_awaited_once_with(mock_self, "climate.trv1", 100)
         assert trv.last_valve_method == "override"
+
+    OPENING = "number.trv1_valve_opening_degree"
+
+    def _trvzb_self(self, opening=None):
+        """A boosting TRVZB whose device carries the ``opening`` number entry.
+
+        Returns the thermostat and the registry holding the TRV and, when
+        given, the opening number on the TRV's device.
+        """
+        mock_self = self._boost_valve_self()
+        mock_self.hass.services.async_call = AsyncMock()
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.model = "TRVZB"
+        trv.model_quirks = TRVZB
+        trv.adapter = SimpleNamespace(CAPABILITIES=None, set_valve=AsyncMock())
+        trv.valve_position_entity = None
+        trv.valve_position_writable = None
+        entries = [make_registry_entry("climate.trv1", device_id="trvzb")]
+        if opening is not None:
+            trv.valve_position_entity = opening.entity_id
+            trv.valve_position_writable = True
+            entries.append(opening)
+        return mock_self, make_entity_registry(*entries)
+
+    def _opening(self, **fields):
+        return make_registry_entry(
+            self.OPENING,
+            device_id="trvzb",
+            translation_key="valve_opening_degree",
+            **fields,
+        )
+
+    async def _cycles(self, mock_self, registry, count):
+        """Run ``count`` cycles through the real valve write; collect their tasks."""
+        calls, task_names = 0, []
+        with patch(f"{_HELPERS}.er.async_get", return_value=registry):
+            for _ in range(count):
+                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                mock_set_valve, names = await self._run_cycle(
+                    mock_self, None, write=delegate.set_valve
+                )
+                calls += mock_set_valve.await_count
+                task_names += names
+        return calls, task_names
+
+    @pytest.mark.asyncio
+    async def test_a_trvzb_with_its_opening_number_disabled_is_left_alone(self, caplog):
+        """A TRVZB whose valve opening number is disabled has no valve channel.
+
+        Its quirk writes only to that number, so the valve position is not
+        pursued and no catch-up cycle is queued, and the disabled entity is
+        named once.
+        """
+        mock_self, registry = self._trvzb_self(
+            self._opening(disabled_by=er.RegistryEntryDisabler.USER)
+        )
+
+        calls, task_names = await self._cycles(mock_self, registry, 3)
+
+        assert calls == 0
+        assert "bt_budget_retry_climate.trv1" not in task_names
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "disabled" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert self.OPENING in warnings[0].getMessage()
+
+    @pytest.mark.asyncio
+    async def test_a_trvzb_without_an_opening_number_is_left_alone(self):
+        """A TRVZB whose device offers no valve number has no valve channel.
+
+        Nothing but the user adding such an entity changes that, so no
+        catch-up cycle is queued for the valve.
+        """
+        mock_self, registry = self._trvzb_self()
+
+        calls, task_names = await self._cycles(mock_self, registry, 3)
+
+        assert calls == 0
+        assert "bt_budget_retry_climate.trv1" not in task_names
+
+    @pytest.mark.asyncio
+    async def test_a_trvzb_with_an_enabled_opening_number_is_written(self):
+        """A TRVZB's quirk writes the boost position to its opening number."""
+        mock_self, registry = self._trvzb_self(self._opening())
+
+        calls, task_names = await self._cycles(mock_self, registry, 1)
+
+        assert calls == 1
+        assert "bt_budget_retry_climate.trv1" not in task_names
+        mock_self.hass.services.async_call.assert_any_await(
+            "number",
+            "set_value",
+            {"entity_id": self.OPENING, "value": 100},
+            blocking=True,
+            context=mock_self.context,
+        )
+        assert mock_self.real_trvs["climate.trv1"].last_valve_method == "override"
 
 
 # ---------------------------------------------------------------------------

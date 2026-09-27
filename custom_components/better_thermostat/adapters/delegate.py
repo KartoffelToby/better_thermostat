@@ -352,11 +352,17 @@ def _valve_channels(
     # is the write. The adapter's channel exists once a helper entity was
     # discovered and is known to be writable, or once the adapter declares it
     # needs no such entity because its valve channel is a service call.
+    #
+    # A quirk that can tell whether its device offers a valve to write to
+    # answers ``has_valve_channel``; one that cannot is taken at its word
+    # that ``override_set_valve`` is a channel.
     channels: list[tuple[str, Callable[..., Awaitable[bool | None]], bool]] = []
-    quirk_write = getattr(
-        getattr(trv_state, "model_quirks", None), "override_set_valve", None
-    )
-    if quirk_write is not None:
+    model_quirks = getattr(trv_state, "model_quirks", None)
+    quirk_write = getattr(model_quirks, "override_set_valve", None)
+    quirk_has_channel = getattr(model_quirks, "has_valve_channel", None)
+    if quirk_write is not None and (
+        quirk_has_channel is None or quirk_has_channel(self, entity_id)
+    ):
         channels.append(("override", quirk_write, True))
     # A valve entity disabled in Home Assistant since it was adopted drops
     # every write, so it is no channel until it is enabled again.
@@ -376,17 +382,16 @@ def _valve_channels(
     return channels
 
 
-def valve_channel_disabled(self, entity_id: str) -> bool:
-    """Whether the TRV's valve is out of reach because its entity is disabled.
+def valve_channel_available(self, entity_id: str) -> bool:
+    """Whether any channel exists to write the TRV's valve position through.
 
-    True when the adopted valve entity is disabled in Home Assistant and no
-    other channel, such as a model quirk's own write, remains. That lasts
-    until the user acts, so a caller does not pursue the valve position,
-    and does not schedule a retry for it, while this holds.
+    Without one, the valve is out of reach for a reason that lasts until
+    the user acts (no valve entity, or only a disabled one), so a caller
+    does not pursue the valve position, and does not schedule a retry for
+    it, while this holds. A channel that exists but fails a write is a
+    different matter and is retried.
     """
-    return valve_entity_disabled(self, entity_id) and not _valve_channels(
-        self, entity_id
-    )
+    return bool(_valve_channels(self, entity_id))
 
 
 async def set_valve(self, entity_id, valve) -> bool:

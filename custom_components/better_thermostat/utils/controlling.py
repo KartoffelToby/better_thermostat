@@ -22,7 +22,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_offset,
     set_temperature,
     set_valve,
-    valve_channel_disabled,
+    valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
@@ -1608,10 +1608,9 @@ async def control_trv(
                     valve_settings, _source = _get_valve_control(
                         self, snapshot, entity_id, _calibration_mode, _calibration_type
                     )
-                # A valve reachable only through a disabled entity has no
-                # channel: the position is not pursued, and no retry is
-                # scheduled, until the entity is enabled again.
-                if valve_settings is not None and valve_channel_disabled(
+                # A valve with no channel to write through is not pursued,
+                # and no retry is scheduled for it, until one appears.
+                if valve_settings is not None and not valve_channel_available(
                     self, entity_id
                 ):
                     valve_settings = None
