@@ -3284,7 +3284,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
             CONF_TOLERANCE: self.tolerance,
-            CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
             ATTR_STATE_HEATING_POWER: self.heating_power,
             ATTR_STATE_HEAT_LOSS: getattr(self, "heat_loss_rate", None),
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
@@ -3384,7 +3383,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def target_temperature_step(self) -> float | None:
-        """Return the supported step of target temperature.
+        """Return the supported step of target temperature, in the system unit.
+
+        Home Assistant converts every temperature this entity publishes into
+        the system unit but publishes the step as given, and the frontend
+        steps the converted target by it. ``bt_target_temp_step`` is a
+        Celsius difference, so on a Fahrenheit system it is scaled into
+        Fahrenheit. The fallback, ``precision``, is already in the system
+        unit.
 
         Returns
         -------
@@ -3392,6 +3398,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 Step size of target temperature.
         """
         if self.bt_target_temp_step is not None:
+            hass = self.hass
+            if (
+                hass is not None
+                and hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
+            ):
+                return round(self.bt_target_temp_step * 9.0 / 5.0, 2)
             return self.bt_target_temp_step
 
         return super().precision

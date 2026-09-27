@@ -335,3 +335,23 @@ def test_an_unreadable_bound_falls_back_to_the_devices(stored, caplog):
         bound = _configured_temperature_bound(stored, "Test BT", CONF_TARGET_TEMP_MIN)
 
     assert bound is None
+
+
+@pytest.mark.parametrize(
+    ("system_unit", "published"),
+    [
+        pytest.param(UnitOfTemperature.CELSIUS, 0.5, id="celsius"),
+        pytest.param(UnitOfTemperature.FAHRENHEIT, 0.9, id="fahrenheit"),
+    ],
+)
+def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
+    """The step the entity publishes is a difference in the system unit.
+
+    Home Assistant publishes the step unconverted next to targets it has
+    converted into the system unit, so a 0.5 °C step is published as 0.9 on
+    a Fahrenheit system and as 0.5 on a Celsius one.
+    """
+    bt.bt_target_temp_step = 0.5
+    bt.hass.config.units.temperature_unit = system_unit
+    step = BetterThermostat.target_temperature_step.fget(bt)
+    assert step == pytest.approx(published)

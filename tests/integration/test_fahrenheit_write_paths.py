@@ -683,3 +683,32 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     bt = await wait_for_startup(hass, entry)
 
     assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(float(labelled_value))
+
+
+@pytest.mark.parametrize(
+    ("configured", "fake_trv", "published_step"),
+    [
+        pytest.param("step_0_5", FAHRENHEIT_TRV, 0.9, id="configured_0_5_celsius"),
+        pytest.param(None, FAHRENHEIT_TRV, 1.0, id="device_step_1_fahrenheit"),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_the_thermostat_publishes_its_step_in_the_system_unit(
+    hass, configured, fake_trv, published_step
+):
+    """The step the thermostat publishes is a step in the unit its target is shown in.
+
+    Home Assistant converts the target it publishes into Fahrenheit and
+    publishes the step unconverted, and the frontend moves the target by
+    that step. A step of 0.5 °C is 0.9 °F; the device's own 1 °F grid stays
+    1 °F.
+    """
+    _publish_room_at_device_reading(hass, fake_trv.profile)
+    user_input = {"name": "BT Test", CONF_HEATER: [TRV_ID], CONF_SENSOR: SENSOR_ID}
+    if configured is not None:
+        user_input[CONF_TARGET_TEMP_STEP] = configured
+    entry = await _run_create_flow(hass, user_input)
+    await wait_for_startup(hass, entry)
+
+    state = hass.states.get(BT_ENTITY)
+    assert state.attributes["target_temp_step"] == pytest.approx(published_step)
