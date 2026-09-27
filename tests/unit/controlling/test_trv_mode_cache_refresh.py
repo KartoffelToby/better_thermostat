@@ -10,7 +10,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, UnitOfTemperature
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
@@ -294,7 +294,7 @@ class TestReportsHeldDuringACycle:
         event = handler.await_args.args[1]
         assert event.data["new_state"] is reported_states[ENTITY_ID]
         assert event.context != thermostat.context
-        assert handler.await_args.kwargs == {"mode_settled": False}
+        assert handler.await_args.kwargs["mode_settled"] is False
 
     @pytest.mark.asyncio
     async def test_a_pending_mode_command_leaves_the_mode_to_the_next_report(
@@ -308,7 +308,7 @@ class TestReportsHeldDuringACycle:
         with patch(f"{_CTRL}.trigger_trv_change", new=handler):
             await read_reports_held_during_cycle(thermostat)
 
-        assert handler.await_args.kwargs == {"mode_settled": True}
+        assert handler.await_args.kwargs["mode_settled"] is True
 
     @pytest.mark.asyncio
     async def test_an_unavailable_device_has_nothing_to_read(
@@ -338,3 +338,54 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         logger.exception.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("operating", [True, False])
+    async def test_an_unknown_device_is_read_when_its_model_operates_so(
+        self, thermostat, reported_states, operating
+    ):
+        """A TRV reporting ``unknown`` is read exactly when the handler reads it."""
+        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        reported_states[ENTITY_ID] = State(ENTITY_ID, STATE_UNKNOWN)
+        handler = AsyncMock()
+
+        with (
+            patch(f"{_CTRL}.trigger_trv_change", new=handler),
+            patch(f"{_CTRL}.trv_state_unknown_as_available", return_value=operating),
+        ):
+            await read_reports_held_during_cycle(thermostat)
+
+        assert handler.await_count == (1 if operating else 0)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("adopt", "requested"),
+        [
+            pytest.param(None, False, id="nothing_moved"),
+            pytest.param(("bt_target_temp", 23.0), True, id="target_adopted"),
+            pytest.param(("bt_hvac_mode", HVACMode.OFF), True, id="mode_adopted"),
+        ],
+    )
+    async def test_a_cycle_is_requested_only_for_what_a_cycle_acts_on(
+        self, thermostat, adopt, requested
+    ):
+        """Reading a held report requests a cycle only when it moved a control input.
+
+        A report that moved nothing a cycle acts on, such as a new heating
+        action, requests none: a device answering inside every cycle would
+        otherwise keep one cycle following the next.
+        """
+        thermostat.real_trvs[ENTITY_ID].report_unread = True
+
+        async def read(bt, event, **kwargs):
+            bt.real_trvs[ENTITY_ID].hvac_action = "idle"
+            if adopt is not None:
+                setattr(bt, *adopt)
+
+        with (
+            patch(f"{_CTRL}.trigger_trv_change", new=AsyncMock(side_effect=read)),
+            patch(f"{_CTRL}.request_control_cycle") as request,
+        ):
+            await read_reports_held_during_cycle(thermostat)
+
+        assert request.called is requested

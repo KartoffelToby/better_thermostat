@@ -758,7 +758,14 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     then, and reading it would take it into the cache and let the report
     that could adopt it once the command is settled pass as no change; it is
     left to the device's next report, the way ``refresh_cached_trv_modes``
-    settled it. A device that is unavailable or unknown has nothing to read.
+    settled it. A device that is unavailable has nothing to read, and so has
+    one reporting ``unknown`` unless its model reads that as operating, the
+    way the handler reads it.
+
+    A control cycle is requested only when the report moved what the next
+    cycle acts on: the room's targets or mode, or the mode the device is
+    known to hold. A device answering inside every cycle with a report that
+    carries nothing new would otherwise keep one cycle following the next.
 
     Parameters
     ----------
@@ -770,7 +777,14 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
             continue
         trv.report_unread = False
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        if (
+            state is None
+            or state.state == STATE_UNAVAILABLE
+            or (
+                state.state == STATE_UNKNOWN
+                and not trv_state_unknown_as_available(self, entity_id)
+            )
+        ):
             continue
         held_report = Event(
             EVENT_STATE_CHANGED,
@@ -779,9 +793,13 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
             ),
             context=Context(),
         )
+        acted_on_before = _held_report_control_inputs(self, trv)
         try:
             await trigger_trv_change(
-                self, held_report, mode_settled=trv.system_mode_received is False
+                self,
+                held_report,
+                mode_settled=trv.system_mode_received is False,
+                request_cycle=False,
             )
         except Exception:
             _LOGGER.exception(
@@ -790,6 +808,19 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 self.device_name,
                 entity_id,
             )
+            continue
+        if _held_report_control_inputs(self, trv) != acted_on_before:
+            request_control_cycle(self)
+
+
+def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, ...]:
+    """Return what a report read at cycle end can move that a cycle acts on."""
+    return (
+        self.bt_target_temp,
+        self.bt_target_cooltemp,
+        self.bt_hvac_mode,
+        trv.hvac_mode,
+    )
 
 
 async def control_queue(self: BetterThermostat) -> None:

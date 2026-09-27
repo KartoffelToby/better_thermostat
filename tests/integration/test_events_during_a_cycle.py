@@ -17,6 +17,7 @@ acts, and a deferred write is a slow device that keeps reporting what it held
 before.
 """
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
@@ -33,6 +34,7 @@ from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.better_thermostat.utils import controlling
 from custom_components.better_thermostat.utils.controlling import (
     WRITE_CONFIRM_TIMEOUT_S,
 )
@@ -424,6 +426,106 @@ async def test_a_knob_turned_during_a_cycle_survives_the_next_cycle(hass):
         await _handled(hass, bt)
 
     assert bt.bt_target_temp == pytest.approx(25.0)
+
+
+def _without_off_mode(bt, device: SimulatedClimate) -> None:
+    """Configure ``device`` as one that carries the room's off on its setpoint."""
+    trv = bt.real_trvs[device.entity_id]
+    trv.advanced = {**(trv.advanced or {}), "no_off_system_mode": True}
+
+
+async def _count_cycles(hass, bt, *, answer=None, window_s: float = 3.0) -> int:
+    """Count the TRV cycles that run in ``window_s`` after the room sensor moves.
+
+    ``answer`` is called at the start of every TRV cycle, which is where a
+    device that answers late lands its report.
+    """
+    real_control_trv = controlling.control_trv
+    cycles = 0
+
+    async def counted(self, entity_id, cycle=None):
+        nonlocal cycles
+        cycles += 1
+        if answer is not None:
+            answer()
+            for _ in range(5):
+                await asyncio.sleep(0)
+        return await real_control_trv(self, entity_id, cycle=cycle)
+
+    with patch.object(controlling, "control_trv", counted), patch(WRITE_BUDGET, 0.0):
+        set_room_sensor(hass, 18.3)
+        deadline = hass.loop.time() + window_s
+        while hass.loop.time() < deadline:
+            await asyncio.sleep(0.01)
+            await hass.async_block_till_done()
+    return cycles
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param("heating_action_flips", id="heating_action_flips"),
+        pytest.param("routine_report_without_off_mode", id="no_off_routine_report"),
+    ],
+)
+async def test_a_device_answering_inside_every_cycle_does_not_keep_the_room_cycling(
+    hass, answer
+):
+    """A report inside a cycle that moves nothing a cycle acts on starts no cycle.
+
+    The device answers every cycle with a report of its own. Its heating
+    action flips, or it is a device without an off mode repeating the
+    setpoint it holds; neither is a reason to control the room again, so
+    the one change of the room sensor stays one cycle or two.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
+    fake_trv._attr_hvac_action = "idle"
+    _publish(fake_trv)
+    await _handled(hass, bt)
+    if answer == "routine_report_without_off_mode":
+        _without_off_mode(bt, fake_trv)
+    heating = False
+
+    def answer_inside_the_cycle() -> None:
+        nonlocal heating
+        if answer == "heating_action_flips":
+            heating = not heating
+            fake_trv._attr_hvac_action = "heating" if heating else "idle"
+            _publish(fake_trv)
+        else:
+            _report(fake_trv)
+
+    cycles = await _count_cycles(hass, bt, answer=answer_inside_the_cycle)
+
+    assert 1 <= cycles <= 2
+
+
+async def test_routine_reports_of_a_device_without_off_mode_start_no_cycle(hass):
+    """A device without an off mode repeating its setpoint does not control the room.
+
+    Its setpoint carries the room's mode, so a report is a reason for a cycle
+    where it moves that mode. A routine report of the setpoint it already
+    holds moves nothing.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
+    _without_off_mode(bt, fake_trv)
+    real_control_trv = controlling.control_trv
+    cycles = 0
+
+    async def counted(self, entity_id, cycle=None):
+        nonlocal cycles
+        cycles += 1
+        return await real_control_trv(self, entity_id, cycle=cycle)
+
+    with patch.object(controlling, "control_trv", counted), patch(WRITE_BUDGET, 0.0):
+        for _ in range(5):
+            _report(fake_trv)
+            await _handled(hass, bt)
+            assert await wait_for(hass, lambda: not bt.ignore_states)
+
+    # The first report carries a new internal temperature past its debounce,
+    # which is a reason of its own; the ones after it carry nothing.
+    assert cycles <= 1
 
 
 # ---------------------------------------------------------------------------

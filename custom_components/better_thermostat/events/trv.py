@@ -94,12 +94,15 @@ def accepts_user_setpoint(
     )
 
 
-async def trigger_trv_change(self, event, *, mode_settled: bool = False):
+async def trigger_trv_change(
+    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+):
     """Trigger a change in the trv state.
 
     ``mode_settled`` reads a report whose mode the end of a control cycle
     has already settled, so the mode it carries is left to the device's next
-    report.
+    report. ``request_cycle=False`` reads the report without requesting a
+    control cycle for it, for a caller that decides that itself.
     """
     if self.startup_running:
         return
@@ -534,6 +537,9 @@ async def trigger_trv_change(self, event, *, mode_settled: bool = False):
             )
 
         if advanced.get("no_off_system_mode", False):
+            # The setpoint of a device without an off mode carries the room's
+            # mode, so a report is a control change only where it moves it.
+            _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
             if _raw_heating_setpoint == trv.min_temp:
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
@@ -557,9 +563,10 @@ async def trigger_trv_change(self, event, *, mode_settled: bool = False):
                 # checked at all: a setpoint adopted while the group was still
                 # off has not passed that check yet.
                 self._enforce_cool_above_heat()
-            _main_change = True
+            if (self.bt_hvac_mode, self.bt_target_cooltemp) != _room_before:
+                _main_change = True
 
-    if _main_change is True:
+    if _main_change is True and request_cycle:
         self.async_write_ha_state()
         return request_control_cycle(self)
 
