@@ -157,8 +157,11 @@ class Trv:
     # device confirmed it. The device already held the mode the room wanted
     # again, so no newer command went out to replace it, and a slow device
     # may still apply it. Its report is Better Thermostat's own command
-    # landing late, not a press at the device.
+    # landing late, not a press at the device, until the monotonic deadline
+    # beside it: a device gets as long to apply it as the mode watchdog gives
+    # any command, and a report after that is the user's again.
     withdrawn_hvac_mode: str | None = None
+    withdrawn_hvac_mode_until: float | None = None
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;

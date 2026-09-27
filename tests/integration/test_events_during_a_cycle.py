@@ -33,6 +33,10 @@ from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.better_thermostat.utils.controlling import (
+    WRITE_CONFIRM_TIMEOUT_S,
+)
+
 from .conftest import (
     BT_ENTITY,
     WRITE_BUDGET,
@@ -451,6 +455,37 @@ async def test_a_mode_command_the_room_took_back_does_not_switch_the_room_when_i
 
     assert fake_trv.hvac_mode == HVACMode.HEAT
     assert bt.bt_hvac_mode == HVACMode.HEAT
+
+
+async def test_a_press_after_the_withdrawn_command_had_its_time_is_adopted(hass):
+    """A withdrawn mode command stops speaking for the device once its time is up.
+
+    The room is switched off and straight back on before the slow device has
+    taken the off command, and the device drops it. Once a device has had as
+    long to apply the command as any command gets, an off at the device is
+    the user's press and switches the room off.
+    """
+    bt, (fake_trv,) = await _start(hass, GENERIC_HEAT_TRV)
+    trv = bt.real_trvs[TRV_ID]
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with deferring_next_write(fake_trv, "async_set_hvac_mode") as deferred:
+            await _command(hass, hvac_mode=HVACMode.OFF)
+            assert await poll_until(hass, lambda: deferred.apply is not None)
+            await _command(hass, hvac_mode=HVACMode.HEAT)
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+            assert await poll_until(hass, lambda: trv.system_mode_received, PROMPTLY_S)
+
+        system_monotonic = bt.clock.monotonic
+        with patch.object(
+            bt.clock,
+            "monotonic",
+            lambda: system_monotonic() + WRITE_CONFIRM_TIMEOUT_S + 1,
+        ):
+            _operate(fake_trv, hvac_mode=HVACMode.OFF)
+            await _handled(hass, bt)
+
+    assert bt.bt_hvac_mode == HVACMode.OFF
 
 
 # ---------------------------------------------------------------------------
