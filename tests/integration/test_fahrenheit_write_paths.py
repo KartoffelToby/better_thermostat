@@ -412,16 +412,7 @@ async def test_a_device_without_an_off_mode_is_parked_at_its_minimum(hass, fake_
     "fake_trv",
     [
         pytest.param(
-            replace(FAHRENHEIT_TRV, valve_maintenance=True),
-            id="fahrenheit_trv",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the setpoint to restore is taken from the device attribute "
-                    "in Fahrenheit and written back as if it were Celsius, so "
-                    "the clamp leaves the device on its maximum"
-                ),
-            ),
+            replace(FAHRENHEIT_TRV, valve_maintenance=True), id="fahrenheit_trv"
         ),
         pytest.param(
             OFF_GRID_FAHRENHEIT_TRV,

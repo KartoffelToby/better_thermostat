@@ -3021,7 +3021,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # state names no mode to restore, gets none and stays out of the
             # run below.
             infos = build_trv_snapshots(
-                self.real_trvs, trvs, self.hass.states.get, self.device_name
+                self.real_trvs,
+                trvs,
+                self.hass.states.get,
+                self.device_name,
+                read_setpoint=lambda state: attr_to_celsius(
+                    self, state, "temperature", None, "valve maintenance"
+                ),
             )
             serviced_ids = {info.entity_id for info in infos}
 
