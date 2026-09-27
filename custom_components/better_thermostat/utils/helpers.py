@@ -1536,15 +1536,21 @@ def attr_to_celsius(
     )
 
 
-# A published value this close to a whole degree is one: it only carries the
-# float noise of convert_to_float's 0.01 grid.
-_WHOLE_DEGREE_TOLERANCE = 1e-6
+# The grids Home Assistant publishes a climate entity's temperatures on,
+# coarsest first: whole degrees, halves and tenths.
+_PUBLISHED_GRIDS = (1.0, 0.5, 0.1)
 
-# How far a whole-degree Fahrenheit bound is moved inward: half a degree, and
-# just past it. The thermostat publishes its own range in whole degrees as
-# well, and Home Assistant rounds an exact half to the even neighbour, which
-# for half of all bounds is the outer one.
-_WHOLE_DEGREE_BOUND_INSET = 0.5 + _WHOLE_DEGREE_TOLERANCE
+# A published value this close to a point of a grid is on it: it only carries
+# the float noise of convert_to_float's 0.01 grid.
+_ON_GRID_TOLERANCE = 1e-6
+
+
+def _published_grid(value: float) -> float | None:
+    """Return the coarsest published grid ``value`` lies on, or None."""
+    for grid in _PUBLISHED_GRIDS:
+        if abs(value / grid - round(value / grid)) < _ON_GRID_TOLERANCE:
+            return grid
+    return None
 
 
 def read_bound_celsius(
@@ -1557,16 +1563,19 @@ def read_bound_celsius(
 ) -> float | None:
     """Read a setpoint bound from a foreign state and return it in °C.
 
-    The bound is converted exactly: it becomes the limit every setpoint is
-    clamped to, and Home Assistant checks a setpoint against the device's
-    own bound, so a bound rounded outward lets a refused setpoint through.
+    The bound becomes the limit every setpoint is clamped to, and Home
+    Assistant checks a setpoint against the device's own, unrounded bound, so
+    a bound read outward of it lets a refused setpoint through.
 
-    On a Fahrenheit system Home Assistant publishes the bounds of a climate
-    entity that states no precision of its own in whole degrees, so a whole
-    degree Fahrenheit may lie up to half a degree outside the device's bound.
-    Such a bound is moved half a degree inward, which keeps every setpoint
-    clamped to it inside the device's range, and just past the half degree,
-    so the range the thermostat publishes in whole degrees rounds inward too.
+    A bound in Celsius is read as published. On a Fahrenheit system Home
+    Assistant converts a device's bound and rounds it to the entity's
+    precision (whole degrees unless the integration states halves or tenths),
+    so the published value may lie up to half a published step outside the
+    device's bound. The bound is read half of the coarsest step its value
+    fits inward, which puts it inside the device's range whatever precision
+    the integration stated, and then inward onto a whole degree Fahrenheit:
+    the thermostat publishes its own range in whole degrees, and a bound off
+    that grid would be published rounded outward again.
 
     Parameters
     ----------
@@ -1609,9 +1618,12 @@ def bound_to_celsius(
     bound = convert_to_float(value, instance_name, context)
     if bound is None or unit != UnitOfTemperature.FAHRENHEIT:
         return bound
-    if abs(bound - round(bound)) < _WHOLE_DEGREE_TOLERANCE:
-        inset = _WHOLE_DEGREE_BOUND_INSET if lower else -_WHOLE_DEGREE_BOUND_INSET
-        bound = round(bound) + inset
+    grid = _published_grid(bound)
+    if grid is not None:
+        bound += grid / 2 if lower else -grid / 2
+    # Rounded first, so float noise cannot tip a whole degree over the edge.
+    bound = round(bound, 6)
+    bound = float(math.ceil(bound) if lower else math.floor(bound))
     return TemperatureConverter.convert(
         bound, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
     )

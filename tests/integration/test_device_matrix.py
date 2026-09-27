@@ -277,10 +277,19 @@ async def test_fahrenheit_device_is_read_and_written_in_its_own_unit(hass, fake_
     assert_profile_adopted(bt, profile)
 
     trv = bt.real_trvs[TRV_ID]
-    # 41 and 86 °F, read within half a degree inside: a whole degree
-    # Fahrenheit may be Home Assistant's rounding of the device's bound.
-    assert 5.0 <= trv.min_temp <= 5.0 + 0.2778
-    assert 30.0 - 0.2778 <= trv.max_temp <= 30.0
+    # 41 and 86 °F, read as 42 and 85: a whole degree Fahrenheit may be Home
+    # Assistant's rounding of the device's bound, so the bound is read past
+    # the half degree it may lie outside, onto the next whole degree.
+    assert trv.min_temp == pytest.approx(
+        TemperatureConverter.convert(
+            42.0, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    )
+    assert trv.max_temp == pytest.approx(
+        TemperatureConverter.convert(
+            85.0, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    )
     assert trv.target_temp_step == pytest.approx(0.5556, abs=1e-3)
 
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)

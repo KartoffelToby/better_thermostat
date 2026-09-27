@@ -25,6 +25,10 @@ from custom_components.better_thermostat.utils.const import (
     CONF_TARGET_TEMP_MIN,
     TARGET_TEMP_BOUND_AUTO,
 )
+from custom_components.better_thermostat.utils.helpers import (
+    bound_to_celsius,
+    convert_to_float_celsius,
+)
 
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
@@ -140,18 +144,24 @@ def test_inverted_configured_bounds_are_kept_and_warned_about(bt, caplog):
     assert "min temp" in caplog.text
 
 
+def _celsius(fahrenheit: float) -> float:
+    return (fahrenheit - 32.0) * 5.0 / 9.0
+
+
 # A bound published in whole degrees Fahrenheit may be Home Assistant's
-# rounding of the device's bound, so it is read half a degree inward:
-# 41.5 °F and 85.5 °F.
-_WHOLE_FAHRENHEIT_MIN_41 = (41.5 - 32.0) * 5.0 / 9.0
-_WHOLE_FAHRENHEIT_MAX_86 = (85.5 - 32.0) * 5.0 / 9.0
+# rounding of the device's bound, so it is read half a degree inward and then
+# onto the whole degree the thermostat publishes its own range on: 42 °F and
+# 85 °F.
+_WHOLE_FAHRENHEIT_MIN_41 = _celsius(42.0)
+_WHOLE_FAHRENHEIT_MAX_86 = _celsius(85.0)
 
 
 def test_fahrenheit_bounds_and_step_converted(bt):
     """Fahrenheit bounds convert to Celsius; the step converts as a delta.
 
-    Whole-degree bounds are read half a degree inside the published range,
-    where a device bound Home Assistant rounded to whole degrees still holds.
+    Whole-degree bounds are read inside the published range, on the first
+    whole degree past the half degree a device bound Home Assistant rounded
+    may lie outside it.
     """
     states = [_trv(min_t=41.0, max_t=86.0, step=1.0, unit=UnitOfTemperature.FAHRENHEIT)]
     BetterThermostat._resolve_temperature_range(bt, states)
@@ -167,8 +177,8 @@ def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
     HA climate entities never expose ``temperature_unit`` /
     ``unit_of_measurement`` in their state attributes and always report in the
     configured system unit. With a Fahrenheit system the raw 41/86 bounds must
-    therefore be read as °F and converted to Celsius, half a degree inside
-    the whole degrees published — otherwise BT would treat 41 °F as 41 °C and
+    therefore be read as °F and converted to Celsius, inside the whole
+    degrees published — otherwise BT would treat 41 °F as 41 °C and
     clamp every setpoint far too high.
     """
     bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
@@ -179,18 +189,57 @@ def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
     assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
 
 
-def test_fahrenheit_bounds_off_the_whole_degree_convert_exactly(bt):
-    """A bound published in tenths is converted without rounding it outward.
+@pytest.mark.parametrize(
+    ("published_min", "published_max", "read_min", "read_max"),
+    [
+        # Tenths: the device bound lies within 0.05 °F of the published one.
+        pytest.param(39.1, 86.9, 40.0, 86.0, id="tenths"),
+        # Halves: a Fritz!DECT maximum of 28 °C is 82.4 °F, published 82.5.
+        pytest.param(39.5, 82.5, 40.0, 82.0, id="halves"),
+    ],
+)
+def test_fahrenheit_bounds_off_the_whole_degree_stay_inside(
+    bt, published_min, published_max, read_min, read_max
+):
+    """A bound published in tenths or halves is read inside the device's bound.
 
-    The bound is the limit every setpoint is clamped to, and Home Assistant
-    checks a setpoint against the device's own bound: 39.1 °F is 3.9444 °C,
-    and a minimum held as 3.94 would let a setpoint below it through.
+    Home Assistant rounds a bound to the precision the integration states,
+    so the device's own bound lies up to half of that step either side of
+    the published value, and it checks a setpoint against the device's
+    bound. The bound is read past that half step, onto the whole degree the
+    thermostat publishes its own range on.
     """
     bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-    states = [_trv(min_t=39.1, max_t=86.9, step=1.0)]
+    states = [_trv(min_t=published_min, max_t=published_max, step=1.0)]
     BetterThermostat._resolve_temperature_range(bt, states)
-    assert bt.bt_min_temp == pytest.approx((39.1 - 32.0) * 5.0 / 9.0, abs=1e-9)
-    assert bt.bt_max_temp == pytest.approx((86.9 - 32.0) * 5.0 / 9.0, abs=1e-9)
+    assert bt.bt_min_temp == pytest.approx(_celsius(read_min), abs=1e-9)
+    assert bt.bt_max_temp == pytest.approx(_celsius(read_max), abs=1e-9)
+
+
+@pytest.mark.parametrize("lower", [True, False])
+def test_celsius_bounds_are_read_as_published(lower):
+    """On a Celsius system a bound is read exactly as a temperature is.
+
+    Only a Fahrenheit publication is rounded away from the device's bound,
+    so every Celsius bound, and every value that is no temperature at all,
+    reads the same as any other published temperature.
+    """
+    values = [i / 100 for i in range(-2000, 10000)] + [
+        None,
+        "None",
+        "unknown",
+        "",
+        "abc",
+        "5",
+        "30.0",
+    ]
+    for value in values:
+        for unit in (UnitOfTemperature.CELSIUS, None):
+            assert bound_to_celsius(
+                str(value), unit, lower=lower, instance_name="test"
+            ) == convert_to_float_celsius(
+                str(value), "test", "", unit_of_measurement=unit
+            ), (value, unit)
 
 
 def test_celsius_bounds_without_unit_attr_unchanged(bt):
