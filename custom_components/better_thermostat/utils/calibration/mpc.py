@@ -1824,7 +1824,9 @@ def _post_process_percent(
         time_delta = now - state.last_trv_temp_ts
         eval_after = max(params.deadzone_time_s, 1.0)
 
-        if time_delta >= eval_after and state.trv_profile == "unknown":
+        # A threshold-like TRV is the case dead-zone learning exists for, so
+        # evaluation continues once the profile is classified as one.
+        if time_delta >= eval_after and state.trv_profile in ("unknown", "threshold"):
             tol = max(inp.tolerance_K, 0.0)
             needs_heat = delta_t is not None and delta_t > tol
             small_command = 0 < percent_out <= params.deadzone_threshold_pct
@@ -1936,7 +1938,7 @@ def _post_process_percent(
                 state.dead_zone_hits = 0
 
         else:
-            # deadzone fully disabled because TRV profile is known
+            # dead-zone evaluation is off for a linear or exponential TRV
             pass
 
         state.last_trv_temp = inp.trv_temp_C

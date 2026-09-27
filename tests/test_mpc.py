@@ -394,11 +394,6 @@ class TestMPCController:
 
         assert state.min_effective_percent == 25.0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the first dead-zone hit classifies the TRV profile, which ends "
-        "dead-zone evaluation before a second hit can count",
-    )
     def test_repeated_dead_zone_hits_raise_the_minimum_opening(self):
         """Weak responses keep counting until the required number of hits.
 
