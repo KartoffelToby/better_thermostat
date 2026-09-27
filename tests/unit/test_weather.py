@@ -630,10 +630,7 @@ class TestCheckWeather:
 
     @pytest.mark.parametrize(
         "previous",
-        [
-            pytest.param(True, id="heating"),
-            pytest.param(False, id="summer_mode"),
-        ],
+        [pytest.param(True, id="heating"), pytest.param(False, id="summer_mode")],
     )
     async def test_no_opinion_keeps_the_previous_decision(self, previous):
         """A prediction without an opinion leaves call_for_heat where it was.
@@ -735,10 +732,7 @@ class TestCheckWeather:
 
     @pytest.mark.parametrize(
         "previous",
-        [
-            pytest.param(True, id="heating"),
-            pytest.param(False, id="summer_mode"),
-        ],
+        [pytest.param(True, id="heating"), pytest.param(False, id="summer_mode")],
     )
     @pytest.mark.parametrize(
         "transient",
@@ -788,10 +782,7 @@ class TestCheckWeather:
 
     @pytest.mark.parametrize(
         "previous",
-        [
-            pytest.param(True, id="heating"),
-            pytest.param(False, id="summer_mode"),
-        ],
+        [pytest.param(True, id="heating"), pytest.param(False, id="summer_mode")],
     )
     async def test_missing_off_temperature_keeps_the_previous_decision(self, previous):
         """A weather-only setup without a threshold does not change its decision.
