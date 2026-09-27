@@ -54,11 +54,6 @@ OWN_GRID_TRV = replace(
 )
 """A head whose half-degree grid is not overridden by the config entry."""
 
-_FROZEN_RANGE = (
-    "the preset number keeps the 0..30 placeholder range the thermostat "
-    "carries before its startup ran"
-)
-
 
 async def _set_up(hass, entry, order):
     """Set ``entry`` up in ``order`` and return the started climate entity."""
@@ -86,18 +81,11 @@ def _number_state(hass, bt, suffix):
     return hass.states.get(entity_id)
 
 
-def _orders(reason):
-    """Return the boot order as an expected failure and the running order."""
-    return pytest.mark.parametrize(
-        "order",
-        [
-            pytest.param("boot", marks=pytest.mark.xfail(strict=True, reason=reason)),
-            "running",
-        ],
-    )
+_ORDERS = pytest.mark.parametrize("order", ["boot", "running"])
+"""Every test runs on a booting and on a running Home Assistant."""
 
 
-@_orders(_FROZEN_RANGE)
+@_ORDERS
 @pytest.mark.parametrize(
     ("fake_trv", "extra", "expected"),
     [
@@ -136,10 +124,7 @@ async def test_preset_number_offers_the_thermostat_range(
     assert float(hass.states.get(number.entity_id).state) == expected[1]
 
 
-@_orders(
-    "the preset number keeps the 0.1 step the thermostat reports before its "
-    "startup read the device grid"
-)
+@_ORDERS
 @pytest.mark.parametrize("fake_trv", [OWN_GRID_TRV], indirect=True, ids=profile_id)
 async def test_preset_number_steps_on_the_device_grid(hass, fake_trv, order):
     """A preset number steps on the grid the thermostat's setpoint steps on."""
@@ -151,7 +136,7 @@ async def test_preset_number_steps_on_the_device_grid(hass, fake_trv, order):
     assert number.attributes["step"] == bt.target_temperature_step
 
 
-@_orders(_FROZEN_RANGE)
+@_ORDERS
 @pytest.mark.parametrize(
     "device_role", [SEPARATE_COOLER], indirect=True, ids=profile_id
 )
@@ -210,10 +195,7 @@ _PER_HEAD_SUFFIXES = (
 )
 
 
-@_orders(
-    "a per-head number or switch built before its TRV reported a state keeps "
-    "the TRV's entity id in its name"
-)
+@_ORDERS
 @pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
 @pytest.mark.parametrize("suffix", _PER_HEAD_SUFFIXES)
 async def test_per_head_entity_is_named_after_its_trv(hass, trv_group, suffix, order):

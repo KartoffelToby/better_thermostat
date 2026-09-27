@@ -19,8 +19,16 @@ from homeassistant.components.climate.const import (
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
@@ -155,6 +163,49 @@ async def async_setup_entry(
     async_add_entities(numbers)
 
 
+class TrvNamedEntity(Entity):
+    """Entity of one TRV, named after it through the ``trv_name`` placeholder.
+
+    The TRV's name is known once its own integration reports a state, which on
+    a boot can come after this entity is built; until then the placeholder
+    holds the TRV's entity id. The name follows the TRV's state from then on.
+    """
+
+    _trv_entity_id: str
+
+    def _follow_trv_name(self) -> None:
+        """Name the entity after the TRV now and whenever the TRV reports."""
+        placeholders = getattr(self, "_attr_translation_placeholders", None)
+        if not placeholders or "trv_name" not in placeholders:
+            return
+        self._adopt_trv_name(self.hass.states.get(self._trv_entity_id))
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._trv_entity_id], self._on_trv_state
+            )
+        )
+
+    @callback
+    def _on_trv_state(self, event: Event[EventStateChangedData]) -> None:
+        """Rename the entity when the TRV reports a different name."""
+        if self._adopt_trv_name(event.data["new_state"]):
+            self.async_write_ha_state()
+
+    def _adopt_trv_name(self, trv_state: State | None) -> bool:
+        """Put the TRV's reported name into the placeholder.
+
+        Returns whether the name changed. ``name`` is cached on the entity and
+        not invalidated by a new placeholder, so the cache is dropped here.
+        """
+        if trv_state is None or not trv_state.name:
+            return False
+        if self._attr_translation_placeholders.get("trv_name") == trv_state.name:
+            return False
+        self._attr_translation_placeholders = {"trv_name": trv_state.name}
+        self.__dict__.pop("name", None)
+        return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload number entry and cleanup tracking."""
     entry_id = entry.entry_id
@@ -189,14 +240,42 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         else:
             self._attr_translation_key = _PRESET_TRANSLATION_KEYS[preset_mode]
 
-        # Set min/max/step based on climate entity configuration
-        self._attr_native_min_value = bt_climate.min_temp
-        self._attr_native_max_value = bt_climate.max_temp
-        self._attr_native_step = bt_climate.target_temperature_step or 0.1
+    # The range and the step are the thermostat's. Its startup resolves them
+    # from the device, which on a boot runs after this entity is built, so
+    # they are read from the thermostat and republished with its state.
+    @property
+    def native_min_value(self) -> float:
+        """Return the lowest temperature the thermostat accepts."""
+        return self._bt_climate.min_temp
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the highest temperature the thermostat accepts."""
+        return self._bt_climate.max_temp
+
+    @property
+    def native_step(self) -> float:
+        """Return the step the thermostat's setpoint moves in."""
+        return self._bt_climate.target_temperature_step or 0.1
+
+    def _follow_thermostat(self) -> None:
+        """Republish this entity whenever the thermostat's state changes."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_thermostat_state
+                )
+            )
+
+    @callback
+    def _on_thermostat_state(self, event: Event[EventStateChangedData]) -> None:
+        """Publish the thermostat's current range and step."""
+        self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
+        self._follow_thermostat()
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
             return
@@ -296,6 +375,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         # restore into preset_mgr) and call the RestoreEntity/NumberEntity bases; this
         # entity restores into the cooling map below instead.
         await super(BetterThermostatPresetNumber, self).async_added_to_hass()
+        self._follow_thermostat()
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
             return
@@ -368,7 +448,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         self._bt_climate.async_write_ha_state()
 
 
-class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
+class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat PID Parameter Number."""
 
     _attr_has_entity_name = True
@@ -402,6 +482,11 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
             self._attr_native_min_value = 0.0
             self._attr_native_max_value = 10000.0
             self._attr_native_step = 1.0
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_trv_name()
 
     @property
     def device_info(self):
@@ -458,7 +543,9 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
         self.async_write_ha_state()
 
 
-class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
+class BetterThermostatValveMaxOpeningNumber(
+    TrvNamedEntity, NumberEntity, RestoreEntity
+):
     """Representation of a Better Thermostat Valve Max Opening Number."""
 
     _attr_has_entity_name = True
@@ -489,6 +576,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
+        self._follow_trv_name()
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state not in (
             None,

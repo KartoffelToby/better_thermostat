@@ -12,6 +12,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .number import TrvNamedEntity
+
 # Import tracking variables from sensor.py
 from .sensor import _ACTIVE_SWITCH_ENTITIES
 from .utils.calibration.pid import (
@@ -80,7 +82,7 @@ async def async_setup_entry(
     async_add_entities(switches)
 
 
-class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
+class BetterThermostatPIDAutoTuneSwitch(TrvNamedEntity, SwitchEntity, RestoreEntity):
     """Switch for PID Auto Tune."""
 
     _attr_has_entity_name = True
@@ -100,6 +102,11 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
             self._attr_translation_placeholders = {"trv_name": trv_name}
         else:
             self._attr_translation_key = "pid_auto_tune_no_trv"
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_trv_name()
 
     @property
     def device_info(self):
@@ -160,7 +167,7 @@ class BetterThermostatPIDAutoTuneSwitch(SwitchEntity, RestoreEntity):
         self.async_write_ha_state()
 
 
-class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
+class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntity):
     """Switch for Child Lock."""
 
     _attr_has_entity_name = True
@@ -179,6 +186,11 @@ class BetterThermostatChildLockSwitch(SwitchEntity, RestoreEntity):
             self._attr_translation_placeholders = {"trv_name": trv_name}
         else:
             self._attr_translation_key = "child_lock_no_trv"
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_trv_name()
 
     @property
     def device_info(self):
