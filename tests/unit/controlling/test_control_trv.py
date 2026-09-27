@@ -15,6 +15,7 @@ Absorbed tests from:
 import asyncio
 from dataclasses import replace
 import inspect
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
@@ -1962,6 +1963,34 @@ class TestValveWriteResult:
         with patch(f"{_HELPERS}.er.async_get", return_value=enabled):
             mock_set_valve, _ = await self._run_cycle(mock_self, True)
         assert mock_set_valve.call_args[0][2] == 100
+
+    @pytest.mark.asyncio
+    async def test_a_quirk_still_writes_the_valve_past_a_disabled_entity(self):
+        """A model quirk with its own valve write keeps the valve in reach.
+
+        Such a quirk writes through its own channel, not the adopted valve
+        entity, so disabling that entity leaves the valve position pursued
+        and the quirk takes it.
+        """
+        mock_self = self._boost_valve_self()
+        trv = mock_self.real_trvs["climate.trv1"]
+        valve = "number.trv1_valve_opening_degree"
+        trv.valve_position_entity = valve
+        trv.valve_position_writable = True
+        quirk_write = AsyncMock(return_value=True)
+        trv.model_quirks = SimpleNamespace(override_set_valve=quirk_write)
+        disabled = make_entity_registry(
+            make_registry_entry(valve, disabled_by=er.RegistryEntryDisabler.USER)
+        )
+
+        with patch(f"{_HELPERS}.er.async_get", return_value=disabled):
+            mock_set_valve, task_names = await self._run_cycle(mock_self, True)
+            assert mock_set_valve.call_args[0][2] == 100
+            assert "bt_budget_retry_climate.trv1" not in task_names
+
+            assert await delegate.set_valve(mock_self, "climate.trv1", 100) is True
+        quirk_write.assert_awaited_once_with(mock_self, "climate.trv1", 100)
+        assert trv.last_valve_method == "override"
 
 
 # ---------------------------------------------------------------------------
