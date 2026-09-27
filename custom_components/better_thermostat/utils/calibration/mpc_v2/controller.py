@@ -55,6 +55,9 @@ class ControllerSnapshot:
     last_t_s: float
     next_mpc_t_s: float
     last_mpc_t_s: float = -1.0
+    # ``None`` for a snapshot written before the planning reading existed;
+    # the restore then starts it from ``D_hat_K_per_min``.
+    planning_disturbance: float | None = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -66,8 +69,9 @@ class ControllerSnapshot:
         non-numeric or non-finite values is dropped entirely — ``float`` accepts
         ``NaN`` and infinity, and either one spreads through the observer into
         every later command, so the controller boots fresh instead of running on
-        poisoned state. ``rg_v_C`` is the one nullable field: a stored ``null``
-        means "no governor state" and stays legal.
+        poisoned state. Two fields are nullable: a stored ``null`` in ``rg_v_C``
+        means "no governor state", and a missing or ``null``
+        ``planning_disturbance`` means "start it from the estimate".
         """
         try:
             version = int(raw.get("v", 0))
@@ -90,6 +94,9 @@ class ControllerSnapshot:
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
                 last_mpc_t_s=float(raw.get("last_mpc_t_s", -1.0)),
+                planning_disturbance=None
+                if raw.get("planning_disturbance") is None
+                else float(raw["planning_disturbance"]),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -105,6 +112,11 @@ class ControllerSnapshot:
             snapshot.next_mpc_t_s,
             snapshot.last_mpc_t_s,
             *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
+            *(
+                []
+                if snapshot.planning_disturbance is None
+                else [snapshot.planning_disturbance]
+            ),
         ]
         if not all(math.isfinite(x) for x in numbers):
             _LOGGER.warning("MPC v2 snapshot contains non-finite data; ignoring")
@@ -250,7 +262,7 @@ class MpcV2Controller:
             T_sp=sp_for_opt,
             T_outdoor_C=T_outdoor_C,
             u_last=self._last_u,
-            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+            D_hat_K_per_min=self.dob.planning_rate,
         )
         self._last_u = u
         self._u_history.append(u)
@@ -273,6 +285,7 @@ class MpcV2Controller:
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
             last_mpc_t_s=self._last_mpc_t_s,
+            planning_disturbance=self.dob.planning_filtered,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -297,6 +310,11 @@ class MpcV2Controller:
                 "its default uncertainty and re-learns"
             )
         self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
+        self.dob.planning_filtered = (
+            snap.D_hat_K_per_min
+            if snap.planning_disturbance is None
+            else snap.planning_disturbance
+        )
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
         for u in snap.u_history:

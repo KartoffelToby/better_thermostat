@@ -11,11 +11,18 @@ rooms see unmodelled disturbances (open windows, solar gain, occupants);
 the DOB captures the average rate in ``K/min`` so ``_steady_input_for`` can
 feed-forward against it. Without the DOB, integral-only correction would
 leave a slow setpoint offset.
+
+The optimiser plans with a second, slower reading of the same estimate,
+``planning_rate``. It carries the rate along its whole horizon, where an
+error of 0.003 K/min already shifts the predicted room by about 0.2 K and
+the valve by tens of percent; the fast estimate carries that much from
+sensor noise or quantisation alone.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass
@@ -27,6 +34,11 @@ class DobParams:
     # permanent heat source/sink in the steady-state feed-forward term.  0.05
     # K/min is already 3 K/hour, well beyond a normal unmodelled room load.
     max_abs_K_per_min: float = 0.05
+    # Time constant (s) of the planning reading, and the band around zero
+    # (K/min) it treats as no disturbance. Rates inside the band are what
+    # sensor noise and quantisation produce on their own.
+    planning_tau_s: float = 7200.0
+    planning_deadband: float = 0.001
 
 
 class DisturbanceObserver:
@@ -42,6 +54,21 @@ class DisturbanceObserver:
         """
         self.params = params
         self.D_hat_K_per_min: float = 0.0
+        # Slow EMA of the estimate, before the deadband. Persisted.
+        self.planning_filtered: float = 0.0
+
+    @property
+    def planning_rate(self) -> float:
+        """Return the disturbance rate (K/min) the optimiser plans with.
+
+        The slow EMA of the estimate, shrunk towards zero by
+        ``planning_deadband`` so the result stays continuous.
+        """
+        band = max(0.0, self.params.planning_deadband)
+        rate = self.planning_filtered
+        if abs(rate) <= band:
+            return 0.0
+        return rate - math.copysign(band, rate)
 
     def update(self, correction_K: float, dt_s: float) -> float:
         """Fold one room correction into the EMA and return the disturbance estimate.
@@ -70,4 +97,6 @@ class DisturbanceObserver:
         max_abs = max(0.0, self.params.max_abs_K_per_min)
         self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * correction_rate
         self.D_hat_K_per_min = max(-max_abs, min(max_abs, self.D_hat_K_per_min))
+        b = min(1.0, dt_s / max(self.params.planning_tau_s, dt_s))
+        self.planning_filtered += b * (self.D_hat_K_per_min - self.planning_filtered)
         return self.D_hat_K_per_min

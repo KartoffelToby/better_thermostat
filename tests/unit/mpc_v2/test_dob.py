@@ -1,4 +1,4 @@
-"""Unit tests for the disturbance observer (EMA over Kalman innovations)."""
+"""Unit tests for the disturbance observer (EMA over Kalman room corrections)."""
 
 from __future__ import annotations
 
@@ -171,3 +171,38 @@ def test_saturated_estimate_decays_once_innovations_stop() -> None:
         assert dob.D_hat_K_per_min == pytest.approx(
             saturated * (1.0 - weight) ** quiet_steps
         )
+
+
+def test_planning_rate_follows_the_estimate_along_its_slower_time_constant() -> None:
+    """The planning reading lags the estimate by ``planning_tau_s``.
+
+    With the estimate pinned at 0.02 K/min by a zero-length EMA, one update
+    of ``dt_s`` moves the slow reading by ``dt_s / planning_tau_s`` of the
+    gap, and the deadband then takes ``planning_deadband`` off its magnitude.
+    """
+    params = DobParams(tau_s=1.0, planning_tau_s=3600.0, planning_deadband=0.001)
+    dob = DisturbanceObserver(params)
+
+    dob.update(0.02 * 5.0, dt_s=300.0)
+
+    assert dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert dob.planning_filtered == pytest.approx(0.02 * 300.0 / 3600.0)
+    assert dob.planning_rate == pytest.approx(0.02 * 300.0 / 3600.0 - 0.001)
+
+
+@pytest.mark.parametrize("rate", [0.0009, -0.0009, 0.001, -0.001])
+def test_planning_rate_is_zero_inside_the_deadband(rate: float) -> None:
+    """Rates no larger than ``planning_deadband`` plan as no disturbance."""
+    dob = DisturbanceObserver(DobParams(planning_deadband=0.001))
+    dob.planning_filtered = rate
+
+    assert dob.planning_rate == 0.0
+
+
+@pytest.mark.parametrize("rate", [0.003, -0.003])
+def test_planning_rate_outside_the_deadband_shrinks_towards_zero(rate: float) -> None:
+    """Outside the band the reading loses the band width, keeping its sign."""
+    dob = DisturbanceObserver(DobParams(planning_deadband=0.001))
+    dob.planning_filtered = rate
+
+    assert dob.planning_rate == pytest.approx(math.copysign(0.002, rate))
