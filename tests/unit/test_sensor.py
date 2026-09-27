@@ -56,6 +56,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 DOMAIN = "better_thermostat"
 
@@ -825,10 +826,6 @@ class TestSetupAlgorithmSensors:
             )
         assert sensors == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="MPC tracking lists an mpc_status unique_id that no sensor carries",
-    )
     @pytest.mark.asyncio
     async def test_mpc_tracking_names_exactly_the_created_sensors(self):
         """The tracked MPC unique_ids are the ones of the sensors just created.
@@ -848,10 +845,6 @@ class TestSetupAlgorithmSensors:
         ]
         assert sorted(tracked_ids) == sorted(s.unique_id for s in sensors)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="MPC stays tracked after every sensor it created was removed",
-    )
     @pytest.mark.asyncio
     async def test_dropping_mpc_removes_it_from_tracking(self):
         """Once MPC is no longer configured and its sensors are gone, it is untracked.
@@ -885,9 +878,6 @@ class TestSetupAlgorithmSensors:
         assert reg.async_remove.call_count == len(registered)
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
 
-    @pytest.mark.xfail(
-        strict=True, reason="MPC v1 and MPC v2 sensors share their unique_ids"
-    )
     @pytest.mark.asyncio
     async def test_mpc_and_mpc_v2_sensors_have_distinct_unique_ids(self):
         """Heads calibrated by MPC v1 and v2 in one room get separate sensors.
@@ -909,6 +899,47 @@ class TestSetupAlgorithmSensors:
         unique_ids = [s.unique_id for s in sensors]
         assert len(unique_ids) == 8
         assert len(set(unique_ids)) == len(unique_ids), unique_ids
+
+    @pytest.mark.parametrize(
+        ("translation_key", "moved"),
+        [("mpc_v2_virtual_temp", True), ("virtual_temp", False)],
+        ids=["mpc_v2_entry", "mpc_v1_entry"],
+    )
+    @pytest.mark.asyncio
+    async def test_mpc_v2_takes_over_its_entry_from_the_mpc_v1_unique_id(
+        self, translation_key, moved
+    ):
+        """An MPC v2 sensor keeps the registry entry it was registered under.
+
+        An entry an MPC v2 sensor registered under the MPC v1 unique_id moves
+        to the MPC v2 unique_id, keeping its entity_id; an MPC v1 sensor's
+        entry stays with MPC v1.
+        """
+        shared = make_registry_entry(
+            "sensor.test_bt_virtual_temperature",
+            unique_id="test_bt_123_virtual_temp",
+            platform=DOMAIN,
+            translation_key=translation_key,
+        )
+        reg = make_entity_registry(shared)
+        reg.async_get_entity_id.side_effect = lambda domain, platform, unique_id: (
+            reg.entities.get_entity_id((domain, platform, unique_id))
+        )
+        bt = _make_bt_climate(
+            real_trvs=_trvs_in_modes(CalibrationMode.MPC_V2_CALIBRATION)
+        )
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=reg,
+        ):
+            await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+
+        if moved:
+            reg.async_update_entity.assert_called_once_with(
+                shared.entity_id, new_unique_id="test_bt_123_mpc_v2_virtual_temp"
+            )
+        else:
+            reg.async_update_entity.assert_not_called()
 
 
 # ===========================================================================
@@ -1100,10 +1131,6 @@ class TestCleanupStaleAlgorithmEntities:
             "entry_1", {}
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="an entity removed by an earlier cleanup still counts as not removed",
-    )
     @pytest.mark.asyncio
     async def test_retry_after_partial_removal_clears_tracking(self):
         """A later cleanup finishes what a partial one started.

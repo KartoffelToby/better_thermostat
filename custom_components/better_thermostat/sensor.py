@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import logging
 import math
 from time import monotonic
@@ -125,17 +125,7 @@ async def _setup_algorithm_sensors(
             BetterThermostatMpcKaSensor(bt_climate),
         ]
         algorithm_sensors.extend(mpc_sensors)
-
-        # Track active MPC entities
-        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
-            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
-        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_CALIBRATION] = [
-            f"{bt_climate.unique_id}_virtual_temp",
-            f"{bt_climate.unique_id}_mpc_gain",
-            f"{bt_climate.unique_id}_mpc_loss",
-            f"{bt_climate.unique_id}_mpc_ka",
-            f"{bt_climate.unique_id}_mpc_status",
-        ]
+        _track_algorithm_sensors(entry_id, CalibrationMode.MPC_CALIBRATION, mpc_sensors)
 
         _LOGGER.debug(
             "Better Thermostat %s: Created MPC sensors for entry %s",
@@ -154,15 +144,10 @@ async def _setup_algorithm_sensors(
             BetterThermostatMpcV2RoomTimeConstantSensor(bt_climate),
         ]
         algorithm_sensors.extend(mpc_v2_sensors)
-
-        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
-            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
-        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_V2_CALIBRATION] = [
-            f"{bt_climate.unique_id}_virtual_temp",
-            f"{bt_climate.unique_id}_mpc_gain",
-            f"{bt_climate.unique_id}_mpc_loss",
-            f"{bt_climate.unique_id}_mpc_ka",
-        ]
+        _adopt_shared_mpc_v2_registry_entries(hass, mpc_v2_sensors)
+        _track_algorithm_sensors(
+            entry_id, CalibrationMode.MPC_V2_CALIBRATION, mpc_v2_sensors
+        )
 
         _LOGGER.debug(
             "Better Thermostat %s: Created MPC v2 diagnostic sensors for entry %s",
@@ -180,16 +165,7 @@ async def _setup_algorithm_sensors(
             BetterThermostatPidErrorSensor(bt_climate),
         ]
         algorithm_sensors.extend(pid_sensors)
-
-        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
-            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
-        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.PID_CALIBRATION] = [
-            f"{bt_climate.unique_id}_pid_kp",
-            f"{bt_climate.unique_id}_pid_ki",
-            f"{bt_climate.unique_id}_pid_kd",
-            f"{bt_climate.unique_id}_pid_output",
-            f"{bt_climate.unique_id}_pid_error",
-        ]
+        _track_algorithm_sensors(entry_id, CalibrationMode.PID_CALIBRATION, pid_sensors)
 
         _LOGGER.debug(
             "Better Thermostat %s: Created PID sensors for entry %s",
@@ -198,6 +174,47 @@ async def _setup_algorithm_sensors(
         )
 
     return algorithm_sensors
+
+
+def _track_algorithm_sensors(
+    entry_id: str, algorithm: CalibrationMode, sensors: Sequence[SensorEntity]
+) -> None:
+    """Record the unique_ids of the sensors one algorithm just created.
+
+    The stale-entity cleanup removes exactly what is recorded here, so the
+    record is taken from the sensors themselves.
+    """
+    _ACTIVE_ALGORITHM_ENTITIES.setdefault(entry_id, {})[algorithm] = [
+        sensor.unique_id for sensor in sensors if sensor.unique_id is not None
+    ]
+
+
+def _adopt_shared_mpc_v2_registry_entries(
+    hass: HomeAssistant, sensors: Sequence[SensorEntity]
+) -> None:
+    """Move MPC v2 registry entries off the unique_ids MPC v1 sensors carry.
+
+    MPC v2 sensors used to be registered under the MPC v1 unique_ids. An entry
+    still held there under an MPC v2 translation key belongs to the MPC v2
+    sensor and moves to its own unique_id, keeping its entity_id and history.
+    An entry under an MPC v1 translation key stays where it is.
+    """
+    registry = async_get_entity_registry(hass)
+    for sensor in sensors:
+        if not isinstance(sensor, _BtMpcV2SensorBase) or sensor.unique_id is None:
+            continue
+        shared_unique_id = (
+            f"{sensor._bt_climate.unique_id}_{sensor._shared_unique_id_suffix}"
+        )
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, shared_unique_id)
+        if entity_id is None:
+            continue
+        if registry.async_get_entity_id("sensor", DOMAIN, sensor.unique_id):
+            continue
+        reg_entry = registry.async_get(entity_id)
+        if reg_entry is None or reg_entry.translation_key != sensor.translation_key:
+            continue
+        registry.async_update_entity(entity_id, new_unique_id=sensor.unique_id)
 
 
 async def _register_dynamic_entity_callback(
@@ -283,8 +300,11 @@ async def _cleanup_stale_algorithm_entities(
 
     for algorithm, entity_unique_ids in tracked_algorithms.items():
         if algorithm not in current_algorithms:
-            # This algorithm is no longer active - remove its entities
+            # This algorithm is no longer active - remove its entities. An id
+            # the registry no longer holds is already gone; only the ones whose
+            # removal fails stay tracked for the next cleanup.
             removed_count = 0
+            remaining_unique_ids = []
             for entity_unique_id in entity_unique_ids:
                 entity_id = entity_registry.async_get_entity_id(
                     "sensor", DOMAIN, entity_unique_id
@@ -300,6 +320,7 @@ async def _cleanup_stale_algorithm_entities(
                             entity_id,
                         )
                     except Exception as e:
+                        remaining_unique_ids.append(entity_unique_id)
                         _LOGGER.warning(
                             "Better Thermostat %s: Failed to remove %s entity %s: %s",
                             bt_climate.device_name,
@@ -316,7 +337,9 @@ async def _cleanup_stale_algorithm_entities(
                     algorithm.value,
                 )
 
-            if removed_count == len(entity_unique_ids):
+            if remaining_unique_ids:
+                tracked_algorithms[algorithm] = remaining_unique_ids
+            else:
                 algorithms_to_remove.append(algorithm)
 
     # Clean up tracking for removed algorithms
@@ -883,11 +906,14 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
     """Base class for MPC v2 diagnostic sensors.
 
     MPC v2 publishes a typed diagnostic payload instead of the MPC v1 keys.
-    Reusing the established entity suffixes keeps existing debug dashboards
-    working while exposing the closest v2 quantities with correct labels.
+    Its sensors carry unique_ids of their own, so heads calibrated by MPC v1
+    and MPC v2 in one room each get their sensors. ``_shared_unique_id_suffix``
+    names the MPC v1 sensor whose unique_id an MPC v2 registry entry may still
+    hold.
     """
 
     _v2_debug_key: str
+    _shared_unique_id_suffix: str
 
     def _update_state(self) -> None:
         """Update state from the MPC v2 debug payload."""
@@ -918,7 +944,8 @@ class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_icon = "mdi:thermometer-auto"
     _v2_debug_key = "T_room_hat"
-    _unique_id_suffix = "virtual_temp"
+    _unique_id_suffix = "mpc_v2_virtual_temp"
+    _shared_unique_id_suffix = "virtual_temp"
 
 
 class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
@@ -928,7 +955,8 @@ class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
     _attr_icon = "mdi:heat-wave"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "coupling_rad_room"
-    _unique_id_suffix = "mpc_gain"
+    _unique_id_suffix = "mpc_v2_coupling"
+    _shared_unique_id_suffix = "mpc_gain"
 
 
 class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
@@ -939,7 +967,8 @@ class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
     _attr_icon = "mdi:thermometer-minus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "D_hat_K_per_min"
-    _unique_id_suffix = "mpc_loss"
+    _unique_id_suffix = "mpc_v2_disturbance"
+    _shared_unique_id_suffix = "mpc_loss"
 
 
 class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
@@ -950,7 +979,8 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     _attr_icon = "mdi:home-clock-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "tau_room_min"
-    _unique_id_suffix = "mpc_ka"
+    _unique_id_suffix = "mpc_v2_room_time_constant"
+    _shared_unique_id_suffix = "mpc_ka"
 
 
 class BetterThermostatPidKpSensor(_BtMpcSensorBase):
