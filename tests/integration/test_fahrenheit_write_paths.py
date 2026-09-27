@@ -561,18 +561,7 @@ async def test_a_stored_off_temperature_is_read_in_the_system_unit(
     ("unit_system", "suggested"),
     [
         pytest.param(METRIC_SYSTEM, 20, id="celsius"),
-        pytest.param(
-            US_CUSTOMARY_SYSTEM,
-            68,
-            id="fahrenheit",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the flow suggests 20 on every system, and on a Fahrenheit "
-                    "system 20 is read as 20 °F"
-                ),
-            ),
-        ),
+        pytest.param(US_CUSTOMARY_SYSTEM, 68, id="fahrenheit"),
     ],
 )
 async def test_the_flow_suggests_an_off_temperature_of_20_celsius(
@@ -592,13 +581,6 @@ async def test_the_flow_suggests_an_off_temperature_of_20_celsius(
     assert form_default(result, CONF_OFF_TEMPERATURE) == suggested
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the suggested off temperature 20 is stored and read as 20 °F, so at "
-        "40 °F outside the thermostat stops calling for heat"
-    ),
-)
 async def test_accepting_the_suggested_off_temperature_keeps_a_cold_room_heating(hass):
     """An entry created with the suggested threshold heats in heating weather.
 
