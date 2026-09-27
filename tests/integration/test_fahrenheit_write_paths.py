@@ -194,33 +194,12 @@ def _step_label(token: str) -> str:
 # -- setpoint -----------------------------------------------------------------
 
 
-_WHOLE_DEGREE_LOST_ROUNDING_DOWN = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the whole-degree step is rounded to 0.56 K and the target to two "
-        "decimals, so a whole degree Fahrenheit lies just below a point of the "
-        "grid it is rounded on, and rounding down for a room warmer than the "
-        "target writes one degree less"
-    ),
-)
-
-
 @pytest.mark.parametrize(
     ("fake_trv", "requested"),
     [
         pytest.param(FAHRENHEIT_TRV, 70.0, id="fahrenheit_trv-heating"),
-        pytest.param(
-            FAHRENHEIT_TRV,
-            63.0,
-            id="fahrenheit_trv-idle-63",
-            marks=_WHOLE_DEGREE_LOST_ROUNDING_DOWN,
-        ),
-        pytest.param(
-            FAHRENHEIT_TRV,
-            64.0,
-            id="fahrenheit_trv-idle-64",
-            marks=_WHOLE_DEGREE_LOST_ROUNDING_DOWN,
-        ),
+        pytest.param(FAHRENHEIT_TRV, 63.0, id="fahrenheit_trv-idle-63"),
+        pytest.param(FAHRENHEIT_TRV, 64.0, id="fahrenheit_trv-idle-64"),
         pytest.param(
             OFF_GRID_FAHRENHEIT_TRV, 70.0, id="off_grid_fahrenheit_trv-heating"
         ),
