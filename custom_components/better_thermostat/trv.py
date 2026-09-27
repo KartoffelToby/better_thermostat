@@ -162,6 +162,10 @@ class Trv:
     # any command, and a report after that is the user's again.
     withdrawn_hvac_mode: str | None = None
     withdrawn_hvac_mode_until: float | None = None
+    # Whether the device reported something while a control cycle held the
+    # inbound handler off. The end of the cycle reads the device's state then,
+    # before a later cycle can write over a press nobody has read.
+    report_unread: bool = False
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;

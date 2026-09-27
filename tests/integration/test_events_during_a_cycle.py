@@ -275,6 +275,35 @@ async def test_a_head_switched_on_while_a_cycle_drives_another_head_is_adopted(h
     assert bt.bt_hvac_mode == HVACMode.HEAT
 
 
+async def test_a_head_switched_on_during_a_cycle_survives_the_next_cycle(hass):
+    """A head switched on during a cycle switches the room on even if a cycle comes first.
+
+    The next cycle may start before the head reports again, here the
+    five-minute reconciler, and it must not switch the head back off before
+    anyone has read the press.
+    """
+    bt, switchable, always_on = await _start_off_room(hass)
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(always_on, "async_set_temperature") as held:
+            _operate(always_on, temperature=20.0)
+            set_room_sensor(hass, 18.2)
+            await held.wait_reached(hass)
+            assert bt.ignore_states
+
+            _operate(switchable, hvac_mode=HVACMode.HEAT)
+            assert bt.ignore_states, "the press has to land inside the cycle"
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+
+        await _run_reconcile_tick(hass, bt)
+        _report(switchable)
+        await _handled(hass, bt)
+
+    assert switchable.hvac_mode == HVACMode.HEAT
+    assert bt.bt_hvac_mode == HVACMode.HEAT
+
+
 async def test_a_head_switched_back_on_during_the_cycle_that_switched_it_off_is_adopted(
     hass,
 ):
@@ -344,9 +373,9 @@ async def test_a_head_still_reporting_the_mode_it_was_switched_out_of_is_not_ado
 async def test_a_knob_turned_while_a_cycle_drives_another_head_is_adopted(hass):
     """A setpoint the user turns during a cycle becomes the room's target.
 
-    The handler stands down while the cycle runs, so the turn is read on the
-    head's next report, where the value is still one Better Thermostat never
-    wrote.
+    The handler stands down while the cycle runs, so the turn is read once
+    the cycle ends, and the head's next report still carries a value Better
+    Thermostat never wrote.
     """
     bt, (turned, held_head) = await _start(hass, TWO_HEADS)
     turned_trv = bt.real_trvs[turned.entity_id]
@@ -362,6 +391,35 @@ async def test_a_knob_turned_while_a_cycle_drives_another_head_is_adopted(hass):
             held.release()
             assert await poll_until(hass, lambda: not bt.ignore_states)
 
+        _report(turned)
+        await _handled(hass, bt)
+
+    assert bt.bt_target_temp == pytest.approx(25.0)
+
+
+async def test_a_knob_turned_during_a_cycle_survives_the_next_cycle(hass):
+    """A setpoint turned during a cycle is the room's target even if a cycle comes first.
+
+    The handler stands down while the cycle runs, so the turn is not read
+    when it happens. The next cycle may start before the head reports again,
+    here the five-minute reconciler, and it must not write the turn away
+    before anyone has read it.
+    """
+    bt, (turned, held_head) = await _start(hass, TWO_HEADS)
+    turned_trv = bt.real_trvs[turned.entity_id]
+
+    with patch(WRITE_BUDGET, 0.0):
+        async with holding_next_write(held_head, "async_set_temperature") as held:
+            await _command(hass, temperature=21.0)
+            await held.wait_reached(hass)
+            assert await poll_until(hass, lambda: turned_trv.target_temp_received)
+
+            _operate(turned, temperature=25.0)
+            assert bt.ignore_states, "the turn has to land inside the cycle"
+            held.release()
+            assert await poll_until(hass, lambda: not bt.ignore_states)
+
+        await _run_reconcile_tick(hass, bt)
         _report(turned)
         await _handled(hass, bt)
 
@@ -547,7 +605,8 @@ async def test_the_setpoint_watchdog_ends_once_the_device_confirms_a_newer_write
 
             assert await poll_until(hass, lambda: trv.target_temp_received, PROMPTLY_S)
             # The turn has to land after the cycle that wrote the second
-            # setpoint: a turn inside a cycle is read on the next report.
+            # setpoint: a turn inside a cycle is read when the cycle ends,
+            # which is a case of its own.
             assert await poll_until(hass, lambda: not bt.ignore_states)
             _operate(fake_trv, temperature=25.0)
             await poll_until(hass, lambda: bt.bt_target_temp == 25.0, SETTLE_S)

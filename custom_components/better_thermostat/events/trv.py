@@ -94,8 +94,13 @@ def accepts_user_setpoint(
     )
 
 
-async def trigger_trv_change(self, event):
-    """Trigger a change in the trv state."""
+async def trigger_trv_change(self, event, *, mode_settled: bool = False):
+    """Trigger a change in the trv state.
+
+    ``mode_settled`` reads a report whose mode the end of a control cycle
+    has already settled, so the mode it carries is left to the device's next
+    report.
+    """
     if self.startup_running:
         return
     if self.control_queue_task is None:
@@ -267,6 +272,7 @@ async def trigger_trv_change(self, event):
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
+        trv.report_unread = True
         return
 
     # The offered mode list changes at runtime on devices whose
@@ -314,7 +320,7 @@ async def trigger_trv_change(self, event):
             str(val_pos), self.device_name, "trv_event"
         )
 
-    if mapped_state in (HVACMode.OFF, HVACMode.HEAT):
+    if mapped_state in (HVACMode.OFF, HVACMode.HEAT) and not mode_settled:
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode
             _LOGGER.debug(

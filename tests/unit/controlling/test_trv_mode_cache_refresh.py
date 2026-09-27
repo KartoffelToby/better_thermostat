@@ -22,9 +22,13 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from custom_components.better_thermostat.utils.controlling import control_queue
+from custom_components.better_thermostat.utils.controlling import (
+    control_queue,
+    read_reports_held_during_cycle,
+)
 
 ENTITY_ID = "climate.test_trv"
+_CTRL = "custom_components.better_thermostat.utils.controlling"
 
 # The mode list of an ordinary radiator valve.
 OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
@@ -269,3 +273,68 @@ class TestModeCacheAfterACycle:
         await _run_one_cycle(thermostat, reported_states, _reported_state("off"))
 
         assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "heat"
+
+
+class TestReportsHeldDuringACycle:
+    """What the end of a cycle reads of the reports the handler held off."""
+
+    @pytest.mark.asyncio
+    async def test_a_device_that_reported_is_read_once(
+        self, thermostat, reported_states
+    ):
+        """A TRV that reported during the cycle is read once, and only it."""
+        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        handler = AsyncMock()
+
+        with patch(f"{_CTRL}.trigger_trv_change", new=handler):
+            await read_reports_held_during_cycle(thermostat)
+            await read_reports_held_during_cycle(thermostat)
+
+        handler.assert_awaited_once()
+        event = handler.await_args.args[1]
+        assert event.data["new_state"] is reported_states[ENTITY_ID]
+        assert event.context != thermostat.context
+        assert handler.await_args.kwargs == {"mode_settled": False}
+
+    @pytest.mark.asyncio
+    async def test_a_pending_mode_command_leaves_the_mode_to_the_next_report(
+        self, thermostat
+    ):
+        """While a mode command is unconfirmed, the mode is not read at cycle end."""
+        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        thermostat.real_trvs[ENTITY_ID].system_mode_received = False
+        handler = AsyncMock()
+
+        with patch(f"{_CTRL}.trigger_trv_change", new=handler):
+            await read_reports_held_during_cycle(thermostat)
+
+        assert handler.await_args.kwargs == {"mode_settled": True}
+
+    @pytest.mark.asyncio
+    async def test_an_unavailable_device_has_nothing_to_read(
+        self, thermostat, reported_states
+    ):
+        """A TRV that dropped off the network is not read."""
+        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        reported_states[ENTITY_ID] = State(ENTITY_ID, STATE_UNAVAILABLE)
+        handler = AsyncMock()
+
+        with patch(f"{_CTRL}.trigger_trv_change", new=handler):
+            await read_reports_held_during_cycle(thermostat)
+
+        handler.assert_not_awaited()
+        assert thermostat.real_trvs[ENTITY_ID].report_unread is False
+
+    @pytest.mark.asyncio
+    async def test_a_failing_read_leaves_the_control_loop_running(self, thermostat):
+        """A report that cannot be read is logged, not raised into the queue worker."""
+        thermostat.real_trvs[ENTITY_ID].report_unread = True
+        handler = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with (
+            patch(f"{_CTRL}.trigger_trv_change", new=handler),
+            patch(f"{_CTRL}._LOGGER") as logger,
+        ):
+            await read_reports_held_during_cycle(thermostat)
+
+        logger.exception.assert_called_once()
