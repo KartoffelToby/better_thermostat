@@ -355,3 +355,21 @@ def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
     bt.hass.config.units.temperature_unit = system_unit
     step = BetterThermostat.target_temperature_step.fget(bt)
     assert step == pytest.approx(published)
+
+
+@pytest.mark.parametrize(
+    ("lower", "read"),
+    [pytest.param(True, 40.0, id="min"), pytest.param(False, 39.0, id="max")],
+)
+def test_a_fahrenheit_bound_off_every_published_grid_is_read_onto_a_whole_degree(
+    lower, read
+):
+    """A bound finer than tenths was not rounded by Home Assistant.
+
+    It is the device's own bound, so it needs no half step of room, only the
+    whole degree the thermostat publishes its own range on, inward of it.
+    """
+    bound = bound_to_celsius(
+        "39.25", UnitOfTemperature.FAHRENHEIT, lower=lower, instance_name="test"
+    )
+    assert bound == pytest.approx(_celsius(read))

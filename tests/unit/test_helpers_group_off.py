@@ -12,7 +12,10 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.utils.helpers import group_all_members_off
+from custom_components.better_thermostat.utils.helpers import (
+    group_all_members_off,
+    setpoint_at_minimum,
+)
 
 
 def _member(no_off=False, min_temp=5.0):
@@ -200,3 +203,12 @@ def test_no_off_one_degree_above_the_minimum_on_fahrenheit_heats():
     }
     self_ = _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
     assert group_all_members_off(self_) is False
+
+
+@pytest.mark.parametrize(
+    ("setpoint", "min_temp"),
+    [pytest.param(None, 5.0, id="no_setpoint"), pytest.param(5.0, None, id="no_min")],
+)
+def test_a_missing_setpoint_or_minimum_is_not_at_the_minimum(setpoint, min_temp):
+    """Without both values there is nothing to say the head is at its minimum."""
+    assert setpoint_at_minimum(setpoint, min_temp) is False
