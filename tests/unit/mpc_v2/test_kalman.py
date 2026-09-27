@@ -128,17 +128,24 @@ def test_restored_covariance_keeps_the_estimate_bounded() -> None:
 
 
 def test_observer_uses_actual_elapsed_time() -> None:
-    """A sparse HA event advances the model by its full interval, not 30 s."""
+    """A sparse HA event advances the model by its full interval, not 30 s.
+
+    Five minutes between readings predict what ten consecutive 30-second
+    plant steps under the held valve fraction reach.
+    """
     plant = PlantModelRC2(PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0)
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 35.0]))
     y_meas = 20.2
-    A, B, d = plant.linearised_AB(5.0, 35.0, dt_s=300.0)
-    expected = y_meas - float((A @ obs.x_hat + B.flatten() * 0.2 + d)[0])
+    x = obs.x_hat.copy()
+    for _ in range(10):
+        x = plant.discrete_step(x, 0.2, 5.0)
+    one_step = plant.discrete_step(obs.x_hat, 0.2, 5.0)
 
-    assert obs.innovation(y_meas, u=0.2, T_outdoor_C=5.0, dt_s=300.0) == pytest.approx(
-        expected
-    )
+    innovation = obs.innovation(y_meas, u=0.2, T_outdoor_C=5.0, dt_s=300.0)
+
+    assert innovation == pytest.approx(y_meas - float(x[0]))
+    assert innovation != pytest.approx(y_meas - float(one_step[0]))
 
 
 @pytest.mark.parametrize(

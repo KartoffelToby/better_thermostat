@@ -409,24 +409,13 @@ def test_disturbance_estimate_matches_a_standing_heat_gain(
 @pytest.mark.parametrize(
     "gap_s",
     [
-        pytest.param(300.0, id="gap5min"),
-        *(
-            pytest.param(
-                gap_s,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="the observer propagates the whole gap with the valve "
-                    "gain frozen at the previous radiator estimate, so an open "
-                    "valve drives the estimate past the supply water temperature",
-                ),
-                id=label,
-            )
-            for gap_s, label in (
-                (900.0, "gap15min"),
-                (3600.0, "gap1h"),
-                (86_400.0, "gap1d"),
-            )
-        ),
+        pytest.param(gap_s, id=label)
+        for gap_s, label in (
+            (300.0, "gap5min"),
+            (900.0, "gap15min"),
+            (3600.0, "gap1h"),
+            (86_400.0, "gap1d"),
+        )
     ],
 )
 def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(

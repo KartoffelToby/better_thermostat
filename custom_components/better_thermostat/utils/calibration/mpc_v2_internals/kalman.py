@@ -118,10 +118,7 @@ class KalmanObserver:
         new ``[T_room, T_rad]`` estimate.
         """
         elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
-        A, B, d = self.plant.linearised_AB(
-            T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
-        )
-        x_pred = A @ self.x_hat + B.flatten() * u + d
+        A, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
         # ``Q`` is configured for the plant's nominal observer step.  Scale
         # it with elapsed time so sparse events increase uncertainty instead
         # of making the filter over-confident.
@@ -181,8 +178,20 @@ class KalmanObserver:
     ) -> float:
         """Pre-update residual — used by the disturbance observer."""
         elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
-        A, B, d = self.plant.linearised_AB(
+        _, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
+        return y_meas - float((self.C @ x_pred).item())
+
+    def _predict(
+        self, u: float, T_outdoor_C: float, elapsed_s: float
+    ) -> tuple[FloatArray, FloatArray]:
+        """Return the state transition ``A`` and the predicted state.
+
+        The state follows the plant's own sub-stepped dynamics, whose valve
+        drive shrinks as the radiator approaches the supply water, so no
+        interval between readings carries the estimate past it. ``A`` does
+        not depend on the operating point and propagates the covariance.
+        """
+        A, _, _ = self.plant.linearised_AB(
             T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
         )
-        x_pred = A @ self.x_hat + B.flatten() * u + d
-        return y_meas - float((self.C @ x_pred).item())
+        return A, self.plant.propagate(self.x_hat, u, T_outdoor_C, elapsed_s)

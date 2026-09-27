@@ -76,6 +76,31 @@ class PlantModelRC2:
         self, x: FloatArray, u: float, T_outdoor_C: float, D_K_per_min: float = 0.0
     ) -> FloatArray:
         """Forward-Euler one-step propagator."""
+        return self._euler_step(x, u, T_outdoor_C, D_K_per_min, self.dt_min)
+
+    def propagate(
+        self, x: FloatArray, u: float, T_outdoor_C: float, dt_s: float
+    ) -> FloatArray:
+        """Advance ``x`` over ``dt_s`` under a constant valve fraction.
+
+        Uses the sub-steps :meth:`linearised_AB` composes for the same interval
+        but re-evaluates the valve drive ``u·(T_water − T_rad)`` on each one,
+        so across a long interval the radiator settles below the supply water
+        instead of extrapolating the drive it had at the start.
+        """
+        n_steps, dt_min = self._substeps(dt_s)
+        for _ in range(n_steps):
+            x = self._euler_step(x, u, T_outdoor_C, 0.0, dt_min)
+        return x
+
+    def _euler_step(
+        self,
+        x: FloatArray,
+        u: float,
+        T_outdoor_C: float,
+        D_K_per_min: float,
+        dt_min: float,
+    ) -> FloatArray:
         p = self.params
         u_clamped = max(0.0, min(1.0, u))
         T_room, T_rad = float(x[0]), float(x[1])
@@ -86,11 +111,14 @@ class PlantModelRC2:
             p.coupling_rad_room * (T_rad - T_room) - (T_room - T_outdoor_C)
         ) / p.tau_room_min
         return np.array(
-            [
-                T_room + (dT_room + D_K_per_min) * self.dt_min,
-                T_rad + dT_rad * self.dt_min,
-            ]
+            [T_room + (dT_room + D_K_per_min) * dt_min, T_rad + dT_rad * dt_min]
         )
+
+    def _substeps(self, dt_s: float | None) -> tuple[int, float]:
+        """Return the count and length (min) of the sub-steps covering ``dt_s``."""
+        total_s = self.dt_s if dt_s is None else max(0.0, dt_s)
+        n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
+        return n_steps, (total_s / n_steps) / 60.0
 
     def linearised_AB(  # noqa: N802
         self, T_outdoor_C: float, T_rad_op_C: float, dt_s: float | None = None
@@ -107,9 +135,7 @@ class PlantModelRC2:
         # updates. A direct Euler step over a long sensor gap destabilises the
         # faster radiator state, so compose nominal-sized substeps into one
         # equivalent affine transition instead.
-        total_s = self.dt_s if dt_s is None else max(0.0, dt_s)
-        n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
-        dt_min = (total_s / n_steps) / 60.0
+        n_steps, dt_min = self._substeps(dt_s)
         a_rad_room = dt_min / p.tau_rad_min
         a_rad_rad = 1.0 - dt_min / p.tau_rad_min
         valve_drive_K = max(p.T_water_C - T_rad_op_C, MIN_VALVE_DRIVE_K)
