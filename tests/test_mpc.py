@@ -404,6 +404,43 @@ class TestMPCController:
 
         assert state.min_effective_percent == 25.0
 
+    def test_a_small_command_the_room_answers_is_not_a_dead_zone_hit(self):
+        """A small command that warms the TRV and the room raises no minimum.
+
+        The room reading the controller keeps from its last cycle is the
+        measured response: a room that warms well beyond what the command
+        was expected to give shows the valve is past its dead zone.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_threshold_pct=50.0,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_hits_required=1,
+            deadzone_raise_pct=5.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState()
+        for cycle in range(4):
+            now = 1000.0 + 300.0 * cycle
+            room = 19.0 + 0.2 * cycle
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=room,
+                trv_temp_C=21.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(inp, params, state, now, 20.0, None)
+            # The controller records the room after post-processing, as
+            # the performance curve does once per window.
+            state.last_room_temp_C = room
+            state.last_room_temp_ts = now
+
+        assert state.dead_zone_hits == 0
+        assert state.min_effective_percent is None
+
     def test_a_learned_minimum_decays_after_the_trv_reads_as_linear(self):
         """A minimum opening learned on a dead zone decays once the TRV responds.
 

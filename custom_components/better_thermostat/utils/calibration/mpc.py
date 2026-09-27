@@ -1705,6 +1705,25 @@ def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
         return
 
 
+def _room_rise_over(
+    state: _MpcState, inp: MpcInput, now: float, window_s: float
+) -> float | None:
+    """Return how far the room moved over the last *window_s* seconds.
+
+    The room reading comes from the controller's own record, which the
+    performance curve refreshes once per window after post-processing, so
+    it spans an interval of its own. The move is scaled from that interval
+    to *window_s*. ``None`` when there is no earlier reading to compare.
+    """
+    if inp.current_temp_C is None or state.last_room_temp_C is None:
+        return None
+    elapsed_s = now - state.last_room_temp_ts
+    if state.last_room_temp_ts <= 0.0 or elapsed_s <= 0.0:
+        return None
+    room_delta = float(inp.current_temp_C) - float(state.last_room_temp_C)
+    return room_delta * window_s / elapsed_s
+
+
 def _decay_min_effective_percent(
     state: _MpcState,
     params: MpcParams,
@@ -1868,13 +1887,7 @@ def _post_process_percent(
             )
 
             if bool(getattr(params, "enable_min_effective_percent", True)):
-                # Optional: upstream may attach a previous room temp dynamically.
-                last_room_temp_C = getattr(inp, "last_room_temp_C", None)
-                room_temp_delta = (
-                    (inp.current_temp_C - last_room_temp_C)
-                    if last_room_temp_C is not None and inp.current_temp_C is not None
-                    else None
-                )
+                room_temp_delta = _room_rise_over(state, inp, now, time_delta)
 
                 measured_ok = (
                     room_temp_delta is not None
