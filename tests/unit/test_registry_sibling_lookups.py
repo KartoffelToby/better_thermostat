@@ -279,54 +279,6 @@ LOOKUPS = {
     )
 }
 
-ADOPTS_A_DISABLED_ENTRY = pytest.mark.xfail(
-    strict=True,
-    reason="the lookup takes a disabled registry entry for the TRV's sibling",
-)
-MATCHES_ANY_DEVICE_LESS_ENTRY = pytest.mark.xfail(
-    strict=True,
-    reason="a TRV without a device takes any device-less entry of its config "
-    "entry for its sibling",
-)
-
-# A disabled entry has no state, so a lookup that reads the state before it
-# writes passes over it on its own; the others take it up.
-DISABLED_ENTRY_ADOPTED_BY = frozenset(
-    {
-        "find_local_calibration_entity",
-        "find_valve_entity",
-        "generic.get_info offset",
-        "mqtt.get_info offset",
-        "mqtt.get_info valve",
-        "zwave_js.get_info offset",
-        "zwave_js.get_info valve",
-        "valve_entity.discover_valve_entity",
-        "find_device_entity",
-        "default.initial_tweak calibration reset",
-        "find_battery_entity",
-        "TRVZB._find_device_entity",
-        "TRVZB.maybe_set_external_temperature",
-        "TRVZB.maybe_set_sonoff_valve_percent",
-    }
-)
-
-# The lookups that compare device ids without first asking whether the TRV
-# has a device at all.
-DEVICE_LESS_ENTRY_ADOPTED_BY = frozenset(
-    {
-        "find_local_calibration_entity",
-        "find_valve_entity",
-        "generic.get_info offset",
-        "mqtt.get_info offset",
-        "mqtt.get_info valve",
-        "zwave_js.get_info offset",
-        "zwave_js.get_info valve",
-        "valve_entity.discover_valve_entity",
-        "TRVZB.maybe_set_sonoff_valve_percent",
-        "SPZB0001.check_operation_mode",
-    }
-)
-
 # ``find_device_entity`` takes the device id from its caller, and both
 # callers stop at a TRV without one; they carry that case below.
 TAKES_ITS_DEVICE_FROM_THE_CALLER = frozenset({"find_device_entity"})
@@ -378,14 +330,6 @@ async def _adopts(lookup: Lookup, candidate: Any) -> bool:
         return await lookup.adopts(host, registry, candidate.entity_id)
 
 
-def _params(adopted_by: frozenset[str], mark: Any, skip=frozenset()) -> list[Any]:
-    return [
-        pytest.param(name, id=name, marks=[mark] if name in adopted_by else [])
-        for name in LOOKUPS
-        if name not in skip
-    ]
-
-
 @pytest.mark.parametrize("name", list(LOOKUPS))
 @pytest.mark.asyncio
 async def test_an_enabled_sibling_is_taken_up(name):
@@ -404,9 +348,7 @@ async def test_an_enabled_sibling_is_taken_up(name):
 
 
 @pytest.mark.parametrize("disabled_by", DISABLED_BY, ids=lambda d: d.value)
-@pytest.mark.parametrize(
-    "name", _params(DISABLED_ENTRY_ADOPTED_BY, ADOPTS_A_DISABLED_ENTRY)
-)
+@pytest.mark.parametrize("name", list(LOOKUPS))
 @pytest.mark.asyncio
 async def test_a_disabled_sibling_is_not_taken_up(name, disabled_by):
     """A disabled entry on the TRV's device is no sibling.
@@ -426,12 +368,7 @@ async def test_a_disabled_sibling_is_not_taken_up(name, disabled_by):
 
 
 @pytest.mark.parametrize(
-    "name",
-    _params(
-        DEVICE_LESS_ENTRY_ADOPTED_BY,
-        MATCHES_ANY_DEVICE_LESS_ENTRY,
-        skip=TAKES_ITS_DEVICE_FROM_THE_CALLER,
-    ),
+    "name", [name for name in LOOKUPS if name not in TAKES_ITS_DEVICE_FROM_THE_CALLER]
 )
 @pytest.mark.asyncio
 async def test_a_trv_without_a_device_has_no_siblings(name):
@@ -453,15 +390,109 @@ async def test_a_trv_without_a_device_has_no_siblings(name):
     )
 
 
-def test_every_lookup_the_tables_name_exists():
-    """The expectation tables name only lookups this module runs.
+def test_every_lookup_the_table_names_exists():
+    """The lookups exempted from the device-less case are ones this module runs.
 
-    A name that matches no lookup marks nothing, and the table would then
-    claim a defect that no test pins.
+    A name that matches no lookup exempts nothing, and the table would then
+    claim a caller-side guard that no test relies on.
     """
-    named = (
-        DISABLED_ENTRY_ADOPTED_BY
-        | DEVICE_LESS_ENTRY_ADOPTED_BY
-        | TAKES_ITS_DEVICE_FROM_THE_CALLER
+    assert TAKES_ITS_DEVICE_FROM_THE_CALLER <= LOOKUPS.keys()
+
+
+WARNED_ROLES = {
+    "find_local_calibration_entity": "local calibration",
+    "find_valve_entity": "valve position",
+}
+
+
+def _disabled_sibling_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelname == "WARNING" and "is disabled" in record.getMessage()
+    ]
+
+
+@pytest.mark.parametrize("name", list(WARNED_ROLES))
+@pytest.mark.asyncio
+async def test_a_disabled_sibling_left_alone_is_named_once(name, caplog, monkeypatch):
+    """A disabled entry that was the TRV's only helper is named once on WARNING.
+
+    Without it the user sees offset or valve control missing and has no
+    hint that enabling the entity brings it back. The lookups run on every
+    discovery, so the warning is given once per entity, not per lookup.
+    """
+    monkeypatch.setattr(helpers, "_REPORTED_DISABLED_SIBLINGS", set())
+    lookup = LOOKUPS[name]
+    candidate = make_registry_entry(
+        lookup.candidate,
+        device_id=TRV_DEVICE,
+        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+        **lookup.fields,
     )
-    assert named <= LOOKUPS.keys()
+
+    await _adopts(lookup, candidate)
+    await _adopts(lookup, candidate)
+
+    warnings = _disabled_sibling_warnings(caplog)
+    assert len(warnings) == 1
+    assert candidate.entity_id in warnings[0]
+    assert WARNED_ROLES[name] in warnings[0]
+
+
+@pytest.mark.parametrize("name", list(WARNED_ROLES))
+@pytest.mark.asyncio
+async def test_a_disabled_entry_beside_an_enabled_sibling_goes_unnamed(
+    name, caplog, monkeypatch
+):
+    """A disabled duplicate is not worth a warning when an enabled sibling serves.
+
+    The TRV gets its helper, so nothing is missing and there is nothing for
+    the user to fix.
+    """
+    monkeypatch.setattr(helpers, "_REPORTED_DISABLED_SIBLINGS", set())
+    lookup = LOOKUPS[name]
+    disabled = make_registry_entry(
+        lookup.candidate.replace(".trv_", ".trv_spare_", 1),
+        device_id=TRV_DEVICE,
+        disabled_by=er.RegistryEntryDisabler.USER,
+        **lookup.fields,
+    )
+    enabled = make_registry_entry(
+        lookup.candidate, device_id=TRV_DEVICE, **lookup.fields
+    )
+    trv = make_registry_entry(TRV_ID, device_id=TRV_DEVICE)
+    registry = make_entity_registry(trv, disabled, enabled)
+    host = _host(registry, lookup, enabled.entity_id)
+
+    with _registry_in_place(registry):
+        assert await lookup.adopts(host, registry, enabled.entity_id)
+
+    assert _disabled_sibling_warnings(caplog) == []
+
+
+# These two are handed the TRV's device id rather than the TRV itself.
+TAKE_A_DEVICE_ID = TAKES_ITS_DEVICE_FROM_THE_CALLER | {"TRVZB._find_device_entity"}
+
+
+@pytest.mark.parametrize(
+    "name", [name for name in LOOKUPS if name not in TAKE_A_DEVICE_ID]
+)
+@pytest.mark.asyncio
+async def test_a_trv_missing_from_the_registry_has_no_siblings(name):
+    """A TRV the registry does not know has no device and so no siblings.
+
+    Its entity id alone ties it to nothing; an entry that happens to sit
+    on some device is not taken up for it.
+    """
+    lookup = LOOKUPS[name]
+    candidate = make_registry_entry(
+        lookup.candidate, device_id=TRV_DEVICE, **lookup.fields
+    )
+    registry = make_entity_registry(candidate)
+    host = _host(registry, lookup, candidate.entity_id)
+
+    with _registry_in_place(registry):
+        assert not await lookup.adopts(host, registry, candidate.entity_id), (
+            f"{name} took {candidate.entity_id} for an unregistered TRV"
+        )
