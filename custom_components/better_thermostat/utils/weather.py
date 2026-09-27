@@ -40,13 +40,10 @@ async def check_weather(self) -> bool:
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
 
-    self.call_for_heat = True
-
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
-        if isinstance(
-            _call_for_heat_weather, bool
-        ):  # Only apply if we got a valid response
+        # None means the prediction has no opinion; the previous decision stays.
+        if isinstance(_call_for_heat_weather, bool):
             self.call_for_heat = _call_for_heat_weather
 
     if self.outdoor_sensor is not None:
@@ -123,7 +120,7 @@ async def check_weather_prediction(self) -> bool | None:
             "better_thermostat %s: off_temperature not set or not a float.",
             self.device_name,
         )
-        return False
+        return None
 
     try:
         state = self.hass.states.get(self.weather_entity)

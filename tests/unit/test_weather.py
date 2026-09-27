@@ -210,11 +210,6 @@ class TestCheckWeatherPrediction:
         bt = make_bt(make_hass(), weather_entity=None)
         assert await check_weather_prediction(bt) is False
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="a missing off_temperature is answered with False, which "
-        "check_weather applies as a warm forecast",
-    )
     async def test_missing_off_temperature_gives_no_opinion(self):
         """Without an off_temperature the forecast has nothing to be compared to.
 
@@ -637,15 +632,7 @@ class TestCheckWeather:
         "previous",
         [
             pytest.param(True, id="heating"),
-            pytest.param(
-                False,
-                id="summer_mode",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a prediction without an opinion resets call_for_heat "
-                    "to True and logs summer_mode_off",
-                ),
-            ),
+            pytest.param(False, id="summer_mode"),
         ],
     )
     async def test_no_opinion_keeps_the_previous_decision(self, previous):
@@ -750,15 +737,7 @@ class TestCheckWeather:
         "previous",
         [
             pytest.param(True, id="heating"),
-            pytest.param(
-                False,
-                id="summer_mode",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a transient weather failure resets call_for_heat to "
-                    "True and logs summer_mode_off",
-                ),
-            ),
+            pytest.param(False, id="summer_mode"),
         ],
     )
     @pytest.mark.parametrize(
@@ -810,15 +789,7 @@ class TestCheckWeather:
     @pytest.mark.parametrize(
         "previous",
         [
-            pytest.param(
-                True,
-                id="heating",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a missing off_temperature switches a weather-only "
-                    "setup into summer mode",
-                ),
-            ),
+            pytest.param(True, id="heating"),
             pytest.param(False, id="summer_mode"),
         ],
     )
