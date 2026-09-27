@@ -77,6 +77,19 @@ class DisturbanceObserver:
             return 0.0
         return rate - math.copysign(band, rate)
 
+    def restore(self, estimate: float, planning: float | None) -> None:
+        """Adopt persisted estimates, bounded by ``max_abs_K_per_min``.
+
+        A missing planning reading starts from zero rather than from the fast
+        estimate: that one follows the last few readings, and the free heat
+        they saw before a restart is no evidence for the plan after it.
+        """
+        max_abs = max(0.0, self.params.max_abs_K_per_min)
+        self.D_hat_K_per_min = max(-max_abs, min(max_abs, estimate))
+        self.planning_filtered = (
+            0.0 if planning is None else max(-max_abs, min(max_abs, planning))
+        )
+
     def update(self, correction_K: float, dt_s: float) -> float:
         """Fold one room correction into the EMA and return the disturbance estimate.
 

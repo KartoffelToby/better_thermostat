@@ -56,7 +56,7 @@ class ControllerSnapshot:
     next_mpc_t_s: float
     last_mpc_t_s: float = -1.0
     # ``None`` for a snapshot written before the planning reading existed;
-    # the restore then starts it from ``D_hat_K_per_min``.
+    # the restore then starts it from zero.
     planning_disturbance: float | None = None
 
     @classmethod
@@ -71,7 +71,7 @@ class ControllerSnapshot:
         every later command, so the controller boots fresh instead of running on
         poisoned state. Two fields are nullable: a stored ``null`` in ``rg_v_C``
         means "no governor state", and a missing or ``null``
-        ``planning_disturbance`` means "start it from the estimate".
+        ``planning_disturbance`` means "start it from zero".
         """
         try:
             version = int(raw.get("v", 0))
@@ -305,12 +305,7 @@ class MpcV2Controller:
                 "MPC v2 snapshot covariance is unusable; the observer keeps "
                 "its default uncertainty and re-learns"
             )
-        self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
-        self.dob.planning_filtered = (
-            snap.D_hat_K_per_min
-            if snap.planning_disturbance is None
-            else snap.planning_disturbance
-        )
+        self.dob.restore(snap.D_hat_K_per_min, snap.planning_disturbance)
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
         for u in snap.u_history:

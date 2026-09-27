@@ -979,3 +979,53 @@ def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
     assert calls["euler"] <= settled_steps
     assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)
     assert 21.0 < diag.T_rad_hat < plant.params.T_water_C
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"), [(0.5, 0.05), (-0.5, -0.05), (0.01, 0.01)]
+)
+def test_restored_disturbance_readings_stay_inside_their_bound(
+    stored: float, expected: float
+) -> None:
+    """A stored estimate beyond ``max_abs_K_per_min`` restores at the bound.
+
+    Both the fast estimate and the planning reading are bounded that way
+    while the controller runs, so a snapshot cannot hand them more.
+    """
+    params = MpcV2Params()
+    assert params.dob.max_abs_K_per_min == 0.05
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": stored,
+            "planning_disturbance": stored,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(expected)
+    assert controller.dob.planning_filtered == pytest.approx(expected)
+
+
+def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
+    """A snapshot from before the planning reading existed starts it at zero.
+
+    The fast estimate it does carry reflects the free heat of the minutes
+    before the restart, which the plan after it has no reason to assume.
+    """
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 30.0], "D_hat_K_per_min": 0.02}
+    )
+    assert snap is not None
+    assert snap.planning_disturbance is None
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert controller.dob.planning_filtered == 0.0
+    assert controller.dob.planning_rate == 0.0
