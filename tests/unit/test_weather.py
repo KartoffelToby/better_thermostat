@@ -13,7 +13,7 @@ The module has three public coroutines plus a helper class:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -813,24 +813,28 @@ class TestCheckWeather:
 HOUR_S = 3600.0
 
 
-async def _hourly_checks(bt, verdicts):
-    """Run one weather check per hour, answering each with the next verdict."""
+async def _hourly_checks(bt, verdicts, clock_steps=None):
+    """Run one weather check per hour, answering each with the next verdict.
+
+    ``clock_steps`` optionally maps a check index to a callable run on the
+    clock after that check, for time jumps on the wall-clock axis alone.
+    """
     prediction = AsyncMock(side_effect=list(verdicts))
     with (
         patch(f"{WEATHER_MOD}.check_weather_prediction", prediction),
         patch(f"{WEATHER_MOD}.async_fire_logbook_entry", AsyncMock()),
     ):
-        for _ in verdicts:
+        for index, _ in enumerate(verdicts):
             await check_weather(bt)
             bt.clock.advance(HOUR_S)
+            if clock_steps and index in clock_steps:
+                clock_steps[index](bt.clock)
 
 
-def _fallback_warnings(caplog):
-    """Return the warnings announcing the fallback to heating."""
+def _weather_records(caplog, level):
+    """Return the records of one level that name the weather entity."""
     return [
-        r
-        for r in caplog.records
-        if r.levelno == logging.WARNING and WEATHER_ID in r.getMessage()
+        r for r in caplog.records if r.levelno == level and WEATHER_ID in r.getMessage()
     ]
 
 
@@ -849,7 +853,7 @@ class TestForecastOutage:
             await _hourly_checks(bt, [False] + [None] * 720)
 
         assert bt.call_for_heat is True
-        assert len(_fallback_warnings(caplog)) == 1
+        assert len(_weather_records(caplog, logging.WARNING)) == 1
 
     async def test_a_short_outage_keeps_summer_mode(self):
         """An outage within the hold leaves the room resting."""
@@ -859,27 +863,74 @@ class TestForecastOutage:
 
         assert bt.call_for_heat is False
 
-    async def test_a_returning_verdict_rearms_the_hold(self, caplog):
-        """A verdict ends the outage, so the next outage gets the full hold again.
+    async def test_a_returning_verdict_rearms_the_hold(self):
+        """A verdict ends the outage, so the next outage gets the full hold again."""
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
 
-        The return is logged once.
-        """
+        await _hourly_checks(bt, [False, None, None, False, None, None, None])
+
+        assert bt.call_for_heat is False
+
+    async def test_a_flapping_entity_stays_quiet(self, caplog):
+        """An entity missing every other check neither falls back nor logs."""
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
         with caplog.at_level(logging.INFO, logger=WEATHER_MOD):
-            await _hourly_checks(bt, [False, None, None, False, None, None, None])
+            await _hourly_checks(bt, [False, None] * 24)
 
         assert bt.call_for_heat is False
-        returns = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and WEATHER_ID in r.getMessage()
-        ]
-        assert len(returns) == 1
+        assert _weather_records(caplog, logging.WARNING) == []
+        assert _weather_records(caplog, logging.INFO) == []
 
-    async def test_a_verdict_after_the_fallback_is_applied(self):
-        """A warm verdict after the fallback puts the room back into summer mode."""
+    async def test_a_verdict_after_the_fallback_is_applied_and_announced(self, caplog):
+        """A warm verdict after the fallback restores summer mode, logged once."""
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        with caplog.at_level(logging.INFO, logger=WEATHER_MOD):
+            await _hourly_checks(bt, [False] + [None] * 5 + [False, False])
+
+        assert bt.call_for_heat is False
+        assert len(_weather_records(caplog, logging.WARNING)) == 1
+        assert len(_weather_records(caplog, logging.INFO)) == 1
+
+    async def test_the_hold_keeps_its_length_across_a_dst_change(self):
+        """A wall clock set back by an hour does not stretch the hold.
+
+        Three hours after the forecast went silent the room heats, even when
+        the local clock was turned back in between.
+        """
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
 
-        await _hourly_checks(bt, [False] + [None] * 5 + [False])
+        def _clock_set_back(clock):
+            clock.now_value -= timedelta(hours=1)
 
-        assert bt.call_for_heat is False
+        await _hourly_checks(bt, [False] + [None] * 4, clock_steps={1: _clock_set_back})
+
+        assert bt.call_for_heat is True
+
+    @pytest.mark.parametrize(
+        ("outdoor_temp", "expected"),
+        [
+            pytest.param(25.0, False, id="warm_outside"),
+            pytest.param(2.0, True, id="cold_outside"),
+        ],
+    )
+    async def test_the_outdoor_sensor_decides_during_a_forecast_outage(
+        self, caplog, outdoor_temp, expected
+    ):
+        """With an outdoor sensor configured its reading decides, silently.
+
+        The outdoor sensor's verdict replaces the forecast's, so a silent
+        forecast neither forces heating nor announces a fallback.
+        """
+        bt = make_bt(
+            make_hass(),
+            weather_entity=WEATHER_ID,
+            outdoor_sensor=OUTDOOR_ID,
+            last_avg_outdoor_temp=outdoor_temp,
+            off_temperature=10.0,
+        )
+        with caplog.at_level(logging.INFO, logger=WEATHER_MOD):
+            await _hourly_checks(bt, [False] + [None] * 24)
+
+        assert bt.call_for_heat is expected
+        assert _weather_records(caplog, logging.WARNING) == []
+        assert _weather_records(caplog, logging.INFO) == []
