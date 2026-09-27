@@ -24,6 +24,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
+
+# A reading closes a regular control cycle up to this many control ticks
+# after the previous one. Half a tick absorbs scheduling jitter and the
+# event-driven cycles in between, which only ever shorten the interval; one
+# skipped tick already means the controller did not run.
+_READING_INTERVAL_TICKS = 1.5
+
 
 @dataclass
 class DobParams:
@@ -41,11 +49,11 @@ class DobParams:
     # late, overheating the room while the sun holds and chilling it after.
     planning_tau_s: float = 1200.0
     planning_deadband: float = 0.002
-    # Better Thermostat recomputes at least every five minutes while a
-    # calibration mode is active. A longer interval (s) means the controller
+    # Better Thermostat recomputes at least once per ``CONTROL_TICK_S`` while
+    # a calibration mode is active. A longer interval (s) means the controller
     # did not run (window open, heating off, restart); the correction that
     # closes it measures that pause, not a standing disturbance.
-    max_reading_interval_s: float = 450.0
+    max_reading_interval_s: float = _READING_INTERVAL_TICKS * CONTROL_TICK_S
 
 
 class DisturbanceObserver:

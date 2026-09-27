@@ -6,6 +6,7 @@ import math
 
 import pytest
 
+from custom_components.better_thermostat.core.watchdog import CONTROL_TICK_S
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.dob import (
     DisturbanceObserver,
     DobParams,
@@ -234,3 +235,14 @@ def test_a_reading_at_the_pause_limit_is_still_folded_in() -> None:
 
     assert dob.D_hat_K_per_min > 0.0
     assert dob.planning_filtered > 0.0
+
+
+def test_the_pause_limit_sits_between_one_and_two_control_ticks() -> None:
+    """A regular cycle is folded in, one skipped control tick is a pause.
+
+    The limit follows the periodic tick that drives calibration, so a change
+    of that tick moves it along instead of silencing the observer.
+    """
+    limit = DobParams().max_reading_interval_s
+
+    assert CONTROL_TICK_S < limit < 2.0 * CONTROL_TICK_S
