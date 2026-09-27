@@ -625,6 +625,24 @@ class TestGetBatteryStatus:
 
         assert bt.devices_states[self.TRV]["battery"] is None
 
+    @pytest.mark.parametrize(
+        "devices_states",
+        [{}, {TRV: {"battery": None}}],
+        ids=["device_not_mapped", "no_battery_entity"],
+    )
+    def test_a_device_without_a_battery_entity_reads_nothing(
+        self, mock_bt_instance, devices_states
+    ):
+        """A device with no battery entity mapped to it has nothing to read."""
+        from custom_components.better_thermostat.utils.watcher import get_battery_status
+
+        mock_bt_instance.devices_states = devices_states
+
+        get_battery_status(mock_bt_instance, self.TRV)
+
+        mock_bt_instance.hass.states.get.assert_not_called()
+        mock_bt_instance.async_write_ha_state.assert_not_called()
+
     def test_a_battery_entity_without_a_level_yet_leaves_the_reading_unset(
         self, mock_bt_instance
     ):
