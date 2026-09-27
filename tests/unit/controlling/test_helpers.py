@@ -580,7 +580,9 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
-            result = await check_target_temperature(mock_self, "climate.trv1", watched)
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 23.0
+            )
 
         assert result is True
         assert trv.confirmed_setpoint == 23.0
@@ -614,7 +616,9 @@ class TestCheckTargetTemperature:
         durations, sleep_patch = _sleep_recorder()
 
         with sleep_patch, patch(f"{_CTRL}._LOGGER") as logger:
-            result = await check_target_temperature(mock_self, "climate.trv1", watched)
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 23.0
+            )
 
         assert result is True
         assert durations == []
@@ -644,7 +648,9 @@ class TestCheckTargetTemperature:
         _, sleep_patch = _sleep_recorder()
 
         with sleep_patch:
-            result = await check_target_temperature(mock_self, "climate.trv1", newest)
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", newest, 24.0
+            )
 
         assert result is True
         assert trv.confirmed_setpoint == 24.0
