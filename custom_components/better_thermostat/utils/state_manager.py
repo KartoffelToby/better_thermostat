@@ -369,6 +369,31 @@ def _finite_or_poison(value: Any, attr: str, kind: str) -> float:
     return number
 
 
+def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
+    """Name a stored field that keeps its default because it cannot be read.
+
+    Past the load path the field carries the default a first start leaves
+    there, and a value the store lost looks exactly like one it never
+    held, so this is the only place that can still say so.
+    """
+    _LOGGER.warning(
+        "better_thermostat: stored %s state for %s has an unusable %s, "
+        "continuing without it",
+        kind,
+        key or "an unnamed state entry",
+        attr,
+        exc_info=True,
+    )
+
+
+def _record_poisoned_entry(
+    poisoned: list[str] | None, kind: str, key: str | None
+) -> None:
+    """Note an entry whose stored values were discarded, when asked to."""
+    if poisoned is not None:
+        poisoned.append(f"{kind}:{key}")
+
+
 def _finite_element(value: Any, attr: str, kind: str) -> float:
     """Parse one number stored inside a collection field.
 
@@ -407,7 +432,9 @@ def _finite_perf_curve(
     return curve
 
 
-def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
+def deserialize_mpc(
+    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+) -> MpcState:
     """Deserialize a single MPC state dict into an MpcState dataclass.
 
     A non-finite number in a float field rejects the whole entry: learning
@@ -422,6 +449,17 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
     A stored ``null`` rejects the entry wherever the declared type has no
     ``None``, the tallies included, because that is the shape a saved NaN
     comes back in.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    poisoned : list[str] | None
+        collects the entry's section and key when a non-finite value
+        discards its stored values
     """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
@@ -458,14 +496,16 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc"))
         except _PoisonedStateError:
+            _record_poisoned_entry(poisoned, "mpc", key)
             return MpcState()
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "mpc", key)
             continue
     return state
 
 
 def deserialize_mpc_v2(
-    raw: dict[str, Any], *, key: str | None = None
+    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
 ) -> MpcV2StateData | None:
     """Deserialize a single MPC v2 state dict; ``None`` if the entry is corrupt.
 
@@ -493,6 +533,9 @@ def deserialize_mpc_v2(
     key : str | None
         names the state entry, so a report about a value that cannot be read
         can point at the room rather than at nothing
+    poisoned : list[str] | None
+        collects the entry's section and key when a non-finite value
+        discards its stored values
 
     Returns
     -------
@@ -511,17 +554,10 @@ def deserialize_mpc_v2(
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2"))
         except _PoisonedStateError:
+            _record_poisoned_entry(poisoned, "mpc_v2", key)
             return None
         except TypeError, ValueError, OverflowError:
-            # The field keeps the default a first start leaves there. Saying
-            # so here is the only chance: the caller hands the parsed entry
-            # on, where a default and a value the store lost look alike.
-            _LOGGER.warning(
-                "MPC v2 stored %s for %s is not a usable number, continuing without it",
-                attr,
-                key or "an unnamed state entry",
-                exc_info=True,
-            )
+            _report_unreadable_field(attr, "mpc_v2", key)
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -530,7 +566,9 @@ def deserialize_mpc_v2(
     return state
 
 
-def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
+def deserialize_mpc_v2_reid(
+    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+) -> MpcV2ReidData | None:
     """Deserialize a persisted re-identification result; None if malformed.
 
     Returning ``None`` leaves the entry out of the restored state, so the
@@ -553,6 +591,20 @@ def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
     entry usable as the schema grows. ``n_segments`` is metadata: a value
     that is not a storable count falls back to 0 and the entry survives —
     except a null, which is refused there as in every other field.
+
+    Every rejection and every skipped field is logged, since past this
+    point a dropped result looks like one that was never learned.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    poisoned : list[str] | None
+        collects the entry's section and key when a non-finite value
+        discards its stored values
     """
     state = MpcV2ReidData()
     for attr in MpcV2ReidData.__dataclass_fields__:
@@ -568,21 +620,37 @@ def deserialize_mpc_v2_reid(raw: dict[str, Any]) -> MpcV2ReidData | None:
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "mpc_v2_reid"))
         except _PoisonedStateError:
+            _record_poisoned_entry(poisoned, "mpc_v2_reid", key)
             return None
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "mpc_v2_reid", key)
             continue
     # A result whose fitted components lie outside the plausible band cannot
     # seed a plant prior. The band is two-sided on both: too small a
     # ``tau_room_min`` and the room dynamics blow up, too large and they
     # freeze, and either rail pins the commanded valve.
-    if not _within(state.tau_room_min, TAU_ROOM_BOUNDS_MIN):
-        return None
-    if not _within(state.gain_heater, GAIN_HEATER_BOUNDS):
-        return None
+    for attr, bounds in (
+        ("tau_room_min", TAU_ROOM_BOUNDS_MIN),
+        ("gain_heater", GAIN_HEATER_BOUNDS),
+    ):
+        value = getattr(state, attr)
+        if not _within(value, bounds):
+            _LOGGER.warning(
+                "better_thermostat: stored mpc_v2_reid result for %s has %s=%s "
+                "outside the plausible band %s; falling back to the derived "
+                "plant prior",
+                key or "an unnamed state entry",
+                attr,
+                value,
+                bounds,
+            )
+            return None
     return state
 
 
-def deserialize_pid(raw: dict[str, Any]) -> PIDState:
+def deserialize_pid(
+    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+) -> PIDState:
     """Deserialize a single PID state dict into a PIDState dataclass.
 
     A non-finite number in a float field rejects the whole entry: learning
@@ -596,6 +664,17 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
     A stored ``null`` rejects the entry wherever the field's type has no
     ``None``, because that is the shape a saved NaN comes back in; both
     direction fields are declared ``int | None`` and keep theirs.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    poisoned : list[str] | None
+        collects the entry's section and key when a non-finite value
+        discards its stored values
     """
     state = PIDState()
     for attr in PIDState.__dataclass_fields__:
@@ -615,19 +694,34 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "pid"))
         except _PoisonedStateError:
+            _record_poisoned_entry(poisoned, "pid", key)
             return PIDState()
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "pid", key)
             continue
     return state
 
 
-def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
+def deserialize_tpi(
+    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+) -> TpiState:
     """Deserialize a single TPI state dict into a TpiState dataclass.
 
     A non-finite numeric field rejects the whole entry: learning
     restarts from defaults rather than continuing on corrupt math. A
     stored ``null`` counts as one wherever the field's type has no
     ``None``, because that is the shape a saved NaN comes back in.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    poisoned : list[str] | None
+        collects the entry's section and key when a non-finite value
+        discards its stored values
     """
     state = TpiState()
     for attr in TpiState.__dataclass_fields__:
@@ -641,69 +735,98 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             else:
                 setattr(state, attr, _finite_or_poison(value, attr, "tpi"))
         except _PoisonedStateError:
+            _record_poisoned_entry(poisoned, "tpi", key)
             return TpiState()
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "tpi", key)
             continue
     return state
 
 
-def _deserialize(raw: dict[str, Any]) -> RuntimeState:
-    """Reconstruct a RuntimeState from a raw dict (loaded from Store)."""
+def _stored_section(raw: dict[str, Any], section: str) -> Mapping[str, Any]:
+    """Return one section of the store, or an empty one when it has none.
+
+    A section of any other shape than a mapping is dropped and named: past
+    the load path its entities start from defaults, like on a first start.
+    """
+    value = raw.get(section, {})
+    if isinstance(value, Mapping):
+        return value
+    _LOGGER.warning(
+        "better_thermostat: stored %s section is not a mapping; its entries "
+        "start from defaults",
+        section,
+    )
+    return {}
+
+
+def _stored_entries(
+    raw: dict[str, Any], section: str
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return the entries of one keyed section that are mappings.
+
+    An entry of any other shape is dropped and named with its key.
+    """
+    entries: list[tuple[str, dict[str, Any]]] = []
+    for key, entry in _stored_section(raw, section).items():
+        if isinstance(entry, dict):
+            entries.append((key, entry))
+            continue
+        _LOGGER.warning(
+            "better_thermostat: stored %s entry for %s is not a mapping; "
+            "it starts from defaults",
+            section,
+            key,
+        )
+    return entries
+
+
+def _deserialize(
+    raw: dict[str, Any], *, poisoned: list[str] | None = None
+) -> RuntimeState:
+    """Reconstruct a RuntimeState from a raw dict (loaded from Store).
+
+    *poisoned* collects the section and key of every entry whose stored
+    values a non-finite number discarded.
+    """
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
 
-    mpc_raw = raw.get("mpc", {})
-    if isinstance(mpc_raw, Mapping):
-        for key, state_dict in mpc_raw.items():
-            if isinstance(state_dict, dict):
-                state.mpc[key] = deserialize_mpc(state_dict)
+    for key, entry in _stored_entries(raw, "mpc"):
+        state.mpc[key] = deserialize_mpc(entry, key=key, poisoned=poisoned)
 
-    mpc_v2_raw = raw.get("mpc_v2", {})
-    if isinstance(mpc_v2_raw, Mapping):
-        for key, state_dict in mpc_v2_raw.items():
-            if isinstance(state_dict, dict):
-                mpc_v2 = deserialize_mpc_v2(state_dict, key=key)
-                if mpc_v2 is not None:
-                    state.mpc_v2[key] = mpc_v2
+    for key, entry in _stored_entries(raw, "mpc_v2"):
+        mpc_v2 = deserialize_mpc_v2(entry, key=key, poisoned=poisoned)
+        if mpc_v2 is not None:
+            state.mpc_v2[key] = mpc_v2
 
-    mpc_v2_reid_raw = raw.get("mpc_v2_reid", {})
-    if isinstance(mpc_v2_reid_raw, Mapping):
-        for key, state_dict in mpc_v2_reid_raw.items():
-            if isinstance(state_dict, dict):
-                reid = deserialize_mpc_v2_reid(state_dict)
-                if reid is not None:
-                    state.mpc_v2_reid[key] = reid
+    for key, entry in _stored_entries(raw, "mpc_v2_reid"):
+        reid = deserialize_mpc_v2_reid(entry, key=key, poisoned=poisoned)
+        if reid is not None:
+            state.mpc_v2_reid[key] = reid
 
-    pid_raw = raw.get("pid", {})
-    if isinstance(pid_raw, Mapping):
-        for key, state_dict in pid_raw.items():
-            if isinstance(state_dict, dict):
-                state.pid[key] = deserialize_pid(state_dict)
+    for key, entry in _stored_entries(raw, "pid"):
+        state.pid[key] = deserialize_pid(entry, key=key, poisoned=poisoned)
 
-    tpi_raw = raw.get("tpi", {})
-    if isinstance(tpi_raw, Mapping):
-        for key, state_dict in tpi_raw.items():
-            if isinstance(state_dict, dict):
-                state.tpi[key] = deserialize_tpi(state_dict)
+    for key, entry in _stored_entries(raw, "tpi"):
+        state.tpi[key] = deserialize_tpi(entry, key=key, poisoned=poisoned)
 
-    thermal_raw = raw.get("thermal", {})
-    if isinstance(thermal_raw, dict):
-        state.thermal = ThermalStats(
-            heating_power=finite_or_none(thermal_raw.get("heating_power")),
-            heat_loss_rate=finite_or_none(thermal_raw.get("heat_loss_rate")),
-        )
+    thermal_raw = _stored_section(raw, "thermal")
+    state.thermal = ThermalStats(
+        heating_power=finite_or_none(thermal_raw.get("heating_power")),
+        heat_loss_rate=finite_or_none(thermal_raw.get("heat_loss_rate")),
+    )
 
-    filters_raw = raw.get("filters", {})
-    if isinstance(filters_raw, dict):
-        for attr in ("external_temp_ema", "temp_slope"):
-            value = filters_raw.get(attr)
-            if value is None:
-                continue
-            try:
-                number = float(value)
-            except TypeError, ValueError, OverflowError:
-                continue
-            if math.isfinite(number):
-                setattr(state.filters, attr, number)
+    filters_raw = _stored_section(raw, "filters")
+    for attr in ("external_temp_ema", "temp_slope"):
+        value = filters_raw.get(attr)
+        if value is None:
+            continue
+        try:
+            number = float(value)
+        except TypeError, ValueError, OverflowError:
+            continue
+        if math.isfinite(number):
+            setattr(state.filters, attr, number)
 
     # A legacy "presets" section is ignored: preset temperatures are UI
     # state owned by the preset number entities.
@@ -1101,16 +1224,18 @@ class StateManager:
     async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
         """Set an unreadable store aside before defaults take its place.
 
-        The defaults this entity falls back to are written over the live
-        store on its next save, so without a copy the only record of what a
-        user's installation had learned is gone. The copy is taken once:
+        That covers a store that cannot be read at all and one with entries
+        a non-finite value reset. The defaults this entity falls back to
+        are written over the live store on its next save, so without a copy
+        the only record of what a user's installation had learned is gone.
+        The copy is taken once:
         a second unreadable load must not overwrite the first copy, which is
         the one still holding the accumulated state.
 
         Parameters
         ----------
         raw : dict[str, Any]
-            The store payload that could not be deserialized.
+            The store payload that could not be deserialized in full.
         """
         key = _quarantine_key(self._entry_id)
         quarantine: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
@@ -1146,11 +1271,12 @@ class StateManager:
         # A store that breaks deserialization yields defaults, not a
         # crash: load() runs inside the entity's startup task, and
         # relearning replaces anything a poisoned store could offer.
+        poisoned: list[str] = []
         try:
             version = raw.get("version", 0)
             if version < 1:
                 raw = _migrate_v0_to_v1(raw)
-            self._state = _deserialize(raw)
+            self._state = _deserialize(raw, poisoned=poisoned)
         except Exception:
             _LOGGER.warning(
                 "better_thermostat [%s]: persisted state is unreadable, starting fresh",
@@ -1161,6 +1287,10 @@ class StateManager:
             self._state = RuntimeState()
             self._dirty = False
             return
+        if poisoned:
+            # The reset entries' defaults replace the stored ones on the next
+            # save, so the payload is kept aside like an unreadable store.
+            await self._quarantine_unreadable_state(raw)
         self._dirty = False
         _LOGGER.debug(
             "better_thermostat [%s]: Loaded state v%d (%d mpc, %d pid, %d tpi keys)",

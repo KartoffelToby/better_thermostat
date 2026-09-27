@@ -968,7 +968,7 @@ class TestDeserializeMpcV2:
         }
         with patch(f"{_SM}.Store", return_value=mock_store):
             mgr = StateManager(mock_hass, "poisoned_entry")
-        await mgr.load()
+            await mgr.load()
 
         assert mgr.state.mpc_v2 == {}
         assert mgr.get_mpc_v2_live("k1", MpcV2Params()).controller is None
@@ -1027,46 +1027,16 @@ class TestDroppedStoredValuesAreReported:
     @pytest.mark.parametrize(
         ("deserialize", "raw", "field"),
         [
+            pytest.param(deserialize_mpc, {"gain_est": "abc"}, "gain_est", id="mpc"),
+            pytest.param(deserialize_pid, {"pid_kp": "abc"}, "pid_kp", id="pid"),
             pytest.param(
-                deserialize_mpc,
-                {"gain_est": "abc"},
-                "gain_est",
-                id="mpc",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="an unreadable MPC field is skipped without a log line",
-                ),
-            ),
-            pytest.param(
-                deserialize_pid,
-                {"pid_kp": "abc"},
-                "pid_kp",
-                id="pid",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="an unreadable PID field is skipped without a log line",
-                ),
-            ),
-            pytest.param(
-                deserialize_tpi,
-                {"last_percent": "bad"},
-                "last_percent",
-                id="tpi",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="an unreadable TPI field is skipped without a log line",
-                ),
+                deserialize_tpi, {"last_percent": "bad"}, "last_percent", id="tpi"
             ),
             pytest.param(
                 deserialize_mpc_v2_reid,
                 {**_VALID_REID, "rmse_fit_K": "later"},
                 "rmse_fit_K",
                 id="mpc_v2_reid",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="an unreadable re-identification field is skipped "
-                    "without a log line",
-                ),
             ),
             pytest.param(
                 deserialize_mpc_v2, {"created_ts": "later"}, "created_ts", id="mpc_v2"
@@ -1080,11 +1050,6 @@ class TestDroppedStoredValuesAreReported:
 
         assert any(field in message for message in _warnings(caplog)), _warnings(caplog)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="a re-identification result outside the plausible band is "
-        "dropped without a log line",
-    )
     @pytest.mark.parametrize(
         ("field", "value"),
         [
@@ -1101,10 +1066,6 @@ class TestDroppedStoredValuesAreReported:
 
         assert any(field in message for message in _warnings(caplog)), _warnings(caplog)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="an entry that is not a mapping is dropped without a log line",
-    )
     @pytest.mark.parametrize("section", ["mpc", "mpc_v2", "mpc_v2_reid", "pid", "tpi"])
     def test_a_misshapen_entry_is_named(self, caplog, section):
         """An entry that is not a mapping is dropped and reported with its key."""
@@ -1118,10 +1079,6 @@ class TestDroppedStoredValuesAreReported:
             for message in _warnings(caplog)
         ), _warnings(caplog)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="a section that is not a mapping is dropped without a log line",
-    )
     @pytest.mark.parametrize(
         "section", ["mpc", "mpc_v2", "mpc_v2_reid", "pid", "tpi", "thermal", "filters"]
     )
@@ -1855,10 +1812,6 @@ class TestUnreadableStoreIsKeptForRecovery:
         assert mgr.state.mpc == {}
         assert "could not set the unreadable state aside" in caplog.text
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="an entry reset for a non-finite value leaves no copy of what it held",
-    )
     @pytest.mark.asyncio
     async def test_a_poisoned_entry_is_set_aside_before_it_is_reset(self):
         """A learned entry reset on load is kept aside like an unreadable store.
