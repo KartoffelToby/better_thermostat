@@ -12,6 +12,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
     MpcState,
+    _forget_stamps_ahead_of_the_clock,
     _post_process_percent,
     _update_perf_curve,
     compute_mpc as _compute_mpc,
@@ -447,7 +448,8 @@ class TestMPCController:
 
         After the wall clock steps back, the stored room stamp lies in the
         future. The record is refreshed on that cycle, so a TRV and a room
-        that keep answering the command raise no minimum opening.
+        that keep answering the command raise no minimum opening. The
+        cycle runs its steps in the order the controller does.
         """
         params = MpcParams(
             enable_min_effective_percent=True,
@@ -466,6 +468,7 @@ class TestMPCController:
                 trv_temp_C=20.0 + 0.2 * (cycle % 50),
                 tolerance_K=0.0,
             )
+            _forget_stamps_ahead_of_the_clock(state, now)
             _post_process_percent(inp, params, state, now, 10.0, 0.5)
             _update_perf_curve(state, inp, params, now, {})
             assert state.min_effective_percent is None, cycle

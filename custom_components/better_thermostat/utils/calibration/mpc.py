@@ -208,13 +208,7 @@ def _update_perf_curve(
         state.last_room_temp_ts = now
         return
 
-    # A stamp ahead of the clock is left from before the wall clock stepped
-    # back; the reading it belongs to spans no known interval.
-    if (
-        state.last_room_temp_ts <= 0.0
-        or state.last_room_temp_ts > now
-        or state.last_room_temp_C is None
-    ):
+    if state.last_room_temp_ts <= 0.0 or state.last_room_temp_C is None:
         state.last_room_temp_C = float(inp.current_temp_C)
         state.last_room_temp_ts = now
         return
@@ -554,6 +548,45 @@ def _round_for_debug(value: float | int | None, digits: int = 3) -> float | int 
         return value
 
 
+def _forget_stamps_ahead_of_the_clock(state: _MpcState, now: float) -> None:
+    """Drop every stored stamp that lies ahead of this cycle's wall clock.
+
+    The stamps are read from the wall clock, which can step back (a time
+    sync, a host with a wrong clock at boot). A stamp from before the step
+    lies in the future of every reading after it, and the intervals
+    measured against it come out negative until the clock catches up: the
+    output would stay held and learning would stall for as long as the
+    step. Each such stamp is taken as absent, together with the reading
+    it belongs to, so the controller restarts it as on a first cycle.
+    """
+    if state.last_update_ts > now:
+        state.last_update_ts = 0.0
+    if state.last_time > now:
+        state.last_time = 0.0
+        state.last_temp = None
+    if state.last_trv_temp_ts > now:
+        state.last_trv_temp_ts = 0.0
+        state.last_trv_temp = None
+    if state.last_window_open_ts > now:
+        state.last_window_open_ts = 0.0
+    if state.last_learn_time is not None and state.last_learn_time > now:
+        state.last_learn_time = None
+        state.last_learn_temp = None
+    if state.last_residual_time is not None and state.last_residual_time > now:
+        state.last_residual_time = None
+    if state.virtual_temp_ts > now:
+        # The observer re-initialises from the sensor when it has no state.
+        state.virtual_temp_ts = 0.0
+        state.virtual_temp = None
+    if state.last_room_temp_ts > now:
+        state.last_room_temp_ts = 0.0
+        state.last_room_temp_C = None
+    if state.last_integration_ts > now:
+        state.last_integration_ts = 0.0
+    if state.created_ts > now:
+        state.created_ts = 0.0
+
+
 def compute_mpc(
     inp: MpcInput,
     params: MpcParams,
@@ -585,6 +618,7 @@ def compute_mpc(
     """
 
     now = time()
+    _forget_stamps_ahead_of_the_clock(state, now)
 
     if state.created_ts == 0.0:
         # For existing trained models, backdate the creation timestamp
