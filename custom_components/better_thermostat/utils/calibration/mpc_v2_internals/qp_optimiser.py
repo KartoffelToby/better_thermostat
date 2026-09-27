@@ -170,6 +170,8 @@ class QpOptimiser:
         # A setpoint the radiator cannot hold puts the steady radiator above
         # what a fully open valve reaches, where the linearised valve gain
         # vanishes or turns negative; the hottest reachable radiator bounds it.
+        # That bound keeps the gain positive only for a setpoint below the
+        # supply water, which a room setpoint always is.
         radiator_operating_point = min(
             self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min),
             self.plant.hottest_radiator_temp(T_sp),

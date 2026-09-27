@@ -225,8 +225,10 @@ class MpcV2Controller:
         # moved its room estimate by, not the raw innovation.
         self.dob.update(self.kalman.room_correction, dt_s)
 
-        # The governor runs behind the observer so it judges which setpoints
-        # are reachable on the same disturbance estimate the QP plans with.
+        # The governor runs behind the observer and judges which setpoints are
+        # reachable on this cycle's fast estimate. The QP plans with the slow
+        # ``planning_rate`` instead, which lags too far for that judgement: a
+        # setpoint out of reach would keep the valve off its rail.
         sp_for_opt = self.governor.update(
             T_sp=T_target_C,
             T_outdoor_C=T_outdoor_C,

@@ -177,14 +177,6 @@ class KalmanObserver:
         self.P = symmetric
         return True
 
-    def innovation(
-        self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
-    ) -> float:
-        """Return the pre-update residual :meth:`update` would correct with."""
-        elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
-        _, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
-        return y_meas - float((self.C @ x_pred).item())
-
     def _predict(
         self, u: float, T_outdoor_C: float, elapsed_s: float
     ) -> tuple[FloatArray, FloatArray]:
