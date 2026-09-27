@@ -51,6 +51,28 @@ def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
     assert u == pytest.approx(QpParams().delta_u_max)
 
 
+@pytest.mark.parametrize("target_temperature", [25.0, 30.0])
+def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
+    target_temperature: float,
+) -> None:
+    """A room 2 K above a setpoint the radiator cannot hold gets less heat.
+
+    The radiator already sits at the hottest a fully open valve holds it, so
+    opening further cannot help and the room has margin to fall; the plan
+    closes the valve as far as the ramp limit allows. The optimiser must see
+    the valve's full gain at that radiator temperature to decide this.
+    """
+    plant_params = PlantParams(tau_room_min=720.0)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    target = target_temperature
+    hottest = opt.plant.hottest_radiator_temp(target)
+    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+
+    u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
+
+    assert u == pytest.approx(0.5 - QpParams().delta_u_max)
+
+
 def test_warm_room_above_target_commands_zero() -> None:
     """A room above target commands little to no heat."""
     opt = _make_optimiser()

@@ -167,8 +167,12 @@ class QpOptimiser:
 
         # The operating point and the drift both carry the disturbance
         # estimate, so the prediction settles where ``u_ss`` holds the room.
-        radiator_operating_point = self.plant.steady_radiator_temp(
-            T_sp, T_outdoor_C, D_hat_K_per_min
+        # A setpoint the radiator cannot hold puts the steady radiator above
+        # what a fully open valve reaches, where the linearised valve gain
+        # vanishes or turns negative; the hottest reachable radiator bounds it.
+        radiator_operating_point = min(
+            self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min),
+            self.plant.hottest_radiator_temp(T_sp),
         )
         u_ss = self._steady_input_for(T_sp, T_outdoor_C, D_hat_K_per_min)
         A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, radiator_operating_point)
