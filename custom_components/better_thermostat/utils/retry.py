@@ -9,6 +9,7 @@ import logging
 import random
 from typing import ParamSpec, TypeVar
 
+from homeassistant.exceptions import ServiceValidationError
 import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,7 +20,10 @@ R = TypeVar("R")
 # Failures that repeating the call cannot fix: they report a defect in this
 # integration or in the payload it hands to a service, not a device or a bus
 # that is momentarily out of reach. They surface on the first attempt instead
-# of being hidden behind the full backoff budget.
+# of being hidden behind the full backoff budget. ``ServiceValidationError``
+# is Home Assistant refusing the payload itself (a setpoint outside the
+# entity's range, a mode it does not offer), which the same payload meets
+# again on every attempt.
 UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     AttributeError,
     ImportError,
@@ -30,6 +34,7 @@ UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     TypeError,
     ZeroDivisionError,
     vol.Invalid,
+    ServiceValidationError,
 )
 
 

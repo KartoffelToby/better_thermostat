@@ -4,7 +4,7 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, patch
 
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 import voluptuous as vol
 
@@ -125,6 +125,31 @@ class TestWhatIsWorthRetrying:
 
         with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()) as sleep:
             with pytest.raises(vol.Invalid):
+                await write(object(), "climate.trv")
+
+        assert len(attempts) == 1
+        sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_payload_the_entity_refuses_is_handed_back_on_the_first_attempt(
+        self,
+    ):
+        """A payload Home Assistant validates and refuses comes back at once.
+
+        Home Assistant checks a climate payload against the entity itself, a
+        setpoint against its range and a mode against the modes it offers, and
+        refuses one that fails with ``ServiceValidationError``. The same
+        payload fails the same check on every attempt.
+        """
+        attempts = []
+
+        @async_retry(retries=5)
+        async def write(self, entity_id):
+            attempts.append(entity_id)
+            raise ServiceValidationError("temperature outside the accepted range")
+
+        with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()) as sleep:
+            with pytest.raises(ServiceValidationError):
                 await write(object(), "climate.trv")
 
         assert len(attempts) == 1
