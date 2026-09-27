@@ -537,11 +537,7 @@ async def _write(host: Any) -> bool:
     record = host.real_trvs[TRV_ID]
     if record.valve_position_entity is not None:
         return await delegate.set_valve(host, TRV_ID, 40)
-    with (
-        patch.object(generic, "get_max_offset", AsyncMock(return_value=5.0)),
-        patch.object(generic, "get_min_offset", AsyncMock(return_value=-5.0)),
-    ):
-        return await delegate.set_offset(host, TRV_ID, 1.5)
+    return await delegate.set_offset(host, TRV_ID, 1.5)
 
 
 RUNTIME_HELPERS = {
