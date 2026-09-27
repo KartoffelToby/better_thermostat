@@ -20,8 +20,6 @@ import re
 from typing import get_args, get_type_hints
 from unittest.mock import patch
 
-import pytest
-
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
@@ -44,6 +42,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
     compute_pid,
+    observe_standby,
     sanitize_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
@@ -174,11 +173,6 @@ def _state_at_shutdown(**overrides) -> PIDState:
     return state
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a hold stamp from the previous uptime lies in the future after a "
-    "host reboot, so the hold gate keeps the output at the stored percent",
-)
 def test_output_follows_the_controller_on_the_first_cycle_after_a_host_reboot():
     """The first cycle after a host reboot puts out what the controller asks.
 
@@ -210,12 +204,6 @@ def test_output_is_held_within_the_hold_time_after_a_core_restart():
     assert 0 < debug["hold_time_rem"] <= params.min_hold_time_s
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a measurement stamp from the previous uptime lies in the future "
-    "after a host reboot, and the derivative divides the drift over the "
-    "downtime by one second",
-)
 def test_derivative_does_not_read_the_downtime_drift_as_a_one_second_change():
     """The derivative after a host reboot is no larger than after any gap.
 
@@ -244,6 +232,23 @@ def test_derivative_after_a_core_restart_spreads_the_drift_over_the_gap():
     assert abs(debug["d"]) <= params.kd * 0.3 / 240.0
 
 
+def test_standby_after_a_host_reboot_keeps_tracking_the_room():
+    """A standby observation after a host reboot starts the measurement chain.
+
+    While a window is open the controller only follows the room. The
+    first cycle after the window closes measures its gap from that
+    observation, as it does within one uptime.
+    """
+    params = PIDParams(auto_tune=False)
+    state = _restored_after_reboot(_state_at_shutdown())
+
+    state = observe_standby(params, state, 20.6, now=_UPTIME_AFTER_REBOOT_S)
+    _, debug, _ = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S + 60.0, room=20.6)
+
+    assert debug["dt_s"] == 60.0
+    assert state.last_tune_ts == 0.0
+
+
 def _tuning_cycles(start_s: float) -> PIDState:
     """Run a sluggish room for three cycles from ``start_s`` and return the state.
 
@@ -257,11 +262,6 @@ def _tuning_cycles(start_s: float) -> PIDState:
     return state
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a tuning stamp from the previous uptime lies in the future after a "
-    "host reboot, so the tuning interval never elapses",
-)
 def test_auto_tune_resumes_within_the_first_cycles_after_a_host_reboot():
     """Auto-tune answers a sluggish room within the first cycles after a reboot.
 
