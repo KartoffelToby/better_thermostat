@@ -20,6 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
@@ -51,6 +52,7 @@ from tests.factories import make_entity_registry, make_registry_entry
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
 _CTRL = "custom_components.better_thermostat.utils.controlling"
+_HELPERS = "custom_components.better_thermostat.utils.helpers"
 _PATCHES = {
     "convert_outbound_states": f"{_CTRL}.convert_outbound_states",
     "set_hvac_mode": f"{_CTRL}.set_hvac_mode",
@@ -61,6 +63,18 @@ _PATCHES = {
     "override_set_hvac_mode": f"{_CTRL}.override_set_hvac_mode",
     "override_set_temperature": f"{_CTRL}.override_set_temperature",
 }
+
+
+@pytest.fixture(autouse=True)
+def _no_helper_entity_is_disabled():
+    """The entity registry marks none of the TRVs' helper entities disabled.
+
+    The stand-in Home Assistant carries no registry of its own; an empty
+    real one answers every helper lookup with "no entry", which the write
+    path treats as enabled.
+    """
+    with patch(f"{_HELPERS}.er.async_get", return_value=make_entity_registry()):
+        yield
 
 
 def _close_coro(coro, **kwargs):
@@ -1917,6 +1931,38 @@ class TestValveWriteResult:
         assert "bt_budget_retry_climate.trv1" not in task_names
         assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
 
+    @pytest.mark.asyncio
+    async def test_a_disabled_valve_entity_is_not_pursued_until_enabled(self):
+        """A valve entity disabled in Home Assistant is no valve channel.
+
+        Disabling lasts until the user acts, so it is not a failed write:
+        the cycle neither writes the position nor queues a catch-up cycle
+        for it, however many cycles run. Once the entity is enabled again,
+        the next cycle writes the position.
+        """
+        mock_self = self._boost_valve_self()
+        valve = "number.trv1_valve_opening_degree"
+        mock_self.real_trvs["climate.trv1"].valve_position_entity = valve
+        mock_self.real_trvs["climate.trv1"].valve_position_writable = True
+        disabled = make_entity_registry(
+            make_registry_entry(valve, disabled_by=er.RegistryEntryDisabler.USER)
+        )
+        enabled = make_entity_registry(make_registry_entry(valve))
+
+        with patch(f"{_HELPERS}.er.async_get", return_value=disabled):
+            for _ in range(3):
+                # Each cycle finds every write slot open, so a catch-up
+                # cycle could only be asked for on the valve's behalf.
+                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                mock_set_valve, task_names = await self._run_cycle(mock_self, False)
+                mock_set_valve.assert_not_called()
+                assert "bt_budget_retry_climate.trv1" not in task_names
+        assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
+
+        with patch(f"{_HELPERS}.er.async_get", return_value=enabled):
+            mock_set_valve, _ = await self._run_cycle(mock_self, True)
+        assert mock_set_valve.call_args[0][2] == 100
+
 
 # ---------------------------------------------------------------------------
 # Race condition / lock coverage (from test_race_condition_lock_coverage.py)
@@ -2958,6 +3004,46 @@ class TestOffsetWriteGate:
     """The offset channel re-asserts what the device did not take."""
 
     @pytest.mark.asyncio
+    async def test_a_disabled_calibration_entity_is_not_pursued_until_enabled(self):
+        """A calibration entity disabled in Home Assistant is no offset channel.
+
+        Disabling lasts until the user acts, so the cycle neither reads nor
+        writes the offset and takes no write slot for it. Once the entity
+        is enabled again, the next cycle writes the offset.
+        """
+        mock_self = _make_offset_self()
+        captured = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: (
+                (coro.close(), captured.append(name)) and Mock()
+            )
+        )
+        offset_entity = "number.trv1_offset"
+        disabled = make_entity_registry(
+            make_registry_entry(
+                offset_entity, disabled_by=er.RegistryEntryDisabler.USER
+            )
+        )
+        enabled = make_entity_registry(make_registry_entry(offset_entity))
+
+        with patch(f"{_HELPERS}.er.async_get", return_value=disabled):
+            for _ in range(3):
+                mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+                set_offset, get_offset = await _run_offset_cycle(
+                    mock_self, desired_offset=-2.0, reported_offset=0.0
+                )
+                set_offset.assert_not_awaited()
+                get_offset.assert_not_called()
+        assert mock_self.real_trvs["climate.trv1"].last_offset_write_monotonic is None
+        assert "bt_budget_retry_climate.trv1" not in captured
+
+        with patch(f"{_HELPERS}.er.async_get", return_value=enabled):
+            set_offset, _ = await _run_offset_cycle(
+                mock_self, desired_offset=-2.0, reported_offset=0.0
+            )
+        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+
+    @pytest.mark.asyncio
     async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):
         """An unacknowledged write leaves the channel open.
 
@@ -3372,16 +3458,6 @@ class TestSnappingSelectOffsetConverges:
     intent stays what the cycle asked for, so an unchanged intent does not
     re-arm the write once the device holds the snapped option.
     """
-
-    @pytest.fixture(autouse=True)
-    def _calibration_select_registered_and_enabled(self):
-        """The registry holds the calibration select as an enabled entry."""
-        registry = make_entity_registry(make_registry_entry(SELECT_CALIBRATION_ENTITY))
-        with patch(
-            "custom_components.better_thermostat.utils.helpers.er.async_get",
-            return_value=registry,
-        ):
-            yield
 
     def _wire(self, device):
         """Return a thermostat whose calibration entity is ``device``.

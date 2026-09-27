@@ -581,3 +581,20 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     assert _written_to(host, helper_id)
     assert await write_with(disabled) is False
     assert len(_disabled_sibling_warnings(caplog)) == 2
+
+
+@pytest.mark.parametrize("helper_id", RUNTIME_HELPERS.values(), ids=RUNTIME_HELPERS)
+@pytest.mark.asyncio
+async def test_a_helper_the_registry_does_not_hold_is_written(helper_id, caplog):
+    """A helper entity without a registry entry cannot be disabled.
+
+    Home Assistant only disables entities it keeps in the registry, so an
+    adopted helper that has no entry there is written like an enabled one.
+    """
+    host = _runtime_host(make_registry_entry(helper_id, device_id=TRV_DEVICE))
+
+    with patch(f"{helpers.__name__}.er.async_get", return_value=make_entity_registry()):
+        assert await _write(host) is True
+
+    assert _written_to(host, helper_id)
+    assert _disabled_sibling_warnings(caplog) == []

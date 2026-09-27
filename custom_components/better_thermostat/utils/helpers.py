@@ -152,7 +152,7 @@ def _report_disabled_sibling(
 
 
 def sibling_disabled_at_write(
-    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str
+    self: BetterThermostat, trv_entity_id: str, sibling_entity_id: str, role: str
 ) -> bool:
     """Whether a helper entity adopted for a TRV is disabled right now.
 
