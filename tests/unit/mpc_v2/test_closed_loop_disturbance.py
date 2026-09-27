@@ -189,18 +189,6 @@ def _reachable(outdoor: float, free_heat: float) -> bool:
     return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT_C + 0.5
 
 
-_OFFSET = pytest.mark.xfail(
-    strict=True,
-    reason="the optimiser predicts the room at the radiator temperature it would "
-    "need without free heat, so a standing heat gain settles the room 0.1 to "
-    "1.5 K above the setpoint",
-)
-_OFFSET_AND_OVERESTIMATE = pytest.mark.xfail(
-    strict=True,
-    reason="the room settles 0.3 K above the setpoint: the optimiser plans without "
-    "the free heat, and the disturbance observer reports it at about 1.6 times "
-    "its real rate",
-)
 _WINDUP_AFTER_STEP = pytest.mark.xfail(
     strict=True,
     reason="the integral term accumulates the error of the whole valve ramp and "
@@ -234,14 +222,6 @@ def _cells(marks: dict[tuple[float, float], pytest.MarkDecorator]) -> list:
     ]
 
 
-_SETTLED_MARKS = {
-    (0.0, 0.02): _OFFSET,
-    (0.0, 0.03): _OFFSET_AND_OVERESTIMATE,
-    (-10.0, 0.02): _OFFSET,
-    (-10.0, 0.03): _OFFSET,
-    (-16.0, 0.02): _OFFSET,
-    (-16.0, 0.03): _OFFSET,
-}
 _STEP_MARKS = {
     (0.0, 0.0): _WINDUP_AFTER_STEP,
     **{
@@ -279,7 +259,7 @@ def test_grid_holds_reachable_and_unreachable_cells() -> None:
     assert _ceiling(PlantParams(), -16.0, 0.0) == pytest.approx(16.4)
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_SETTLED_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells({}))
 def test_settled_room_holds_the_setpoint_under_standing_free_heat(
     outdoor: float, free_heat: float
 ) -> None:
@@ -378,22 +358,8 @@ HARD_SETPOINT_C = 25.0
 @pytest.mark.parametrize(
     "free_heat",
     [
-        pytest.param(0.0, id="free_heat0.000"),
-        *(
-            pytest.param(
-                free_heat,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="once the governor passes the setpoint, the optimiser "
-                    "linearises at a radiator temperature above the water "
-                    "temperature, predicts that opening the valve cools the room, "
-                    "and keeps the valve closed while the room cools far below "
-                    "the setpoint",
-                ),
-                id=f"free_heat{free_heat:.3f}",
-            )
-            for free_heat in (0.012, 0.02, 0.03)
-        ),
+        pytest.param(free_heat, id=f"free_heat{free_heat:.3f}")
+        for free_heat in (0.0, 0.012, 0.02, 0.03)
     ],
 )
 def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None:
@@ -437,22 +403,8 @@ def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None
 @pytest.mark.parametrize(
     "free_heat",
     [
-        pytest.param(0.0, id="free_heat0.00"),
-        *(
-            pytest.param(
-                free_heat,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="the observer divides the raw Kalman innovation by "
-                    "the elapsed time, and a constant heat gain keeps that "
-                    "innovation at the rate over the filter's room gain: the "
-                    "estimate is 1.6 times the real rate at five-minute cycles "
-                    "and runs into its 0.05 K/min clamp at one-minute cycles",
-                ),
-                id=f"free_heat{free_heat:.2f}",
-            )
-            for free_heat in (0.02, 0.03)
-        ),
+        pytest.param(free_heat, id=f"free_heat{free_heat:.2f}")
+        for free_heat in (0.0, 0.02, 0.03)
     ],
 )
 def test_disturbance_estimate_matches_a_standing_heat_gain(

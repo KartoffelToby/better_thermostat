@@ -27,6 +27,12 @@ from ._types import FloatArray
 TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
 GAIN_HEATER_BOUNDS = (0.5, 5.0)
 
+# Smallest supply-to-radiator difference (K) the linearised valve gain is
+# evaluated at. A radiator never gets hotter than its supply water, so an
+# operating point at or above ``T_water_C`` is outside the physical range;
+# evaluating the bilinear term there would make opening the valve cool it.
+MIN_VALVE_DRIVE_K = 1.0
+
 
 @dataclass
 class PlantParams:
@@ -106,7 +112,8 @@ class PlantModelRC2:
         dt_min = (total_s / n_steps) / 60.0
         a_rad_room = dt_min / p.tau_rad_min
         a_rad_rad = 1.0 - dt_min / p.tau_rad_min
-        b_rad = dt_min * p.gain_heater * (p.T_water_C - T_rad_op_C) / p.tau_rad_min
+        valve_drive_K = max(p.T_water_C - T_rad_op_C, MIN_VALVE_DRIVE_K)
+        b_rad = dt_min * p.gain_heater * valve_drive_K / p.tau_rad_min
         a_room_room = 1.0 - dt_min * (p.coupling_rad_room + 1.0) / p.tau_room_min
         a_room_rad = dt_min * p.coupling_rad_room / p.tau_room_min
         d_room = dt_min * T_outdoor_C / p.tau_room_min

@@ -31,6 +31,25 @@ def test_cold_room_commands_heat() -> None:
     assert u > 0.1, f"expected substantial heat call, got u={u}"
 
 
+@pytest.mark.parametrize("T_sp", [25.0, 30.0])
+def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
+    T_sp: float,
+) -> None:
+    """A setpoint whose steady radiator lies above the supply water still heats.
+
+    At -16 °C a large room needs a radiator of ``2·T_sp + 16`` °C, beyond the
+    65 °C water for both setpoints. The valve can still only warm the
+    radiator, so a room 3 K below the setpoint gets the full first ramp.
+    """
+    plant_params = PlantParams(tau_room_min=720.0)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    assert opt.plant.steady_radiator_temp(T_sp, -16.0) > plant_params.T_water_C
+
+    u = opt.solve(np.array([T_sp - 3.0, T_sp - 3.0]), T_sp, -16.0, u_last=0.0)
+
+    assert u == pytest.approx(QpParams().delta_u_max)
+
+
 def test_warm_room_above_target_commands_zero() -> None:
     """A room above target commands little to no heat."""
     opt = _make_optimiser()

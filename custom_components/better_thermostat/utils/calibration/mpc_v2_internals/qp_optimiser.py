@@ -155,9 +155,12 @@ class QpOptimiser:
         n = self.plant.state_dim
         N = self.N
 
-        x_target = self._steady_state_for(T_sp, T_outdoor_C)
+        # The operating point and the drift both carry the disturbance
+        # estimate, so the prediction settles where ``u_ss`` holds the room.
+        x_target = self._steady_state_for(T_sp, T_outdoor_C, D_hat_K_per_min)
         u_ss = self._steady_input_for(T_sp, T_outdoor_C, D_hat_K_per_min)
         A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, float(x_target[1]))
+        d_vec = d_vec + np.array([D_hat_K_per_min * self.plant.dt_min, 0.0])
 
         A_pow = [np.eye(n)]
         for _ in range(N):
@@ -314,8 +317,10 @@ class QpOptimiser:
                 break
         return x
 
-    def _steady_state_for(self, T_sp: float, T_outdoor_C: float) -> FloatArray:
-        T_rad_ss = self.plant.steady_radiator_temp(T_sp, T_outdoor_C)
+    def _steady_state_for(
+        self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
+    ) -> FloatArray:
+        T_rad_ss = self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min)
         return np.array([T_sp, T_rad_ss])
 
     def _steady_input_for(

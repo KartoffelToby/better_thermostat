@@ -1,4 +1,10 @@
-"""Disturbance observer — EMA over Kalman innovations.
+"""Disturbance observer — EMA over the Kalman filter's room corrections.
+
+Each update receives the amount the filter moved its room estimate towards
+the measurement. Under a standing disturbance that correction is what keeps
+the estimate on the measured room, so its rate is the disturbance rate. The
+raw innovation is not: the filter applies only its room gain of it, and the
+remainder reappears in the next innovation.
 
 The QP's steady-state input ``u_ss`` assumes the plant model is exact. Real
 rooms see unmodelled disturbances (open windows, solar gain, occupants);
@@ -24,7 +30,7 @@ class DobParams:
 
 
 class DisturbanceObserver:
-    """EMA over Kalman innovations estimating the disturbance rate in K/min."""
+    """EMA over Kalman room corrections estimating the disturbance rate in K/min."""
 
     def __init__(self, params: DobParams) -> None:
         """Initialise the observer with a zero disturbance estimate.
@@ -37,17 +43,17 @@ class DisturbanceObserver:
         self.params = params
         self.D_hat_K_per_min: float = 0.0
 
-    def update(self, innovation_K: float, dt_s: float) -> float:
-        """Fold one innovation into the EMA and return the disturbance estimate.
+    def update(self, correction_K: float, dt_s: float) -> float:
+        """Fold one room correction into the EMA and return the disturbance estimate.
 
-        Converts the per-step innovation into a ``K/min`` rate and blends it
+        Converts the per-step correction into a ``K/min`` rate and blends it
         with EMA weight ``a`` derived from ``dt_s`` and ``tau_s``. Non-positive
         ``dt_s`` leaves the current estimate unchanged.
 
         The weight scales linearly with ``dt_s`` (no lower floor): the
-        innovation rate grows as ``1/dt_s``, so a dt-proportional weight keeps
-        the per-update contribution ``a * innov_rate`` bounded by
-        ``60 * innovation_K / tau_s`` even for near-zero intervals, as they
+        correction rate grows as ``1/dt_s``, so a dt-proportional weight keeps
+        the per-update contribution ``a * correction_rate`` bounded by
+        ``60 * correction_K / tau_s`` even for near-zero intervals, as they
         occur when a shared group controller is stepped once per TRV within
         the same control pass.
 
@@ -55,13 +61,13 @@ class DisturbanceObserver:
         sensor jump cannot become an implausible steady-state load. That bound
         belongs on the estimate rather than on the incoming rate: clamping the
         rate first would scale it by the dt-proportional weight as well, which
-        drops the short-interval innovations this observer is meant to fold in.
+        drops the short-interval corrections this observer is meant to fold in.
         """
         if dt_s <= 0.0:
             return self.D_hat_K_per_min
-        innov_rate = innovation_K / (dt_s / 60.0)
+        correction_rate = correction_K / (dt_s / 60.0)
         a = min(1.0, dt_s / max(self.params.tau_s, dt_s))
         max_abs = max(0.0, self.params.max_abs_K_per_min)
-        self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * innov_rate
+        self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * correction_rate
         self.D_hat_K_per_min = max(-max_abs, min(max_abs, self.D_hat_K_per_min))
         return self.D_hat_K_per_min
