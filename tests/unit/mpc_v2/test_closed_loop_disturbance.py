@@ -81,7 +81,7 @@ def _simulate(
     *,
     plant: PlantParams,
     outdoor: float,
-    free_heat_k_per_min: float,
+    free_heat_k_per_min: float | Callable[[float], float],
     setpoint_at: Callable[[float], float],
     start: float,
     window_open_h: tuple[float, float] | None = None,
@@ -134,9 +134,14 @@ def _simulate(
         setpoints.append(setpoint)
         valves.append(applied_pct)
         windows.append(is_open)
-        drift = free_heat_k_per_min + (DRAFT_K_PER_MIN if is_open else 0.0)
+        draft = DRAFT_K_PER_MIN if is_open else 0.0
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
-            x = room.discrete_step(x, applied_pct / 100.0, outdoor, drift)
+            free_heat = (
+                free_heat_k_per_min(t_s / 3600.0)
+                if callable(free_heat_k_per_min)
+                else free_heat_k_per_min
+            )
+            x = room.discrete_step(x, applied_pct / 100.0, outdoor, free_heat + draft)
             t_s += ROOM_STEP_S
     return _Trace(
         tuple(hours), tuple(rooms), tuple(setpoints), tuple(valves), tuple(windows)
@@ -443,3 +448,68 @@ def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(
         f"radiator estimate {diag.T_rad_hat:.1f} °C after {gap_s:.0f} s, water "
         f"{water:.0f} °C"
     )
+
+
+# A sunny afternoon: the gain ramps up over an hour, holds for four and
+# ramps down over another hour, on a 0 °C day in the default room.
+SUN_ON_H = 4.0
+SUN_RAMP_H = 1.0
+SUN_HOLD_H = 4.0
+
+
+def _sun(peak_k_per_min: float) -> Callable[[float], float]:
+    """Return the free heat (K/min) of a sunny afternoon at each hour."""
+    rise_end = SUN_ON_H + SUN_RAMP_H
+    fall_start = rise_end + SUN_HOLD_H
+    fall_end = fall_start + SUN_RAMP_H
+
+    def free_heat(hour: float) -> float:
+        if hour < SUN_ON_H or hour >= fall_end:
+            return 0.0
+        if hour < rise_end:
+            return peak_k_per_min * (hour - SUN_ON_H) / SUN_RAMP_H
+        if hour < fall_start:
+            return peak_k_per_min
+        return peak_k_per_min * (fall_end - hour) / SUN_RAMP_H
+
+    return free_heat
+
+
+@pytest.mark.parametrize(
+    ("peak_k_per_min", "max_overshoot_k", "max_dip_k"),
+    [
+        pytest.param(0.02, 0.3, 0.25, id="sun0.02"),
+        pytest.param(0.04, 0.45, 0.4, id="sun0.04"),
+    ],
+)
+def test_passing_sun_neither_overheats_the_room_nor_leaves_it_cold(
+    peak_k_per_min: float, max_overshoot_k: float, max_dip_k: float
+) -> None:
+    """The room rides out a sunny afternoon close to its setpoint.
+
+    While the sun rises and holds, the controller has to learn the gain
+    quickly enough to close the valve before the room overheats; once it
+    sets, it has to forget it quickly enough to reopen the valve before the
+    room cools. Both excursions are bounded for the rest of the run.
+    """
+    trace = _simulate(
+        plant=PlantParams(),
+        outdoor=0.0,
+        free_heat_k_per_min=_sun(peak_k_per_min),
+        setpoint_at=lambda h: SETPOINT_C,
+        start=SETPOINT_C,
+    )
+    during = trace.indices_from(SUN_ON_H)
+    sun_end_h = SUN_ON_H + 2.0 * SUN_RAMP_H + SUN_HOLD_H
+    after = trace.indices_from(sun_end_h)
+    overshoot = max(trace.room[i] - SETPOINT_C for i in during)
+    dip = max(SETPOINT_C - trace.room[i] for i in after)
+    # The run has to extend well past sunset for the dip to be seen.
+    assert trace.hours[-1] - sun_end_h >= 5.0
+    # The valve has to throttle well below its pre-sun opening, or the gain
+    # was too small to test anything.
+    before_sun = trace.valve_percent[during[0] - 1]
+    assert min(trace.valve_percent[i] for i in during) <= before_sun - 20
+
+    assert overshoot <= max_overshoot_k, f"room {overshoot:+.2f} K over the setpoint"
+    assert dip <= max_dip_k, f"room {dip:.2f} K under the setpoint after sunset"

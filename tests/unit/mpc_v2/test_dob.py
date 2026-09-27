@@ -206,3 +206,31 @@ def test_planning_rate_outside_the_deadband_shrinks_towards_zero(rate: float) ->
     dob.planning_filtered = rate
 
     assert dob.planning_rate == pytest.approx(math.copysign(0.002, rate))
+
+
+@pytest.mark.parametrize("dt_s", [451.0, 1200.0, 86_400.0])
+def test_a_reading_after_a_pause_leaves_both_estimates_alone(dt_s: float) -> None:
+    """A correction that closes a pause in the control loop is not folded in.
+
+    Beyond ``max_reading_interval_s`` the controller did not run in between
+    (window open, heating off, restart), so what the room did then says
+    nothing about a standing disturbance.
+    """
+    dob = DisturbanceObserver(DobParams())
+    dob.update(0.02 * 5.0, dt_s=300.0)
+    fast, slow = dob.D_hat_K_per_min, dob.planning_filtered
+    assert dt_s > dob.params.max_reading_interval_s
+
+    dob.update(-1.5, dt_s=dt_s)
+
+    assert (dob.D_hat_K_per_min, dob.planning_filtered) == (fast, slow)
+
+
+def test_a_reading_at_the_pause_limit_is_still_folded_in() -> None:
+    """An interval of exactly ``max_reading_interval_s`` is a regular reading."""
+    dob = DisturbanceObserver(DobParams())
+
+    dob.update(0.02 * 7.5, dt_s=dob.params.max_reading_interval_s)
+
+    assert dob.D_hat_K_per_min > 0.0
+    assert dob.planning_filtered > 0.0

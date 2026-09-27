@@ -36,9 +36,16 @@ class DobParams:
     max_abs_K_per_min: float = 0.05
     # Time constant (s) of the planning reading, and the band around zero
     # (K/min) it treats as no disturbance. Rates inside the band are what
-    # sensor noise and quantisation produce on their own.
-    planning_tau_s: float = 7200.0
-    planning_deadband: float = 0.001
+    # sensor noise and quantisation produce on their own. A slower reading
+    # calms the valve further but learns and forgets a sunny afternoon too
+    # late, overheating the room while the sun holds and chilling it after.
+    planning_tau_s: float = 1200.0
+    planning_deadband: float = 0.002
+    # Better Thermostat recomputes at least every five minutes while a
+    # calibration mode is active. A longer interval (s) means the controller
+    # did not run (window open, heating off, restart); the correction that
+    # closes it measures that pause, not a standing disturbance.
+    max_reading_interval_s: float = 450.0
 
 
 class DisturbanceObserver:
@@ -74,8 +81,9 @@ class DisturbanceObserver:
         """Fold one room correction into the EMA and return the disturbance estimate.
 
         Converts the per-step correction into a ``K/min`` rate and blends it
-        with EMA weight ``a`` derived from ``dt_s`` and ``tau_s``. Non-positive
-        ``dt_s`` leaves the current estimate unchanged.
+        with EMA weight ``a`` derived from ``dt_s`` and ``tau_s``. A
+        non-positive ``dt_s``, or one beyond ``max_reading_interval_s``,
+        leaves both estimates unchanged.
 
         The weight scales linearly with ``dt_s`` (no lower floor): the
         correction rate grows as ``1/dt_s``, so a dt-proportional weight keeps
@@ -90,7 +98,7 @@ class DisturbanceObserver:
         rate first would scale it by the dt-proportional weight as well, which
         drops the short-interval corrections this observer is meant to fold in.
         """
-        if dt_s <= 0.0:
+        if dt_s <= 0.0 or dt_s > self.params.max_reading_interval_s:
             return self.D_hat_K_per_min
         correction_rate = correction_K / (dt_s / 60.0)
         a = min(1.0, dt_s / max(self.params.tau_s, dt_s))

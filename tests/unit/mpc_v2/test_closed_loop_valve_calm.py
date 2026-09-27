@@ -64,9 +64,11 @@ _CASES = {
     "quantum0.1-outdoor+10": _Case(
         PlantParams(), PlantParams(), 10.0, 0.0, 0.1, 5, 15, 0.05
     ),
-    # A 0.5 K quantum hides the room anywhere within ±0.25 K of a reading.
+    # A 0.5 K quantum hides the room anywhere within ±0.25 K of a reading, so
+    # the error is bounded by that half quantum; where in it the room comes to
+    # rest depends on the day (0.01 to 0.14 K over outdoor -5..+10 °C).
     "quantum0.5-outdoor+0": _Case(
-        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 5, 15, 0.1
+        PlantParams(), PlantParams(), 0.0, 0.0, 0.5, 5, 15, 0.25
     ),
     "room_tau90_model_tau180-outdoor+10": _Case(
         PlantParams(tau_room_min=90.0),
