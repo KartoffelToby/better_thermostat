@@ -1536,6 +1536,87 @@ def attr_to_celsius(
     )
 
 
+# A published value this close to a whole degree is one: it only carries the
+# float noise of convert_to_float's 0.01 grid.
+_WHOLE_DEGREE_TOLERANCE = 1e-6
+
+# How far a whole-degree Fahrenheit bound is moved inward: half a degree, and
+# just past it. The thermostat publishes its own range in whole degrees as
+# well, and Home Assistant rounds an exact half to the even neighbour, which
+# for half of all bounds is the outer one.
+_WHOLE_DEGREE_BOUND_INSET = 0.5 + _WHOLE_DEGREE_TOLERANCE
+
+
+def read_bound_celsius(
+    self: BetterThermostat,
+    state: State | None,
+    key: str,
+    *,
+    lower: bool,
+    context: str = "",
+) -> float | None:
+    """Read a setpoint bound from a foreign state and return it in °C.
+
+    The bound is converted exactly: it becomes the limit every setpoint is
+    clamped to, and Home Assistant checks a setpoint against the device's
+    own bound, so a bound rounded outward lets a refused setpoint through.
+
+    On a Fahrenheit system Home Assistant publishes the bounds of a climate
+    entity that states no precision of its own in whole degrees, so a whole
+    degree Fahrenheit may lie up to half a degree outside the device's bound.
+    Such a bound is moved half a degree inward, which keeps every setpoint
+    clamped to it inside the device's range, and just past the half degree,
+    so the range the thermostat publishes in whole degrees rounds inward too.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the source state to read from, or None when it is unavailable
+    key : str
+            the attribute holding the bound (``"min_temp"`` or ``"max_temp"``)
+    lower : bool
+            True for a lower bound, which moves up; False for an upper one
+    context : str
+            calling context, forwarded for logging
+
+    Returns
+    -------
+    float | None
+            the bound in Celsius, or None when the state publishes none
+    """
+    attributes = state.attributes if state is not None else {}
+    unit = state_temperature_unit(attributes, self.hass.config.units.temperature_unit)
+    return bound_to_celsius(
+        str(attributes.get(key)),
+        unit,
+        lower=lower,
+        instance_name=self.device_name,
+        context=context,
+    )
+
+
+def bound_to_celsius(
+    value: str | int | float | None,
+    unit: str | None,
+    *,
+    lower: bool,
+    instance_name: str,
+    context: str = "",
+) -> float | None:
+    """Convert a published setpoint bound to Celsius; see :func:`read_bound_celsius`."""
+    bound = convert_to_float(value, instance_name, context)
+    if bound is None or unit != UnitOfTemperature.FAHRENHEIT:
+        return bound
+    if abs(bound - round(bound)) < _WHOLE_DEGREE_TOLERANCE:
+        inset = _WHOLE_DEGREE_BOUND_INSET if lower else -_WHOLE_DEGREE_BOUND_INSET
+        bound = round(bound) + inset
+    return TemperatureConverter.convert(
+        bound, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+    )
+
+
 def get_current_set_temperatures(
     self: BetterThermostat, state: State | None, log_source: str
 ) -> set[float]:

@@ -140,12 +140,23 @@ def test_inverted_configured_bounds_are_kept_and_warned_about(bt, caplog):
     assert "min temp" in caplog.text
 
 
+# A bound published in whole degrees Fahrenheit may be Home Assistant's
+# rounding of the device's bound, so it is read half a degree inward:
+# 41.5 °F and 85.5 °F.
+_WHOLE_FAHRENHEIT_MIN_41 = (41.5 - 32.0) * 5.0 / 9.0
+_WHOLE_FAHRENHEIT_MAX_86 = (85.5 - 32.0) * 5.0 / 9.0
+
+
 def test_fahrenheit_bounds_and_step_converted(bt):
-    """Fahrenheit bounds convert to Celsius; the step converts as a delta."""
+    """Fahrenheit bounds convert to Celsius; the step converts as a delta.
+
+    Whole-degree bounds are read half a degree inside the published range,
+    where a device bound Home Assistant rounded to whole degrees still holds.
+    """
     states = [_trv(min_t=41.0, max_t=86.0, step=1.0, unit=UnitOfTemperature.FAHRENHEIT)]
     BetterThermostat._resolve_temperature_range(bt, states)
-    assert bt.bt_min_temp == pytest.approx(5.0)
-    assert bt.bt_max_temp == pytest.approx(30.0)
+    assert bt.bt_min_temp == pytest.approx(_WHOLE_FAHRENHEIT_MIN_41)
+    assert bt.bt_max_temp == pytest.approx(_WHOLE_FAHRENHEIT_MAX_86)
     # 1 °F delta -> 1 * 5/9 °C
     assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
 
@@ -156,15 +167,30 @@ def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
     HA climate entities never expose ``temperature_unit`` /
     ``unit_of_measurement`` in their state attributes and always report in the
     configured system unit. With a Fahrenheit system the raw 41/86 bounds must
-    therefore be read as °F and converted to 5/30 °C — otherwise BT would treat
-    41 °F as 41 °C and clamp every setpoint far too high.
+    therefore be read as °F and converted to Celsius, half a degree inside
+    the whole degrees published — otherwise BT would treat 41 °F as 41 °C and
+    clamp every setpoint far too high.
     """
     bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
     states = [_trv(min_t=41.0, max_t=86.0, step=1.0)]
     BetterThermostat._resolve_temperature_range(bt, states)
-    assert bt.bt_min_temp == pytest.approx(5.0)
-    assert bt.bt_max_temp == pytest.approx(30.0)
+    assert bt.bt_min_temp == pytest.approx(_WHOLE_FAHRENHEIT_MIN_41)
+    assert bt.bt_max_temp == pytest.approx(_WHOLE_FAHRENHEIT_MAX_86)
     assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
+
+
+def test_fahrenheit_bounds_off_the_whole_degree_convert_exactly(bt):
+    """A bound published in tenths is converted without rounding it outward.
+
+    The bound is the limit every setpoint is clamped to, and Home Assistant
+    checks a setpoint against the device's own bound: 39.1 °F is 3.9444 °C,
+    and a minimum held as 3.94 would let a setpoint below it through.
+    """
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    states = [_trv(min_t=39.1, max_t=86.9, step=1.0)]
+    BetterThermostat._resolve_temperature_range(bt, states)
+    assert bt.bt_min_temp == pytest.approx((39.1 - 32.0) * 5.0 / 9.0, abs=1e-9)
+    assert bt.bt_max_temp == pytest.approx((86.9 - 32.0) * 5.0 / 9.0, abs=1e-9)
 
 
 def test_celsius_bounds_without_unit_attr_unchanged(bt):

@@ -271,46 +271,12 @@ FAHRENHEIT_TRV_MIN_39 = replace(
     [
         pytest.param(FAHRENHEIT_TRV, "min_temp", id="fahrenheit_trv-min"),
         pytest.param(FAHRENHEIT_TRV, "max_temp", id="fahrenheit_trv-max"),
+        pytest.param(FAHRENHEIT_TRV_MIN_39, "min_temp", id="fahrenheit_trv_min_39-min"),
         pytest.param(
-            FAHRENHEIT_TRV_MIN_39,
-            "min_temp",
-            id="fahrenheit_trv_min_39-min",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the minimum is held in Celsius rounded to two decimals, "
-                    "3.89 above 3.8889, so the thermostat refuses a target at "
-                    "the 39 °F it publishes as its own minimum"
-                ),
-            ),
+            OFF_GRID_FAHRENHEIT_TRV, "min_temp", id="off_grid_fahrenheit_trv-min"
         ),
         pytest.param(
-            OFF_GRID_FAHRENHEIT_TRV,
-            "min_temp",
-            id="off_grid_fahrenheit_trv-min",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the minimum is read as the whole degree Home Assistant "
-                    "published, 39 °F, below the device's 4 °C; the thermostat "
-                    "refuses its own published minimum, and the 39 °F it would "
-                    "write is refused by Home Assistant at the device"
-                ),
-            ),
-        ),
-        pytest.param(
-            OFF_GRID_FAHRENHEIT_TRV,
-            "max_temp",
-            id="off_grid_fahrenheit_trv-max",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the maximum is read as the whole degree Home Assistant "
-                    "published, 87 °F, above the device's 30.5 °C, and written "
-                    "back as that degree, which Home Assistant refuses, so the "
-                    "device never receives it"
-                ),
-            ),
+            OFF_GRID_FAHRENHEIT_TRV, "max_temp", id="off_grid_fahrenheit_trv-max"
         ),
     ],
     indirect=["fake_trv"],
@@ -364,15 +330,6 @@ async def test_a_target_at_the_edge_of_the_range_reaches_the_device(
                 hvac_modes=(HVACMode.HEAT,),
             ),
             id="off_grid_fahrenheit_trv",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the minimum a device without an off mode is parked at is "
-                    "the whole degree Home Assistant published, 39 °F, below "
-                    "the device's 4 °C, so Home Assistant refuses it and the "
-                    "device keeps heating"
-                ),
-            ),
         ),
     ],
     indirect=True,
@@ -414,18 +371,7 @@ async def test_a_device_without_an_off_mode_is_parked_at_its_minimum(hass, fake_
         pytest.param(
             replace(FAHRENHEIT_TRV, valve_maintenance=True), id="fahrenheit_trv"
         ),
-        pytest.param(
-            OFF_GRID_FAHRENHEIT_TRV,
-            id="off_grid_fahrenheit_trv",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the run writes the device's bounds as the whole degrees "
-                    "Home Assistant published, which lie outside its range, so "
-                    "Home Assistant refuses them and the valve is never exercised"
-                ),
-            ),
-        ),
+        pytest.param(OFF_GRID_FAHRENHEIT_TRV, id="off_grid_fahrenheit_trv"),
     ],
     indirect=True,
 )
