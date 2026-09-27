@@ -650,7 +650,7 @@ def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -
         min_temp = attr_to_celsius(
             self, state, "min_temp", None, "member_counts_as_off()"
         )
-    return setpoint is not None and min_temp is not None and setpoint <= min_temp
+    return setpoint_at_minimum(setpoint, min_temp)
 
 
 def group_all_members_off(self: BetterThermostat) -> bool:
@@ -1712,6 +1712,20 @@ def matches_any_setpoint(
     if value is None:
         return False
     return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
+
+
+def setpoint_at_minimum(setpoint: float | None, min_temp: float | None) -> bool:
+    """Whether a setpoint a device reports sits at the thermostat's minimum.
+
+    ``min_temp`` is the lowest setpoint Better Thermostat writes to the
+    device. On a Fahrenheit system that lies inward of the device's own
+    minimum, so a device turned down to its end stop reports less than
+    ``min_temp``, and one parked at ``min_temp`` reports it back on the 0.01
+    grid of a reading. Both are at the minimum.
+    """
+    if setpoint is None or min_temp is None:
+        return False
+    return setpoint <= min_temp + SETPOINT_MATCH_TOLERANCE
 
 
 class Rounding:

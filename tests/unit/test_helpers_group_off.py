@@ -154,3 +154,49 @@ def test_all_unavailable_false():
         "climate.b": State("climate.b", "unknown"),
     }
     assert group_all_members_off(_fake_self(members, states)) is False
+
+
+# 42 °F: the lowest setpoint the thermostat writes to a head whose minimum is
+# published as 41 °F, read inside the degree Home Assistant may have rounded.
+_PARKED_MIN_CELSIUS = (42.0 - 32.0) * 5.0 / 9.0
+
+
+@pytest.mark.parametrize(
+    "reported",
+    [
+        pytest.param(42.0, id="parked_at_the_thermostat_minimum"),
+        pytest.param(41.0, id="turned_to_the_device_end_stop"),
+    ],
+)
+def test_no_off_at_the_minimum_on_fahrenheit_counts_as_off(reported):
+    """A Fahrenheit head at its minimum counts as off, however it got there.
+
+    The thermostat parks the head at 42 °F, which the head reports back on
+    the 0.01 grid of a reading (5.56 °C, above the 5.5556 °C written), and a
+    user may turn it further, to the device's own 41 °F, below it. Both are
+    the head at its minimum.
+    """
+    members = {
+        "climate.a": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
+        "climate.b": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
+    }
+    states = {
+        entity_id: _state(entity_id, "heat", temperature=reported)
+        for entity_id in members
+    }
+    self_ = _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
+    assert group_all_members_off(self_) is True
+
+
+def test_no_off_one_degree_above_the_minimum_on_fahrenheit_heats():
+    """One degree Fahrenheit above the parked minimum is a head that heats."""
+    members = {
+        "climate.a": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
+        "climate.b": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
+    }
+    states = {
+        "climate.a": _state("climate.a", "heat", temperature=42.0),
+        "climate.b": _state("climate.b", "heat", temperature=43.0),
+    }
+    self_ = _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
+    assert group_all_members_off(self_) is False

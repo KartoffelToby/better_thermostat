@@ -14,6 +14,7 @@ on the way out, which is where a conversion that is only right for round
 numbers gives itself away.
 """
 
+import copy
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -26,6 +27,7 @@ from homeassistant.const import (
     EVENT_CALL_SERVICE,
     UnitOfTemperature,
 )
+from homeassistant.core import Context
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
@@ -63,6 +65,7 @@ from .conftest import (
 )
 from .device_profiles import (
     FAHRENHEIT_TRV,
+    GENERIC_HEAT_TRV,
     OFF_GRID_FAHRENHEIT_TRV,
     TRV_ID,
     DeviceProfile,
@@ -339,6 +342,106 @@ async def test_a_device_without_an_off_mode_is_parked_at_its_minimum(hass, fake_
 
     received = fake_trv.set_temperature_calls[-1]
     assert received == pytest.approx(profile.min_temp, abs=_published_degree(profile))
+
+
+FAHRENHEIT_TRV_WITHOUT_OFF = replace(
+    FAHRENHEIT_TRV, name="fahrenheit_trv_without_off", hvac_modes=(HVACMode.HEAT,)
+)
+"""The Fahrenheit device offering no off mode, with its whole-degree grid."""
+
+
+async def _start_without_off_mode(hass, profile: DeviceProfile):
+    """Start a thermostat that runs ``profile`` as a ``no_off_system_mode`` head."""
+    _publish_room_at_device_reading(hass, profile)
+    data = copy.deepcopy(dict(make_entry(profile).data))
+    data["thermostat"][0]["advanced"]["no_off_system_mode"] = True
+    entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert_profile_adopted(bt, profile)
+    return bt
+
+
+CELSIUS_TRV_WITHOUT_OFF_ON_FAHRENHEIT = replace(
+    GENERIC_HEAT_TRV,
+    name="celsius_trv_without_off_on_fahrenheit",
+    hvac_modes=(HVACMode.HEAT,),
+    system_unit=UnitOfTemperature.FAHRENHEIT,
+    configured_target_temp_step="0.0",
+)
+"""A Celsius head without an off mode, published in whole degrees Fahrenheit."""
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        pytest.param(FAHRENHEIT_TRV_WITHOUT_OFF, id="fahrenheit_trv"),
+        pytest.param(CELSIUS_TRV_WITHOUT_OFF_ON_FAHRENHEIT, id="celsius_trv"),
+    ],
+    indirect=True,
+)
+async def test_a_device_parked_at_its_minimum_keeps_the_room_off(hass, fake_trv):
+    """A head without an off mode, parked at the minimum, reads as off.
+
+    Switching the room off parks the head at the lowest setpoint the
+    thermostat writes. The head keeps reporting that setpoint, on the grid
+    of a reading, and every such report is the head sitting at its minimum,
+    not a user turning the room on.
+    """
+    bt = await _start_without_off_mode(hass, fake_trv.profile)
+    await _settle_device_at(hass, 68.0)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_hvac_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.OFF},
+        blocking=True,
+    )
+    assert await wait_for(hass, lambda: _device_setpoint(hass) < 68.0, timeout_s=2.0)
+    trv = bt.real_trvs[TRV_ID]
+    assert await wait_for(
+        hass, lambda: trv.target_temp_received and not bt.ignore_states
+    )
+
+    # The head's next routine report carries the parked setpoint again.
+    fake_trv._attr_current_temperature = fake_trv.current_temperature + 0.5
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+    for _ in range(20):
+        await hass.async_block_till_done()
+
+    assert bt.bt_hvac_mode == HVACMode.OFF
+    assert hass.states.get(BT_ENTITY).state == HVACMode.OFF
+
+
+@pytest.mark.parametrize(
+    "fake_trv", [FAHRENHEIT_TRV_WITHOUT_OFF], indirect=True, ids=["fahrenheit_trv"]
+)
+async def test_a_device_turned_down_to_its_own_minimum_switches_the_room_off(
+    hass, fake_trv
+):
+    """Turning a head without an off mode to its end stop switches the room off.
+
+    The head's own minimum, 41 °F, lies below the lowest setpoint the
+    thermostat writes to it, which sits inside the whole degree Home
+    Assistant may have rounded the bound to. A head turned down that far is
+    at its minimum all the same.
+    """
+    bt = await _start_without_off_mode(hass, fake_trv.profile)
+    await _settle_device_at(hass, 68.0)
+
+    trv = bt.real_trvs[TRV_ID]
+    assert await wait_for(
+        hass, lambda: trv.target_temp_received and not bt.ignore_states
+    )
+
+    # A turn at the device reaches Home Assistant as a state of its own,
+    # outside the context of the thermostat's last write.
+    fake_trv._attr_target_temperature = fake_trv.profile.min_temp
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+
+    assert await wait_for(hass, lambda: bt.bt_hvac_mode == HVACMode.OFF, timeout_s=2.0)
 
 
 # -- valve maintenance --------------------------------------------------------
