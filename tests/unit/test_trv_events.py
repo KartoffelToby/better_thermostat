@@ -2492,11 +2492,6 @@ class TestConvertInboundStates:
                 [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
                 "heat_cool",
                 id="both_spellings_reporting_heat_cool",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a device offering heat and heat_cool that reports "
-                    "heat_cool is decoded as no mode at all",
-                ),
             ),
             pytest.param(
                 [HVACMode.OFF, HVACMode.HEAT_COOL], "heat_cool", id="heat_cool_only"

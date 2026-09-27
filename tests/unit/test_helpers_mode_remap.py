@@ -301,11 +301,6 @@ class TestModeRemapTranslationOnAReportedSpelling:
                 ["off", "heat", "heat_cool"],
                 "heat_cool",
                 id="both_spellings_reporting_heat_cool",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a device offering heat and heat_cool keeps a reported "
-                    "heat_cool untranslated",
-                ),
             ),
             pytest.param(["off", "heat_cool"], "heat_cool", id="heat_cool_only"),
         ],
