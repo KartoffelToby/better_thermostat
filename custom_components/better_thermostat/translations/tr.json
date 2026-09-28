@@ -129,7 +129,8 @@
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin.",
+      "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin."
     }
   },
   "issues": {
