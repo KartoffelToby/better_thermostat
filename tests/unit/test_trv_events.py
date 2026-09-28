@@ -3101,6 +3101,49 @@ class TestDualRoleEntityReports:
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put.assert_awaited_once()
 
+    @pytest.mark.parametrize(
+        ("cool_target", "held", "pressed"), [(24.3, 24.0, 25.0), (24.7, 25.0, 24.0)]
+    )
+    @pytest.mark.asyncio
+    async def test_shared_entity_press_toward_an_off_grid_cool_target_is_adopted(
+        self, shared_bt, cool_target, held, pressed
+    ):
+        """One press toward an off-grid cool target names the cool target.
+
+        The device holds the cool target on its own grid, so a single press
+        from there toward the target lands less than a step from it.
+        """
+        shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
+        shared_bt.bt_target_cooltemp = cool_target
+        shared_bt.last_sent_cooler_temp = cool_target
+
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=pressed, previous_temp=held
+        )
+
+        assert shared_bt.bt_target_cooltemp == pressed
+        assert shared_bt.bt_target_temp == 20.0
+        shared_bt.control_queue_task.put.assert_awaited_once()
+
+    @pytest.mark.parametrize(("cool_target", "held"), [(24.3, 24.0), (24.7, 25.0)])
+    @pytest.mark.parametrize("send_cache_primed", [True, False])
+    @pytest.mark.asyncio
+    async def test_shared_entity_reads_an_off_grid_cooling_write_as_an_echo(
+        self, shared_bt, cool_target, held, send_cache_primed
+    ):
+        """An off-grid cool target the device holds on its grid moves nothing."""
+        shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
+        shared_bt.bt_target_cooltemp = cool_target
+        shared_bt.last_sent_cooler_temp = cool_target if send_cache_primed else None
+
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=held, previous_temp=20.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == cool_target
+        assert shared_bt.bt_target_temp == 20.0
+        shared_bt.control_queue_task.put.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(
         self, mock_bt

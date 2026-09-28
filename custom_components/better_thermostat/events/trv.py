@@ -21,6 +21,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
     trv_state_unknown_as_available,
@@ -366,17 +367,14 @@ async def trigger_trv_change(
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
     # either channel wrote: the cooling channel's own write is no more a user
-    # press than the heating channel's is. Both cooling values are needed —
-    # the send cache is primed only once the service call returns, while the
-    # cooling target already holds the value the call is carrying.
+    # press than the heating channel's is.
     _cooling_owns = cooling_owns_dual_role_report(self, entity_id, _org_trv_state.state)
     if entity_id == dual_role_entity_id(self):
         _known_values = (
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            self.bt_target_cooltemp,
-            self.last_sent_cooler_temp,
+            *cooling_writes_as_held(self, _step),
         )
     else:
         _known_values = (
