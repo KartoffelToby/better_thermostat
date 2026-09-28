@@ -190,6 +190,30 @@ def test_auto_tune_reads_no_overshoot_across_a_host_reboot():
     assert (state.pid_kp, state.pid_kd) == (60.0, 2000.0)
 
 
+def test_integrator_relief_reads_no_setpoint_crossing_across_a_host_reboot():
+    """A room that crossed the setpoint while the host was down keeps its integral.
+
+    The relief answers a sign change of the error between consecutive
+    cycles. The error before the reboot and the first one after it are
+    not consecutive, so the first cycle integrates as from a fresh start.
+    """
+    params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
+    below_at_shutdown = _restored_after_reboot(_state_at_shutdown(last_error_sign=1))
+    no_sign_at_shutdown = _restored_after_reboot(
+        _state_at_shutdown(last_error_sign=None)
+    )
+
+    _, after_crossing, _ = _cycle(
+        params, below_at_shutdown, now=_UPTIME_AFTER_REBOOT_S, room=21.05
+    )
+    _, fresh, _ = _cycle(
+        params, no_sign_at_shutdown, now=_UPTIME_AFTER_REBOOT_S, room=21.05
+    )
+
+    assert after_crossing["i_relief"] is False
+    assert after_crossing["i"] == fresh["i"]
+
+
 def _tuning_cycles(start_s: float) -> PIDState:
     """Run a sluggish room for three cycles from ``start_s`` and return the state.
 
