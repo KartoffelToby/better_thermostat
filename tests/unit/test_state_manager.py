@@ -1903,13 +1903,18 @@ class TestUnreadableStoreIsKeptForRecovery:
             {"version": 1, "mpc": {"k1": "not_a_dict"}},
             {"version": 1, "pid": ["not", "a", "mapping"]},
             {"version": 1, "thermal": "not_a_mapping"},
+            {
+                "version": 1,
+                "mpc_v2_reid": {"k1": {"tau_room_min": 240.0, "gain_heater": 5.1}},
+            },
         ],
     )
     async def test_a_misshapen_part_is_set_aside_before_it_is_dropped(self, payload):
-        """A section or entry of the wrong shape is kept aside like a poisoned one.
+        """A dropped section or entry is kept aside like a poisoned one.
 
-        Its entities start from defaults, and those overwrite the stored
-        payload on the next save.
+        That covers a section or entry of the wrong shape and a stored fit
+        outside its plausible band. Their entities start from defaults, and
+        those overwrite the stored payload on the next save.
         """
         with _stores_by_key() as stores:
             mgr = StateManager(AsyncMock(), "test_entry")

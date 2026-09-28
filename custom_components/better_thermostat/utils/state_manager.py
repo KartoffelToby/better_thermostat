@@ -600,8 +600,8 @@ def deserialize_mpc_v2_reid(
         names the state entry, so a report about a value that cannot be read
         can point at the room rather than at nothing
     poisoned : list[str] | None
-        collects the entry's section and key when a non-finite value
-        discards its stored values
+        collects the entry's section and key when a non-finite value or an
+        out-of-band fit discards its stored values
     """
     state = MpcV2ReidData()
     for attr in MpcV2ReidData.__dataclass_fields__:
@@ -641,6 +641,8 @@ def deserialize_mpc_v2_reid(
                 value,
                 bounds,
             )
+            if poisoned is not None:
+                poisoned.append(f"mpc_v2_reid:{key}")
             return None
     return state
 
@@ -816,7 +818,8 @@ def _deserialize(
 
     *poisoned* collects the section, or the section and key, of every part
     of the store whose stored values are discarded as a whole: an entry a
-    non-finite number reset, and a section or entry of the wrong shape.
+    non-finite number reset, a re-identification result outside its
+    plausible band, and a section or entry of the wrong shape.
     """
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
 
