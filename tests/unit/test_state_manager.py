@@ -1092,6 +1092,40 @@ class TestDroppedStoredValuesAreReported:
         )
 
     @pytest.mark.parametrize(
+        ("section", "field", "value"),
+        [
+            ("thermal", "heating_power", "later"),
+            ("thermal", "heat_loss_rate", "Infinity"),
+            ("filters", "external_temp_ema", [20.0]),
+            ("filters", "temp_slope", "NaN"),
+        ],
+    )
+    def test_an_unusable_thermal_or_filter_value_is_named(
+        self, caplog, section, field, value
+    ):
+        """A stored thermal or filter value that is not a finite number is named."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize({"version": 1, section: {field: value}})
+
+        assert getattr(getattr(state, section), field) is None
+        assert any(
+            section in message and field in message for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    def test_a_null_thermal_or_filter_value_is_not_reported(self, caplog):
+        """A null in these sections is a value not yet learned, not a lost one."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize(
+                {
+                    "version": 1,
+                    "thermal": {"heating_power": None, "heat_loss_rate": None},
+                    "filters": {"external_temp_ema": None, "temp_slope": None},
+                }
+            )
+
+        assert _warnings(caplog) == []
+
+    @pytest.mark.parametrize(
         ("section", "entry", "field"),
         [
             ("mpc", {"gain_est": float("nan")}, "gain_est"),
@@ -1858,6 +1892,30 @@ class TestUnreadableStoreIsKeptForRecovery:
             await mgr.load()
 
         assert mgr.state.mpc["k1"].gain_est is None
+        assert _SET_ASIDE_KEY in stores
+        stores[_SET_ASIDE_KEY].async_save.assert_awaited_once()
+        assert stores[_SET_ASIDE_KEY].async_save.await_args[0][0] == payload
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"version": 1, "mpc": {"k1": "not_a_dict"}},
+            {"version": 1, "pid": ["not", "a", "mapping"]},
+            {"version": 1, "thermal": "not_a_mapping"},
+        ],
+    )
+    async def test_a_misshapen_part_is_set_aside_before_it_is_dropped(self, payload):
+        """A section or entry of the wrong shape is kept aside like a poisoned one.
+
+        Its entities start from defaults, and those overwrite the stored
+        payload on the next save.
+        """
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = payload
+            await mgr.load()
+
         assert _SET_ASIDE_KEY in stores
         stores[_SET_ASIDE_KEY].async_save.assert_awaited_once()
         assert stores[_SET_ASIDE_KEY].async_save.await_args[0][0] == payload

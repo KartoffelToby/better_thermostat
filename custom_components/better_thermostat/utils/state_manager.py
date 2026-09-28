@@ -740,11 +740,15 @@ def deserialize_tpi(
     return state
 
 
-def _stored_section(raw: dict[str, Any], section: str) -> Mapping[str, Any]:
+def _stored_section(
+    raw: dict[str, Any], section: str, poisoned: list[str] | None
+) -> Mapping[str, Any]:
     """Return one section of the store, or an empty one when it has none.
 
     A section of any other shape than a mapping is dropped and named: past
     the load path its entities start from defaults, like on a first start.
+    It is noted in *poisoned* as well, since those defaults replace it on
+    the next save.
     """
     value = raw.get(section, {})
     if isinstance(value, Mapping):
@@ -754,18 +758,21 @@ def _stored_section(raw: dict[str, Any], section: str) -> Mapping[str, Any]:
         "start from defaults",
         section,
     )
+    if poisoned is not None:
+        poisoned.append(section)
     return {}
 
 
 def _stored_entries(
-    raw: dict[str, Any], section: str
+    raw: dict[str, Any], section: str, poisoned: list[str] | None
 ) -> list[tuple[str, dict[str, Any]]]:
     """Return the entries of one keyed section that are mappings.
 
-    An entry of any other shape is dropped and named with its key.
+    An entry of any other shape is dropped, named with its key and noted
+    in *poisoned*.
     """
     entries: list[tuple[str, dict[str, Any]]] = []
-    for key, entry in _stored_section(raw, section).items():
+    for key, entry in _stored_section(raw, section, poisoned).items():
         if isinstance(entry, dict):
             entries.append((key, entry))
             continue
@@ -775,7 +782,31 @@ def _stored_entries(
             section,
             key,
         )
+        if poisoned is not None:
+            poisoned.append(f"{section}:{key}")
     return entries
+
+
+def _stored_optional_number(
+    values: Mapping[str, Any], section: str, attr: str
+) -> float | None:
+    """Return one optional number of an unkeyed section, naming an unusable one.
+
+    A missing value and a stored null are a value never learned and pass
+    as ``None`` silently. Anything else that is not a finite number is
+    dropped as well, and named, since past the load path it looks like one
+    never learned.
+    """
+    value = values.get(attr)
+    number = finite_or_none(value)
+    if number is None and value is not None:
+        _LOGGER.warning(
+            "better_thermostat: stored %s section has an unusable %s, "
+            "continuing without it",
+            section,
+            attr,
+        )
+    return number
 
 
 def _deserialize(
@@ -783,47 +814,46 @@ def _deserialize(
 ) -> RuntimeState:
     """Reconstruct a RuntimeState from a raw dict (loaded from Store).
 
-    *poisoned* collects the section and key of every entry whose stored
-    values a non-finite number discarded.
+    *poisoned* collects the section, or the section and key, of every part
+    of the store whose stored values are discarded as a whole: an entry a
+    non-finite number reset, and a section or entry of the wrong shape.
     """
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
 
-    for key, entry in _stored_entries(raw, "mpc"):
+    for key, entry in _stored_entries(raw, "mpc", poisoned):
         state.mpc[key] = deserialize_mpc(entry, key=key, poisoned=poisoned)
 
-    for key, entry in _stored_entries(raw, "mpc_v2"):
+    for key, entry in _stored_entries(raw, "mpc_v2", poisoned):
         mpc_v2 = deserialize_mpc_v2(entry, key=key, poisoned=poisoned)
         if mpc_v2 is not None:
             state.mpc_v2[key] = mpc_v2
 
-    for key, entry in _stored_entries(raw, "mpc_v2_reid"):
+    for key, entry in _stored_entries(raw, "mpc_v2_reid", poisoned):
         reid = deserialize_mpc_v2_reid(entry, key=key, poisoned=poisoned)
         if reid is not None:
             state.mpc_v2_reid[key] = reid
 
-    for key, entry in _stored_entries(raw, "pid"):
+    for key, entry in _stored_entries(raw, "pid", poisoned):
         state.pid[key] = deserialize_pid(entry, key=key, poisoned=poisoned)
 
-    for key, entry in _stored_entries(raw, "tpi"):
+    for key, entry in _stored_entries(raw, "tpi", poisoned):
         state.tpi[key] = deserialize_tpi(entry, key=key, poisoned=poisoned)
 
-    thermal_raw = _stored_section(raw, "thermal")
+    thermal_raw = _stored_section(raw, "thermal", poisoned)
     state.thermal = ThermalStats(
-        heating_power=finite_or_none(thermal_raw.get("heating_power")),
-        heat_loss_rate=finite_or_none(thermal_raw.get("heat_loss_rate")),
+        heating_power=_stored_optional_number(thermal_raw, "thermal", "heating_power"),
+        heat_loss_rate=_stored_optional_number(
+            thermal_raw, "thermal", "heat_loss_rate"
+        ),
     )
 
-    filters_raw = _stored_section(raw, "filters")
-    for attr in ("external_temp_ema", "temp_slope"):
-        value = filters_raw.get(attr)
-        if value is None:
-            continue
-        try:
-            number = float(value)
-        except TypeError, ValueError, OverflowError:
-            continue
-        if math.isfinite(number):
-            setattr(state.filters, attr, number)
+    filters_raw = _stored_section(raw, "filters", poisoned)
+    state.filters = FilterState(
+        external_temp_ema=_stored_optional_number(
+            filters_raw, "filters", "external_temp_ema"
+        ),
+        temp_slope=_stored_optional_number(filters_raw, "filters", "temp_slope"),
+    )
 
     # A legacy "presets" section is ignored: preset temperatures are UI
     # state owned by the preset number entities.
@@ -1285,8 +1315,9 @@ class StateManager:
             self._dirty = False
             return
         if poisoned:
-            # The reset entries' defaults replace the stored ones on the next
-            # save, so the payload is kept aside like an unreadable store.
+            # The defaults of what was discarded replace the stored values on
+            # the next save, so the payload is kept aside like an unreadable
+            # store.
             await self._quarantine_unreadable_state(raw)
         self._dirty = False
         _LOGGER.debug(
