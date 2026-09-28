@@ -4104,8 +4104,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
 
-        # Enforce ordering: cool target should be above heat target in HEAT_COOL.
-        self._enforce_cool_above_heat()
+        # The pair is ordered whatever the mode: a switch to HEAT_COOL runs on
+        # it without looking at it again.
+        self._enforce_cool_above_heat(
+            regardless_of_hvac_mode=self.cooler_entity_id is not None
+        )
 
         # If a specific preset (Comfort, Eco, …) is active and the user manually
         # changes the target temperature to a value that does not match the
