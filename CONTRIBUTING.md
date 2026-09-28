@@ -501,7 +501,10 @@ no patch id, so `git cherry` reports every commit as missing and says nothing.
 `1.9` that `develop` does not contain it takes up to twelve distinctive added
 lines and looks each one up in `develop`'s *tree*. Reading the tree rather than
 the history is what survives the squash: a line that arrived under any commit
-is in the tree.
+is in the tree. The lines come from production files only, since each line
+writes its own tests, and only from lines `1.9` still holds, since a state a
+later `1.9` commit replaced is judged by that commit. A name `develop` renamed
+onto `glossary.toml` is looked up under its new spelling too.
 
 ```bash
 git fetch origin 1.9:refs/remotes/origin/1.9        # once, if you have no 1.9

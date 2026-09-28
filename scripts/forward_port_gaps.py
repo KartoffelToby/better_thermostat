@@ -16,6 +16,13 @@ rate.
 
 A marker is an added line that is
 
+* in a production file, not under ``tests/``: each line writes its own tests,
+  in its own fixtures and under its own names, so a test line says nothing
+  about whether the fix it covers reached the other line,
+* still in the maintenance line's tree, which excludes an intermediate state
+  a later maintenance-line commit replaced. The development line cannot be
+  asked to hold what the maintenance line itself no longer holds, and the
+  replacing commit carries the evidence instead,
 * at least ``MARKER_MIN_LENGTH`` characters once stripped,
 * not a comment, not an import and not a decorator,
 * carrying at least one character of ``=(){}[]:``, which excludes the prose
@@ -25,10 +32,18 @@ A marker is an added line that is
   commit only moved, reindented or copied from another section of the file.
   Such a line is in both trees no matter what the commit did.
 
-The last two rules carry most of the separation. Without the prose rule a
-docstring-heavy commit reads as absent because its sentences were rewritten;
-without the parent-revision rule a translation block moved into a new section
-reads as present because its strings already existed elsewhere in the file.
+The prose and parent-revision rules carry most of the separation. Without
+the prose rule a docstring-heavy commit reads as absent because its sentences
+were rewritten; without the parent-revision rule a translation block moved
+into a new section reads as present because its strings already existed
+elsewhere in the file.
+
+A marker is looked up under the development line's names, too. The
+development line renames identifiers onto the terms of its `glossary.toml`
+and the maintenance line keeps the old spellings, so a marker spelling a
+rejected alias is also searched with the alias replaced by each term that
+lists it, one whole identifier at a time. The glossary is read from the
+development tree, the one that did the renaming.
 
 ``MARKER_MIN_LENGTH`` is 16 from measurement. Over the 801 candidate lines of
 eleven commits whose content was confirmed by hand to be absent from
@@ -52,8 +67,9 @@ Known misreadings, both directions:
   nothing to forward-port — but the rate says "already there" rather than
   "went the other way".
 * A commit with fewer than ``MIN_MARKERS`` markers is not scored at all.
-  Version bumps and pure-prose commits land there, and so does a real change
-  small enough to leave no marker. Those commits are listed separately rather
+  Version bumps, pure-prose and test-only commits land there, and so does a
+  real change small enough to leave fewer production markers than that, such
+  as a one-line fix with its test. Those commits are listed separately rather
   than dropped, because a truncated list reads like completeness.
 
 Two modes:
@@ -73,17 +89,23 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import itertools
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ACKNOWLEDGED_FILE = REPO_ROOT / ".forward-port-gaps.json"
 
 DEFAULT_MAINTENANCE = "origin/1.9"
 DEFAULT_DEVELOPMENT = "develop"
+
+# Each line writes its own tests, so no marker is taken from under here.
+TEST_ROOT = "tests/"
+GLOSSARY_PATH = "glossary.toml"
 
 MARKER_MIN_LENGTH = 16
 MARKERS_PER_COMMIT = 12
@@ -108,6 +130,7 @@ TEXT_SUFFIXES = (
 COMMENT_START = re.compile(r"""^(#|//|/\*|\*|<!--|-->|\"\"\"|''')""")
 IMPORT_OR_DECORATOR = re.compile(r"^(import |from \S+ import|@)")
 CODE_PUNCTUATION = frozenset("=(){}[]:")
+IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # A subject written under this repository's commit convention. The convention
 # is what separates the two groups here: work built as a pair follows it and
@@ -349,7 +372,9 @@ def _prior_lines(sha: str, path: str) -> set[str]:
     return {line.strip() for line in finished.stdout.splitlines()}
 
 
-def markers_of(sha: str, limit: int | None = None) -> list[str]:
+def markers_of(
+    sha: str, limit: int | None = None, present: set[str] | None = None
+) -> list[str]:
     """Return up to ``limit`` markers for a commit.
 
     Parameters
@@ -363,14 +388,24 @@ def markers_of(sha: str, limit: int | None = None) -> list[str]:
         are drawn one file at a time, longest first within a file, so a commit
         spread over many files is judged on all of them rather than on
         whichever one is largest.
+    present
+        The stripped lines of the maintenance line's tree. A line missing
+        there was replaced by a later commit and is no marker. Left open,
+        every added line counts.
     """
     if limit is None:
         limit = MARKERS_PER_COMMIT
     per_file: dict[str, list[str]] = {}
     for path, lines in _added_lines(sha).items():
+        if path.startswith(TEST_ROOT):
+            continue
         prior = _prior_lines(sha, path)
         fresh = sorted(
-            {line for line in lines if line not in prior},
+            {
+                line
+                for line in lines
+                if line not in prior and (present is None or line in present)
+            },
             key=lambda line: (-len(line), line),
         )
         if fresh:
@@ -399,9 +434,51 @@ def markers_of(sha: str, limit: int | None = None) -> list[str]:
     return chosen
 
 
+def _renames(ref: str) -> dict[str, tuple[str, ...]]:
+    """Return each rejected alias of the ref's glossary with the names replacing it.
+
+    A term's name may be qualified (``trv.setpoint``); the identifier written
+    in code is its last part.
+    """
+    finished = subprocess.run(
+        ("git", "-C", str(REPO_ROOT), "show", f"{ref}:{GLOSSARY_PATH}"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if finished.returncode != 0:
+        return {}
+    try:
+        terms = tomllib.loads(finished.stdout).get("term", [])
+    except tomllib.TOMLDecodeError as err:
+        sys.exit(f"{ref}:{GLOSSARY_PATH} is not valid TOML: {err}")
+    renames: dict[str, list[str]] = {}
+    for term in terms:
+        rejected = term.get("rejected", [])
+        if not isinstance(rejected, list):
+            sys.exit(f"{ref}:{GLOSSARY_PATH}: `rejected` of {term['name']} is no list")
+        for alias in rejected:
+            renames.setdefault(alias, []).append(term["name"].rpartition(".")[2])
+    return {alias: tuple(names) for alias, names in renames.items()}
+
+
+def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
+    """Return the marker as written plus every spelling the glossary renames it to."""
+    aliases = sorted({name for name in IDENTIFIER.findall(marker) if name in renames})
+    spellings = [marker]
+    for choice in itertools.product(*((alias, *renames[alias]) for alias in aliases)):
+        spelled = dict(zip(aliases, choice, strict=True))
+        renamed = IDENTIFIER.sub(lambda name: spelled.get(name[0], name[0]), marker)
+        if renamed != marker:
+            spellings.append(renamed)
+    return spellings
+
+
 def measure(maintenance: str, development: str) -> list[Commit]:
     """Return every maintenance-line commit scored against the development tree."""
     tree = _tree_lines(development)
+    present = _tree_lines(maintenance)
+    renames = _renames(development)
     log = _git(
         "log",
         "--no-merges",
@@ -412,14 +489,18 @@ def measure(maintenance: str, development: str) -> list[Commit]:
     commits: list[Commit] = []
     for entry in log.splitlines():
         sha, author, subject = entry.split("\x1f", 2)
-        markers = markers_of(sha)
+        markers = markers_of(sha, present=present)
         commits.append(
             Commit(
                 sha=sha,
                 subject=subject,
                 author=author,
                 markers=len(markers),
-                hits=sum(1 for marker in markers if marker in tree),
+                hits=sum(
+                    1
+                    for marker in markers
+                    if any(line in tree for line in _spellings(marker, renames))
+                ),
             )
         )
     return commits
