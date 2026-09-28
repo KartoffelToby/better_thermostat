@@ -203,6 +203,39 @@ class TestImportLegacyData:
         assert mgr.thermal.heating_power == pytest.approx(1200.0)
         assert mgr.thermal.heat_loss_rate == pytest.approx(0.03)
 
+    @pytest.mark.parametrize(
+        "unusable", [float("nan"), float("inf"), float("-inf"), "nan", "abc", [1.0]]
+    )
+    @pytest.mark.parametrize("field", ["heating_power", "heat_loss_rate"])
+    def test_an_unusable_legacy_thermal_stat_is_imported_as_unset(
+        self, caplog, field, unusable
+    ) -> None:
+        """A legacy thermal stat that is not a finite number counts as unlearned.
+
+        The other stat and the rest of the import go through, and the
+        dropped one is named.
+        """
+        mgr = _make_state_manager()
+        thermal_data = {"heating_power": 800.0, "heat_loss_rate": 0.03}
+        thermal_data[field] = unusable
+
+        with caplog.at_level(logging.WARNING):
+            _import_legacy_data(
+                mgr, thermal_data=thermal_data, pid_data={"uid1:trv_a": {"pid_kp": 2.0}}
+            )
+
+        assert getattr(mgr.thermal, field) is None
+        other = "heat_loss_rate" if field == "heating_power" else "heating_power"
+        assert getattr(mgr.thermal, other) == pytest.approx(
+            {"heating_power": 800.0, "heat_loss_rate": 0.03}[other]
+        )
+        assert mgr.get_pid("uid1:trv_a").pid_kp == pytest.approx(2.0)
+        assert any(
+            field in record.getMessage()
+            for record in caplog.records
+            if record.levelno >= logging.WARNING
+        ), caplog.text
+
     def test_import_thermal_partial(self) -> None:
         """Thermal data with only one field leaves the other as None."""
         mgr = _make_state_manager()
