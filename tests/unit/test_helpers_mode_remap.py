@@ -422,13 +422,17 @@ class TestModeRemapUnsupportedOutboundMode:
         assert mode_remap(mock_bt, "climate.test", "cool", inbound=True) == "cool"
         assert mode_remap(mock_bt, "climate.test", "dry", inbound=True) == "dry"
 
-    def test_inbound_auto_still_reports_off(self):
-        """The AUTO branch keeps precedence over the inbound exemption."""
+    def test_inbound_auto_is_ignored_rather_than_passed_through(self):
+        """The AUTO branch keeps precedence over the inbound exemption.
+
+        A reported AUTO on an unswapped device decodes to no mode, even where
+        the device does not list AUTO among its modes.
+        """
         mock_bt = MockThermostat()
         mock_bt.add_trv("climate.test", hvac_modes=[HVACMode.OFF, HVACMode.HEAT])
 
         result = mode_remap(mock_bt, "climate.test", "auto", inbound=True)
-        assert result == HVACMode.OFF
+        assert result is None
 
     def test_dry_not_offered_returns_none(self):
         """A heat-only device does not receive DRY."""
@@ -449,6 +453,23 @@ class TestModeRemapUnsupportedOutboundMode:
         assert result == HVACMode.OFF
         assert len(_forgotten_swap_records(caplog)) == 1
         assert _unsupported_records(caplog) == []
+
+    def test_an_unswapped_device_reporting_auto_is_ignored(self, caplog):
+        """A reported AUTO without the swap option decodes to no mode and is explained.
+
+        Without the swap option AUTO may be the device's heating mode or its
+        own schedule, so the report names neither OFF nor HEAT. It decodes to
+        no mode at all, and the error names the swap option as the likely
+        missing setting.
+        """
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", hvac_modes=self.CHANGEOVER_MODES)
+
+        with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
+            result = mode_remap(mock_bt, "climate.test", "auto", inbound=True)
+
+        assert result is None
+        assert len(_forgotten_swap_records(caplog)) == 1
 
     def test_the_auto_error_is_annunciated_once(self, caplog):
         """Every outbound AUTO cycle keeps reporting OFF, but logs once."""

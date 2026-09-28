@@ -975,6 +975,42 @@ class TestHvacModeUpdate:
 
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
+    @pytest.mark.parametrize(
+        "bt_hvac_mode", [HVACMode.HEAT, HVACMode.OFF], ids=["heating", "off"]
+    )
+    @pytest.mark.asyncio
+    async def test_an_unswapped_device_reporting_auto_leaves_the_room_mode(
+        self, mock_bt, bt_hvac_mode
+    ):
+        """A reported AUTO without the swap option changes neither room mode.
+
+        The report is ambiguous: a heating room must not be switched off by
+        it, and a room that is off must not be switched on.
+        """
+        mock_bt.bt_hvac_mode = bt_hvac_mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "heat"
+        trv.system_mode_received = True
+        trv.last_hvac_mode = "heat"
+        trv.advanced["child_lock"] = False
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == bt_hvac_mode
+
     @pytest.mark.asyncio
     async def test_unmapped_mode_ignored(self, mock_bt):
         """Mode outside (OFF, HEAT, HEAT_COOL) doesn't update cache."""
@@ -2202,6 +2238,22 @@ class TestConvertInboundStates:
         state = _make_state(state_str="heat_cool")
 
         assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.HEAT
+
+    def test_an_unswapped_device_reporting_auto_is_ignored(self, mock_bt):
+        """A reported AUTO without the swap option reaches the adoption as no mode.
+
+        AUTO names the device's heating mode only when the swap option says
+        so; without it the report is ambiguous and must neither switch the
+        room off nor on.
+        """
+        mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
+            HVACMode.OFF,
+            HVACMode.HEAT,
+            HVACMode.AUTO,
+        ]
+        state = _make_state(state_str="auto")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) is None
 
     def test_unsupported_mode_returns_none(self, mock_bt):
         """Return None for unsupported HVAC modes like COOL."""
