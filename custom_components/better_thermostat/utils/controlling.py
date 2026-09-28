@@ -1046,9 +1046,19 @@ async def control_trv(self, heater_entity_id=None):
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, heater_entity_id, _new_hvac_mode
                 )
+                _mode_refused = False
                 if _tvr_has_quirk is False:
-                    await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
-                if self.real_trvs[heater_entity_id].system_mode_received is True:
+                    _mode_refused = (
+                        await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
+                        is False
+                    )
+                # A refused mode is written again by the next cycle, which
+                # still finds the device in its old mode; there is nothing to
+                # wait for until then.
+                if (
+                    not _mode_refused
+                    and self.real_trvs[heater_entity_id].system_mode_received is True
+                ):
                     self.real_trvs[heater_entity_id].system_mode_received = False
                     self.task_manager.create_task(
                         check_system_mode(self, heater_entity_id),

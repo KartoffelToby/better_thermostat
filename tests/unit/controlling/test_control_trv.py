@@ -1018,6 +1018,50 @@ class TestControlTrvAvailablePath:
             mock_self.task_manager.create_task.assert_called()
 
     @pytest.mark.asyncio
+    async def test_a_refused_mode_write_arms_no_confirmation_wait(self):
+        """A refused mode leaves user presses on the device to be adopted.
+
+        While the confirmation wait runs, a setpoint or mode the user sets on
+        the device is not adopted; arming it for a refused write would ignore
+        the user for minutes and then assume the mode was applied.
+        """
+        trv = _default_trv_config(
+            last_hvac_mode=HVACMode.OFF, system_mode_received=True
+        )
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": trv},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock(return_value=False)),
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_window.return_value = HVACMode.HEAT
+
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.system_mode_received is True
+        assert not any(
+            call.kwargs.get("name") == "bt_check_system_mode_climate.trv1"
+            for call in mock_self.task_manager.create_task.call_args_list
+        )
+
+    @pytest.mark.asyncio
     async def test_lock_usage(self):
         """Test that _temp_lock is acquired during TRV control.
 

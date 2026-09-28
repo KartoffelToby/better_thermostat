@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 import logging
+from typing import Any
 
 from homeassistant.helpers.importlib import async_import_module
 
@@ -90,7 +92,6 @@ async def get_max_offset(self, entity_id):
     return await self.real_trvs[entity_id].adapter.get_max_offset(self, entity_id)
 
 
-@async_retry(retries=5)
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature.
 
@@ -164,17 +165,139 @@ async def set_temperature(self, entity_id, temperature):
             e,
         )
 
-    return await self.real_trvs[entity_id].adapter.set_temperature(
-        self, entity_id, rounded
+    return await _write_on_channel(
+        self,
+        entity_id,
+        "temperature",
+        f"setpoint {rounded}",
+        self.real_trvs[entity_id].adapter.set_temperature,
+        rounded,
     )
 
 
-@async_retry(retries=5)
-async def set_hvac_mode(self, entity_id, hvac_mode):
-    """Set new target hvac mode."""
-    return await self.real_trvs[entity_id].adapter.set_hvac_mode(
-        self, entity_id, hvac_mode
+async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
+    """Set a new hvac mode on the TRV.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    hvac_mode : str
+        The mode to switch the TRV to
+
+    Returns
+    -------
+    bool
+        True when the mode went out, False when every attempt raised
+    """
+    try:
+        await _write_on_channel(
+            self,
+            entity_id,
+            "hvac_mode",
+            f"hvac mode {hvac_mode}",
+            self.real_trvs[entity_id].adapter.set_hvac_mode,
+            hvac_mode,
+        )
+    except Exception:
+        return False
+    return True
+
+
+async def _write_on_channel(
+    self,
+    entity_id: str,
+    channel: str,
+    what: str,
+    write: Callable[..., Awaitable[Any]],
+    value: Any,
+) -> Any:
+    """Put one value on one write channel of the TRV and answer the write's answer.
+
+    The write runs under the room's control lock, so every attempt it
+    makes is time the other TRVs of the room wait. A channel whose writes
+    have been going through gets the retry chain, which covers a dropped
+    message within the cycle. A channel whose last write spent that chain
+    and still raised gets one attempt: the device is out of reach, the next
+    cycle asks again anyway, and the chain would cost the room its backoff
+    on every cycle. The outage is reported when it begins and when it ends,
+    not on every cycle in between.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    channel : str
+        Name of the write channel, the key its reachability is kept under
+    what : str
+        The command as the log names it
+    write : Callable
+        The adapter or quirk write, called as ``write(self, entity_id, value)``
+    value : Any
+        The value to write
+
+    Returns
+    -------
+    Any
+        What the write answered
+
+    Raises
+    ------
+    Exception
+        The write's own exception, once the attempts it gets are spent
+    """
+    trv = self.real_trvs.get(entity_id)
+    out_of_reach = getattr(trv, "unreachable_write_channels", None)
+    if not isinstance(out_of_reach, set):
+        out_of_reach = set()
+    known_out_of_reach = channel in out_of_reach
+    device_name = getattr(self, "device_name", "unknown")
+
+    async def write_to_device(host, target, payload):
+        return await write(host, target, payload)
+
+    attempt = (
+        write_to_device
+        if known_out_of_reach
+        else async_retry(retries=5, identifier=f"{device_name} {channel}")(
+            write_to_device
+        )
     )
+    try:
+        answer = await attempt(self, entity_id, value)
+    except Exception:
+        if known_out_of_reach:
+            _LOGGER.debug(
+                "better_thermostat %s: %s for %s is still out of reach",
+                device_name,
+                what,
+                entity_id,
+                exc_info=True,
+            )
+        else:
+            out_of_reach.add(channel)
+            _LOGGER.warning(
+                "better_thermostat %s: %s for %s could not be written; each "
+                "following cycle tries it once until a write goes through",
+                device_name,
+                what,
+                entity_id,
+            )
+        raise
+    if known_out_of_reach:
+        out_of_reach.discard(channel)
+        _LOGGER.info(
+            "better_thermostat %s: %s for %s went through, the channel is back "
+            "in reach",
+            device_name,
+            what,
+            entity_id,
+        )
+    return answer
 
 
 async def set_offset(self, entity_id, offset) -> bool:
@@ -210,7 +333,7 @@ async def set_offset(self, entity_id, offset) -> bool:
     bool
         True when the adapter put the offset on the wire, False when the
         device has no offset channel, its calibration entity is disabled,
-        or every retry raised.
+        or every attempt raised.
     """
     calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
     if calibration_entity is not None and sibling_disabled_at_write(
@@ -218,21 +341,16 @@ async def set_offset(self, entity_id, offset) -> bool:
     ):
         return False
 
-    @async_retry(retries=5)
-    async def inner():
-        return await self.real_trvs[entity_id].adapter.set_offset(
-            self, entity_id, offset
-        )
-
     try:
-        wrote = await inner()
-    except Exception:
-        _LOGGER.warning(
-            "better_thermostat %s: set_local_temperature_calibration for %s failed; "
-            "will retry on the next cycle",
-            getattr(self, "device_name", "unknown"),
+        wrote = await _write_on_channel(
+            self,
             entity_id,
+            "offset",
+            "calibration offset",
+            self.real_trvs[entity_id].adapter.set_offset,
+            offset,
         )
+    except Exception:
         return False
     if wrote is not True:
         _LOGGER.debug(
@@ -258,9 +376,11 @@ async def set_valve(self, entity_id, valve) -> bool:
 
     A device with no valve channel is not a failure and is answered
     ``False`` without a single attempt. A write that raises is an
-    infrastructure failure and is retried; only once the attempts are spent
-    is it reported and answered ``False``, which leaves the caller free to
-    re-derive the position on its next cycle.
+    infrastructure failure and is retried as :func:`_write_on_channel`
+    describes; a channel whose attempts are spent leaves the position to the
+    next channel. Only once no channel took it is it answered ``False``,
+    which leaves the caller free to re-derive the position on its next
+    cycle.
 
     Returns True when a position was put on the wire, False otherwise.
     """
@@ -296,25 +416,20 @@ async def set_valve(self, entity_id, valve) -> bool:
     ):
         channels.append(("adapter", trv_state.adapter.set_valve, False))
 
-    @async_retry(
-        retries=5,
-        identifier=f"{getattr(self, 'device_name', 'unknown')} valve {entity_id}",
-    )
-    async def write_position(write):
-        return await write(self, entity_id, target_pct)
-
+    # A channel that raised leaves the position to the next channel, as one
+    # that declined it does.
     for method, write, answer_decides in channels:
         try:
-            answer = await write_position(write)
-        except Exception:
-            _LOGGER.warning(
-                "better_thermostat %s: valve position %s%% for %s could not be "
-                "written; will retry on the next cycle",
-                getattr(self, "device_name", "unknown"),
-                target_pct,
+            answer = await _write_on_channel(
+                self,
                 entity_id,
+                f"valve {method}",
+                f"valve position {target_pct}% through the {method} channel",
+                write,
+                target_pct,
             )
-            return False
+        except Exception:
+            continue
         if answer_decides and not answer:
             continue
         try:

@@ -11,6 +11,7 @@ import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.exceptions import HomeAssistantError
 
 from ..utils.helpers import (
     celsius_to_system_temperature,
@@ -189,7 +190,11 @@ async def set_temperature(self, entity_id, temperature):
 
 
 async def set_hvac_mode(self, entity_id, hvac_mode):
-    """Set new target hvac mode."""
+    """Set new target hvac mode.
+
+    A write the device or Home Assistant refuses raises, so the caller can
+    retry it and tell a refused mode from one that went out.
+    """
 
     hvac_mode_norm = normalize_hvac_mode(hvac_mode)
     _LOGGER.debug(
@@ -211,14 +216,6 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
             "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
             entity_id,
             hvac_mode_norm,
-        )
-    except Exception as exc:
-        _LOGGER.exception(
-            "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
-            self.device_name,
-            entity_id,
-            hvac_mode_norm,
-            exc,
         )
 
 
@@ -316,9 +313,21 @@ async def set_offset(self, entity_id, offset) -> bool:
             and self.real_trvs[entity_id].last_hvac_mode != "off"
         ):
             await asyncio.sleep(3)
-            await set_hvac_mode(
-                self, entity_id, self.real_trvs[entity_id].last_hvac_mode
-            )
+            # The offset is on the wire whatever happens to the mode after
+            # it; a refused mode is the mode channel's to report and retry.
+            try:
+                await set_hvac_mode(
+                    self, entity_id, self.real_trvs[entity_id].last_hvac_mode
+                )
+            except HomeAssistantError as exc:
+                _LOGGER.warning(
+                    "better_thermostat %s: hvac mode %s could not be restored on "
+                    "%s after the offset write: %s",
+                    self.device_name,
+                    self.real_trvs[entity_id].last_hvac_mode,
+                    entity_id,
+                    exc,
+                )
 
         return True
     else:
