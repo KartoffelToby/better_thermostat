@@ -64,7 +64,8 @@
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
-      "no_devices_found": "Nenašiel sa žiadny subjekt termostatu, uistite sa, že máte v domácom asistentovi subjekt klímy"
+      "no_devices_found": "Nenašiel sa žiadny subjekt termostatu, uistite sa, že máte v domácom asistentovi subjekt klímy",
+      "already_configured": "Better Thermostat s týmto názvom už ovláda tieto termostaty."
     }
   },
   "options": {

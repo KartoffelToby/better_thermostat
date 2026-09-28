@@ -64,7 +64,8 @@
     },
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
-      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant"
+      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant",
+      "already_configured": "Un Better Thermostat portant ce nom contrôle déjà ces thermostats."
     }
   },
   "options": {

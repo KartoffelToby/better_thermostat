@@ -64,7 +64,8 @@
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
-      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym."
+      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym.",
+      "already_configured": "Better Thermostat o tej nazwie już steruje tymi termostatami."
     }
   },
   "options": {

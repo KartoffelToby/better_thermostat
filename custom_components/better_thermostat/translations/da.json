@@ -64,7 +64,8 @@
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
-      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
+      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant",
+      "already_configured": "En Better Thermostat med dette navn styrer allerede disse termostater."
     }
   },
   "options": {

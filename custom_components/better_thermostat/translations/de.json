@@ -64,7 +64,8 @@
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
-      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist."
+      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist.",
+      "already_configured": "Ein Better Thermostat mit diesem Namen steuert diese Thermostate bereits."
     }
   },
   "options": {
