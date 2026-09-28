@@ -844,6 +844,82 @@ class TestEchoSuppression:
         assert mock_bt.bt_target_cooltemp == 25.0
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("unit", "step", "cool_target", "held", "pressed", "adopted"),
+        [
+            (UnitOfTemperature.CELSIUS, 1.0, 24.3, 24.0, 25.0, 25.0),
+            (UnitOfTemperature.CELSIUS, 1.0, 24.7, 25.0, 24.0, 24.0),
+            (UnitOfTemperature.CELSIUS, 0.5, 24.3, 24.5, 24.0, 24.0),
+            (UnitOfTemperature.CELSIUS, 0.5, 24.1, 24.0, 24.5, 24.5),
+            (UnitOfTemperature.FAHRENHEIT, 1.0, 24.0, 75.0, 76.0, 24.44),
+            (UnitOfTemperature.FAHRENHEIT, 1.0, 24.3, 76.0, 75.0, 23.89),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_press_toward_an_off_grid_cool_target_is_adopted(
+        self, mock_bt, unit, step, cool_target, held, pressed, adopted
+    ):
+        """One step on the cooler toward an off-grid cool target is user input.
+
+        The cooler holds the cool target on its own grid, so a single press
+        from the value it holds toward the target lands less than a step away
+        from the target, on either side of it and in either unit.
+        """
+        mock_bt.hass.config.units.temperature_unit = unit
+        mock_bt.bt_target_cooltemp = cool_target
+        mock_bt._cooler_last_sent = {"temperature": (cool_target, 0.0)}
+        old_state = _make_state(
+            attributes={"temperature": held, "target_temp_step": step}
+        )
+        new_state = _make_state(
+            attributes={"temperature": pressed, "target_temp_step": step}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == pytest.approx(adopted, abs=0.01)
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("unit", "step", "cool_target", "previous", "held"),
+        [
+            (UnitOfTemperature.CELSIUS, 1.0, 24.3, 22.0, 24.0),
+            (UnitOfTemperature.CELSIUS, 1.0, 24.7, 27.0, 25.0),
+            (UnitOfTemperature.CELSIUS, 0.5, 24.3, 22.0, 24.5),
+            (UnitOfTemperature.FAHRENHEIT, 1.0, 24.0, 70.0, 75.0),
+            (UnitOfTemperature.FAHRENHEIT, 1.0, 24.3, 80.0, 76.0),
+        ],
+    )
+    @pytest.mark.parametrize("send_cache_primed", [True, False])
+    @pytest.mark.asyncio
+    async def test_own_off_grid_write_held_on_the_device_grid_is_an_echo(
+        self, mock_bt, unit, step, cool_target, previous, held, send_cache_primed
+    ):
+        """An off-grid cool target the cooler holds on its own grid moves nothing.
+
+        The report of the write can arrive while the service call carrying it
+        is still in flight, before the send cache records it, so the cool
+        target itself stands for that write.
+        """
+        mock_bt.hass.config.units.temperature_unit = unit
+        mock_bt.bt_target_cooltemp = cool_target
+        mock_bt._cooler_last_sent = (
+            {"temperature": (cool_target, 0.0)} if send_cache_primed else None
+        )
+        old_state = _make_state(
+            attributes={"temperature": previous, "target_temp_step": step}
+        )
+        new_state = _make_state(
+            attributes={"temperature": held, "target_temp_step": step}
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == cool_target
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # 7. Unit handling
