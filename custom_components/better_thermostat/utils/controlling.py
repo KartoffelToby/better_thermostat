@@ -71,6 +71,9 @@ WRITE_CONFIRM_TIMEOUT_S = 360
 # it. The setpoint channel's read-back tolerance describes a different
 # comparison, so the offset channel carries its own floor.
 OFFSET_MATCH_TOLERANCE_K = 0.05
+# Pause before re-queueing a cycle in which a TRV reported failure, so a
+# persistently failing device cannot spin the control queue.
+FAILED_CYCLE_BACKOFF_S = 2.0
 
 
 def _is_boost_heating_active(self) -> bool:
@@ -380,7 +383,11 @@ async def control_queue(self):
 
                     # Retry task if some TRVs failed. Discard the task if the queue is full
                     # to avoid blocking and therefore deadlocking this function.
+                    # The backoff sits here rather than in the failing worker:
+                    # a worker holds the TRV lock and would stall the rest of
+                    # the cycle with it.
                     if result is False:
+                        await asyncio.sleep(FAILED_CYCLE_BACKOFF_S)
                         try:
                             self.control_queue_task.put_nowait(self)
                         except asyncio.QueueFull:
@@ -927,7 +934,6 @@ async def control_trv(self, heater_entity_id=None):
                     _remapped_states,
                     heater_entity_id,
                 )
-                await asyncio.sleep(2)
                 return False
 
             _temperature = _remapped_states.get("temperature", None)

@@ -752,20 +752,32 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_available_trv_convert_fails_returns_false(self):
-        """Test that convert failure returns False for available TRV."""
+        """Test that convert failure returns False for available TRV.
+
+        The failing worker must not back off under the TRV lock: every
+        other TRV of the cycle contends for it, so a sleep taken here
+        stalls the whole cycle on the one device that failed.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
         )
 
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
         ):
             mock_convert.return_value = "ERROR"
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is False
+            # No sleep on this path ran while holding the lock.
+            assert not any(lock_held_during_sleep)
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_in_available_path(self):
