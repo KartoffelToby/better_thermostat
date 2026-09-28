@@ -37,10 +37,12 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
     CalibrationMode,
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    HOMEMATICIP_MIN_WRITE_INTERVAL_S,
     MIN_WRITE_INTERVAL_S,
     check_calibration,
     check_target_temperature,
@@ -3579,3 +3581,152 @@ class TestEchoSetpointBookkeeping:
         )
         assert trv.last_temperature == pytest.approx(20.5)
         assert trv.echo_setpoint_values() == [pytest.approx(20.7), pytest.approx(20.5)]
+
+
+# ---------------------------------------------------------------------------
+# HomematicIP write pacing
+# ---------------------------------------------------------------------------
+
+
+def _paced_trv(entity_id, *, homematicip):
+    """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
+    return Trv.from_legacy_dict(
+        entity_id,
+        {
+            "ignore_trv_states": False,
+            "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+            "min_temp": 5.0,
+            "max_temp": 30.0,
+            "temperature": 20.0,
+            "last_temperature": 20.0,
+            "last_hvac_mode": HVACMode.HEAT,
+            "hvac_mode": HVACMode.HEAT,
+            "advanced": {
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationType.TARGET_TEMP_BASED,
+                "no_off_system_mode": False,
+                CONF_HOMEMATICIP: homematicip,
+            },
+        },
+    )
+
+
+class TestHomematicIPWritePacing:
+    """A HomematicIP head is written at its own pace, the others at theirs."""
+
+    PLAIN = "climate.plain"
+    HMIP = "climate.hmip"
+    HMIP_PEER = "climate.hmip_peer"
+
+    @staticmethod
+    def _room(heads):
+        """Return a thermostat driving ``heads`` (entity id -> homematicip)."""
+        real_trvs = {
+            entity_id: _paced_trv(entity_id, homematicip=flag)
+            for entity_id, flag in heads.items()
+        }
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs=real_trvs,
+        )
+        created = []
+
+        def _capture(coro, name=None, **kwargs):
+            created.append((coro, name))
+            return Mock()
+
+        mock_self.task_manager = Mock(create_task=Mock(side_effect=_capture))
+        return mock_self, created
+
+    @staticmethod
+    async def _cycle(mock_self, entity_ids, target, written):
+        """Run one control cycle over ``entity_ids`` asking for ``target``."""
+
+        async def _record(_self, entity_id, value):
+            written.append((entity_id, value))
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], side_effect=_record),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": target,
+                "system_mode": HVACMode.HEAT,
+            }
+            for entity_id in entity_ids:
+                await control_trv(mock_self, entity_id)
+
+    @staticmethod
+    async def _retry_delays(created, entity_id):
+        """Run the budget retries queued for ``entity_id``; return their waits."""
+        delays = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, name in created:
+            if name == f"bt_budget_retry_{entity_id}":
+                with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                    await coro
+            else:
+                coro.close()
+        created.clear()
+        return delays
+
+    @pytest.mark.asyncio
+    async def test_a_mixed_room_paces_only_the_homematicip_head(self):
+        """The plain head follows the normal pace, the HomematicIP head its own.
+
+        A new target half a minute after the last write reaches the plain
+        head at once. The HomematicIP head receives it only once its own
+        interval has passed: the write is deferred, not dropped, and the
+        retry queued for it wakes when the interval opens.
+        """
+        mock_self, created = self._room({self.PLAIN: False, self.HMIP: True})
+        heads = [self.PLAIN, self.HMIP]
+        written = []
+
+        await self._cycle(mock_self, heads, 22.0, written)
+        assert written == [(self.PLAIN, 22.0), (self.HMIP, 22.0)]
+        await self._retry_delays(created, self.HMIP)
+
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+        written.clear()
+        await self._cycle(mock_self, heads, 23.0, written)
+        assert written == [(self.PLAIN, 23.0)]
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [
+            pytest.approx(HOMEMATICIP_MIN_WRITE_INTERVAL_S - MIN_WRITE_INTERVAL_S - 1)
+        ]
+        mock_self.control_queue_task.put_nowait.assert_called()
+
+        mock_self.clock.advance(delays[0])
+        written.clear()
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        assert written == [(self.HMIP, 23.0)]
+
+    @pytest.mark.asyncio
+    async def test_an_all_homematicip_room_is_paced_per_head(self):
+        """Every HomematicIP head waits its own interval between writes."""
+        mock_self, created = self._room({self.HMIP: True, self.HMIP_PEER: True})
+        heads = [self.HMIP, self.HMIP_PEER]
+        written = []
+
+        await self._cycle(mock_self, heads, 22.0, written)
+        mock_self.clock.advance(HOMEMATICIP_MIN_WRITE_INTERVAL_S - 1)
+        await self._cycle(mock_self, heads, 23.0, written)
+        assert written == [(self.HMIP, 22.0), (self.HMIP_PEER, 22.0)]
+
+        mock_self.clock.advance(1)
+        await self._cycle(mock_self, heads, 23.0, written)
+        assert written[2:] == [(self.HMIP, 23.0), (self.HMIP_PEER, 23.0)]
+        await self._retry_delays(created, "")

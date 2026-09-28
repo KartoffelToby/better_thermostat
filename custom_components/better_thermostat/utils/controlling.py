@@ -38,6 +38,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
@@ -78,6 +79,12 @@ _LOGGER = logging.getLogger(__name__)
 # TRVs are battery- and radio-constrained; bursts of writes are a real
 # failure cause. Safety-relevant writes (frost floor, OFF) bypass this.
 MIN_WRITE_INTERVAL_S = 30.0
+# A HomematicIP head shares its access point's 1 % radio duty cycle (36 s of
+# airtime an hour) with every other HomematicIP device in the home, so it is
+# written at most once per ten minutes per channel. That is the pace the room
+# sensor's reading reached such a head at before, and the interval its own
+# internal temperature is read at.
+HOMEMATICIP_MIN_WRITE_INTERVAL_S = 600.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
 # Floor for the commanded-vs-reported offset comparison. One declared offset
@@ -151,9 +158,18 @@ FAILED_CYCLE_BACKOFF_S = 2.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
+def _write_interval_s(trv: Trv) -> float:
+    """Minimum spacing between non-safety writes to this TRV."""
+    if (trv.advanced or {}).get(CONF_HOMEMATICIP):
+        return HOMEMATICIP_MIN_WRITE_INTERVAL_S
+    return MIN_WRITE_INTERVAL_S
+
+
+def _budget_open(
+    last_write: float | None, now_monotonic: float, interval_s: float
+) -> bool:
     """Whether a channel's write-budget slot is free again."""
-    return last_write is None or now_monotonic - last_write >= MIN_WRITE_INTERVAL_S
+    return last_write is None or now_monotonic - last_write >= interval_s
 
 
 # Per-channel write-budget stamp fields on the Trv.
@@ -177,7 +193,7 @@ def _consume_budget(
     stamp_attr = _BUDGET_STAMPS[channel]
     now = self.clock.monotonic()
     last = getattr(trv, stamp_attr)
-    if not bypass and not _budget_open(last, now):
+    if not bypass and not _budget_open(last, now, _write_interval_s(trv)):
         _LOGGER.debug(
             "better_thermostat %s: write budget defers %s write to %s "
             "(%.0fs since last write)",
@@ -200,7 +216,7 @@ def _budget_remaining(self: BetterThermostat, entity_id: str, channel: str) -> f
         # Subtracting a monotonic clock from zero would yield a large
         # negative interval instead.
         return 0.0
-    return MIN_WRITE_INTERVAL_S - (self.clock.monotonic() - last)
+    return _write_interval_s(trv) - (self.clock.monotonic() - last)
 
 
 def _no_off_system_mode(trv: Trv) -> bool:
