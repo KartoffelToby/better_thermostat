@@ -254,6 +254,8 @@ async def trigger_trv_change(
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
+        if not trv.report_unread:
+            trv.state_before_held_report = old_state
         trv.report_unread = True
         return
 
