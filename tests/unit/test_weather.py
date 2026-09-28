@@ -857,7 +857,7 @@ class _Clocks:
         self.wall += timedelta(seconds=seconds)
 
 
-async def _hourly_checks(verdicts, bt, clock_steps=None):
+async def _hourly_checks(verdicts, bt, clock_steps=None, logbook=None):
     """Run one weather check per hour, answering each with the next verdict.
 
     ``clock_steps`` optionally maps a check index to a callable run on the
@@ -867,7 +867,7 @@ async def _hourly_checks(verdicts, bt, clock_steps=None):
     prediction = AsyncMock(side_effect=list(verdicts))
     with (
         patch(f"{WEATHER_MOD}.check_weather_prediction", prediction),
-        patch(LOGBOOK, AsyncMock()),
+        patch(LOGBOOK, logbook or AsyncMock()),
         patch(f"{WEATHER_MOD}.monotonic", lambda: clocks.monotonic_s),
         patch(f"{WEATHER_MOD}.dt_util.now", lambda *_: clocks.wall),
         patch(f"{WEATHER_MOD}.dt_util.utcnow", lambda: clocks.wall),
@@ -914,6 +914,30 @@ class TestForecastOutage:
         await _hourly_checks([None], bt)
 
         assert bt.call_for_heat is True
+
+    @pytest.mark.parametrize(
+        ("verdicts", "call_for_heat"),
+        [
+            pytest.param([False] + [None] * 5, True, id="lasting_outage"),
+            pytest.param([None], False, id="restart_without_a_verdict"),
+        ],
+    )
+    async def test_the_logbook_names_the_missing_forecast_as_the_reason(
+        self, verdicts, call_for_heat
+    ):
+        """Heating resumed without a forecast is not credited to the outdoor air.
+
+        No outdoor temperature was read on this path, so the logbook entry
+        names the missing forecast instead.
+        """
+        bt = make_bt(
+            make_hass(), weather_entity=WEATHER_ID, call_for_heat=call_for_heat
+        )
+        logbook = AsyncMock()
+
+        await _hourly_checks(verdicts, bt, logbook=logbook)
+
+        assert logbook.await_args_list[-1].args[1] == "weather_forecast_missing"
 
     async def test_a_short_outage_keeps_summer_mode(self):
         """An outage within the hold leaves the room resting."""

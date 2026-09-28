@@ -51,6 +51,7 @@ async def check_weather(self) -> bool:
     old_call_for_heat = self.call_for_heat
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
+    _heats_without_verdict = False
 
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
@@ -92,6 +93,7 @@ async def check_weather(self) -> bool:
                 self.weather_fallback_active = True
             if self.weather_fallback_active or not self.weather_verdict_received:
                 self.call_for_heat = True
+                _heats_without_verdict = True
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
@@ -134,6 +136,12 @@ async def check_weather(self) -> bool:
                 self,
                 "summer_mode_on",
                 "turned off because the outdoor temperature is too high",
+            )
+        elif _heats_without_verdict:
+            await async_fire_logbook_entry(
+                self,
+                "weather_forecast_missing",
+                "resumed heating because the weather forecast is unavailable",
             )
         else:
             await async_fire_logbook_entry(
