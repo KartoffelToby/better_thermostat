@@ -117,15 +117,15 @@ def test_box_constraint_bounds_the_whole_horizon(monkeypatch, solver) -> None:
     else:
         monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
         monkeypatch.setattr(qp_optimiser, "_daqp", None)
-        real_descent = qp_optimiser.QpOptimiser._solve_coordinate_descent
+        real_active_set = qp_optimiser.QpOptimiser._solve_active_set
 
-        def _recording_descent(self, *args):
-            result = real_descent(self, *args)
+        def _recording_active_set(self, *args):
+            result = real_active_set(self, *args)
             plans.append(np.asarray(result, dtype=float))
             return result
 
         monkeypatch.setattr(
-            qp_optimiser.QpOptimiser, "_solve_coordinate_descent", _recording_descent
+            qp_optimiser.QpOptimiser, "_solve_active_set", _recording_active_set
         )
 
     plant = PlantModelRC2(PlantParams(), dt_s=300.0)
@@ -202,3 +202,77 @@ def test_numpy_fallback_obeys_constraints(monkeypatch) -> None:
     u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.0)
     assert 0.0 <= u <= 0.05 + 1e-6
     assert u > 0.0
+
+
+# Operating states drawn per spread: (e_integral, outdoor, setpoint offset
+# range of the room, radiator above room, disturbance) bounds. "extreme"
+# covers every room the controller can meet, including setpoints far out of
+# reach and a radiator at supply-water temperature.
+_STATE_SPREADS = {
+    "realistic": ((-5, 5), (-5, 12), (-0.5, 0.3), (2, 20), 0.01),
+    "wide": ((-60, 60), (-15, 18), (-3, 2), (0, 40), 0.05),
+    "extreme": ((-60, 60), (-25, 25), (-8, 5), (-2, 60), 0.2),
+}
+
+
+@pytest.mark.parametrize("spread", list(_STATE_SPREADS))
+def test_portable_solver_commands_the_valve_daqp_commands(
+    monkeypatch, spread: str
+) -> None:
+    """Without daqp the valve command equals daqp's to 0.01 percentage point.
+
+    Both solve the same convex QP, whose optimum is unique; the states cover
+    tight and loose rate limits, a capped valve and every plant speed.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
+        pytest.skip("the daqp solver is not installed")
+    integral, outdoor, room_offset, radiator_above, disturbance = _STATE_SPREADS[spread]
+    rng = np.random.default_rng(42)
+    worst = 0.0
+    for _ in range(300):
+        tau = float(rng.uniform(60.0, 1500.0))
+        plant = PlantModelRC2(
+            PlantParams(tau_room_min=tau), dt_s=float(rng.uniform(60.0, 600.0))
+        )
+        opt = QpOptimiser(
+            plant,
+            QpParams(
+                delta_u_max=float(rng.choice([0.05, 0.2, 0.45, 1.0])),
+                u_max=float(rng.choice([0.3, 1.0])),
+            ),
+        )
+        opt.e_integral_K_min = float(rng.uniform(*integral))
+        t_sp = float(rng.uniform(5.0, 30.0))
+        t_room = t_sp + float(rng.uniform(*room_offset))
+        x = np.array([t_room, t_room + float(rng.uniform(*radiator_above))])
+        args = (
+            x,
+            t_sp,
+            float(rng.uniform(*outdoor)),
+            float(rng.uniform(0.0, 1.0)),
+            float(rng.uniform(-disturbance, disturbance)),
+        )
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", True)
+        with_daqp = opt.solve(*args)
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+        portable = opt.solve(*args)
+        worst = max(worst, abs(with_daqp - portable))
+    assert worst <= 1e-4, f"{100 * worst:.3f} percentage points apart"
+
+
+def test_portable_solver_holds_the_valve_on_a_non_finite_objective(monkeypatch) -> None:
+    """A NaN in the plant state keeps the last command instead of a rail."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    opt = _make_optimiser(delta_u_max=0.45)
+    u = opt.solve(
+        np.array([float("nan"), 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.4
+    )
+    assert u == pytest.approx(0.4)
