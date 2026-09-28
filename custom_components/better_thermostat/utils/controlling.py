@@ -862,7 +862,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
 
 
 def _locked_device_moved(
-    self: BetterThermostat, entity_id: str, trv: Trv, state: State
+    self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
 ) -> bool:
     """Return whether a child-locked TRV holds a setpoint or mode it was not sent.
 
@@ -873,7 +873,7 @@ def _locked_device_moved(
     setpoint report that lags a write shows a value the device was sent
     before.
     """
-    if not (trv.advanced or {}).get("child_lock"):
+    if state is None or not (trv.advanced or {}).get("child_lock"):
         return False
     if (
         trv.system_mode_received
