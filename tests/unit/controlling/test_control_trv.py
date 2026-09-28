@@ -3651,7 +3651,7 @@ class TestHomematicIPWritePacing:
             patch(
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["set_temperature"], side_effect=_record),
+            patch(_PATCHES["set_temperature"], autospec=True, side_effect=_record),
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
             ),

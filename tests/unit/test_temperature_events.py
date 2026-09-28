@@ -713,6 +713,32 @@ class TestPlateauLogic:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_plateau_timer_inside_the_sensor_interval_applies_nothing(
+        self, mock_bt
+    ):
+        """A plateau timer firing right after an accepted reading waits.
+
+        The timer re-checks the sensor's debounce interval when it fires, so
+        a reading accepted in the meantime is not followed at once by the
+        pending value.
+        """
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
+        event = _make_event(State(SENSOR_ID, "20.05"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ) as mock_timer:
+            await trigger_temperature_change(mock_bt, event)
+        plateau_callback = mock_timer.call_args.args[2]
+        mock_bt.last_external_sensor_change = dt_util.now()
+
+        await plateau_callback(dt_util.now())
+
+        assert mock_bt.cur_temp == 20.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_sub_threshold_accumulated_to_significant(self, mock_bt):
         """Accept via accumulation when small deltas sum above the threshold."""
         mock_bt.cur_temp = 20.0
