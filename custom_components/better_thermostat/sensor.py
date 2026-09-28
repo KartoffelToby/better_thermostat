@@ -227,10 +227,10 @@ def _adopt_shared_mpc_v2_registry_entries(
 ) -> None:
     """Move MPC v2 registry entries off the unique_ids MPC v1 sensors carry.
 
-    MPC v2 sensors used to be registered under the MPC v1 unique_ids. An entry
-    still held there under an MPC v2 translation key belongs to the MPC v2
-    sensor and moves to its own unique_id, keeping its entity_id and history.
-    An entry under an MPC v1 translation key stays where it is.
+    A registry entry under an MPC v1 unique_id that carries an MPC v2
+    translation key belongs to the MPC v2 sensor and moves to that sensor's
+    unique_id, keeping its entity_id and history. An entry under an MPC v1
+    translation key stays where it is.
     """
     registry = async_get_entity_registry(hass)
     for sensor in sensors:
