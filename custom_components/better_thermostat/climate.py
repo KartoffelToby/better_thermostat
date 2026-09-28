@@ -1628,6 +1628,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.debug(
             "better_thermostat %s: async_get_last_state returned", self.device_name
         )
+        # A missing heating target falls back to the heads' setpoints; the
+        # cooler's setpoint belongs to the cooling channel.
+        head_states = [state for state in states if state.entity_id in self.real_trvs]
         if old_state is not None:
             _LOGGER.debug("better_thermostat %s: restoring state...", self.device_name)
             # Restore external_temp_ema if available (overwrites startup init)
@@ -1666,14 +1669,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Clamp the saved target, or fall back to the TRV mean.
             _restored_target = restore_target_temperature(
                 saved_heating_target(old_state.attributes),
-                states,
+                head_states,
                 self.bt_min_temp,
                 self.bt_max_temp,
                 self.device_name,
                 self.hass.config.units.temperature_unit,
             )
-            if _restored_target is not None:
-                self.bt_target_temp = _restored_target
+            self.bt_target_temp = self._bound_target_to_range(
+                DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
+            )
             _LOGGER.debug(
                 "better_thermostat %s: target temperature restored", self.device_name
             )
@@ -1897,20 +1901,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: no previous state, restoring defaults...",
                 self.device_name,
             )
-            if self.bt_target_temp is None or not isinstance(
-                self.bt_target_temp, float
-            ):
-                _LOGGER.info(
-                    "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
-                    self.device_name,
-                )
-                _restored_target = mean_trv_target(
-                    states,
-                    self.device_name,
-                    system_unit=self.hass.config.units.temperature_unit,
-                )
-                if _restored_target is not None:
-                    self.bt_target_temp = _restored_target
+            _LOGGER.info(
+                "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
+                self.device_name,
+            )
+            _restored_target = mean_trv_target(
+                head_states,
+                self.device_name,
+                system_unit=self.hass.config.units.temperature_unit,
+            )
+            self.bt_target_temp = self._bound_target_to_range(
+                DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
+            )
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
