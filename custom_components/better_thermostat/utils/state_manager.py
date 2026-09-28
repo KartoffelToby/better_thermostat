@@ -39,6 +39,7 @@ import math
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 
 from .calibration.mpc import MpcState
@@ -80,6 +81,18 @@ class MpcV2StateData:
 _LOGGER = logging.getLogger(__name__)
 
 CURRENT_VERSION = 1
+
+# Container version of the file an unreadable store is set aside in. The
+# payload is kept verbatim and only read back to confirm the copy, so this
+# version stays put when ``CURRENT_VERSION`` moves and no migration ever
+# rewrites a set-aside copy.
+QUARANTINE_VERSION = 1
+
+# How many distinct unreadable payloads one config entry keeps copies of.
+# The first copy holds the state from before anything went wrong and the
+# newest the latest learning; one more keeps the step between them. A
+# store that keeps turning unreadable does not fill the disk with copies.
+QUARANTINE_COPIES = 3
 
 # State dataclasses (only those NOT owned by a controller module)
 
@@ -172,13 +185,18 @@ def _finite_float(value: Any) -> float:
     return number
 
 
-def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
+def _report_unreadable_field(
+    attr: str, kind: str, key: str | None, dropped: list[str] | None
+) -> None:
     """Name a stored field that keeps its default because it cannot be read.
 
     Past the load path the field carries the default a first start leaves
     there, and a value the store lost looks exactly like one it never
-    held, so this is the only place that can still say so.
+    held, so this is the only place that can still say so. The field is
+    also added to *dropped* when the caller collects them.
     """
+    if dropped is not None:
+        dropped.append(f"{kind}.{key}.{attr}")
     _LOGGER.warning(
         "better_thermostat: stored %s state for %s has an unusable %s, "
         "continuing without it",
@@ -189,7 +207,9 @@ def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
     )
 
 
-def deserialize_mpc(raw: dict[str, Any], *, key: str | None = None) -> MpcState:
+def deserialize_mpc(
+    raw: dict[str, Any], *, key: str | None = None, dropped: list[str] | None = None
+) -> MpcState:
     """Deserialize a single MPC state dict into an MpcState dataclass.
 
     Parameters
@@ -199,6 +219,8 @@ def deserialize_mpc(raw: dict[str, Any], *, key: str | None = None) -> MpcState:
     key : str | None
         names the state entry, so a report about a value that cannot be read
         can point at the room rather than at nothing
+    dropped : list[str] | None
+        collects the fields left at their default because they cannot be read
     """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
@@ -225,13 +247,13 @@ def deserialize_mpc(raw: dict[str, Any], *, key: str | None = None) -> MpcState:
             else:
                 setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "mpc", key)
+            _report_unreadable_field(attr, "mpc", key, dropped)
             continue
     return state
 
 
 def deserialize_mpc_v2(
-    raw: dict[str, Any], *, key: str | None = None
+    raw: dict[str, Any], *, key: str | None = None, dropped: list[str] | None = None
 ) -> MpcV2StateData:
     """Deserialize a single MPC v2 state dict into MpcV2StateData.
 
@@ -242,6 +264,8 @@ def deserialize_mpc_v2(
     key : str | None
         names the state entry, so a report about a value that cannot be read
         can point at the room rather than at nothing
+    dropped : list[str] | None
+        collects the fields left at their default because they cannot be read
     """
     state = MpcV2StateData()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
@@ -251,7 +275,7 @@ def deserialize_mpc_v2(
         try:
             setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "mpc_v2", key)
+            _report_unreadable_field(attr, "mpc_v2", key, dropped)
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -260,7 +284,9 @@ def deserialize_mpc_v2(
     return state
 
 
-def deserialize_pid(raw: dict[str, Any], *, key: str | None = None) -> PIDState:
+def deserialize_pid(
+    raw: dict[str, Any], *, key: str | None = None, dropped: list[str] | None = None
+) -> PIDState:
     """Deserialize a single PID state dict into a PIDState dataclass.
 
     Parameters
@@ -270,6 +296,8 @@ def deserialize_pid(raw: dict[str, Any], *, key: str | None = None) -> PIDState:
     key : str | None
         names the state entry, so a report about a value that cannot be read
         can point at the room rather than at nothing
+    dropped : list[str] | None
+        collects the fields left at their default because they cannot be read
     """
     state = PIDState()
     for attr in PIDState.__dataclass_fields__:
@@ -287,12 +315,14 @@ def deserialize_pid(raw: dict[str, Any], *, key: str | None = None) -> PIDState:
             else:
                 setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "pid", key)
+            _report_unreadable_field(attr, "pid", key, dropped)
             continue
     return state
 
 
-def deserialize_tpi(raw: dict[str, Any], *, key: str | None = None) -> TpiState:
+def deserialize_tpi(
+    raw: dict[str, Any], *, key: str | None = None, dropped: list[str] | None = None
+) -> TpiState:
     """Deserialize a single TPI state dict into a TpiState dataclass.
 
     Parameters
@@ -302,6 +332,8 @@ def deserialize_tpi(raw: dict[str, Any], *, key: str | None = None) -> TpiState:
     key : str | None
         names the state entry, so a report about a value that cannot be read
         can point at the room rather than at nothing
+    dropped : list[str] | None
+        collects the fields left at their default because they cannot be read
     """
     state = TpiState()
     for attr in TpiState.__dataclass_fields__:
@@ -314,20 +346,24 @@ def deserialize_tpi(raw: dict[str, Any], *, key: str | None = None) -> TpiState:
         try:
             setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "tpi", key)
+            _report_unreadable_field(attr, "tpi", key, dropped)
             continue
     return state
 
 
-def _stored_section(raw: dict[str, Any], section: str) -> Mapping[str, Any] | None:
+def _stored_section(
+    raw: dict[str, Any], section: str, dropped: list[str]
+) -> Mapping[str, Any] | None:
     """Return one section of the store, or ``None`` when it has none.
 
-    A section of any other shape than a mapping is dropped and named: past
-    the load path its entries start from defaults, like on a first start.
+    A section of any other shape than a mapping is dropped, named and added
+    to *dropped*: past the load path its entries start from defaults, like
+    on a first start.
     """
     value = raw.get(section, {})
     if isinstance(value, Mapping):
         return value
+    dropped.append(section)
     _LOGGER.warning(
         "better_thermostat: stored %s section is not a mapping; its entries "
         "start from defaults",
@@ -337,17 +373,19 @@ def _stored_section(raw: dict[str, Any], section: str) -> Mapping[str, Any] | No
 
 
 def _stored_entries(
-    raw: dict[str, Any], section: str
+    raw: dict[str, Any], section: str, dropped: list[str]
 ) -> list[tuple[str, dict[str, Any]]]:
     """Return the entries of one keyed section that are mappings.
 
-    An entry of any other shape is dropped and named with its key.
+    An entry of any other shape is dropped, named with its key and added
+    to *dropped*.
     """
     entries: list[tuple[str, dict[str, Any]]] = []
-    for key, entry in (_stored_section(raw, section) or {}).items():
+    for key, entry in (_stored_section(raw, section, dropped) or {}).items():
         if isinstance(entry, dict):
             entries.append((key, entry))
             continue
+        dropped.append(f"{section}.{key}")
         _LOGGER.warning(
             "better_thermostat: stored %s entry for %s is not a mapping; "
             "it starts from defaults",
@@ -358,14 +396,14 @@ def _stored_entries(
 
 
 def _stored_optional_number(
-    values: Mapping[str, Any], section: str, attr: str
+    values: Mapping[str, Any], section: str, attr: str, dropped: list[str]
 ) -> float | None:
     """Return one optional number of an unkeyed section, naming an unusable one.
 
     A missing value and a stored null are a value never learned and pass
     as ``None`` silently. Anything else that is not a finite number is
-    dropped as well, and named, since past the load path it looks like one
-    never learned.
+    dropped as well, named and added to *dropped*, since past the load path
+    it looks like one never learned.
     """
     value = values.get(attr)
     if value is None:
@@ -373,6 +411,7 @@ def _stored_optional_number(
     try:
         return _finite_float(value)
     except TypeError, ValueError, OverflowError:
+        dropped.append(f"{section}.{attr}")
         _LOGGER.warning(
             "better_thermostat: stored %s section has an unusable %s, "
             "continuing without it",
@@ -382,41 +421,70 @@ def _stored_optional_number(
         return None
 
 
-def _deserialize(raw: dict[str, Any]) -> RuntimeState:
-    """Reconstruct a RuntimeState from a raw dict (loaded from Store)."""
+def _deserialize(
+    raw: dict[str, Any], *, dropped: list[str] | None = None
+) -> RuntimeState:
+    """Reconstruct a RuntimeState from a raw dict (loaded from Store).
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored payload
+    dropped : list[str] | None
+        collects every value, entry and section the load leaves out
+    """
+    if dropped is None:
+        dropped = []
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
 
-    for key, entry in _stored_entries(raw, "mpc"):
-        state.mpc[key] = deserialize_mpc(entry, key=key)
+    for key, entry in _stored_entries(raw, "mpc", dropped):
+        state.mpc[key] = deserialize_mpc(entry, key=key, dropped=dropped)
 
-    for key, entry in _stored_entries(raw, "mpc_v2"):
-        state.mpc_v2[key] = deserialize_mpc_v2(entry, key=key)
+    for key, entry in _stored_entries(raw, "mpc_v2", dropped):
+        state.mpc_v2[key] = deserialize_mpc_v2(entry, key=key, dropped=dropped)
 
-    for key, entry in _stored_entries(raw, "pid"):
-        state.pid[key] = deserialize_pid(entry, key=key)
+    for key, entry in _stored_entries(raw, "pid", dropped):
+        state.pid[key] = deserialize_pid(entry, key=key, dropped=dropped)
 
-    for key, entry in _stored_entries(raw, "tpi"):
-        state.tpi[key] = deserialize_tpi(entry, key=key)
+    for key, entry in _stored_entries(raw, "tpi", dropped):
+        state.tpi[key] = deserialize_tpi(entry, key=key, dropped=dropped)
 
-    thermal_raw = _stored_section(raw, "thermal")
+    thermal_raw = _stored_section(raw, "thermal", dropped)
     if thermal_raw is not None:
         state.thermal = ThermalStats(
             heating_power=_stored_optional_number(
-                thermal_raw, "thermal", "heating_power"
+                thermal_raw, "thermal", "heating_power", dropped
             ),
             heat_loss_rate=_stored_optional_number(
-                thermal_raw, "thermal", "heat_loss_rate"
+                thermal_raw, "thermal", "heat_loss_rate", dropped
             ),
         )
 
-    presets_raw = _stored_section(raw, "presets")
+    presets_raw = _stored_section(raw, "presets", dropped)
     if presets_raw is not None:
         for name in presets_raw:
-            number = _stored_optional_number(presets_raw, "presets", name)
+            number = _stored_optional_number(presets_raw, "presets", name, dropped)
             if number is not None:
                 state.presets[str(name)] = number
 
     return state
+
+
+def _store_key(entry_id: str) -> str:
+    """Return the Store key holding one config entry's runtime state."""
+    return f"{DOMAIN}_{entry_id}_state"
+
+
+def _quarantine_key(entry_id: str, copy: int = 0) -> str:
+    """Return the Store key one copy of an unreadable runtime state is kept under.
+
+    The suffix matches the one Home Assistant's own Store appends when it
+    finds a storage file it cannot parse, so both kinds of damaged file sit
+    next to each other under recognizable names. The first copy has no
+    number, and each later one of the :data:`QUARANTINE_COPIES` is numbered.
+    """
+    key = f"{_store_key(entry_id)}.corrupt"
+    return key if copy == 0 else f"{key}.{copy}"
 
 
 # Migration
@@ -454,14 +522,19 @@ class StateManager:
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         self._store: Store[dict[str, Any]] = Store(
-            hass, CURRENT_VERSION, f"{DOMAIN}_{entry_id}_state"
+            hass, CURRENT_VERSION, _store_key(entry_id)
         )
+        self._hass = hass
         self._entry_id = entry_id
         self._state = RuntimeState()
         # Live MPC v2 controllers, held in memory across cycles. The persisted
         # ``_state.mpc_v2`` snapshots are folded in only at save time.
         self._mpc_v2_live: dict[str, MpcV2State] = {}
         self._dirty = False
+        # A payload load() could not read in full and could not set aside
+        # either. The live store holds its only copy, so nothing is written
+        # over it until the copy exists.
+        self._payload_awaiting_copy: dict[str, Any] | None = None
 
     # -- Public properties ---------------------------------------------------
 
@@ -641,6 +714,82 @@ class StateManager:
 
     # -- Load / Save ---------------------------------------------------------
 
+    async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
+        """Set an unreadable store aside before defaults take its place.
+
+        That covers a store that cannot be read at all and one with values,
+        entries or sections the load dropped. The defaults this entity falls
+        back to are written over the live store on its next save, so without
+        a copy the only record of what a user's installation had learned is
+        gone.
+
+        Every distinct payload gets a copy of its own: one read after an
+        earlier copy was taken holds what was learned since. A payload
+        already kept adds none. With all :data:`QUARANTINE_COPIES` taken,
+        the current payload replaces the newest copy, the one nearest to it
+        in time, and the older ones stay. The copy counts once it loads
+        back from disk as the payload; until then, the payload is held so
+        that no save overwrites the live store before a later attempt
+        succeeds.
+
+        Parameters
+        ----------
+        raw : dict[str, Any]
+            The store payload that could not be deserialized in full.
+        """
+        key = _quarantine_key(self._entry_id, QUARANTINE_COPIES - 1)
+        try:
+            free: str | None = None
+            for copy in range(QUARANTINE_COPIES):
+                copy_key = _quarantine_key(self._entry_id, copy)
+                kept: Store[dict[str, Any]] = Store(
+                    self._hass, QUARANTINE_VERSION, copy_key
+                )
+                stored = await kept.async_load()
+                if stored == raw:
+                    self._payload_awaiting_copy = None
+                    return
+                if stored is None and free is None:
+                    free = copy_key
+            key = free or key
+            # Written atomically: replacing the newest copy must not leave it
+            # half-written when the write fails.
+            quarantine: Store[dict[str, Any]] = Store(
+                self._hass, QUARANTINE_VERSION, key, atomic_writes=True
+            )
+            await quarantine.async_save(raw)
+            # ``async_save`` returns normally when the write fails, and while
+            # Home Assistant stops it only queues the write for the final
+            # write. A second Store holds no queued data, so what it loads
+            # is what reached the disk.
+            on_disk: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
+            written = await on_disk.async_load()
+        except HomeAssistantError, OSError:
+            _LOGGER.warning(
+                "better_thermostat [%s]: could not set the unreadable state "
+                "aside as %s; the stored state is kept unchanged until it is",
+                self._entry_id,
+                key,
+                exc_info=True,
+            )
+            self._payload_awaiting_copy = raw
+            return
+        if written != raw:
+            _LOGGER.warning(
+                "better_thermostat [%s]: the unreadable state did not reach %s; "
+                "the stored state is kept unchanged until it does",
+                self._entry_id,
+                key,
+            )
+            self._payload_awaiting_copy = raw
+            return
+        self._payload_awaiting_copy = None
+        _LOGGER.warning(
+            "better_thermostat [%s]: unreadable state kept as %s for recovery",
+            self._entry_id,
+            key,
+        )
+
     async def load(self) -> None:
         """Load state from HA Store.  Applies migrations if needed."""
         raw = await self._store.async_load()
@@ -654,20 +803,27 @@ class StateManager:
         # A store that breaks deserialization yields defaults, not a
         # crash: load() runs inside the entity's startup task, and
         # relearning replaces anything a poisoned store could offer.
+        dropped: list[str] = []
         try:
             version = raw.get("version", 0)
             if version < 1:
                 raw = _migrate_v0_to_v1(raw)
-            self._state = _deserialize(raw)
+            self._state = _deserialize(raw, dropped=dropped)
         except Exception:
             _LOGGER.warning(
                 "better_thermostat [%s]: persisted state is unreadable, starting fresh",
                 self._entry_id,
                 exc_info=True,
             )
+            await self._quarantine_unreadable_state(raw)
             self._state = RuntimeState()
             self._dirty = False
             return
+        if dropped:
+            # The defaults of what was dropped replace the stored values on
+            # the next save, so the payload is kept aside like an unreadable
+            # store.
+            await self._quarantine_unreadable_state(raw)
         self._dirty = False
         _LOGGER.debug(
             "better_thermostat [%s]: Loaded state v%d (%d mpc, %d pid, %d tpi keys)",
@@ -679,7 +835,17 @@ class StateManager:
         )
 
     async def save(self) -> None:
-        """Persist current state to HA Store unconditionally."""
+        """Persist current state to HA Store.
+
+        The one exception is a stored payload that load() could not read in
+        full and could not set aside: the copy is attempted again first,
+        and while it fails the live store keeps that payload and the state
+        stays unsaved.
+        """
+        if self._payload_awaiting_copy is not None:
+            await self._quarantine_unreadable_state(self._payload_awaiting_copy)
+            if self._payload_awaiting_copy is not None:
+                return
         self._sync_mpc_v2_live()
         data = _serialize(self._state)
         await self._store.async_save(data)
