@@ -3,12 +3,14 @@
 A thermostat that starts without a saved target, on a fresh install or from
 a stored state that carries no target, takes over the setpoint its heads
 already hold, bounded into the range it can publish. The fallback default is
-only for heads that report no setpoint at all. A separate cooler is not a
-head of the room: its cooling setpoint says nothing about the heating target.
+only for heads that report no setpoint at all. A head that is off holds its
+off or frost setpoint, not a room target, and a separate cooler is not a head
+of the room: neither setpoint says anything about the heating target.
 """
 
 from dataclasses import replace
 
+from homeassistant.components.climate import HVACMode
 from homeassistant.core import State
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
@@ -24,7 +26,13 @@ from .conftest import (
     setup_entry,
     wait_for_startup,
 )
-from .device_profiles import FAHRENHEIT_TRV, GENERIC_HEAT_TRV, SEPARATE_COOLER
+from .device_profiles import (
+    FAHRENHEIT_TRV,
+    GENERIC_HEAT_TRV,
+    GROUP_OF_THREE,
+    SEPARATE_COOLER,
+    GroupScenario,
+)
 
 # Each start is run twice: from nothing, and from a stored state that
 # carries no target, as a thermostat saved while it was unavailable does.
@@ -107,5 +115,50 @@ async def test_heads_without_a_setpoint_get_the_default_inside_the_range(
     profile = replace(GENERIC_HEAT_TRV, min_temp=min_temp, target_temperature=None)
 
     bt = await _start(hass, profile, stored, profile)
+
+    assert bt.bt_target_temp == expected
+
+
+def _group(*heads: tuple[HVACMode, float | None]) -> GroupScenario:
+    """The three-head group with each head on the given mode and setpoint."""
+    return GroupScenario(
+        name="heads",
+        profiles=tuple(
+            replace(profile, hvac_mode=mode, target_temperature=setpoint)
+            for profile, (mode, setpoint) in zip(
+                GROUP_OF_THREE.profiles, heads, strict=True
+            )
+        ),
+    )
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+@pytest.mark.parametrize(
+    ("heads", "expected"),
+    [
+        pytest.param(
+            ((HVACMode.OFF, 5.0), (HVACMode.HEAT, 22.0), (HVACMode.HEAT, None)),
+            22.0,
+            id="one-head-off",
+        ),
+        pytest.param(
+            ((HVACMode.OFF, 5.0), (HVACMode.HEAT, 22.0), (HVACMode.HEAT, 20.0)),
+            21.0,
+            id="mean-of-the-heating-heads",
+        ),
+        pytest.param(
+            ((HVACMode.OFF, 12.0), (HVACMode.OFF, 14.0), (HVACMode.OFF, None)),
+            DEFAULT_TARGET_TEMP,
+            id="every-head-off",
+        ),
+    ],
+)
+async def test_a_head_that_is_off_does_not_set_the_room_target(
+    hass, heads, expected, stored
+):
+    """Only heads that are on carry a room target; with none on, the default."""
+    group = _group(*heads)
+
+    bt = await _start(hass, group, stored, *group.profiles)
 
     assert bt.bt_target_temp == expected
