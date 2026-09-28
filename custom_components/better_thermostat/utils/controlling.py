@@ -45,10 +45,12 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     cooling_owns_dual_role_device,
     device_offers_mode,
+    device_setpoint_step,
     dual_role_entity_id,
     get_current_set_temperatures,
     matches_any_setpoint,
     read_setpoint_celsius,
+    round_by_step,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -575,6 +577,40 @@ def _calibration_match_tolerance(self, entity_id) -> float:
     return max(OFFSET_MATCH_TOLERANCE_K, step + 1e-6)
 
 
+def _on_cooler_grid(self, cooler_state, value):
+    """Return a cooler setpoint in °C as it lies on the cooler's own grid.
+
+    The cooler publishes its step in the system unit, so a Fahrenheit value is
+    rounded in Fahrenheit and brought back; the payload's conversion then
+    lands on that grid point again. A cooler that publishes no usable step is
+    rounded onto the step its reports are compared with.
+    """
+    if value is None:
+        return None
+    step = convert_to_float(
+        str(cooler_state.attributes.get("target_temp_step")),
+        self.device_name,
+        "control_cooler()",
+    )
+    if step is None or step <= 0:
+        return round_by_step(
+            value, device_setpoint_step(self, cooler_state, "control_cooler()")
+        )
+    if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+        on_grid = round_by_step(
+            TemperatureConverter.convert(
+                value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
+            step,
+        )
+        if on_grid is None:
+            return None
+        return TemperatureConverter.convert(
+            on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    return round_by_step(value, step)
+
+
 async def control_cooler(self):
     """Control the cooler entity based on current temperature and cooling setpoint.
 
@@ -621,8 +657,11 @@ async def control_cooler(self):
     min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()
 
-    # Determine desired state based on current conditions
-    desired_temp = self.bt_target_cooltemp
+    # Determine desired state based on current conditions. The cooler holds
+    # setpoints on its own grid only, so the command is the cooling target
+    # rounded once onto that grid; every comparison below and the send cache
+    # work with the value the device is actually sent.
+    desired_temp = _on_cooler_grid(self, cooler_state, self.bt_target_cooltemp)
 
     # A range write needs both bounds, and Home Assistant rejects a low bound
     # above the high one. The heating target is the natural lower bound; it can
@@ -634,7 +673,10 @@ async def control_cooler(self):
         and desired_temp is not None
         and isinstance(self.bt_target_temp, (int, float))
     ):
-        _low_to_set = min(float(self.bt_target_temp), desired_temp)
+        _low_to_set = min(
+            _on_cooler_grid(self, cooler_state, float(self.bt_target_temp)),
+            desired_temp,
+        )
 
     if any(
         v is None
@@ -874,8 +916,15 @@ async def control_cooler(self):
             }
         else:
             _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
-        # Only prime the send-cache on success. A failed call must not look like
-        # a completed send, otherwise the nil-guard would suppress the retry.
+        # The device can report the write back while the call is still in
+        # flight, so the value is recorded as sent before the call goes out.
+        # A failed call must not look like a completed send, otherwise the
+        # nil-guard would suppress the retry, so a failure puts the previous
+        # record back.
+        _previous_send = (self.last_sent_cooler_temp, self.last_sent_cooler_temp_ts)
+        self.last_sent_cooler_temp = desired_temp
+        self.last_sent_cooler_temp_ts = now_ts
+        _sent = False
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -884,6 +933,7 @@ async def control_cooler(self):
                 blocking=True,
                 context=self.context,
             )
+            _sent = True
         except HomeAssistantError as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
@@ -892,9 +942,11 @@ async def control_cooler(self):
                 self.cooler_entity_id,
                 err,
             )
-        else:
-            self.last_sent_cooler_temp = desired_temp
-            self.last_sent_cooler_temp_ts = now_ts
+        finally:
+            if not _sent:
+                self.last_sent_cooler_temp, self.last_sent_cooler_temp_ts = (
+                    _previous_send
+                )
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.

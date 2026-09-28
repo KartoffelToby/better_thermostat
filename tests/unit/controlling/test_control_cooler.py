@@ -1127,7 +1127,8 @@ class TestControlCoolerFahrenheit:
             for c in mock_hass.services.async_call.call_args_list
             if c.args[1] == "set_temperature"
         )
-        assert payload == {"entity_id": "climate.cooler", "temperature": 71.6}
+        # 22.0 °C is 71.6 °F; the device holds the nearest point of its grid.
+        assert payload == {"entity_id": "climate.cooler", "temperature": 72.0}
 
 
 _ATTRIBUTE_ABSENT = object()
