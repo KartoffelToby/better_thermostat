@@ -65,7 +65,8 @@
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
       "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist.",
-      "already_configured": "Ein Better Thermostat mit diesem Namen steuert diese Thermostate bereits."
+      "already_configured": "Ein Better Thermostat mit diesem Namen steuert diese Thermostate bereits.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören; entferne es zuerst dort."
     }
   },
   "options": {
@@ -125,7 +126,8 @@
     "error": {
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
-      "no_sensor": "Bitte einen Raumtemperatursensor auswählen."
+      "no_sensor": "Bitte einen Raumtemperatursensor auswählen.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören."
     }
   },
   "issues": {
@@ -155,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ungültige Außentemperatur",
       "description": "Der externe Temperatursensor für Better Thermostat {name} hat einen unplausiblen Wert gemeldet: {value}.\n\nDer Messwert lag außerhalb des plausiblen Bereichs und wurde ignoriert. Bitte überprüfen Sie Ihre Temperatursensor-Konfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} wird von mehr als einem Better Thermostat gesteuert",
+      "description": "Das Thermostat {trv} gehört zu diesen Better Thermostats: {entries}. Sie schreiben konkurrierende Solltemperaturen und Modi darauf. Entferne es in den Einstellungen aus allen bis auf eines; danach verschwindet dieser Hinweis von selbst."
     }
   },
   "services": {

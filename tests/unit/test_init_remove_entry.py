@@ -42,12 +42,15 @@ def _make_entry(**overrides):
 def _make_hass():
     """Return a Home Assistant double whose ``data`` is a real mapping.
 
-    ``async_remove_entry`` reads ``hass.data`` synchronously. An AsyncMock
-    answers every attribute with a coroutine, so the shared store has to be a
-    real dict for the removal to reach what is in it.
+    ``async_remove_entry`` reads ``hass.data`` and the config entries
+    synchronously. An AsyncMock answers every attribute with a coroutine, so
+    both have to be real for the removal to reach what is in them.
     """
     hass = AsyncMock()
     hass.data = {}
+    # The removal asks which other entries control the same thermostats.
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries.return_value = []
     return hass
 
 

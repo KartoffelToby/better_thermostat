@@ -65,7 +65,8 @@
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
       "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant",
-      "already_configured": "En Better Thermostat med dette navn styrer allerede disse termostater."
+      "already_configured": "En Better Thermostat med dette navn styrer allerede disse termostater.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat; fjern den der først."
     }
   },
   "options": {
@@ -125,7 +126,8 @@
     "error": {
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
-      "no_sensor": "Vælg venligst en rumtemperatursensor."
+      "no_sensor": "Vælg venligst en rumtemperatursensor.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat."
     }
   },
   "issues": {
@@ -155,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ugyldig ekstern temperatur",
       "description": "Den eksterne temperaturføler for Better Thermostat {name} rapporterede en usandsynlig værdi: {value}.\n\nAflæsningen lå uden for det sandsynlige interval og blev ignoreret. Kontroller din temperaturfølerkonfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} styres af mere end én Better Thermostat",
+      "description": "Termostaten {trv} hører til disse Better Thermostats: {entries}. De skriver konkurrerende måltemperaturer og tilstande til den. Fjern den fra alle undtagen én i deres indstillinger; denne meddelelse forsvinder derefter af sig selv."
     }
   },
   "services": {

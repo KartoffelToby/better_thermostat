@@ -65,7 +65,8 @@
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
       "no_devices_found": "Nenašiel sa žiadny subjekt termostatu, uistite sa, že máte v domácom asistentovi subjekt klímy",
-      "already_configured": "Better Thermostat s týmto názvom už ovláda tieto termostaty."
+      "already_configured": "Better Thermostat s týmto názvom už ovláda tieto termostaty.",
+      "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat; najprv ho odstráňte tam."
     }
   },
   "options": {
@@ -125,7 +126,8 @@
     "error": {
       "no_heater": "Vyberte prosím aspoň jeden skutočný termostat.",
       "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
-      "no_sensor": "Vyberte snímač izbovej teploty."
+      "no_sensor": "Vyberte snímač izbovej teploty.",
+      "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat."
     }
   },
   "issues": {
@@ -155,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - neplatná vonkajšia teplota",
       "description": "Snímač vonkajšej teploty pre Better Thermostat {name} nahlásil nepravdepodobnú hodnotu: {value}.\n\nNameraná hodnota bola mimo pravdepodobného rozsahu a bola ignorovaná. Skontrolujte konfiguráciu snímača teploty."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} ovláda viac ako jeden Better Thermostat",
+      "description": "Termostat {trv} patrí týmto Better Thermostat: {entries}. Zapisujú doň konkurenčné cieľové teploty a režimy. V ich nastaveniach ho odstráňte zo všetkých okrem jedného; potom tento problém sám zmizne."
     }
   },
   "services": {

@@ -49,6 +49,98 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
+
+
+def trv_entity_ids(entry: ConfigEntry) -> list[str]:
+    """Return the entity ids of the thermostats ``entry`` controls."""
+    heaters = entry.data.get(CONF_HEATER)
+    if isinstance(heaters, str):
+        return [heaters]
+    return [
+        trv["trv"]
+        for trv in heaters or []
+        if isinstance(trv, dict) and isinstance(trv.get("trv"), str) and trv["trv"]
+    ]
+
+
+def other_entries_controlling(
+    hass: HomeAssistant, trv_entity_id: str, entry_id: str | None
+) -> list[ConfigEntry]:
+    """Return every entry other than ``entry_id`` that controls ``trv_entity_id``."""
+    return [
+        other
+        for other in hass.config_entries.async_entries(DOMAIN)
+        if other.entry_id != entry_id and trv_entity_id in trv_entity_ids(other)
+    ]
+
+
+def _entry_name(entry: ConfigEntry) -> str:
+    return str(entry.data.get(CONF_NAME, entry.title))
+
+
+def _raise_shared_trv_issue(
+    hass: HomeAssistant, trv_entity_id: str, names: list[str]
+) -> None:
+    """Create or update the repair issue naming the entries sharing a thermostat."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"{SHARED_TRV_ISSUE_PREFIX}{trv_entity_id}",
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="shared_trv",
+        translation_placeholders={"trv": trv_entity_id, "entries": ", ".join(names)},
+    )
+
+
+def _sync_shared_trv_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Name every thermostat that more than one entry controls, and only those.
+
+    A thermostat belongs to one entry. Entries that already share one keep
+    running, so setup warns once for each thermostat this entry shares and
+    keeps one repair issue per shared thermostat. An issue whose overlap is
+    gone, because an entry dropped the thermostat, is deleted here as well.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry being set up.
+    """
+    for trv_entity_id in trv_entity_ids(entry):
+        others = other_entries_controlling(hass, trv_entity_id, entry.entry_id)
+        if others:
+            _LOGGER.warning(
+                "better_thermostat %s: the thermostat %s is also controlled by %s; "
+                "a thermostat should belong to one Better Thermostat only",
+                _entry_name(entry),
+                trv_entity_id,
+                ", ".join(_entry_name(other) for other in others),
+            )
+
+    owners: dict[str, list[str]] = {}
+    for any_entry in hass.config_entries.async_entries(DOMAIN):
+        for trv_entity_id in trv_entity_ids(any_entry):
+            owners.setdefault(trv_entity_id, []).append(_entry_name(any_entry))
+    shared = {
+        trv_entity_id: names
+        for trv_entity_id, names in owners.items()
+        if len(names) > 1
+    }
+    for trv_entity_id, names in shared.items():
+        _raise_shared_trv_issue(hass, trv_entity_id, names)
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if (
+            domain == DOMAIN
+            and issue_id.startswith(SHARED_TRV_ISSUE_PREFIX)
+            and issue_id.removeprefix(SHARED_TRV_ISSUE_PREFIX) not in shared
+        ):
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
 def _warn_about_an_off_temperature_below_freezing(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
@@ -93,6 +185,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entry."""
     hass.data.setdefault(DOMAIN, {})
     _warn_about_an_off_temperature_below_freezing(hass, entry)
+    _sync_shared_trv_issues(hass, entry)
     hass.data[DOMAIN][entry.entry_id] = {}
     try:
         # Setup climate platform first to ensure entity is available for other platforms
@@ -209,6 +302,17 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     for eid in entity_ids:
         ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
+
+    for trv_entity_id in trv_entity_ids(entry):
+        remaining = other_entries_controlling(hass, trv_entity_id, entry.entry_id)
+        if len(remaining) > 1:
+            _raise_shared_trv_issue(
+                hass, trv_entity_id, [_entry_name(other) for other in remaining]
+            )
+        else:
+            ir.async_delete_issue(
+                hass, DOMAIN, f"{SHARED_TRV_ISSUE_PREFIX}{trv_entity_id}"
+            )
 
 
 async def async_migrate_entry(hass, config_entry: ConfigEntry):

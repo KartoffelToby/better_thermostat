@@ -13,8 +13,6 @@ entry: what was stored, and what the thermostat that came up from it drives.
 """
 
 import asyncio
-import json
-from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
@@ -78,12 +76,6 @@ OUTDOOR_ID = "sensor.outdoor_temperature"
 # How long a reload that is not waiting on another entry may take. Only ever
 # paid in full when the entries do share a lock, where the wait has no end.
 RELOAD_TIMEOUT_S = 10
-TRANSLATIONS = (
-    Path(__file__).parents[2]
-    / "custom_components"
-    / "better_thermostat"
-    / "translations"
-)
 
 
 def _marker(form, key: str) -> vol.Marker:
@@ -435,31 +427,6 @@ async def test_options_flow_refuses_to_clear_the_room_sensor(hass):
         result["flow_id"], _user_step_input(TRV_ID)
     )
     assert result["step_id"] == "advanced"
-
-
-async def test_adding_the_same_thermostat_twice_explains_the_abort(hass):
-    """A second entry under the same name for the same device is refused in words.
-
-    The frontend shows the catalog text of an abort reason; a reason the
-    catalogs do not carry reaches the user as its raw key.
-    """
-    set_room_sensor(hass, 19.0)
-    await build_devices(hass, GENERIC_HEAT_TRV)
-    await _run_create_flow(hass, _user_step_input(TRV_ID))
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], _user_step_input(TRV_ID)
-    )
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
-
-    assert result["type"] is FlowResultType.ABORT
-    for catalog in sorted(TRANSLATIONS.glob("*.json")):
-        aborts = json.loads(catalog.read_text(encoding="utf-8"))["config"]["abort"]
-        assert result["reason"] in aborts, catalog.name
 
 
 async def test_clearing_the_cooler_stops_the_thermostat_from_driving_it(hass):

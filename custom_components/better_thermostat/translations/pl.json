@@ -65,7 +65,8 @@
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
       "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym.",
-      "already_configured": "Better Thermostat o tej nazwie już steruje tymi termostatami."
+      "already_configured": "Better Thermostat o tej nazwie już steruje tymi termostatami.",
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat; najpierw usuń go tam."
     }
   },
   "options": {
@@ -125,7 +126,8 @@
     "error": {
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
-      "no_sensor": "Wybierz czujnik temperatury pomieszczenia."
+      "no_sensor": "Wybierz czujnik temperatury pomieszczenia.",
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat."
     }
   },
   "issues": {
@@ -155,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - nieprawidłowa temperatura zewnętrzna",
       "description": "Czujnik temperatury zewnętrznej dla Better Thermostat {name} zgłosił niewiarygodną wartość: {value}.\n\nOdczyt był poza wiarygodnym zakresem i został zignorowany. Sprawdź konfigurację czujnika temperatury."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} jest sterowany przez więcej niż jeden Better Thermostat",
+      "description": "Termostat {trv} należy do tych Better Thermostat: {entries}. Zapisują do niego sprzeczne temperatury docelowe i tryby. Usuń go w ustawieniach ze wszystkich oprócz jednego; potem ten problem zniknie sam."
     }
   },
   "services": {
