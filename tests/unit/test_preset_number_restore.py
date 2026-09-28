@@ -7,6 +7,7 @@ restore path must convert back to Celsius before writing the preset
 temperature dict that ``BetterThermostat`` consumes.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import PRESET_HOME, HVACMode
@@ -135,7 +136,7 @@ class TestPresetCoolNumber:
         bt_climate.bt_target_cooltemp = 24.0
         bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
-        bt_climate.control_queue_task.put = AsyncMock()
+        bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
 
         entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
         entity.async_write_ha_state = MagicMock()
@@ -144,7 +145,7 @@ class TestPresetCoolNumber:
 
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 22.75
         assert bt_climate.bt_target_cooltemp == 22.75
-        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+        assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
     async def test_active_preset_stores_unclamped_cooling_value(self):
@@ -161,7 +162,7 @@ class TestPresetCoolNumber:
         bt_climate.bt_target_cooltemp = 24.0
         bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
-        bt_climate.control_queue_task.put = AsyncMock()
+        bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
 
         entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
         entity.async_write_ha_state = MagicMock()
@@ -170,7 +171,7 @@ class TestPresetCoolNumber:
 
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 25.0
         assert bt_climate.bt_target_cooltemp == 25.0
-        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+        assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
     async def test_active_preset_keeps_the_cool_target_inside_the_range(self):
@@ -197,7 +198,7 @@ class TestPresetCoolNumber:
         bt_climate.bt_target_cooltemp = 30.0
         bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 30.0}
-        bt_climate.control_queue_task.put = AsyncMock()
+        bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
         bt_climate._enforce_cool_above_heat.side_effect = lambda **kwargs: (
             BetterThermostat._enforce_cool_above_heat(bt_climate, **kwargs)
         )
@@ -209,7 +210,7 @@ class TestPresetCoolNumber:
 
         assert bt_climate.bt_target_cooltemp == 30.0
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 30.0
-        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+        assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
     async def test_restore_no_last_state_keeps_dict_empty(self):

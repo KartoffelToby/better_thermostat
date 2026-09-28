@@ -41,6 +41,7 @@ from .utils.const import (
     CalibrationType,
 )
 from .utils.helpers import async_normalize_bt_entity_ids, convert_to_float_celsius
+from .utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -285,7 +286,7 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
             if self._bt_climate.bt_target_temp != bounded:
                 self._bt_climate.bt_target_temp = bounded
                 if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
-                    await self._bt_climate.control_queue_task.put(self._bt_climate)
+                    request_control_cycle(self._bt_climate)
         # The thermostat state carries the preset map a restart restores from,
         # so the restored value is published whether or not it moved the target.
         self._bt_climate.async_write_ha_state()
@@ -426,7 +427,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
                 self._bt_climate.bt_target_cooltemp
             )
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
-                await self._bt_climate.control_queue_task.put(self._bt_climate)
+                request_control_cycle(self._bt_climate)
 
         self.async_write_ha_state()
         self._bt_climate.async_write_ha_state()
