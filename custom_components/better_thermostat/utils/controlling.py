@@ -342,7 +342,12 @@ async def control_queue(self):
                     )
                     tasks = []
                     controlled_trvs = []
-                    for trv in self.real_trvs.keys():
+                    for trv, trv_data in self.real_trvs.items():
+                        # A TRV startup went ahead without carries none of
+                        # the values a control decision reads, and boost
+                        # would address it even while it is unreachable.
+                        if trv_data.awaiting_initialization:
+                            continue
                         if _cooling_owns_shared and trv == _shared_entity_id:
                             _LOGGER.debug(
                                 "better_thermostat %s: %s is driven by the cooling "

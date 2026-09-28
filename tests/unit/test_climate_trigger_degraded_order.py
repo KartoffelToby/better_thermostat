@@ -46,6 +46,12 @@ def bt():
     mock = MagicMock()
     mock.device_name = "Test BT"
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+    # The TRV listener looks for TRVs startup went ahead without before it
+    # reads the report; the head here was set up by startup.
+    mock._trvs_initializing = set()
+    mock._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(
+        mock
+    )
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
     mock.window_id = None

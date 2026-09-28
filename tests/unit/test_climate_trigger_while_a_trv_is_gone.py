@@ -53,6 +53,10 @@ def _room(*, one_head_gone: bool) -> MagicMock:
     bt._last_call_for_heat = True
     bt.control_queue_task = MagicMock(put=AsyncMock())
     bt.async_update_ha_state = AsyncMock()
+    # The listener looks for TRVs startup went ahead without before it reads
+    # the report; every head here was set up by startup.
+    bt._trvs_initializing = set()
+    bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(bt)
     bt._trigger_contact_change = lambda *args: BetterThermostat._trigger_contact_change(
         bt, *args
     )

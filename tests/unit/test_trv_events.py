@@ -2993,6 +2993,10 @@ def _prepare_outage_room(bt, *, with_peer: bool):
     bt.devices_errors = []
     bt.devices_states = {}
     bt._critical_grace_until = None
+    # The listener looks for TRVs startup went ahead without before it reads
+    # the report; every head here was set up by startup.
+    bt._trvs_initializing = set()
+    bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(bt)
     spawned = []
     bt._spawn_owned = lambda coro, name=None: spawned.append(coro)
     return unavailable, spawned
