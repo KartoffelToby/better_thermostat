@@ -120,6 +120,13 @@ async def get_battery_status(self, entity):
     asking again, the level would never be read again. The stored slot is left
     untouched in that case and the read is retried once
     ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity :
+        entity id of the device whose battery level is read
     """
     info = self.devices_states.get(entity)
     if info is None:

@@ -77,6 +77,7 @@ def mock_bt():
 
     # Startup
     bt.startup_running = False
+    bt.is_removed = False
 
     # Control queue
     bt.control_queue_task = MagicMock()
@@ -1349,6 +1350,48 @@ class TestPlateauTimerTurn:
         assert mock_bt.cur_temp == 20.0
         assert mock_bt.pending_temp == 20.03
         assert len(timers) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_timer_that_gets_its_turn_after_removal_writes_nothing(
+        self, mock_bt
+    ):
+        """A removed entity no longer drives its TRVs, not even from a timer.
+
+        The timer fires while a reading holds the turn, and the entity is
+        removed before the turn passes to the timer.
+        """
+        quirks = _RecordingQuirks()
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+        timers = []
+
+        def _capture_timer(_hass, _delay, callback):
+            timers.append(callback)
+            return MagicMock()
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            _capture_timer,
+        ):
+            async with temperature_filter_lock(mock_bt):
+                await trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "20.05"))
+                )
+        assert len(timers) == 1
+
+        async with temperature_filter_lock(mock_bt):
+            timer = asyncio.create_task(timers[0](dt_util.now()))
+            await asyncio.sleep(0)
+            mock_bt.is_removed = True
+        await timer
+
+        assert quirks.writes == []
+        assert mock_bt.control_queue_task.put_nowait.call_count == 0
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_nobody_superseded_is_applied(self, mock_bt):

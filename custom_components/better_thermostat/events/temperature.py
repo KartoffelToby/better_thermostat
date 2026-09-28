@@ -76,6 +76,13 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
+# Every external-temperature write happens under the filter lock, so one
+# device that never answers would otherwise hold back every later reading and
+# keepalive tick. A write that outlasts this bound counts as refused; the
+# ``TimeoutError`` it raises is an ``OSError`` and meets the same handlers.
+EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S = 30.0
+
+
 def temperature_filter_lock(self) -> asyncio.Lock:
     """Return the lock that serialises this entity's temperature filter.
 
@@ -167,7 +174,10 @@ async def _commit_temperature_update(self, new_temp):
             _trv = self.real_trvs.get(trv_id)
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                await quirks.maybe_set_external_temperature(self, trv_id, self.cur_temp)
+                async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
+                    await quirks.maybe_set_external_temperature(
+                        self, trv_id, self.cur_temp
+                    )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
@@ -381,6 +391,11 @@ async def trigger_temperature_change(self, event):
                 # is this timer's: a reading applied while it waited has
                 # replaced the value the timer was started for.
                 async with temperature_filter_lock(self):
+                    # The entity does not own this task, so its removal cannot
+                    # cancel it; a timer that got the turn only after the
+                    # entity was removed writes nothing.
+                    if self.is_removed:
+                        return
                     if self.pending_temp is None or self.pending_temp != _plateau_value:
                         return
                     # Re-check debounce interval so HomematicIP 600s is respected
