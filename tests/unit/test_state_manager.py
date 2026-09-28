@@ -1925,6 +1925,63 @@ class TestUnreadableStoreIsKeptForRecovery:
         stores[_SET_ASIDE_KEY].async_save.assert_awaited_once()
         assert stores[_SET_ASIDE_KEY].async_save.await_args[0][0] == payload
 
+    @staticmethod
+    def _failing_copy(stores, *failures: Exception) -> AsyncMock:
+        """Install a set-aside store whose writes raise *failures* in turn."""
+        copy = AsyncMock()
+        copy.async_load = AsyncMock(return_value=None)
+        copy.async_save = AsyncMock(side_effect=[*failures, None])
+        stores[_SET_ASIDE_KEY] = copy
+        return copy
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "poisoned_by", ["a non-finite value", "an unreadable store"]
+    )
+    async def test_the_live_store_is_kept_while_no_copy_exists(self, poisoned_by):
+        """A save does not overwrite a payload that could not be set aside.
+
+        The copy is taken again before the save; while it keeps failing,
+        the stored payload stays the only record of what was learned, and
+        the state waits unsaved.
+        """
+        payload = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = payload
+            self._failing_copy(stores, OSError("disk full"), OSError("disk full"))
+            if poisoned_by == "an unreadable store":
+                with patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")):
+                    await mgr.load()
+            else:
+                await mgr.load()
+            mgr.mark_dirty()
+
+            await mgr.save()
+            mgr.schedule_delay_save()
+
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+        stores[_LIVE_STORE_KEY].async_delay_save.assert_not_called()
+        assert mgr.dirty is True
+
+    @pytest.mark.asyncio
+    async def test_a_copy_that_succeeds_later_lets_the_save_through(self):
+        """Once the payload is set aside, the live store is written again."""
+        payload = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
+        with _stores_by_key() as stores:
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = payload
+            copy = self._failing_copy(stores, OSError("disk full"))
+            await mgr.load()
+            mgr.mark_dirty()
+
+            await mgr.save()
+
+        assert copy.async_save.await_count == 2
+        assert copy.async_save.await_args[0][0] == payload
+        stores[_LIVE_STORE_KEY].async_save.assert_awaited_once()
+        assert mgr.dirty is False
+
     @pytest.mark.asyncio
     async def test_removing_the_entry_removes_the_copy_too(self):
         """A deleted config entry leaves neither file behind."""

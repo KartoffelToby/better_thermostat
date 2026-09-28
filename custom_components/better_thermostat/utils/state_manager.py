@@ -926,6 +926,10 @@ class StateManager:
         self._mpc_v2_reid_live: dict[str, MpcV2ReidRuntime] = {}
         self._dirty = False
         self._delay_save_pending = False
+        # A payload load() could not read in full and could not set aside
+        # either. The live store holds its only copy, so nothing is written
+        # over it until the copy exists.
+        self._payload_awaiting_copy: dict[str, Any] | None = None
 
     @staticmethod
     async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
@@ -1217,6 +1221,14 @@ class StateManager:
         """
         if self._delay_save_pending:
             return
+        if self._payload_awaiting_copy is not None:
+            # The delayed write cannot take the copy first; save() retries it.
+            _LOGGER.debug(
+                "better_thermostat [%s]: delayed save skipped, the stored state "
+                "is not set aside yet",
+                self._entry_id,
+            )
+            return
         self._delay_save_pending = True
 
         def _data_to_save() -> dict[str, Any]:
@@ -1260,7 +1272,9 @@ class StateManager:
         the only record of what a user's installation had learned is gone.
         The copy is taken once:
         a second unreadable load must not overwrite the first copy, which is
-        the one still holding the accumulated state.
+        the one still holding the accumulated state. While the copy cannot
+        be written, the payload is held so that no save overwrites the live
+        store before a later attempt succeeds.
 
         Parameters
         ----------
@@ -1271,17 +1285,20 @@ class StateManager:
         quarantine: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
         try:
             if await quarantine.async_load() is not None:
+                self._payload_awaiting_copy = None
                 return
             await quarantine.async_save(raw)
         except HomeAssistantError, OSError:
             _LOGGER.warning(
                 "better_thermostat [%s]: could not set the unreadable state "
-                "aside as %s",
+                "aside as %s; the stored state is kept unchanged until it is",
                 self._entry_id,
                 key,
                 exc_info=True,
             )
+            self._payload_awaiting_copy = raw
             return
+        self._payload_awaiting_copy = None
         _LOGGER.warning(
             "better_thermostat [%s]: unreadable state kept as %s for recovery",
             self._entry_id,
@@ -1333,7 +1350,17 @@ class StateManager:
         )
 
     async def save(self) -> None:
-        """Persist current state to HA Store unconditionally."""
+        """Persist current state to HA Store.
+
+        The one exception is a stored payload that load() could not read in
+        full and could not set aside: the copy is attempted again first,
+        and while it fails the live store keeps that payload and the state
+        stays unsaved.
+        """
+        if self._payload_awaiting_copy is not None:
+            await self._quarantine_unreadable_state(self._payload_awaiting_copy)
+            if self._payload_awaiting_copy is not None:
+                return
         self._sync_mpc_v2_live()
         data = _serialize(self._state)
         # async_save cancels a pending delayed write inside the Store.
