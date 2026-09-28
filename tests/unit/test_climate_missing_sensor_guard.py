@@ -48,6 +48,7 @@ def _bt_without_sensor():
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()
     mock._startup_control_trvs = AsyncMock()
+    mock._initialize_arrived_trvs = AsyncMock()
     mock.hass = MagicMock()
     return mock
 

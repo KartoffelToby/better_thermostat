@@ -68,6 +68,7 @@ def _startup_bt():
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()
     mock._startup_control_trvs = AsyncMock()
+    mock._initialize_arrived_trvs = AsyncMock()
     mock.async_update_ha_state = AsyncMock()
     mock.hass = MagicMock()
     return mock
