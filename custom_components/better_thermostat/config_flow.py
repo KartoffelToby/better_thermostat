@@ -25,7 +25,11 @@ from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
 import voluptuous as vol
 
-from . import DOMAIN  # pylint: disable=unused-import
+from . import (  # pylint: disable=unused-import
+    DOMAIN,
+    other_entries_controlling,
+    trv_entity_ids,
+)
 from .adapters.delegate import load_adapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.const import (
@@ -1098,6 +1102,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_HEATER] = "no_heater"
 
             if not errors:
+                for trv_entity_id in heaters:
+                    owners = other_entries_controlling(self.hass, trv_entity_id, None)
+                    if owners:
+                        return self.async_abort(
+                            reason="trv_in_use",
+                            description_placeholders={
+                                "trv": trv_entity_id,
+                                "entry": owners[0].data.get(CONF_NAME, owners[0].title),
+                            },
+                        )
                 self.heater_entity_id = list(heaters)
                 self.trv_bundle = []
                 for trv in self.heater_entity_id:
@@ -1250,6 +1264,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_user(self, user_input=None):
         """Handle the user step."""
         errors: dict[str, str] = {}
+        in_use_placeholders: dict[str, str] = {}
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
             try:
@@ -1269,6 +1284,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # a missing key.
             if not normalized.get(CONF_SENSOR):
                 errors[CONF_SENSOR] = "no_sensor"
+            # A thermostat belongs to one entry. An overlap the entry already
+            # has is left alone; only a thermostat it gains is checked.
+            stored_trvs = trv_entity_ids(self._config_entry)
+            for trv_entity_id in normalized.get(CONF_HEATER) or []:
+                if trv_entity_id in stored_trvs:
+                    continue
+                owners = other_entries_controlling(
+                    self.hass, trv_entity_id, self._config_entry.entry_id
+                )
+                if owners:
+                    errors[CONF_HEATER] = "trv_in_use"
+                    in_use_placeholders = {
+                        "trv": trv_entity_id,
+                        "entry": owners[0].data.get(CONF_NAME, owners[0].title),
+                    }
+                    break
 
             if not errors:
                 self.trv_bundle = []
@@ -1329,7 +1360,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=vol.Schema(fields),
             errors=errors,
             last_step=False,
-            description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+            description_placeholders={
+                "docs_url": CONFIG_WALKTHROUGH_URL,
+                **in_use_placeholders,
+            },
         )
 
     async def _check_calibration_changes(self) -> None:

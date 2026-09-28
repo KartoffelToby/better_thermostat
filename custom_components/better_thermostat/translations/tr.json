@@ -66,7 +66,8 @@
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
       "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun",
-      "already_configured": "Bu ada sahip bir Better Thermostat bu termostatları zaten kontrol ediyor."
+      "already_configured": "Bu ada sahip bir Better Thermostat bu termostatları zaten kontrol ediyor.",
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir; önce oradan kaldırın."
     }
   },
   "options": {
@@ -131,7 +132,8 @@
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
       "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin.",
-      "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin."
+      "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin.",
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir."
     }
   },
   "issues": {
@@ -161,6 +163,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - geçersiz dış ortam sıcaklığı",
       "description": "Better Thermostat {name} için dış ortam sıcaklık sensörü mantıksız bir değer bildirdi: {value}.\n\nOkunan değer makul aralığın dışındaydı ve yok sayıldı. Lütfen sıcaklık sensörü yapılandırmanızı kontrol edin."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} birden fazla Better Thermostat tarafından kontrol ediliyor",
+      "description": "{trv} termostatı şu Better Thermostat’lara ait: {entries}. Ona çakışan hedef sıcaklıklar ve modlar yazıyorlar. Ayarlarından biri hariç hepsinden kaldırın; bu sorun ardından kendiliğinden kaybolur."
     }
   },
   "services": {

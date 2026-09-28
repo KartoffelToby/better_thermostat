@@ -66,7 +66,8 @@
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
       "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant",
-      "already_configured": "Un Better Thermostat portant ce nom contrôle déjà ces thermostats."
+      "already_configured": "Un Better Thermostat portant ce nom contrôle déjà ces thermostats.",
+      "trv_in_use": "{trv} est déjà contrôlé par le Better Thermostat {entry}. Un thermostat ne peut appartenir qu’à un seul Better Thermostat ; retirez-le d’abord de celui-ci."
     }
   },
   "options": {
@@ -131,7 +132,8 @@
       "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale.",
       "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo.",
       "no_data": "Aucune donnée n'a été reçue. Veuillez réessayer.",
-      "no_sensor": "Veuillez sélectionner un capteur de température ambiante."
+      "no_sensor": "Veuillez sélectionner un capteur de température ambiante.",
+      "trv_in_use": "{trv} est déjà contrôlé par le Better Thermostat {entry}. Un thermostat ne peut appartenir qu’à un seul Better Thermostat."
     }
   },
   "issues": {
@@ -161,6 +163,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - température extérieure invalide",
       "description": "Le capteur de température extérieure pour Better Thermostat {name} a signalé une valeur invraisemblable : {value}.\n\nLa lecture était en dehors de la plage plausible et a été ignorée. Veuillez vérifier la configuration de votre capteur de température."
+    },
+    "shared_trv": {
+      "title": "BT : {trv} est contrôlé par plusieurs Better Thermostat",
+      "description": "Le thermostat {trv} appartient à ces Better Thermostat : {entries}. Ils lui envoient des consignes et des modes concurrents. Retirez-le de tous sauf un dans leurs paramètres ; ce problème disparaît ensuite de lui-même."
     }
   },
   "services": {

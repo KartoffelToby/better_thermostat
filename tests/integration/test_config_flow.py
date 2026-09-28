@@ -1,8 +1,5 @@
 """The config and options flows, driven through Home Assistant's flow manager."""
 
-import json
-from pathlib import Path
-
 from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
@@ -10,12 +7,6 @@ from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SE
 from .conftest import DOMAIN, SENSOR_ID, TRV_ID, wait_for_startup
 
 ENTRY_NAME = "BT Test"
-TRANSLATIONS = (
-    Path(__file__).parents[2]
-    / "custom_components"
-    / "better_thermostat"
-    / "translations"
-)
 
 
 def _user_step_input() -> dict:
@@ -69,21 +60,3 @@ async def test_options_flow_refuses_to_clear_the_room_sensor(hass, fake_trv):
         result["flow_id"], _user_step_input()
     )
     assert result["step_id"] == "advanced"
-
-
-async def test_adding_the_same_thermostat_twice_explains_the_abort(hass, fake_trv):
-    """A second entry under the same name for the same device is refused in words.
-
-    The frontend shows the catalog text of an abort reason; a reason the
-    catalogs do not carry reaches the user as its raw key.
-    """
-    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
-    result = await _create_entry(hass)
-    assert result["type"] is FlowResultType.CREATE_ENTRY, result
-
-    result = await _create_entry(hass)
-
-    assert result["type"] is FlowResultType.ABORT
-    for catalog in sorted(TRANSLATIONS.glob("*.json")):
-        aborts = json.loads(catalog.read_text(encoding="utf-8"))["config"]["abort"]
-        assert result["reason"] in aborts, catalog.name

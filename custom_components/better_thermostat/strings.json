@@ -66,7 +66,8 @@
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
       "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant",
-      "already_configured": "A Better Thermostat with this name already controls these thermostats."
+      "already_configured": "A Better Thermostat with this name already controls these thermostats.",
+      "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only; remove it there first."
     }
   },
   "options": {
@@ -131,7 +132,8 @@
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
       "no_data": "No data was received. Please try again.",
-      "no_sensor": "Please select a room temperature sensor."
+      "no_sensor": "Please select a room temperature sensor.",
+      "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only."
     }
   },
   "issues": {
@@ -161,6 +163,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - invalid external temperature",
       "description": "The external temperature sensor for Better Thermostat {name} reported an implausible value: {value}.\n\nThe reading was outside the plausible range and has been ignored. Please check your temperature sensor configuration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} is controlled by more than one Better Thermostat",
+      "description": "The thermostat {trv} belongs to these Better Thermostats: {entries}. They write competing target temperatures and modes to it. Remove it from all but one of them in their settings; this issue clears itself afterwards."
     }
   },
   "services": {
