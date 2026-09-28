@@ -1734,6 +1734,70 @@ class TestBoostModeSafetyOverride:
                 coro.close()
 
     @pytest.mark.asyncio
+    async def test_failed_safety_reset_retries_at_the_normal_pace_on_homematicip(self):
+        """A failed 0% safety reset is retried after the normal spacing.
+
+        The reset bypasses the budget, so its retry must not wait out the
+        HomematicIP head's longer interval with the valve still open.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            window_open=True,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                        CONF_HOMEMATICIP: True,
+                    }
+                )
+            },
+        )
+        mock_self.last_user_change_monotonic = None
+
+        captured = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+
+        async def failing_set_valve(*args, **kwargs):
+            # The boost 100% write succeeds; the 0% safety reset fails.
+            return args[2] != 0
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=failing_set_valve),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        delays = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, name in captured:
+            if "budget_retry" in (name or ""):
+                with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                    await coro
+            else:
+                coro.close()
+        assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S)]
+
+    @pytest.mark.asyncio
     async def test_no_heat_call_resets_valve_during_boost(self):
         """Test that call_for_heat=False resets valve to 0% when boost mode was active.
 
