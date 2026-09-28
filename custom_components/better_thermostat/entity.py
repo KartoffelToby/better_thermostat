@@ -5,11 +5,19 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Event, EventStateChangedData, State, callback
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_registry import (
     EntityRegistry,
     async_entries_for_config_entry,
+    async_get as async_get_entity_registry,
+    async_get_full_entity_name,
 )
 from homeassistant.helpers.event import async_track_state_change_event
 
@@ -42,12 +50,32 @@ def remove_unclaimed_registry_entries(
             registry.async_remove(reg_entry.entity_id)
 
 
+def current_trv_name(hass: HomeAssistant, trv_entity_id: str) -> str:
+    """Return the name of a TRV as far as it is known now.
+
+    The reported state carries the name the user sees. Before the TRV's own
+    integration reports, its registry entry and device, loaded before any
+    integration is set up, give the same name; a TRV without a registry
+    entry is known by its entity id only. A new entity's entity_id is derived
+    from its name when it is first registered, so the name matters then.
+    """
+    trv_state = hass.states.get(trv_entity_id)
+    if trv_state is not None and trv_state.name:
+        return trv_state.name
+    registry = async_get_entity_registry(hass)
+    reg_entry = registry.async_get(trv_entity_id)
+    if reg_entry is not None:
+        return async_get_full_entity_name(hass, reg_entry) or trv_entity_id
+    return trv_entity_id
+
+
 class TrvNamedEntity(Entity):
     """Entity of one TRV, named after it through the ``trv_name`` placeholder.
 
-    The TRV's name is known once its own integration reports a state, which on
-    a boot can come after this entity is built; until then the placeholder
-    holds the TRV's entity id. The name follows the TRV's state from then on.
+    The TRV's reported name is known once its own integration reports a
+    state, which on a boot can come after this entity is built; until then
+    the placeholder holds the name ``current_trv_name`` finds. The name
+    follows the TRV's state from then on.
     """
 
     _trv_entity_id: str

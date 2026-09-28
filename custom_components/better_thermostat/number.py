@@ -25,7 +25,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .entity import TrvNamedEntity, remove_unclaimed_registry_entries
+from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
     DEFAULT_PID_KD,
@@ -421,10 +421,10 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{parameter}"
 
         if show_trv_name:
-            trv_state = bt_climate.hass.states.get(trv_entity_id)
-            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
             self._attr_translation_key = f"pid_{parameter}"
-            self._attr_translation_placeholders = {"trv_name": trv_name}
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
         else:
             self._attr_translation_key = f"pid_{parameter}_no_trv"
 
@@ -520,10 +520,10 @@ class BetterThermostatValveMaxOpeningNumber(
         )
 
         if show_trv_name:
-            trv_state = bt_climate.hass.states.get(trv_entity_id)
-            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
             self._attr_translation_key = "valve_max_opening"
-            self._attr_translation_placeholders = {"trv_name": trv_name}
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
         else:
             self._attr_translation_key = "valve_max_opening_no_trv"
 

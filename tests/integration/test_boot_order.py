@@ -29,7 +29,9 @@ integration is set up.
 from dataclasses import replace
 
 from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.core import CoreState
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import slugify
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -42,7 +44,12 @@ from .conftest import (
     setup_entry,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, GROUP_OF_THREE, SEPARATE_COOLER
+from .device_profiles import (
+    GENERIC_HEAT_TRV,
+    GROUP_OF_THREE,
+    SEPARATE_COOLER,
+    VALVE_GROUP,
+)
 
 NARROW_RANGE_TRV = replace(
     GENERIC_HEAT_TRV, name="narrow_range_trv", min_temp=7.0, max_temp=28.0
@@ -158,14 +165,14 @@ async def test_cooling_preset_number_offers_the_room_range(hass, device_role, or
     )
 
 
-def _group_entry():
+def _group_entry(scenario=GROUP_OF_THREE):
     """Return a group entry whose heads get every per-head entity.
 
     PID calibration adds the PID numbers and the auto-tune switch, valve
     calibration the max-opening number; the child-lock switch is always
     there. The TRV name is part of these names only with several heads.
     """
-    entry = make_entry(GROUP_OF_THREE)
+    entry = make_entry(scenario)
     thermostats = [
         {
             **head,
@@ -226,3 +233,74 @@ async def test_per_head_entity_is_named_after_its_trv(hass, trv_group, suffix, o
     friendly_name = hass.states.get(entity_id).attributes["friendly_name"]
     assert head.profile.entity_name in friendly_name
     assert head.entity_id not in friendly_name
+
+
+@_ORDERS
+@pytest.mark.parametrize("trv_group", [VALVE_GROUP], indirect=True, ids=profile_id)
+@pytest.mark.parametrize("suffix", _PER_HEAD_SUFFIXES)
+async def test_new_per_head_entity_id_is_derived_from_its_trv_name(
+    hass, trv_group, suffix, order
+):
+    """A per-head entity registered on a boot gets an entity_id from the TRV's name.
+
+    The TRV's registry entry and device are loaded before any integration is
+    set up, so its name is known even while its state is not reported yet.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = _group_entry(trv_group.scenario)
+    head = trv_group[0]
+    name = hass.states.get(head.entity_id).name
+    if order == "boot":
+        for trv in trv_group.entities:
+            hass.states.async_remove(trv.entity_id)
+        await set_up_during_boot(hass, entry)
+        for trv in trv_group.entities:
+            trv.async_write_ha_state()
+        await hass.async_block_till_done()
+        bt = await finish_boot(hass, entry)
+    else:
+        bt = await _set_up(hass, entry, order)
+
+    platform = "switch" if suffix in ("pid_auto_tune", "child_lock") else "number"
+    entity_id = er.async_get(hass).async_get_entity_id(
+        platform, DOMAIN, f"{bt.unique_id}_{head.entity_id}_{suffix}"
+    )
+    assert entity_id is not None
+    assert entity_id.startswith(f"{platform}.bt_test_{slugify(name)}_")
+
+
+@pytest.mark.parametrize("trv_group", [VALVE_GROUP], indirect=True, ids=profile_id)
+async def test_registered_per_head_entity_keeps_its_entity_id(hass, trv_group):
+    """A per-head entity already in the registry keeps the entity_id it has.
+
+    Automations and dashboards refer to it by that id, whatever name it was
+    derived from.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = _group_entry(trv_group.scenario)
+    entry.add_to_hass(hass)
+    head = trv_group[0]
+    kept = "switch.bt_test_climate_valve_group_warm_trv_child_lock"
+    er.async_get(hass).async_get_or_create(
+        "switch",
+        DOMAIN,
+        f"{entry.entry_id}_{head.entity_id}_child_lock",
+        config_entry=entry,
+        suggested_object_id=kept.split(".", 1)[1],
+    )
+    for trv in trv_group.entities:
+        hass.states.async_remove(trv.entity_id)
+    hass.set_state(CoreState.starting)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for trv in trv_group.entities:
+        trv.async_write_ha_state()
+    bt = await finish_boot(hass, entry)
+
+    assert (
+        er.async_get(hass).async_get_entity_id(
+            "switch", DOMAIN, f"{bt.unique_id}_{head.entity_id}_child_lock"
+        )
+        == kept
+    )
+    assert hass.states.get(kept) is not None
