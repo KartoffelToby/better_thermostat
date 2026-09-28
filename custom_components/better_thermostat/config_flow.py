@@ -1192,8 +1192,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.trv_bundle[self.i]["adapter"] = None
 
             self.i += 1
-            if len(self.trv_bundle) - 1 >= self.i:
-                self._last_step = True
 
             if len(self.trv_bundle) > self.i:
                 self._active_trv_config = None
@@ -1237,6 +1235,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             existing_adv,
         )
         self.device_name = user_input.get(CONF_NAME, "-")
+        self._last_step = self.i == len(self.trv_bundle) - 1
 
         return self.async_show_form(
             step_id="advanced",
