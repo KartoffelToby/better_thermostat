@@ -6,6 +6,10 @@ Contains model-specific handling for known quirks in TS0601-based devices.
 from __future__ import annotations
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float_celsius,
+    state_temperature_unit,
+)
 
 
 def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
@@ -63,8 +67,16 @@ def fix_target_temperature_calibration(
     """
     _state = self.hass.states.get(entity_id)
     _cur_trv_temp = None
-    if _state is not None:
-        _cur_trv_temp = _state.attributes.get("current_temperature")
+    if _state is not None and _state.attributes.get("current_temperature") is not None:
+        # A climate entity reports in the system unit; the setpoint is °C.
+        _cur_trv_temp = convert_to_float_celsius(
+            _state.attributes.get("current_temperature"),
+            self.device_name,
+            "fix_target_temperature_calibration",
+            state_temperature_unit(
+                _state.attributes, self.hass.config.units.temperature_unit
+            ),
+        )
     if _cur_trv_temp is None:
         return temperature
     _cur_trv_temp = float(_cur_trv_temp)
