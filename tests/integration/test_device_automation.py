@@ -72,6 +72,7 @@ TRIGGER_CASES = {
 # A threshold trigger fires on the crossing, not on the value, so the ones
 # whose quantity already sits on the far side have to be moved back first.
 TRIGGER_PRECONDITIONS = {
+    "heating_active": {ATTR_HVAC_ACTION: "idle"},
     "heating_stopped": {ATTR_HVAC_ACTION: "heating"},
     "window_closed": {"window_open": True},
     "target_temp_reached": {"current_temperature": 18.0, ATTR_TEMPERATURE: 22.0},
@@ -408,6 +409,8 @@ async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_tr
     await hass.async_block_till_done()
     assert hass.states.async_entity_ids("automation")
 
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
 
     assert await wait_for(hass, lambda: calls)
@@ -539,6 +542,8 @@ async def test_a_trigger_that_names_the_registry_id_watches_the_entity(hass, fak
     await hass.async_block_till_done()
     assert hass.states.async_entity_ids("automation")
 
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
 
     assert await wait_for(hass, lambda: calls)

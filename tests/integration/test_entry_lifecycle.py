@@ -334,13 +334,15 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
     with patch(WRITE_BUDGET, 0.0):
-        # The device drops the write for the new target.
+        # The device drops the write for the new target. The target sits
+        # below the room reading: a room below its target already has the
+        # head on its maximum, so a higher target would command nothing new.
         fake_trv.drop_next_setpoint_write = True
         baseline_calls = len(fake_trv.set_temperature_calls)
         await hass.services.async_call(
             "climate",
             "set_temperature",
-            {"entity_id": BT_ENTITY, "temperature": 23.0},
+            {"entity_id": BT_ENTITY, "temperature": 16.0},
             blocking=True,
         )
         assert await wait_for(

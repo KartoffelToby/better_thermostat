@@ -86,8 +86,8 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     A cloud-backed valve is routinely still unavailable by the time Home
     Assistant has finished starting, so a repair issue here would be a false
     one. The thermostat holds in startup, says nothing, and comes up as soon
-    as the device does — with the device's own capabilities read, which is the
-    proof that it waited for the real thing rather than guessing.
+    as the device does — with the device's own capabilities and setpoint read,
+    which is the proof that it waited for the real thing rather than guessing.
     """
     set_room_sensor(hass, 19.0)
     fake_trv.set_available(False)
@@ -106,7 +106,7 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     assert bt_issues(hass) == []
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert_profile_adopted(bt, fake_trv.profile)
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    assert bt.bt_target_temp == fake_trv.profile.target_temperature
 
 
 async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes(
