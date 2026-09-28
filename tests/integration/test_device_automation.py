@@ -533,3 +533,30 @@ async def test_a_mode_trigger_without_a_mode_is_refused_as_a_config_error(
         and record.exc_info is None
         for record in caplog.records
     ), caplog.text
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "before"),
+    [
+        ("window_opened", {"window_open": True}),
+        ("window_closed", {"window_open": False}),
+        ("heating_active", {ATTR_HVAC_ACTION: "heating"}),
+        ("heating_stopped", {ATTR_HVAC_ACTION: "idle"}),
+    ],
+)
+async def test_a_thermostat_coming_back_unchanged_fires_no_trigger(
+    hass, fake_trv, trigger_type, before
+):
+    """A thermostat that drops out and returns as it was has changed nothing."""
+    _entry, device_id = await _entry_with_device(hass)
+    state = _republish(hass, **before)
+    await hass.async_block_till_done()
+    calls = await _automation_on(hass, device_id, trigger_type)
+    attributes = {**state.attributes, **before}
+
+    hass.states.async_set(BT_ENTITY, STATE_UNAVAILABLE, {})
+    await hass.async_block_till_done()
+    hass.states.async_set(BT_ENTITY, state.state, attributes)
+    await hass.async_block_till_done()
+
+    assert not calls

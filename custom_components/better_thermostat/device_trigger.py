@@ -108,8 +108,8 @@ TRIGGER_SCHEMA = vol.All(_TRIGGER_FIELDS_SCHEMA, _require_mode_for_mode_trigger)
 # Default threshold values
 DEFAULT_HUMIDITY_THRESHOLD = 60.0  # %
 DEFAULT_BATTERY_THRESHOLD = 20.0  # %
-# The actions a thermostat reports once it is no longer heating. A thermostat
-# that becomes unavailable loses the attribute, which is not one of them.
+# The actions a thermostat reports while it is not heating. A thermostat that
+# is unavailable has no action, which is not one of them.
 _NOT_HEATING_ACTIONS = [action for action in HVACAction if action != HVACAction.HEATING]
 
 
@@ -261,9 +261,11 @@ async def async_attach_trigger(
         return cfg
 
     # Purpose-specific trigger: heating_active
-    #   Fires when hvac_action changes TO "heating".
+    #   Fires when hvac_action changes from another action TO "heating".
     if trigger_type == "heating_active":
-        state_config = _build_state("hvac_action", to="heating")
+        state_config = _build_state(
+            "hvac_action", to="heating", from_=_NOT_HEATING_ACTIONS
+        )
         state_config = await state_trigger.async_validate_trigger_config(
             hass, state_config
         )
@@ -285,30 +287,20 @@ async def async_attach_trigger(
         )
 
     # Purpose-specific trigger: window_opened
-    #   Fires when window_open attribute becomes truthy (True).
-    #   Uses a numeric template to avoid bool→string comparison issues.
+    #   Fires when the window_open attribute changes from False to True.
     if trigger_type == "window_opened":
-        numeric_config = {
-            numeric_state_trigger.CONF_PLATFORM: "numeric_state",
-            numeric_state_trigger.CONF_ENTITY_ID: entity_id,
-            numeric_state_trigger.CONF_VALUE_TEMPLATE: (
-                "{{ 1 if state.attributes.get('window_open') else 0 }}"
-            ),
-            CONF_ABOVE: 0.5,
-        }
-        if CONF_FOR in config:
-            numeric_config[CONF_FOR] = config[CONF_FOR]
-        numeric_config = await numeric_state_trigger.async_validate_trigger_config(
-            hass, numeric_config
+        state_config = _build_state("window_open", to=True, from_=False)
+        state_config = await state_trigger.async_validate_trigger_config(
+            hass, state_config
         )
-        return await numeric_state_trigger.async_attach_trigger(
-            hass, numeric_config, action, trigger_info, platform_type="device"
+        return await state_trigger.async_attach_trigger(
+            hass, state_config, action, trigger_info, platform_type="device"
         )
 
     # Purpose-specific trigger: window_closed
     #   Fires when the window_open attribute changes from True to False. A
-    #   thermostat that becomes unavailable loses the attribute, which is
-    #   neither.
+    #   thermostat that is unavailable has no such attribute, so going away
+    #   and coming back fires neither window trigger.
     if trigger_type == "window_closed":
         state_config = _build_state("window_open", to=False, from_=True)
         state_config = await state_trigger.async_validate_trigger_config(
