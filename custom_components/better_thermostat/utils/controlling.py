@@ -254,20 +254,33 @@ def _schedule_budget_retry(
     compares the device against the last value actually written — which
     the device still matches — and configurations without a calibration
     tick have no other periodic trigger.
+
+    A retry already due no later than this one covers it. A retry due
+    later, such as one waiting out a HomematicIP head's interval when a
+    user change has since shortened it, is cancelled and replaced.
     """
     trv = self.real_trvs[entity_id]
-    if trv.budget_retry_pending:
+    delay = max(retry_in_s, 0.0)
+    due_at = self.clock.monotonic() + delay
+    if trv.budget_retry_due_at is not None and trv.budget_retry_due_at <= due_at:
         return
-    trv.budget_retry_pending = True
+    if trv.budget_retry_task is not None:
+        trv.budget_retry_task.cancel()
+    trv.budget_retry_due_at = due_at
 
     async def _retry() -> None:
         try:
-            await asyncio.sleep(max(retry_in_s, 0.0))
+            await asyncio.sleep(delay)
         finally:
-            trv.budget_retry_pending = False
+            # A replacement retry owns the bookkeeping from here on.
+            if trv.budget_retry_due_at == due_at:
+                trv.budget_retry_due_at = None
+                trv.budget_retry_task = None
         request_control_cycle(self)
 
-    self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
+    trv.budget_retry_task = self.task_manager.create_task(
+        _retry(), name=f"bt_budget_retry_{entity_id}"
+    )
 
 
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:

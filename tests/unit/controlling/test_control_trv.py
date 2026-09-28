@@ -3797,3 +3797,32 @@ class TestHomematicIPWritePacing:
         mock_self.clock.advance(delays[0])
         await self._cycle(mock_self, [self.HMIP], 24.0, written)
         assert written[2:] == [(self.HMIP, 24.0)]
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_brings_a_pending_retry_forward(self):
+        """A retry queued at the HomematicIP pace yields to a user change.
+
+        Ten seconds after the last write the controller asks for a new
+        target and is deferred for the rest of the head's own interval.
+        Five seconds later the user sets a target; the retry must wake once
+        the normal spacing has passed, not when the controller's slot opens.
+        """
+        mock_self, created = self._room({self.HMIP: True})
+        written = []
+
+        await self._cycle(mock_self, [self.HMIP], 22.0, written)
+        await self._retry_delays(created, "")
+
+        mock_self.clock.advance(10.0)
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        mock_self.clock.advance(5.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written == [(self.HMIP, 22.0)]
+
+        delays = await self._retry_delays(created, self.HMIP)
+        assert min(delays) == pytest.approx(MIN_WRITE_INTERVAL_S - 15.0)
+
+        mock_self.clock.advance(min(delays))
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written[1:] == [(self.HMIP, 24.0)]
