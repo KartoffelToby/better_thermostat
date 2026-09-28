@@ -6,7 +6,10 @@ import logging
 
 from homeassistant.helpers.importlib import async_import_module
 
-from custom_components.better_thermostat.utils.helpers import round_by_step
+from custom_components.better_thermostat.utils.helpers import (
+    round_by_step,
+    sibling_disabled_at_write,
+)
 
 from ..utils.retry import async_retry
 
@@ -188,6 +191,10 @@ async def set_offset(self, entity_id, offset) -> bool:
     left the house neither counts as issued nor suppresses the retry on the
     next control cycle.
 
+    A calibration entity disabled in Home Assistant since it was adopted
+    is not written to: the call would be dropped, and answering ``True``
+    would leave the caller waiting on an offset that never arrives.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -202,8 +209,14 @@ async def set_offset(self, entity_id, offset) -> bool:
     -------
     bool
         True when the adapter put the offset on the wire, False when the
-        device has no offset channel or every retry raised.
+        device has no offset channel, its calibration entity is disabled,
+        or every retry raised.
     """
+    calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
+    if calibration_entity is not None and sibling_disabled_at_write(
+        self, entity_id, calibration_entity, "local calibration"
+    ):
+        return False
 
     @async_retry(retries=5)
     async def inner():
@@ -239,8 +252,9 @@ async def set_valve(self, entity_id, valve) -> bool:
     A model quirk's ``override_set_valve`` owns the valve channel where
     one exists and is asked first; a quirk that answers it did not take
     the position falls through to the adapter's helper entity, which is
-    written only when it is known to be writable. Whichever wrote records
-    ``last_valve_percent`` and ``last_valve_method``.
+    written only when it is known to be writable and is still enabled in
+    Home Assistant. Whichever wrote records ``last_valve_percent`` and
+    ``last_valve_method``.
 
     A device with no valve channel is not a failure and is answered
     ``False`` without a single attempt. A write that raises is an
@@ -271,8 +285,15 @@ async def set_valve(self, entity_id, valve) -> bool:
     valve_writable = (
         trv_state.valve_position_writable if trv_state is not None else None
     )
-    # Only write to a helper entity when we know it's writable.
-    if valve_entity and valve_writable is True:
+    # Only write to a helper entity when we know it's writable and it is
+    # still enabled.
+    if (
+        valve_entity
+        and valve_writable is True
+        and not sibling_disabled_at_write(
+            self, entity_id, valve_entity, "valve position"
+        )
+    ):
         channels.append(("adapter", trv_state.adapter.set_valve, False))
 
     @async_retry(

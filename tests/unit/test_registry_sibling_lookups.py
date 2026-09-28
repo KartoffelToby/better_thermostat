@@ -31,7 +31,12 @@ from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
 
-from custom_components.better_thermostat.adapters import generic, mqtt, zwave_js
+from custom_components.better_thermostat.adapters import (
+    delegate,
+    generic,
+    mqtt,
+    zwave_js,
+)
 from custom_components.better_thermostat.model_fixes import (
     SPZB0001,
     TRVZB,
@@ -548,3 +553,96 @@ async def test_a_trv_missing_from_the_registry_has_no_siblings(name):
         assert not await lookup.adopts(host, registry, candidate.entity_id), (
             f"{name} took {candidate.entity_id} for an unregistered TRV"
         )
+
+
+def _written_to(host: Any, entity_id: str) -> bool:
+    return entity_id in _written(host)
+
+
+def _runtime_host(helper: Any) -> MagicMock:
+    """A running thermostat that adopted ``helper`` while it was enabled."""
+    host = MagicMock()
+    host.device_name = "Test BT"
+    host.context = None
+    host.hass.services.async_call = AsyncMock(return_value=None)
+    host.hass.states.get = lambda entity_id: State(
+        entity_id, "0", {"min": 0, "max": 100, "step": 1}
+    )
+    record = Trv(entity_id=TRV_ID, model="generic", advanced={})
+    record.model_quirks = MagicMock(spec=[])
+    if helper.domain == "number" and "valve" in helper.entity_id:
+        record.adapter = mqtt
+        record.valve_position_entity = helper.entity_id
+        record.valve_position_writable = True
+    else:
+        record.adapter = generic
+        record.local_temperature_calibration_entity = helper.entity_id
+    host.real_trvs = {TRV_ID: record}
+    return host
+
+
+async def _write(host: Any) -> bool:
+    record = host.real_trvs[TRV_ID]
+    if record.valve_position_entity is not None:
+        return await delegate.set_valve(host, TRV_ID, 40)
+    return await delegate.set_offset(host, TRV_ID, 1.5)
+
+
+RUNTIME_HELPERS = {
+    "calibration": "number.trv_local_temperature_calibration",
+    "valve": "number.trv_valve_opening_degree",
+}
+
+
+@pytest.mark.parametrize("helper_id", RUNTIME_HELPERS.values(), ids=RUNTIME_HELPERS)
+@pytest.mark.asyncio
+async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
+    """A helper disabled after discovery receives no write, and says so once.
+
+    Home Assistant drops a service call aimed at a disabled entity. The
+    write answers ``False``, so the caller does not wait on a command that
+    never reaches the device, and the skip is named once on WARNING while
+    the entity stays disabled. Once it is enabled again, writes resume and
+    a later disable is named again.
+    """
+    enabled = make_registry_entry(helper_id, device_id=TRV_DEVICE)
+    disabled = make_registry_entry(
+        helper_id, device_id=TRV_DEVICE, disabled_by=er.RegistryEntryDisabler.USER
+    )
+    host = _runtime_host(enabled)
+
+    async def write_with(entry: Any) -> bool:
+        host.hass.services.async_call.reset_mock()
+        registry = make_entity_registry(entry)
+        with patch(f"{helpers.__name__}.er.async_get", return_value=registry):
+            return await _write(host)
+
+    assert await write_with(enabled) is True
+    assert _written_to(host, helper_id)
+
+    assert await write_with(disabled) is False
+    assert not _written_to(host, helper_id)
+    assert await write_with(disabled) is False
+    assert len(_disabled_sibling_warnings(caplog)) == 1
+
+    assert await write_with(enabled) is True
+    assert _written_to(host, helper_id)
+    assert await write_with(disabled) is False
+    assert len(_disabled_sibling_warnings(caplog)) == 2
+
+
+@pytest.mark.parametrize("helper_id", RUNTIME_HELPERS.values(), ids=RUNTIME_HELPERS)
+@pytest.mark.asyncio
+async def test_a_helper_the_registry_does_not_hold_is_written(helper_id, caplog):
+    """A helper entity without a registry entry cannot be disabled.
+
+    Home Assistant only disables entities it keeps in the registry, so an
+    adopted helper that has no entry there is written like an enabled one.
+    """
+    host = _runtime_host(make_registry_entry(helper_id, device_id=TRV_DEVICE))
+
+    with patch(f"{helpers.__name__}.er.async_get", return_value=make_entity_registry()):
+        assert await _write(host) is True
+
+    assert _written_to(host, helper_id)
+    assert _disabled_sibling_warnings(caplog) == []

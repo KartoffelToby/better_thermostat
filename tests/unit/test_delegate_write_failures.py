@@ -26,6 +26,23 @@ _RETRY = "custom_components.better_thermostat.utils.retry"
 ATTEMPTS = 6
 
 
+@pytest.fixture(autouse=True)
+def _no_helper_entity_is_disabled():
+    """The entity registry marks none of the TRV's helper entities disabled.
+
+    The stand-in Home Assistant carries no registry of its own; an empty
+    one answers every helper lookup with "no entry", which the write path
+    treats as enabled.
+    """
+    registry = MagicMock()
+    registry.async_get.return_value = None
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
+
+
 def _thermostat(adapter, quirks=None):
     """A thermostat with one TRV whose valve channel is ready to write to."""
     thermostat = MagicMock()
