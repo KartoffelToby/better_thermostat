@@ -135,9 +135,22 @@ class Finding:
 
 
 def _test_files(paths: list[str] | None) -> list[Path]:
-    """Return the tracked test modules, restricted to ``paths`` when given."""
+    """Return the test modules, restricted to ``paths`` when given.
+
+    A module nobody has run ``git add`` on counts as it will in CI; the
+    ignore rules decide what belongs to the repository.
+    """
     listing = subprocess.run(
-        ("git", "ls-files", "-z", "--", *(paths or (SCANNED,))),
+        (
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *(paths or (SCANNED,)),
+        ),
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -147,7 +160,7 @@ def _test_files(paths: list[str] | None) -> list[Path]:
         sys.exit(f"git could not list the test files:\n{listing.stderr.strip()}")
     names = [n for n in listing.stdout.split("\0") if n.endswith(".py")]
     if not names:
-        sys.exit(f"no tracked Python files under {', '.join(paths or (SCANNED,))}")
+        sys.exit(f"no Python files under {', '.join(paths or (SCANNED,))}")
     return [REPO_ROOT / name for name in names]
 
 
