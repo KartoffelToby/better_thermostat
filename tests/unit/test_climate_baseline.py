@@ -1063,6 +1063,15 @@ class TestAsyncSetPresetMode:
         assert mock_bt.last_user_change_monotonic == 123.0
 
     @pytest.mark.asyncio
+    async def test_an_unsupported_preset_is_not_stamped_as_a_user_change(self, mock_bt):
+        """A rejected preset changes nothing, so it is no user change either."""
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.last_user_change_monotonic = None
+        mock_bt.clock = FakeClock(monotonic_value=123.0)
+        await self._call(mock_bt, "nonexistent")
+        assert mock_bt.last_user_change_monotonic is None
+
+    @pytest.mark.asyncio
     async def test_control_queue_put_called(self, mock_bt):
         """control_queue_task.put is called after preset change."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]

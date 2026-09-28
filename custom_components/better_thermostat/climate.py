@@ -4276,7 +4276,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_update_lock = True
         try:
             old_preset = self.preset_mgr.mode
-            self.last_user_change_monotonic = self.clock.monotonic()
             new_temp = self.preset_mgr.activate(
                 preset_mode,
                 current_target_temp=self.bt_target_temp,
@@ -4295,6 +4294,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     preset_mode,
                 )
                 return
+            self.last_user_change_monotonic = self.clock.monotonic()
 
             # Capture the manual cooling target before a preset overwrites it, so it
             # can be preserved and restored when returning to PRESET_NONE.
