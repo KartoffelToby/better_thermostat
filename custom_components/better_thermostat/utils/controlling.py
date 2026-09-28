@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
 from time import monotonic
+from typing import Any
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
@@ -72,8 +74,14 @@ WRITE_CONFIRM_TIMEOUT_S = 360
 # comparison, so the offset channel carries its own floor.
 OFFSET_MATCH_TOLERANCE_K = 0.05
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
-# persistently failing device cannot spin the control queue.
+# persistently failing device cannot spin the control queue. Each further
+# failure of the same cycle doubles the pause.
 FAILED_CYCLE_BACKOFF_S = 2.0
+# Ceiling of that pause, the period of the periodic control tick. At that
+# distance a device that refuses every write costs a few hundred attempts a
+# day, while one that starts accepting the command again is still picked up
+# within minutes.
+FAILED_CYCLE_BACKOFF_MAX_S = 300.0
 
 
 def _is_boost_heating_active(self) -> bool:
@@ -184,6 +192,124 @@ class TaskManager:
         return task
 
 
+@dataclass
+class _FailedCycleRun:
+    """Consecutive control cycles that failed in the same way.
+
+    ``signature`` is what the failing cycles tried and how they failed,
+    ``intent`` the room targets the user had set at the time, ``wait_s`` the
+    pause the run has reached and ``retry`` the pending re-queue.
+    """
+
+    signature: tuple[Any, ...]
+    intent: tuple[Any, ...]
+    count: int
+    wait_s: float
+    retry: asyncio.Task[None] | None = None
+
+
+def _user_intent(self) -> tuple[Any, ...]:
+    """Return the room targets a user sets, as the failure pacing compares them."""
+    return (self.bt_target_temp, self.bt_target_cooltemp, self.bt_hvac_mode)
+
+
+def _failed_cycle_signature(self, failures) -> tuple[Any, ...]:
+    """Describe what a failed cycle tried to write and how each device refused it.
+
+    The setpoint and mode a worker last sent are recorded before the write
+    goes out, so they name the refused payload as well.
+    """
+    parts = []
+    for entity_id, outcome in failures:
+        trv = self.real_trvs.get(entity_id)
+        parts.append(
+            (
+                entity_id,
+                getattr(trv, "last_temperature", None),
+                getattr(trv, "last_hvac_mode", None),
+                type(outcome).__name__,
+                str(outcome),
+            )
+        )
+    return (_user_intent(self), tuple(parts))
+
+
+async def _requeue_failed_cycle(self, delay_s: float) -> None:
+    """Queue a control cycle once a failed cycle's pause has passed."""
+    await asyncio.sleep(delay_s)
+    try:
+        self.control_queue_task.put_nowait(self)
+    except asyncio.QueueFull:
+        _LOGGER.debug(
+            "better_thermostat %s: control queue is full, discarding task",
+            self.device_name,
+        )
+
+
+def _pace_failed_cycle(self, run, failures):
+    """Report a cycle's failures and schedule its retry; return the run.
+
+    A cycle that fails the way the previous one did doubles the pause, up
+    to its ceiling; any other failure starts a run at the base pause. The
+    retry is a task of its own, so the queue goes on serving requests while
+    it waits: a new target reaches the devices at once. The first failure of
+    a run is logged with its traceback, each later one in a single line.
+
+    A clean cycle ends the run once the retry has fired or the user has set
+    new targets. A clean cycle before that never tried the refused write
+    again and keeps the run.
+    """
+    if not failures:
+        if run is None:
+            return None
+        if (
+            run.retry is not None
+            and not run.retry.done()
+            and run.intent == _user_intent(self)
+        ):
+            return run
+        if run.retry is not None:
+            run.retry.cancel()
+        return None
+
+    signature = _failed_cycle_signature(self, failures)
+    if run is not None and run.signature == signature:
+        count = run.count + 1
+        wait_s = min(run.wait_s * 2, FAILED_CYCLE_BACKOFF_MAX_S)
+    else:
+        count = 1
+        wait_s = FAILED_CYCLE_BACKOFF_S
+    if run is not None and run.retry is not None:
+        run.retry.cancel()
+
+    for entity_id, outcome in failures:
+        if not isinstance(outcome, BaseException):
+            continue
+        if count == 1:
+            _LOGGER.error(
+                "better_thermostat %s: ERROR controlling TRV %s: %s",
+                self.device_name,
+                entity_id,
+                outcome,
+                exc_info=outcome,
+            )
+        else:
+            _LOGGER.warning(
+                "better_thermostat %s: controlling TRV %s failed again (%d cycles "
+                "in a row): %s; retrying in %.0f s",
+                self.device_name,
+                entity_id,
+                count,
+                outcome,
+                wait_s,
+            )
+    retry = asyncio.create_task(
+        _requeue_failed_cycle(self, wait_s),
+        name=f"bt_failed_cycle_retry_{self.device_name}",
+    )
+    return _FailedCycleRun(signature, _user_intent(self), count, wait_s, retry)
+
+
 def advance_hvac_action(self) -> None:
     """Recompute the heating action and commit its hysteresis state.
 
@@ -286,6 +412,7 @@ async def control_queue(self):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    failed_run = None
     try:
         while True:
             if getattr(self, "in_maintenance", False):
@@ -367,34 +494,17 @@ async def control_queue(self):
                     # Run all TRV controls in parallel
                     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                    result = True
-                    for i, res in enumerate(results):
-                        if isinstance(res, Exception):
-                            trv_id = controlled_trvs[i]
-                            _LOGGER.error(
-                                "better_thermostat %s: ERROR controlling TRV %s: %s",
-                                self.device_name,
-                                trv_id,
-                                res,
-                            )
-                            result = False
-                        elif res is False:
-                            result = False
+                    failures = [
+                        (controlled_trvs[i], res)
+                        for i, res in enumerate(results)
+                        if isinstance(res, Exception) or res is False
+                    ]
 
-                    # Retry task if some TRVs failed. Discard the task if the queue is full
-                    # to avoid blocking and therefore deadlocking this function.
-                    # The backoff sits here rather than in the failing worker:
-                    # a worker holds the TRV lock and would stall the rest of
-                    # the cycle with it.
-                    if result is False:
-                        await asyncio.sleep(FAILED_CYCLE_BACKOFF_S)
-                        try:
-                            self.control_queue_task.put_nowait(self)
-                        except asyncio.QueueFull:
-                            _LOGGER.debug(
-                                "better_thermostat %s: control queue is full, discarding task",
-                                self.device_name,
-                            )
+                    # Retry the cycle if some TRVs failed. The backoff sits
+                    # here rather than in the failing worker: a worker holds
+                    # the TRV lock and would stall the rest of the cycle with
+                    # it.
+                    failed_run = _pace_failed_cycle(self, failed_run, failures)
 
                     self.control_queue_task.task_done()
                     if not getattr(self, "in_maintenance", False):
@@ -411,6 +521,8 @@ async def control_queue(self):
         )
         raise
     finally:
+        if failed_run is not None and failed_run.retry is not None:
+            failed_run.retry.cancel()
         # Ensure ignore_states is reset on any exit unless maintenance wants it suppressed.
         if not getattr(self, "in_maintenance", False):
             self.ignore_states = False
