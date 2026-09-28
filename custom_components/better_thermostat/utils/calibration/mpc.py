@@ -582,7 +582,10 @@ def _forget_stamps_ahead_of_the_clock(state: _MpcState, now: float) -> None:
         state.last_room_temp_ts = 0.0
         state.last_room_temp_C = None
     if state.last_integration_ts > now:
+        # The totals hold the valve use accumulated since this stamp.
         state.last_integration_ts = 0.0
+        state.u_integral = 0.0
+        state.time_integral = 0.0
     if state.created_ts > now:
         state.created_ts = 0.0
 
@@ -1768,12 +1771,19 @@ def _decay_min_effective_percent(
     state: _MpcState,
     params: MpcParams,
     temp_delta: float | None,
+    percent_out: int,
     name: str,
     entity: str,
 ) -> None:
-    """Lower the learned minimum opening one step when the TRV responds."""
+    """Lower the learned minimum opening one step when the TRV responds.
+
+    Only a TRV that warms while the valve is commanded open answers an
+    opening. Behind a closed valve the radiator's stored heat still warms
+    it for a while, which says nothing about the dead zone.
+    """
     if (
         state.min_effective_percent is None
+        or percent_out <= 0
         or temp_delta is None
         or temp_delta <= params.deadzone_temp_delta_K
     ):
@@ -1988,7 +1998,7 @@ def _post_process_percent(
                     # --- Reset / decay ---
                     prev_hits = state.dead_zone_hits
                     _decay_min_effective_percent(
-                        state, params, temp_delta, name, entity
+                        state, params, temp_delta, percent_out, name, entity
                     )
                     state.dead_zone_hits = 0
                     if prev_hits:
@@ -2007,7 +2017,9 @@ def _post_process_percent(
             # A linear or exponential TRV counts no dead-zone hits, but a
             # minimum opening learned before it was classified still decays
             # while the TRV responds to it.
-            _decay_min_effective_percent(state, params, temp_delta, name, entity)
+            _decay_min_effective_percent(
+                state, params, temp_delta, percent_out, name, entity
+            )
 
         state.last_trv_temp = inp.trv_temp_C
         state.last_trv_temp_ts = now
