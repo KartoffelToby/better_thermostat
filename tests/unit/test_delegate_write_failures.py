@@ -1,10 +1,10 @@
 """What the delegate does when a valve write does not go through.
 
 The delegate sits between the control cycle and one ecosystem's adapter,
-and it answers two different questions with the same ``False``: the device
-has no channel for this command, or the command was attempted and failed.
-Only the second one is worth another attempt, and only the second one is
-worth telling anybody about.
+and it tells two outcomes apart: the device has no channel for this command
+(``None``), or the command was attempted and failed (``False``). Only the
+second one is worth another attempt, and only the second one is worth
+telling anybody about.
 """
 
 import logging
@@ -130,7 +130,7 @@ class TestAValveCommandThatGoesNowhere:
 
         answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
 
-        assert answer is False
+        assert answer is None
         adapter.set_valve.assert_not_awaited()
 
     @pytest.mark.asyncio

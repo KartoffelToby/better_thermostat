@@ -439,7 +439,7 @@ async def set_offset(self, entity_id, offset) -> bool:
     return True
 
 
-async def set_valve(self, entity_id, valve) -> bool:
+async def set_valve(self, entity_id, valve) -> bool | None:
     """Set a new valve position and record the value that went out.
 
     A model quirk's ``override_set_valve`` owns the valve channel where
@@ -449,15 +449,15 @@ async def set_valve(self, entity_id, valve) -> bool:
     Home Assistant. Whichever wrote records ``last_valve_percent`` and
     ``last_valve_method``.
 
-    A device with no valve channel is not a failure and is answered
-    ``False`` without a single attempt. A write that raises is an
-    infrastructure failure and is retried as :func:`_write_on_channel`
+    A device with no valve channel, or whose channels all decline the
+    position, is not a failure and is answered ``None``. A write that raises
+    is an infrastructure failure and is retried as :func:`_write_on_channel`
     describes; a channel whose attempts are spent leaves the position to the
-    next channel. Only once no channel took it is it answered ``False``,
-    which leaves the caller free to re-derive the position on its next
-    cycle.
+    next channel. Only once no channel took it and one of them raised is it
+    answered ``False``, which tells the caller to try the cycle again.
 
-    Returns True when a position was put on the wire, False otherwise.
+    Returns True when a position was put on the wire, False when a write was
+    attempted and failed, and None when no channel took the position.
     """
     try:
         target_pct = int(valve)
@@ -493,6 +493,7 @@ async def set_valve(self, entity_id, valve) -> bool:
 
     # A channel that raised leaves the position to the next channel, as one
     # that declined it does.
+    write_failed = False
     for method, write, answer_decides in channels:
         try:
             answer = await _write_on_channel(
@@ -504,6 +505,7 @@ async def set_valve(self, entity_id, valve) -> bool:
                 target_pct,
             )
         except Exception:
+            write_failed = True
             continue
         if answer_decides and not answer:
             continue
@@ -518,4 +520,4 @@ async def set_valve(self, entity_id, valve) -> bool:
                 exc,
             )
         return True
-    return False
+    return False if write_failed else None
