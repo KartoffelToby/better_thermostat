@@ -65,7 +65,8 @@
     },
     "abort": {
       "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
-      "no_devices_found": "Nessuna entità termostato trovata. Assicurati di avere un’entità climate nel tuo Home Assistant"
+      "no_devices_found": "Nessuna entità termostato trovata. Assicurati di avere un’entità climate nel tuo Home Assistant",
+      "already_configured": "Un Better Thermostat con questo nome controlla già questi termostati."
     }
   },
   "options": {

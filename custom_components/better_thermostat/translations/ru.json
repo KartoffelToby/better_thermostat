@@ -65,7 +65,8 @@
     },
     "abort": {
       "single_instance_allowed": "Для каждого физического термостата можно создать только один Better Thermostat.",
-      "no_devices_found": "Сущность термостата не найдена. Убедитесь, что в Home Assistant существует сущность climate."
+      "no_devices_found": "Сущность термостата не найдена. Убедитесь, что в Home Assistant существует сущность climate.",
+      "already_configured": "Better Thermostat с этим именем уже управляет этими термостатами."
     }
   },
   "options": {

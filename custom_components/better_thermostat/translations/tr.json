@@ -65,7 +65,8 @@
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
-      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun"
+      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun",
+      "already_configured": "Bu ada sahip bir Better Thermostat bu termostatları zaten kontrol ediyor."
     }
   },
   "options": {

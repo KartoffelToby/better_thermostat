@@ -65,7 +65,8 @@
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
-      "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant"
+      "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant",
+      "already_configured": "A Better Thermostat with this name already controls these thermostats."
     }
   },
   "options": {
