@@ -1019,6 +1019,48 @@ class TestControlTrvAvailablePath:
             mock_self.task_manager.create_task.assert_called()
 
     @pytest.mark.asyncio
+    async def test_a_refused_mode_write_arms_no_confirmation_wait(self):
+        """A mode that never went out is not waited for.
+
+        While the confirmation wait runs, a setpoint or mode the user sets on
+        the device is not adopted; arming it for a refused write would ignore
+        the user for minutes and then assume the mode was applied.
+        """
+        trv = _default_trv_config(
+            last_hvac_mode=HVACMode.OFF, system_mode_received=True
+        )
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": trv},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_hvac_mode"], autospec=True, return_value=False),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.system_mode_received is True
+        assert not any(
+            call.kwargs.get("name") == "bt_check_system_mode_climate.trv1"
+            for call in mock_self.task_manager.create_task.call_args_list
+        )
+
+    @pytest.mark.asyncio
     async def test_dropout_after_valve_write_sends_no_hvac_mode(self):
         """A TRV that drops offline during the cycle gets no mode write.
 
