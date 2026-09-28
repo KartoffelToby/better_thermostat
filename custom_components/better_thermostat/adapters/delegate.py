@@ -8,7 +8,10 @@ import math
 
 from homeassistant.helpers.importlib import async_import_module
 
-from custom_components.better_thermostat.utils.helpers import round_by_step
+from custom_components.better_thermostat.utils.helpers import (
+    round_by_step,
+    sibling_disabled_at_write,
+)
 
 from ..utils.retry import async_retry
 
@@ -225,6 +228,37 @@ async def set_hvac_mode(self, entity_id, hvac_mode):
     )
 
 
+def _adopted_helper_disabled(self, entity_id: str, attribute: str, role: str) -> bool:
+    helper = getattr(self.real_trvs[entity_id], attribute, None)
+    return helper is not None and sibling_disabled_at_write(
+        self, entity_id, helper, role
+    )
+
+
+def calibration_entity_disabled(self, entity_id: str) -> bool:
+    """Whether the TRV's adopted calibration entity is disabled right now.
+
+    A disabled entity stays disabled until the user acts, so the offset
+    channel is absent rather than failing: a caller does not pursue the
+    offset, and does not schedule a retry for it, while this holds.
+    """
+    return _adopted_helper_disabled(
+        self, entity_id, "local_temperature_calibration_entity", "local calibration"
+    )
+
+
+def valve_entity_disabled(self, entity_id: str) -> bool:
+    """Whether the TRV's adopted valve entity is disabled right now.
+
+    A disabled entity stays disabled until the user acts, so the valve
+    channel is absent rather than failing: a caller does not pursue the
+    valve position, and does not schedule a retry for it, while this holds.
+    """
+    return _adopted_helper_disabled(
+        self, entity_id, "valve_position_entity", "valve position"
+    )
+
+
 async def set_offset(self, entity_id, offset) -> bool:
     """Set new target offset and record the value that was asked for.
 
@@ -239,6 +273,10 @@ async def set_offset(self, entity_id, offset) -> bool:
     ``last_calibration_requested`` is written on a write only: a
     swallowed failure would otherwise look like a command in flight.
 
+    A calibration entity disabled in Home Assistant since it was adopted
+    is not written to: the call would be dropped, and answering ``True``
+    would leave the caller waiting on an offset that never arrives.
+
     Parameters
     ----------
     self : BetterThermostat
@@ -252,8 +290,11 @@ async def set_offset(self, entity_id, offset) -> bool:
     -------
     bool
         True when the adapter put the offset on the wire, False when the
-        device has no offset channel or every retry raised
+        device has no offset channel, its calibration entity is disabled,
+        or every retry raised
     """
+    if calibration_entity_disabled(self, entity_id):
+        return False
 
     @async_retry(retries=5)
     async def inner():
@@ -281,6 +322,76 @@ async def set_offset(self, entity_id, offset) -> bool:
         return False
     self.real_trvs[entity_id].last_calibration_requested = float(offset)
     return True
+
+
+def _valve_channels(
+    self, entity_id: str
+) -> list[tuple[str, Callable[..., Awaitable[bool | None]], bool]]:
+    """List the channels a valve position can go out through, in the order tried."""
+    trv_state = self.real_trvs.get(entity_id)
+
+    # The answer says a command went out, so the adapter's channel is tied to
+    # the adapter's own declaration rather than to the discovered entity: an
+    # ecosystem that declares no valve channel writes nothing, and reporting
+    # the discovery as a completed write would tell the caller a position was
+    # taken that the device never saw. An adapter without a declaration falls
+    # back to the discovered surface, as elsewhere.
+    declared = getattr(getattr(trv_state, "adapter", None), "CAPABILITIES", None)
+    adapter_writes_valve = declared is None or declared.valve_write
+    # An adapter whose valve channel is an ecosystem service call has no
+    # helper entity to discover. `Trv.capabilities` already reads the flag
+    # that way, so requiring an entity here would report a TRV as valve
+    # capable and then never write to it.
+    adapter_needs_valve_entity = declared is None or declared.valve_needs_entity
+    valve_entity = getattr(trv_state, "valve_position_entity", None)
+    valve_writable = getattr(trv_state, "valve_position_writable", None)
+    adapter_write = getattr(getattr(trv_state, "adapter", None), "set_valve", None)
+
+    # Each channel carries whether its own answer decides the outcome: a quirk
+    # reports whether it took the position, while an adapter call that returns
+    # is the write. The adapter's channel exists once a helper entity was
+    # discovered and is known to be writable, or once the adapter declares it
+    # needs no such entity because its valve channel is a service call.
+    #
+    # A quirk that can tell whether its device offers a valve to write to
+    # answers ``has_valve_channel``; one that cannot is taken at its word
+    # that ``override_set_valve`` is a channel.
+    channels: list[tuple[str, Callable[..., Awaitable[bool | None]], bool]] = []
+    model_quirks = getattr(trv_state, "model_quirks", None)
+    quirk_write = getattr(model_quirks, "override_set_valve", None)
+    quirk_has_channel = getattr(model_quirks, "has_valve_channel", None)
+    if quirk_write is not None and (
+        quirk_has_channel is None or quirk_has_channel(self, entity_id)
+    ):
+        channels.append(("override", quirk_write, True))
+    # A valve entity disabled in Home Assistant since it was adopted drops
+    # every write, so it is no channel until it is enabled again.
+    if (
+        adapter_write is not None
+        and adapter_writes_valve
+        and (
+            not adapter_needs_valve_entity
+            or (
+                valve_entity
+                and valve_writable is True
+                and not valve_entity_disabled(self, entity_id)
+            )
+        )
+    ):
+        channels.append(("adapter", adapter_write, False))
+    return channels
+
+
+def valve_channel_available(self, entity_id: str) -> bool:
+    """Whether any channel exists to write the TRV's valve position through.
+
+    Without one, the valve is out of reach for a reason that lasts until
+    the user acts (no valve entity, or only a disabled one), so a caller
+    does not pursue the valve position, and does not schedule a retry for
+    it, while this holds. A channel that exists but fails a write is a
+    different matter and is retried.
+    """
+    return bool(_valve_channels(self, entity_id))
 
 
 async def set_valve(self, entity_id, valve) -> bool:
@@ -329,43 +440,7 @@ async def set_valve(self, entity_id, valve) -> bool:
         return False
 
     trv_state = self.real_trvs.get(entity_id)
-
-    # The answer says a command went out, so the adapter's channel is tied to
-    # the adapter's own declaration rather than to the discovered entity: an
-    # ecosystem that declares no valve channel writes nothing, and reporting
-    # the discovery as a completed write would tell the caller a position was
-    # taken that the device never saw. An adapter without a declaration falls
-    # back to the discovered surface, as elsewhere.
-    declared = getattr(getattr(trv_state, "adapter", None), "CAPABILITIES", None)
-    adapter_writes_valve = declared is None or declared.valve_write
-    # An adapter whose valve channel is an ecosystem service call has no
-    # helper entity to discover. `Trv.capabilities` already reads the flag
-    # that way, so requiring an entity here would report a TRV as valve
-    # capable and then never write to it.
-    adapter_needs_valve_entity = declared is None or declared.valve_needs_entity
-    valve_entity = getattr(trv_state, "valve_position_entity", None)
-    valve_writable = getattr(trv_state, "valve_position_writable", None)
-    adapter_write = getattr(getattr(trv_state, "adapter", None), "set_valve", None)
-
-    # Each channel carries whether its own answer decides the outcome: a quirk
-    # reports whether it took the position, while an adapter call that returns
-    # is the write. The adapter's channel exists once a helper entity was
-    # discovered and is known to be writable, or once the adapter declares it
-    # needs no such entity because its valve channel is a service call.
-    channels = []
-    quirk_write = getattr(
-        getattr(trv_state, "model_quirks", None), "override_set_valve", None
-    )
-    if quirk_write is not None:
-        channels.append(("override", quirk_write, True))
-    if (
-        adapter_write is not None
-        and adapter_writes_valve
-        and (
-            (valve_entity and valve_writable is True) or not adapter_needs_valve_entity
-        )
-    ):
-        channels.append(("adapter", adapter_write, False))
+    channels = _valve_channels(self, entity_id)
 
     @async_retry(
         retries=5,

@@ -27,11 +27,13 @@ from homeassistant.core import (
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
+    calibration_entity_disabled,
     get_current_offset,
     set_hvac_mode,
     set_offset,
     set_temperature,
     set_valve,
+    valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
@@ -53,6 +55,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
@@ -93,6 +96,11 @@ _LOGGER = logging.getLogger(__name__)
 # TRVs are battery- and radio-constrained; bursts of writes are a real
 # failure cause. Safety-relevant writes (frost floor, OFF) bypass this.
 MIN_WRITE_INTERVAL_S = 30.0
+# A HomematicIP head shares its access point's 1 % radio duty cycle (36 s of
+# airtime an hour) with every other HomematicIP device in the home, so it is
+# written at most once per ten minutes per channel, the interval its own
+# internal temperature is read at.
+HOMEMATICIP_MIN_WRITE_INTERVAL_S = 600.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
 # Floor for the commanded-vs-reported offset comparison. One declared offset
@@ -166,9 +174,32 @@ FAILED_CYCLE_BACKOFF_S = 2.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
+def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
+    """Minimum spacing between non-safety writes to this TRV on ``channel``.
+
+    The first setpoint write after the user changed the room's target or
+    mode goes out at the normal pace on a HomematicIP head too: the user
+    expects the head to follow within the normal interval, and a flurry of
+    changes still coalesces on it. That write consumes the exemption.
+    """
+    if not (trv.advanced or {}).get(CONF_HOMEMATICIP):
+        return MIN_WRITE_INTERVAL_S
+    user_change = self.last_user_change_monotonic
+    last_write = trv.last_write_monotonic
+    if (
+        channel == "setpoint"
+        and user_change is not None
+        and (last_write is None or last_write < user_change)
+    ):
+        return MIN_WRITE_INTERVAL_S
+    return HOMEMATICIP_MIN_WRITE_INTERVAL_S
+
+
+def _budget_open(
+    last_write: float | None, now_monotonic: float, interval_s: float
+) -> bool:
     """Whether a channel's write-budget slot is free again."""
-    return last_write is None or now_monotonic - last_write >= MIN_WRITE_INTERVAL_S
+    return last_write is None or now_monotonic - last_write >= interval_s
 
 
 # Per-channel write-budget stamp fields on the Trv.
@@ -192,7 +223,9 @@ def _consume_budget(
     stamp_attr = _BUDGET_STAMPS[channel]
     now = self.clock.monotonic()
     last = getattr(trv, stamp_attr)
-    if not bypass and not _budget_open(last, now):
+    if not bypass and not _budget_open(
+        last, now, _write_interval_s(self, trv, channel)
+    ):
         _LOGGER.debug(
             "better_thermostat %s: write budget defers %s write to %s "
             "(%.0fs since last write)",
@@ -215,7 +248,7 @@ def _budget_remaining(self: BetterThermostat, entity_id: str, channel: str) -> f
         # Subtracting a monotonic clock from zero would yield a large
         # negative interval instead.
         return 0.0
-    return MIN_WRITE_INTERVAL_S - (self.clock.monotonic() - last)
+    return _write_interval_s(self, trv, channel) - (self.clock.monotonic() - last)
 
 
 def _no_off_system_mode(trv: Trv) -> bool:
@@ -237,20 +270,33 @@ def _schedule_budget_retry(
     compares the device against the last value actually written — which
     the device still matches — and configurations without a calibration
     tick have no other periodic trigger.
+
+    A retry already due no later than this one covers it. A retry due
+    later, such as one waiting out a HomematicIP head's interval when a
+    user change has since shortened it, is cancelled and replaced.
     """
     trv = self.real_trvs[entity_id]
-    if trv.budget_retry_pending:
+    delay = max(retry_in_s, 0.0)
+    due_at = self.clock.monotonic() + delay
+    if trv.budget_retry_due_at is not None and trv.budget_retry_due_at <= due_at:
         return
-    trv.budget_retry_pending = True
+    if trv.budget_retry_task is not None:
+        trv.budget_retry_task.cancel()
+    trv.budget_retry_due_at = due_at
 
     async def _retry() -> None:
         try:
-            await asyncio.sleep(max(retry_in_s, 0.0))
+            await asyncio.sleep(delay)
         finally:
-            trv.budget_retry_pending = False
+            # A replacement retry owns the bookkeeping from here on.
+            if trv.budget_retry_due_at == due_at:
+                trv.budget_retry_due_at = None
+                trv.budget_retry_task = None
         request_control_cycle(self)
 
-    self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
+    trv.budget_retry_task = self.task_manager.create_task(
+        _retry(), name=f"bt_budget_retry_{entity_id}"
+    )
 
 
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
@@ -1704,6 +1750,12 @@ async def control_trv(
                     valve_settings, _source = _get_valve_control(
                         self, snapshot, entity_id, _calibration_mode, _calibration_type
                     )
+                # A valve with no channel to write through is not pursued,
+                # and no retry is scheduled for it, until one appears.
+                if valve_settings is not None and not valve_channel_available(
+                    self, entity_id
+                ):
+                    valve_settings = None
                 if valve_settings is not None:
                     target_pct = int(round(valve_settings.get("valve_percent", 0)))
                     target_pct = int(
@@ -1815,12 +1867,11 @@ async def control_trv(
                             _reset_pct,
                             entity_id,
                         )
-                        # The budget slot is stamped but the valve never moved;
-                        # re-derive on the catch-up cycle so the reset is not
-                        # dropped permanently.
-                        _schedule_budget_retry(
-                            self, entity_id, _budget_remaining(self, entity_id, "valve")
-                        )
+                        # The valve never moved; re-derive on a catch-up cycle
+                        # so the reset is not dropped permanently. The reset
+                        # bypasses the budget, so the retry keeps the normal
+                        # spacing instead of a HomematicIP head's interval.
+                        _schedule_budget_retry(self, entity_id, MIN_WRITE_INTERVAL_S)
 
             # Manage TRVs with no HVACMode.OFF
             _trv_has_no_off = _no_off_system_mode(self.real_trvs[entity_id])
@@ -1898,6 +1949,9 @@ async def control_trv(
                 _calibration is not None
                 and _new_hvac_mode != HVACMode.OFF
                 and _calibration_mode != CalibrationMode.NO_CALIBRATION
+                # A disabled calibration entity is no offset channel: the
+                # offset is not pursued until it is enabled again.
+                and not calibration_entity_disabled(self, entity_id)
             ):
                 _current_calibration_s = await get_current_offset(self, entity_id)
 

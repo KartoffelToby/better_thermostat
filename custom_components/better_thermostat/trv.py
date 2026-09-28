@@ -9,6 +9,7 @@ instances of this class, accessed via typed attributes.
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -185,15 +186,23 @@ class Trv:
     last_write_monotonic: float | None = None
     last_offset_write_monotonic: float | None = None
     last_valve_write_monotonic: float | None = None
-    # Whether a follow-up control cycle is already scheduled for a
-    # budget-deferred setpoint write.
-    budget_retry_pending: bool = False
+    # Monotonic time the follow-up control cycle for a budget-deferred
+    # write is due at, and the task sleeping until then; None when no
+    # retry is scheduled.
+    budget_retry_due_at: float | None = None
+    budget_retry_task: asyncio.Task[None] | None = field(
+        default=None, repr=False, compare=False
+    )
     # Whether a follow-up control cycle is already scheduled for this
     # TRV's next reachability-retry window.
     reachability_retry_pending: bool = False
     # Outbound HVAC modes already annunciated as not offered by this
     # device, so the error is logged once per mode instead of per cycle.
     unsupported_modes_logged: set[str] = field(default_factory=set)
+    # Helper entities (calibration, valve) already annunciated as disabled
+    # in Home Assistant, so the warning is logged once per entity while it
+    # stays disabled instead of per lookup or write.
+    disabled_siblings_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
@@ -214,6 +223,11 @@ class Trv:
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
     # bump sequencing) without widening the typed surface.
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def budget_retry_pending(self) -> bool:
+        """Whether a follow-up control cycle is scheduled for a deferred write."""
+        return self.budget_retry_due_at is not None
 
     def consume_accept_next_internal_temp(self) -> bool:
         """Return and clear the one-shot accept-next-internal-temp flag.
