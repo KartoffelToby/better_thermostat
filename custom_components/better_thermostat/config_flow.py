@@ -19,10 +19,11 @@ from homeassistant.components.climate.const import (
     PRESET_SLEEP,
     HVACMode,
 )
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, UnitOfTemperature
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
+from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
 from . import DOMAIN  # pylint: disable=unused-import
@@ -233,14 +234,30 @@ PRESET_SELECTOR = selector.SelectSelector(
 )
 
 
+# The outdoor threshold is entered and stored in the system unit, so the
+# suggestion is this temperature expressed in that unit.
+_OFF_TEMPERATURE_DEFAULT_CELSIUS = 20
+
 _USER_FIELD_DEFAULTS: dict[str, Any] = {
-    CONF_OFF_TEMPERATURE: 20,
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_MIN: "-1.0",
     CONF_TARGET_TEMP_MAX: "-1.0",
     CONF_TARGET_TEMP_STEP: "0.0",
     CONF_MIN_COOLER_RESEND_INTERVAL: 0,
 }
+
+
+def _off_temperature_default(system_unit: str | None) -> int:
+    """Return the suggested outdoor threshold in the system unit, in whole degrees."""
+    if system_unit == UnitOfTemperature.FAHRENHEIT:
+        return round(
+            TemperatureConverter.convert(
+                _OFF_TEMPERATURE_DEFAULT_CELSIUS,
+                UnitOfTemperature.CELSIUS,
+                UnitOfTemperature.FAHRENHEIT,
+            )
+        )
+    return _OFF_TEMPERATURE_DEFAULT_CELSIUS
 
 
 def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
@@ -508,7 +525,11 @@ def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]
 
 
 def _build_user_fields(
-    *, mode: str, current: Mapping[str, Any], user_input: dict[str, Any] | None = None
+    *,
+    mode: str,
+    current: Mapping[str, Any],
+    user_input: dict[str, Any] | None = None,
+    system_unit: str | None = None,
 ) -> OrderedDict:
     user_input = user_input or {}
     is_create = mode == "create"
@@ -657,13 +678,12 @@ def _build_user_fields(
                 duration_default = None
         add_field(key, selector.DurationSelector(), default=duration_default)
 
-    off_temp_default = resolve(
-        CONF_OFF_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
-    )
+    suggested_off_temp = _off_temperature_default(system_unit)
+    off_temp_default = resolve(CONF_OFF_TEMPERATURE, suggested_off_temp)
     try:
         off_temp_default = int(off_temp_default)
     except TypeError, ValueError:
-        off_temp_default = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
+        off_temp_default = suggested_off_temp
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
     # An entry that carries no preset list runs on the PresetManager default
@@ -725,6 +745,7 @@ def _normalize_user_submission(
     mode: str,
     base: Mapping[str, Any] | None = None,
     errors: dict[str, str] | None = None,
+    system_unit: str | None = None,
 ) -> dict[str, Any]:
     if base:
         if not isinstance(base, dict):
@@ -783,21 +804,17 @@ def _normalize_user_submission(
         elif mode == "create" and key not in normalized:
             normalized[key] = 0
 
+    suggested_off_temp = _off_temperature_default(system_unit)
     off_temp = user_input.get(
-        CONF_OFF_TEMPERATURE,
-        normalized.get(
-            CONF_OFF_TEMPERATURE, _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
-        ),
+        CONF_OFF_TEMPERATURE, normalized.get(CONF_OFF_TEMPERATURE, suggested_off_temp)
     )
     if off_temp is None:
-        normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[CONF_OFF_TEMPERATURE]
+        normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
     else:
         try:
             normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
         except TypeError, ValueError:
-            normalized[CONF_OFF_TEMPERATURE] = _USER_FIELD_DEFAULTS[
-                CONF_OFF_TEMPERATURE
-            ]
+            normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
 
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = user_input[CONF_PRESETS]
@@ -1082,7 +1099,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.debug("ConfigFlow user step received input: %s", user_input)
             try:
                 normalized = _normalize_user_submission(
-                    user_input, mode="create", base=current, errors=errors
+                    user_input,
+                    mode="create",
+                    base=current,
+                    errors=errors,
+                    system_unit=self.hass.config.units.temperature_unit,
                 )
             except Exception as err:
                 _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
@@ -1117,7 +1138,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_advanced(None, self.trv_bundle[0])
 
         fields = _build_user_fields(
-            mode="create", current=self.data or {}, user_input=user_input
+            mode="create",
+            current=self.data or {},
+            user_input=user_input,
+            system_unit=self.hass.config.units.temperature_unit,
         )
 
         return self.async_show_form(
@@ -1259,6 +1283,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     mode="update",
                     base=self._config_entry.data,
                     errors=errors,
+                    system_unit=self.hass.config.units.temperature_unit,
                 )
             except Exception as err:
                 _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
@@ -1317,7 +1342,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors[CONF_HEATER] = "no_heater"
 
         fields = _build_user_fields(
-            mode="update", current=self._config_entry.data, user_input=user_input
+            mode="update",
+            current=self._config_entry.data,
+            user_input=user_input,
+            system_unit=self.hass.config.units.temperature_unit,
         )
 
         return self.async_show_form(
