@@ -1272,9 +1272,9 @@ class StateManager:
         the only record of what a user's installation had learned is gone.
         The copy is taken once:
         a second unreadable load must not overwrite the first copy, which is
-        the one still holding the accumulated state. While the copy cannot
-        be written, the payload is held so that no save overwrites the live
-        store before a later attempt succeeds.
+        the one still holding the accumulated state. The copy counts once it
+        loads back from disk; until then, the payload is held so that no save
+        overwrites the live store before a later attempt succeeds.
 
         Parameters
         ----------
@@ -1288,6 +1288,12 @@ class StateManager:
                 self._payload_awaiting_copy = None
                 return
             await quarantine.async_save(raw)
+            # ``async_save`` returns normally when the write fails, and while
+            # Home Assistant stops it only queues the write for the final
+            # write. A second Store holds no queued data, so what it loads
+            # is what reached the disk.
+            on_disk: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
+            written = await on_disk.async_load()
         except HomeAssistantError, OSError:
             _LOGGER.warning(
                 "better_thermostat [%s]: could not set the unreadable state "
@@ -1295,6 +1301,15 @@ class StateManager:
                 self._entry_id,
                 key,
                 exc_info=True,
+            )
+            self._payload_awaiting_copy = raw
+            return
+        if written is None:
+            _LOGGER.warning(
+                "better_thermostat [%s]: the unreadable state did not reach %s; "
+                "the stored state is kept unchanged until it does",
+                self._entry_id,
+                key,
             )
             self._payload_awaiting_copy = raw
             return

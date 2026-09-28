@@ -19,8 +19,12 @@ from dataclasses import asdict
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
+from homeassistant.core import CoreState
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import storage
 from homeassistant.helpers.json import json_bytes, prepare_save_json
+from homeassistant.util.file import WriteError
 from homeassistant.util.json import json_loads
 import pytest
 
@@ -1756,6 +1760,15 @@ _LIVE_STORE_KEY = "better_thermostat_test_entry_state"
 _SET_ASIDE_KEY = "better_thermostat_test_entry_state.corrupt"
 
 
+def _saved_into(store: AsyncMock):
+    """Return a save side effect after which *store* loads what was saved."""
+
+    def _save(data):
+        store.async_load.return_value = data
+
+    return _save
+
+
 @contextmanager
 def _stores_by_key():
     """Patch Store so every construction is recorded under its storage key.
@@ -1769,6 +1782,7 @@ def _stores_by_key():
         if key not in stores:
             store = AsyncMock()
             store.async_load = AsyncMock(return_value=None)
+            store.async_save = AsyncMock(side_effect=_saved_into(store))
             stores[key] = store
         return stores[key]
 
@@ -1930,7 +1944,15 @@ class TestUnreadableStoreIsKeptForRecovery:
         """Install a set-aside store whose writes raise *failures* in turn."""
         copy = AsyncMock()
         copy.async_load = AsyncMock(return_value=None)
-        copy.async_save = AsyncMock(side_effect=[*failures, None])
+        pending = list(failures)
+        save = _saved_into(copy)
+
+        def _write(data):
+            if pending:
+                raise pending.pop(0)
+            save(data)
+
+        copy.async_save = AsyncMock(side_effect=_write)
         stores[_SET_ASIDE_KEY] = copy
         return copy
 
@@ -1990,3 +2012,79 @@ class TestUnreadableStoreIsKeptForRecovery:
 
         stores[_LIVE_STORE_KEY].async_remove.assert_awaited_once()
         stores[_SET_ASIDE_KEY].async_remove.assert_awaited_once()
+
+
+class TestTheCopyIsConfirmedOnTheHomeAssistantStore:
+    """The live store is overwritten only once the copy is on disk.
+
+    Home Assistant's ``Store.async_save`` returns normally when the write
+    fails, and defers the write to the final-write event while Home
+    Assistant is stopping, so a returned save confirms no copy.
+    """
+
+    _LIVE_KEY = "better_thermostat_copy_entry_state"
+    _COPY_KEY = "better_thermostat_copy_entry_state.corrupt"
+    _PAYLOAD = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
+
+    @contextmanager
+    def _copy_writes_fail(self):
+        """Make every write of the set-aside copy fail as a full disk does."""
+        write = storage.Store._async_write_data
+
+        async def _write(store, data):
+            if store.key == self._COPY_KEY:
+                raise WriteError("disk full")
+            await write(store, data)
+
+        with patch.object(storage.Store, "_async_write_data", _write):
+            yield
+
+    async def _loaded_manager(self, hass, hass_storage) -> StateManager:
+        hass_storage[self._LIVE_KEY] = {
+            "version": 1,
+            "minor_version": 1,
+            "key": self._LIVE_KEY,
+            "data": self._PAYLOAD,
+        }
+        manager = StateManager(hass, "copy_entry")
+        await manager.load()
+        manager.mark_dirty()
+        return manager
+
+    async def test_a_failed_copy_write_keeps_the_live_store(self, hass, hass_storage):
+        """A copy the store could not write lets no save through."""
+        with self._copy_writes_fail():
+            manager = await self._loaded_manager(hass, hass_storage)
+            await manager.save()
+
+        assert self._COPY_KEY not in hass_storage
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+        assert manager.dirty is True
+
+    async def test_a_save_while_stopping_keeps_the_live_store(self, hass, hass_storage):
+        """A copy deferred to the final write is no copy yet.
+
+        Both writes would then land on the final-write event, and a copy
+        that fails there would leave the live store overwritten.
+        """
+        with self._copy_writes_fail():
+            manager = await self._loaded_manager(hass, hass_storage)
+            hass.set_state(CoreState.stopping)
+            try:
+                await manager.save()
+                hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
+                await hass.async_block_till_done()
+            finally:
+                hass.set_state(CoreState.running)
+
+        assert self._COPY_KEY not in hass_storage
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+
+    async def test_a_written_copy_lets_the_save_through(self, hass, hass_storage):
+        """Once the copy is on disk, the save replaces the live store."""
+        manager = await self._loaded_manager(hass, hass_storage)
+        await manager.save()
+
+        assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] != self._PAYLOAD
+        assert manager.dirty is False
