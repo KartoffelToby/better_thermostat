@@ -19,11 +19,16 @@ from homeassistant.components.number import NumberDeviceClass, NumberEntity, Num
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
+from .sensor import (
+    _ACTIVE_PID_NUMBERS,
+    _ACTIVE_PRESET_NUMBERS,
+    remove_unclaimed_registry_entries,
+)
 from .utils.calibration.pid import (
     DEFAULT_PID_KD,
     DEFAULT_PID_KI,
@@ -155,6 +160,12 @@ async def async_setup_entry(
         len(pid_unique_ids),
     )
 
+    remove_unclaimed_registry_entries(
+        er.async_get(hass),
+        entry,
+        Platform.NUMBER,
+        (number.unique_id for number in numbers),
+    )
     async_normalize_bt_entity_ids(hass, entry, Platform.NUMBER)
     async_add_entities(numbers)
 

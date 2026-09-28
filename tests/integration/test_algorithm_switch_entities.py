@@ -13,9 +13,19 @@ from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.better_thermostat.utils.const import CalibrationMode
+from custom_components.better_thermostat.utils.const import (
+    CalibrationMode,
+    CalibrationType,
+)
 
-from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
+from .conftest import (
+    DOMAIN,
+    SENSOR_ID,
+    TRV_ID,
+    make_entry,
+    setup_entry,
+    wait_for_startup,
+)
 
 PID = CalibrationMode.PID_CALIBRATION.value
 MPC = CalibrationMode.MPC_CALIBRATION.value
@@ -91,3 +101,115 @@ async def test_the_sensors_follow_the_chosen_algorithm(hass, fake_trv, first, th
 
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[then]
     assert _unavailable(hass, entry, "sensor") == []
+
+
+def _algorithm_controls(hass, entry) -> set[str]:
+    """Return the entity_ids of the entry's per-algorithm numbers and switches."""
+    registry = er.async_get(hass)
+    return {
+        reg.entity_id
+        for reg in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if reg.domain in ("number", "switch")
+        and reg.unique_id.endswith(
+            ("_pid_kp", "_pid_ki", "_pid_kd", "_pid_auto_tune", "_valve_max_opening")
+        )
+    }
+
+
+_PID_CONTROLS = {
+    "number.bt_test_pid_kp_proportional",
+    "number.bt_test_pid_ki_integral",
+    "number.bt_test_pid_kd_derivative",
+    "switch.bt_test_pid_auto_tune",
+}
+
+
+@pytest.mark.parametrize(
+    ("first", "then", "controls_before", "controls_after"),
+    [
+        (PID, MPC, _PID_CONTROLS, set()),
+        (PID, DEFAULT, _PID_CONTROLS, set()),
+        (MPC, PID, set(), _PID_CONTROLS),
+    ],
+)
+async def test_the_numbers_and_switches_follow_the_chosen_algorithm(
+    hass, fake_trv, first, then, controls_before, controls_after
+):
+    """After an algorithm change only the new algorithm's controls are registered."""
+    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
+    entry = _entry_in_mode(first)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    assert _algorithm_controls(hass, entry) == controls_before
+
+    await _choose_algorithm(hass, entry, then)
+
+    assert _algorithm_controls(hass, entry) == controls_after
+    assert _unavailable(hass, entry, "number") == []
+    assert _unavailable(hass, entry, "switch") == []
+    assert hass.states.get("switch.bt_test_child_lock") is not None
+
+
+@pytest.mark.parametrize(
+    ("first", "then"),
+    [
+        (CalibrationType.DIRECT_VALVE_BASED, CalibrationType.TARGET_TEMP_BASED),
+        (CalibrationType.TARGET_TEMP_BASED, CalibrationType.DIRECT_VALVE_BASED),
+    ],
+)
+async def test_the_valve_cap_follows_the_calibration_type(hass, fake_trv, first, then):
+    """The maximum valve opening number exists exactly while the valve is driven."""
+    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
+    entry = make_entry()
+    data = copy.deepcopy(dict(entry.data))
+    for trv in data["thermostat"]:
+        trv["advanced"]["calibration"] = first.value
+    entry = MockConfigEntry(
+        domain=DOMAIN, version=entry.version, data=data, title=entry.title
+    )
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    cap = {"number.bt_test_valve_max_opening"}
+    driven = CalibrationType.DIRECT_VALVE_BASED
+    assert _algorithm_controls(hass, entry) == (cap if first == driven else set())
+
+    data = copy.deepcopy(dict(entry.data))
+    for trv in data["thermostat"]:
+        trv["advanced"]["calibration"] = then.value
+    hass.config_entries.async_update_entry(entry, data=data)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    assert _algorithm_controls(hass, entry) == (cap if then == driven else set())
+    assert _unavailable(hass, entry, "number") == []
+
+
+async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass, fake_trv):
+    """Controls registered for an algorithm the entry no longer runs leave on setup."""
+    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
+    entry = _entry_in_mode(MPC)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    trv = TRV_ID
+    stale = {
+        ("number", f"{entry.entry_id}_{trv}_pid_kp"),
+        ("number", f"{entry.entry_id}_{trv}_valve_max_opening"),
+        ("switch", f"{entry.entry_id}_{trv}_pid_auto_tune"),
+        ("sensor", f"{entry.entry_id}_pid_output"),
+    }
+    for domain, unique_id in stale:
+        registry.async_get_or_create(domain, DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    left = {
+        (domain, unique_id)
+        for domain, unique_id in stale
+        if registry.async_get_entity_id(domain, DOMAIN, unique_id)
+    }
+    assert left == set()
+    assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[MPC]

@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 # Import tracking variables from sensor.py
-from .sensor import _ACTIVE_SWITCH_ENTITIES
+from .sensor import _ACTIVE_SWITCH_ENTITIES, remove_unclaimed_registry_entries
 from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
     build_pid_key,
@@ -80,6 +80,12 @@ async def async_setup_entry(
         len(switch_unique_ids),
     )
 
+    remove_unclaimed_registry_entries(
+        er.async_get(hass),
+        entry,
+        Platform.SWITCH,
+        (switch.unique_id for switch in switches),
+    )
     async_normalize_bt_entity_ids(hass, entry, Platform.SWITCH)
     async_add_entities(switches)
 
