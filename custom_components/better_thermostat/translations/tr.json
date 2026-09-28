@@ -39,7 +39,8 @@
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
           "calibration": "Kalibrasyon Türü",
           "calibration_mode": "Kalibrasyon modu",
-          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz",
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -93,7 +94,8 @@
           "calibration": "Kalibrasyon türü",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
           "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
-          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz"
+          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz",
+          "cooler": "Soğutma cihazı (isteğe bağlı)"
         },
         "data_description": {
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
@@ -109,7 +111,8 @@
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
           "calibration": "Kullanmak istediğiniz kalibrasyon türü",
           "calibration_mode": "Kalibrasyon modu",
-          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz",
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",

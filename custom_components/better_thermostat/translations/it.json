@@ -39,7 +39,8 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione",
           "calibration_mode": "Modalità di calibrazione",
-          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target",
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -93,7 +94,8 @@
           "calibration": "Tipo di calibrazione",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
           "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
-          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro"
+          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro",
+          "cooler": "Il dispositivo di raffreddamento (opzionale)"
         },
         "data_description": {
           "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato."
@@ -109,7 +111,8 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione che vuoi usare",
           "calibration_mode": "Modalità di calibrazione",
-          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target",
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
