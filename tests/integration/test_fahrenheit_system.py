@@ -32,6 +32,7 @@ from .conftest import (
     TRV_ID,
     FakeTrvEntity,
     setup_entry,
+    wait_for,
     wait_for_startup,
 )
 
@@ -218,3 +219,54 @@ async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(
 
     assert bt.bt_target_temp == pytest.approx(20.0)
     assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 68.0
+
+
+@pytest.mark.usefixtures("fahrenheit_system")
+async def test_the_range_is_published_in_tenths_inside_the_device_range(hass):
+    """The range the thermostat publishes lies inside the device's, in tenths.
+
+    The device's 4 to 30.5 °C is published as 39 and 87 °F. The thermostat
+    reads each half a published degree inward and publishes that as it holds
+    it, 39.5 and 86.5 °F, not rounded back out to whole degrees.
+    """
+    await _off_grid_trv(hass)
+    _publish_room(hass, 67.0)
+    await _start(hass)
+
+    state = hass.states.get(BT_ENTITY)
+    assert state.attributes["min_temp"] == 39.5
+    assert state.attributes["max_temp"] == 86.5
+    assert _fahrenheit(4.0) <= state.attributes["min_temp"]
+    assert state.attributes["max_temp"] <= _fahrenheit(30.5)
+
+
+@pytest.mark.usefixtures("fahrenheit_system")
+@pytest.mark.parametrize(
+    ("bound", "device_bound"), [("min_temp", 4.0), ("max_temp", 30.5)]
+)
+async def test_a_target_at_the_edge_of_the_range_reaches_the_device(
+    hass, bound, device_bound
+):
+    """A target at the thermostat's own limit is a setpoint the device accepts.
+
+    Home Assistant checks the setpoint against the device's unrounded range
+    and refuses one outside it before the device sees it, so the limit the
+    thermostat offers has to lie inside that range.
+    """
+    fake_trv = await _off_grid_trv(hass)
+    _publish_room(hass, 67.0)
+    await _start(hass)
+    await _set_target(hass, 68.0)
+    # Away from both bounds first, so the write at the bound is a change.
+    assert await wait_for(
+        hass, lambda: 10.0 < fake_trv.target_temperature < 25.0, timeout_s=2.0
+    ), fake_trv.set_temperature_calls
+    offered = hass.states.get(BT_ENTITY).attributes[bound]
+    baseline = len(fake_trv.set_temperature_calls)
+
+    await _set_target(hass, offered)
+    assert await wait_for(
+        hass, lambda: len(fake_trv.set_temperature_calls) > baseline, timeout_s=2.0
+    ), f"no setpoint at {offered} °F reached the device"
+
+    assert fake_trv.set_temperature_calls[-1] == pytest.approx(device_bound, abs=0.5)

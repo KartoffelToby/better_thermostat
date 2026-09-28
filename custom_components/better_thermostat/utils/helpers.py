@@ -842,6 +842,11 @@ def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> fl
     carry the system unit. On Fahrenheit installs the value is converted
     and rounded to one decimal; otherwise it is returned unchanged.
 
+    Temperatures are held at full precision inside and rounded once, at the
+    edge, onto the grid of whoever receives them: here the tenth of a degree
+    Fahrenheit a setpoint is written in, as the entity publishes its own
+    temperatures in tenths too.
+
     Parameters
     ----------
     hass : HomeAssistant
@@ -1407,6 +1412,94 @@ def attr_to_celsius(
         unit_of_measurement=state_temperature_unit(
             attributes, self.hass.config.units.temperature_unit
         ),
+    )
+
+
+# The grids Home Assistant publishes a climate entity's temperatures on,
+# coarsest first: whole degrees, halves and tenths.
+_PUBLISHED_GRIDS = (1.0, 0.5, 0.1)
+
+# A published value this close to a point of a grid is on it: it only carries
+# the float noise of convert_to_float's 0.01 grid.
+_ON_GRID_TOLERANCE = 1e-6
+
+
+def _published_grid(value: float) -> float | None:
+    """Return the coarsest published grid ``value`` lies on, or None."""
+    for grid in _PUBLISHED_GRIDS:
+        if abs(value / grid - round(value / grid)) < _ON_GRID_TOLERANCE:
+            return grid
+    return None
+
+
+def read_bound_celsius(
+    self, state: State | None, key: str, *, lower: bool, context: str = ""
+) -> float | None:
+    """Read a setpoint bound from a foreign state and return it in °C.
+
+    The bound becomes the limit every setpoint is clamped to, and Home
+    Assistant checks a setpoint against the device's own, unrounded bound, so
+    a bound read outward of it lets a refused setpoint through.
+
+    A bound in Celsius is read as published. On a Fahrenheit system Home
+    Assistant converts a device's bound and rounds it to the entity's
+    precision (whole degrees unless the integration states halves or tenths),
+    so the published value may lie up to half a published step outside the
+    device's bound. The bound is read half of the coarsest step its value
+    fits inward, which puts it inside the device's range whatever precision
+    the integration stated, and then inward onto the tenth of a degree the
+    thermostat publishes its own range in and writes setpoints in: a bound
+    between two tenths would be rounded outward again at that edge.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the source state to read from, or None when it is unavailable
+    key : str
+            the attribute holding the bound (``"min_temp"`` or ``"max_temp"``)
+    lower : bool
+            True for a lower bound, which moves up; False for an upper one
+    context : str
+            calling context, forwarded for logging
+
+    Returns
+    -------
+    float | None
+            the bound in Celsius, or None when the state publishes none
+    """
+    attributes = state.attributes if state is not None else {}
+    unit = state_temperature_unit(attributes, self.hass.config.units.temperature_unit)
+    return bound_to_celsius(
+        str(attributes.get(key)),
+        unit,
+        lower=lower,
+        instance_name=self.device_name,
+        context=context,
+    )
+
+
+def bound_to_celsius(
+    value: str | int | float | None,
+    unit: str | None,
+    *,
+    lower: bool,
+    instance_name: str,
+    context: str = "",
+) -> float | None:
+    """Convert a published setpoint bound to Celsius; see :func:`read_bound_celsius`."""
+    bound = convert_to_float(value, instance_name, context)
+    if bound is None or unit != UnitOfTemperature.FAHRENHEIT:
+        return bound
+    grid = _published_grid(bound)
+    if grid is not None:
+        bound += grid / 2 if lower else -grid / 2
+    # Rounded first, so float noise cannot tip a tenth over the edge.
+    tenths = round(bound * 10, 6)
+    bound = (math.ceil(tenths) if lower else math.floor(tenths)) / 10
+    return TemperatureConverter.convert(
+        bound, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
     )
 
 

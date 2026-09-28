@@ -159,6 +159,7 @@ from .utils.helpers import (
     member_counts_as_off,
     normalize_hvac_mode,
     normalize_step,
+    read_bound_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     round_by_step,
@@ -1444,29 +1445,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         max_temps: list[float] = []
         steps: list[float] = []
         for s in states:
-            _unit = state_temperature_unit(
-                s.attributes, self.hass.config.units.temperature_unit
+            _c = read_bound_celsius(
+                self,
+                s,
+                ATTR_MIN_TEMP,
+                lower=True,
+                context="_resolve_temperature_range(min)",
             )
-            _raw_min = s.attributes.get(ATTR_MIN_TEMP)
-            if _raw_min is not None:
-                _c = convert_to_float_celsius(
-                    str(_raw_min),
-                    self.device_name,
-                    "_resolve_temperature_range(min)",
-                    unit_of_measurement=_unit,
-                )
-                if _c is not None:
-                    min_temps.append(_c)
-            _raw_max = s.attributes.get(ATTR_MAX_TEMP)
-            if _raw_max is not None:
-                _c = convert_to_float_celsius(
-                    str(_raw_max),
-                    self.device_name,
-                    "_resolve_temperature_range(max)",
-                    unit_of_measurement=_unit,
-                )
-                if _c is not None:
-                    max_temps.append(_c)
+            if _c is not None:
+                min_temps.append(_c)
+            _c = read_bound_celsius(
+                self,
+                s,
+                ATTR_MAX_TEMP,
+                lower=False,
+                context="_resolve_temperature_range(max)",
+            )
+            if _c is not None:
+                max_temps.append(_c)
             _sf = _target_temp_step_celsius(
                 s, self.device_name, self.hass.config.units.temperature_unit
             )
@@ -2066,8 +2062,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data.valve_position = convert_to_float(
                 str(_attrs.get("valve_position", None)), self.device_name, "startup"
             )
-            trv_data.max_temp = attr_to_celsius(self, _s, "max_temp", 30, "startup")
-            trv_data.min_temp = attr_to_celsius(self, _s, "min_temp", 5, "startup")
+            # A device that publishes no range gets Better Thermostat's own,
+            # which is stated in the Celsius it computes in.
+            _max_temp = read_bound_celsius(
+                self, _s, "max_temp", lower=False, context="startup"
+            )
+            _min_temp = read_bound_celsius(
+                self, _s, "min_temp", lower=True, context="startup"
+            )
+            trv_data.max_temp = 30.0 if _max_temp is None else _max_temp
+            trv_data.min_temp = 5.0 if _min_temp is None else _min_temp
             # This step is the grid the device rounds to: it sizes the echo
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
@@ -2938,14 +2942,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def precision(self):
-        """Return the precision of the system.
+        """Return the precision the entity's temperatures are published with.
+
+        Home Assistant rounds every temperature this entity publishes (the
+        room temperature, the target and the range) to it after converting
+        into the system unit. Its default on a Fahrenheit system is whole
+        degrees, which would round the thermostat's range outward past the
+        device's bounds and hide a target between two degrees, so every
+        system publishes tenths, which is Home Assistant's default on a
+        Celsius one.
 
         Returns
         -------
         float
                 Precision of the thermostat.
         """
-        return super().precision
+        return PRECISION_TENTHS
 
     @property
     def target_temperature_step(self) -> float | None:
