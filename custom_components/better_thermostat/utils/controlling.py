@@ -158,11 +158,25 @@ FAILED_CYCLE_BACKOFF_S = 2.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-def _write_interval_s(trv: Trv) -> float:
-    """Minimum spacing between non-safety writes to this TRV."""
-    if (trv.advanced or {}).get(CONF_HOMEMATICIP):
-        return HOMEMATICIP_MIN_WRITE_INTERVAL_S
-    return MIN_WRITE_INTERVAL_S
+def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
+    """Minimum spacing between non-safety writes to this TRV on ``channel``.
+
+    The first setpoint write after the user changed the room's target or
+    mode goes out at the normal pace on a HomematicIP head too: the user
+    expects the head to follow within the normal interval, and a flurry of
+    changes still coalesces on it. That write consumes the exemption.
+    """
+    if not (trv.advanced or {}).get(CONF_HOMEMATICIP):
+        return MIN_WRITE_INTERVAL_S
+    user_change = self.last_user_change_monotonic
+    last_write = trv.last_write_monotonic
+    if (
+        channel == "setpoint"
+        and user_change is not None
+        and (last_write is None or last_write < user_change)
+    ):
+        return MIN_WRITE_INTERVAL_S
+    return HOMEMATICIP_MIN_WRITE_INTERVAL_S
 
 
 def _budget_open(
@@ -193,7 +207,7 @@ def _consume_budget(
     stamp_attr = _BUDGET_STAMPS[channel]
     now = self.clock.monotonic()
     last = getattr(trv, stamp_attr)
-    if not bypass and not _budget_open(last, now, _write_interval_s(trv)):
+    if not bypass and not _budget_open(last, now, _write_interval_s(self, trv, channel)):
         _LOGGER.debug(
             "better_thermostat %s: write budget defers %s write to %s "
             "(%.0fs since last write)",
@@ -216,7 +230,7 @@ def _budget_remaining(self: BetterThermostat, entity_id: str, channel: str) -> f
         # Subtracting a monotonic clock from zero would yield a large
         # negative interval instead.
         return 0.0
-    return _write_interval_s(trv) - (self.clock.monotonic() - last)
+    return _write_interval_s(self, trv, channel) - (self.clock.monotonic() - last)
 
 
 def _no_off_system_mode(trv: Trv) -> bool:

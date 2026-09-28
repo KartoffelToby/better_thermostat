@@ -3637,6 +3637,7 @@ class TestHomematicIPWritePacing:
             return Mock()
 
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_capture))
+        mock_self.last_user_change_monotonic = None
         return mock_self, created
 
     @staticmethod
@@ -3730,3 +3731,54 @@ class TestHomematicIPWritePacing:
         await self._cycle(mock_self, heads, 23.0, written)
         assert written[2:] == [(self.HMIP, 23.0), (self.HMIP_PEER, 23.0)]
         await self._retry_delays(created, "")
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_reaches_the_homematicip_head_at_the_normal_pace(self):
+        """The user's own change is written within the normal interval.
+
+        A minute after the last write the user sets a new target, and the
+        HomematicIP head receives it at once. The controller's next
+        recomputation a minute later waits for the head's own interval again.
+        """
+        mock_self, created = self._room({self.HMIP: True})
+        written = []
+
+        await self._cycle(mock_self, [self.HMIP], 22.0, written)
+        mock_self.clock.advance(60.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        assert written == [(self.HMIP, 22.0), (self.HMIP, 23.0)]
+        await self._retry_delays(created, "")
+
+        mock_self.clock.advance(60.0)
+        await self._cycle(mock_self, [self.HMIP], 23.5, written)
+        assert written[2:] == []
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [pytest.approx(HOMEMATICIP_MIN_WRITE_INTERVAL_S - 60.0)]
+
+    @pytest.mark.asyncio
+    async def test_a_second_user_change_waits_for_the_normal_spacing(self):
+        """Two user changes ten seconds apart coalesce on the normal spacing.
+
+        The second change is deferred, not lost: it lands once the normal
+        interval after the first write has passed.
+        """
+        mock_self, created = self._room({self.HMIP: True})
+        written = []
+
+        await self._cycle(mock_self, [self.HMIP], 22.0, written)
+        mock_self.clock.advance(60.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        await self._retry_delays(created, "")
+
+        mock_self.clock.advance(10.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written == [(self.HMIP, 22.0), (self.HMIP, 23.0)]
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S - 10.0)]
+
+        mock_self.clock.advance(delays[0])
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written[2:] == [(self.HMIP, 24.0)]

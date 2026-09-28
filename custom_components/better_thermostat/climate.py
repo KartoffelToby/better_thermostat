@@ -957,6 +957,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_dampening_timestamp = None
         self.version = VERSION
         self.last_change = self.clock.now() - timedelta(hours=2)
+        # Monotonic time of the user's last change of the room target or mode.
+        self.last_user_change_monotonic: float | None = None
         self.last_external_sensor_change = self.clock.now() - timedelta(hours=2)
         self._temp_lock = asyncio.Lock()
         self.bt_update_lock = False
@@ -3607,6 +3609,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 f"supported: heat, heat_cool, off"
             )
         self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+        self.last_user_change_monotonic = self.clock.monotonic()
         self.async_write_ha_state()
         # During valve maintenance we must not block on the control queue (maxsize=1)
         # and must not override maintenance valve exercise.
@@ -4056,6 +4059,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_TARGET_TEMP_HIGH, "controlling.settarget_temperature_high()"
         )
 
+        self.last_user_change_monotonic = self.clock.monotonic()
         if _new_hvac_mode is not None:
             self.bt_hvac_mode = _new_hvac_mode
 
@@ -4272,6 +4276,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_update_lock = True
         try:
             old_preset = self.preset_mgr.mode
+            self.last_user_change_monotonic = self.clock.monotonic()
             new_temp = self.preset_mgr.activate(
                 preset_mode,
                 current_target_temp=self.bt_target_temp,
