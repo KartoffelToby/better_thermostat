@@ -721,7 +721,9 @@ class TestControlQueueOnADualRoleEntity:
         mock_self.calculate_heat_loss = AsyncMock()
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = (
-            {cls.SHARED_ID: Mock()} if real_trvs is None else real_trvs
+            {cls.SHARED_ID: _tracked_trv(cls.SHARED_ID)}
+            if real_trvs is None
+            else real_trvs
         )
         mock_self._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
         mock_self.control_queue_task = asyncio.Queue()
@@ -837,7 +839,10 @@ class TestControlQueueOnADualRoleEntity:
         radiator = "climate.radiator"
         mock_self = self._make_self(
             hvac_mode_decided="cool",
-            real_trvs={self.SHARED_ID: Mock(), radiator: Mock()},
+            real_trvs={
+                self.SHARED_ID: _tracked_trv(self.SHARED_ID),
+                radiator: _tracked_trv(radiator),
+            },
         )
 
         def _errors():
@@ -865,7 +870,8 @@ class TestControlQueueOnADualRoleEntity:
     async def test_a_distinct_cooler_leaves_every_trv_dispatched(self):
         """An installation without the overlap dispatches every thermostat."""
         mock_self = self._make_self(
-            hvac_mode_decided="cool", real_trvs={"climate.radiator": Mock()}
+            hvac_mode_decided="cool",
+            real_trvs={"climate.radiator": _tracked_trv("climate.radiator")},
         )
         mock_self.cooler_entity_id = "climate.split_unit"
 
@@ -921,3 +927,51 @@ class TestControlQueueOnADualRoleEntity:
             await self._run_one_cycle(mock_self)
 
         assert mock_self.kernel_state.last_control_monotonic == 1234.0
+
+
+@pytest.mark.parametrize(
+    ("awaiting", "cooler_passes"),
+    [pytest.param(True, 0, id="awaiting"), pytest.param(False, 1, id="initialised")],
+)
+@pytest.mark.asyncio
+async def test_a_cooler_awaiting_initialization_is_not_controlled(
+    awaiting, cooler_passes
+):
+    """A cooler that is also a TRV still being set up gets no cooling pass.
+
+    The cooling channel writes a mode and a setpoint to the same device the
+    heating channel leaves alone until its initialisation is done.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.cooler_entity_id = "climate.ac"
+    mock_self.real_trvs = {"climate.ac": _tracked_trv("climate.ac")}
+    mock_self.real_trvs["climate.ac"].awaiting_initialization = awaiting
+
+    queue = asyncio.Queue()
+    mock_self.control_queue_task = queue
+    await queue.put(mock_self)
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_cooler",
+            new=AsyncMock(),
+        ) as mock_control_cooler,
+    ):
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        await asyncio.sleep(0.05)
+        queue_task.cancel()
+        try:
+            await queue_task
+        except asyncio.CancelledError:
+            pass
+
+    assert mock_control_cooler.await_count == cooler_passes
