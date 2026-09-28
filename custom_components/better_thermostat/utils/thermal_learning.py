@@ -416,8 +416,9 @@ class HeatLossTracker:
         """Process one temperature reading and return what changed."""
         from homeassistant.components.climate.const import HVACAction as _HA
 
-        # Window open → reset tracking
-        if window_open:
+        # An open window or a running cooler drives the drop, so the stretch
+        # it covers says nothing about passive heat loss: reset tracking.
+        if window_open or current_action == _HA.COOLING:
             self.start_temp = None
             self.start_ts = None
             self.end_temp = None
