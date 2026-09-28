@@ -13,11 +13,14 @@ from homeassistant.const import CONF_NAME
 import pytest
 
 from custom_components.better_thermostat import DOMAIN, RELOAD_LOCKS, async_remove_entry
+from custom_components.better_thermostat.events.contact import DOOR, WINDOW
 from custom_components.better_thermostat.utils.const import (
+    CONF_COOLER,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
 )
 
@@ -113,6 +116,45 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         assert "missing_entity_sensor.humidity" in called_ids
         assert "missing_entity_binary_sensor.window" in called_ids
         assert "missing_entity_sensor.outdoor" in called_ids
+
+    @pytest.mark.asyncio
+    async def test_deletes_every_issue_a_fully_wired_thermostat_can_raise(
+        self, patched_delete_issue
+    ):
+        """No repair issue of a removed thermostat outlives it.
+
+        The runtime raises one issue per contact role and one per watched
+        entity; every device the entry wires is watched, the door sensor and
+        the cooler included.
+        """
+        hass = _make_hass()
+        entry = _make_entry(
+            **{
+                CONF_HUMIDITY: "sensor.humidity",
+                CONF_SENSOR_WINDOW: "binary_sensor.window",
+                CONF_SENSOR_DOOR: "binary_sensor.door",
+                CONF_OUTDOOR_SENSOR: "sensor.outdoor",
+                CONF_COOLER: "climate.ac",
+            }
+        )
+
+        await async_remove_entry(hass, entry)
+
+        called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
+        raised_by_the_runtime = {
+            "invalid_external_temperature_Kinderzimmer",
+            f"{WINDOW.issue_translation_key}_Kinderzimmer",
+            f"{DOOR.issue_translation_key}_Kinderzimmer",
+            "degraded_mode_Kinderzimmer",
+            "missing_entity_climate.fritz_kinderzimmer",
+            "missing_entity_sensor.kinderzimmer_temperature",
+            "missing_entity_sensor.humidity",
+            "missing_entity_binary_sensor.window",
+            "missing_entity_binary_sensor.door",
+            "missing_entity_sensor.outdoor",
+            "missing_entity_climate.ac",
+        }
+        assert raised_by_the_runtime - called_ids == set()
 
     @pytest.mark.asyncio
     async def test_skips_unconfigured_optional_sensors(self, patched_delete_issue):

@@ -15,11 +15,13 @@ import voluptuous as vol
 
 from .utils.const import (
     CONF_CALIBRATION_MODE,
+    CONF_COOLER,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
@@ -126,6 +128,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     for issue_id in (
         f"invalid_external_temperature_{device_name}",
         f"invalid_window_state_{device_name}",
+        f"invalid_door_state_{device_name}",
         f"degraded_mode_{device_name}",
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
@@ -139,7 +142,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         CONF_SENSOR,
         CONF_HUMIDITY,
         CONF_SENSOR_WINDOW,
+        CONF_SENSOR_DOOR,
         CONF_OUTDOOR_SENSOR,
+        CONF_COOLER,
     ):
         eid = entry.data.get(conf_key)
         if eid:
