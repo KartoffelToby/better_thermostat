@@ -181,6 +181,21 @@ class TestWhatTheLogLineNames:
 
         assert "to entity" not in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_an_entity_id_passed_by_keyword_names_the_device(self, caplog):
+        """The keyword spelling of the id labels the line as well."""
+
+        @async_retry(retries=1)
+        async def write(*, entity_id):
+            raise HomeAssistantError("device did not answer")
+
+        with caplog.at_level(logging.DEBUG):
+            with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+                with pytest.raises(HomeAssistantError):
+                    await write(entity_id="climate.trv")
+
+        assert "to entity climate.trv" in caplog.text
+
 
 class TestWhatComesBack:
     """The value a call that eventually succeeds hands back."""
