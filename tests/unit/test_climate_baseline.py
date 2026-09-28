@@ -915,7 +915,7 @@ class TestAsyncSetPresetMode:
 
     @pytest.mark.asyncio
     async def test_comfort_to_none_restores(self, mock_bt):
-        """Comfort → NONE: bt_target_temp restored, _preset_temperature cleared."""
+        """Comfort → NONE: bt_target_temp restored, saved temperature cleared."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
         mock_bt.preset_mgr.mode = PRESET_COMFORT
         mock_bt.preset_mgr.saved_temperature = 20.0
@@ -929,7 +929,7 @@ class TestAsyncSetPresetMode:
 
     @pytest.mark.asyncio
     async def test_comfort_to_eco(self, mock_bt):
-        """Comfort → Eco: bt_target_temp = eco config, _preset_temperature unchanged."""
+        """Comfort → Eco: bt_target_temp = eco config, saved temperature kept."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
         mock_bt.preset_mgr.mode = PRESET_COMFORT
         mock_bt.preset_mgr.saved_temperature = 20.0  # saved from initial manual temp
