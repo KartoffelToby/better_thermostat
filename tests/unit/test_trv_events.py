@@ -1813,6 +1813,48 @@ class TestTargetTempAdoption:
         )
         assert "to stay below cooling target" not in caplog.text
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "room_mode",
+        [
+            pytest.param(HVACMode.HEAT, id="heat"),
+            pytest.param(HVACMode.HEAT_COOL, id="heat_cool"),
+        ],
+    )
+    async def test_a_routine_no_off_report_requests_no_cycle(self, mock_bt, room_mode):
+        """A device without an off mode repeating its setpoint leaves a heating room as it is.
+
+        A room with a cooler heats in HEAT_COOL, one without in HEAT. A
+        routine report of the setpoint the device already holds names the
+        mode the room is in, so it moves nothing and requests no control
+        cycle.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt.map_on_hvac_mode = room_mode
+        mock_bt.bt_hvac_mode = room_mode
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 25.0
+        routine = {"temperature": 20.0, "current_temperature": 18.0}
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat", attributes=routine
+        )
+        event = _make_event(
+            mock_bt,
+            new_state=_make_state(attributes=routine),
+            old_state=_make_state(attributes=routine),
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == room_mode
+        mock_bt.control_queue_task.put.assert_not_awaited()
+
 
 class TestTargetTempBasedSync:
     """User-initiated TRV setpoint changes must propagate to BT.

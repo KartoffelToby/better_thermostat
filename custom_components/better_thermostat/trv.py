@@ -103,6 +103,10 @@ class Trv:
     confirmed_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
+    # Whether the device reported something while a control cycle held the
+    # inbound handler off. The end of the cycle reads the device's state then,
+    # before a later cycle can write over a press nobody has read.
+    report_unread: bool = False
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually wrote after its
     # own clamp to the declared offset range; ``last_calibration_requested`` is

@@ -7,7 +7,13 @@ import logging
 from time import monotonic
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.const import (
+    EVENT_STATE_CHANGED,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import Context, Event, EventStateChangedData
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -18,7 +24,10 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_temperature,
     set_valve,
 )
-from custom_components.better_thermostat.events.trv import convert_outbound_states
+from custom_components.better_thermostat.events.trv import (
+    convert_outbound_states,
+    trigger_trv_change,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
@@ -268,6 +277,90 @@ def refresh_cached_trv_modes(self) -> None:
         trv.hvac_mode = _settled_mode
 
 
+async def read_reports_held_during_cycle(self) -> None:
+    """Read what every TRV reported while the cycle held the handler off.
+
+    A setpoint turned at the device inside a cycle is otherwise read on the
+    device's next report, and a cycle that starts before that report writes
+    over the turn before anyone has read it. The caller runs this right after
+    it releases ``ignore_states`` and before it takes the next cycle, so each
+    TRV that reported meanwhile has its current state read by the inbound
+    handler as a report of its own.
+
+    The mode such a state carries is read the same way, unless a mode
+    command to the device is still unconfirmed. The handler declines a mode
+    then, and reading it would take it into the cache and let the report
+    that could adopt it once the command is settled pass as no change; it is
+    left to the device's next report, the way ``refresh_cached_trv_modes``
+    settled it. A device that is unavailable has nothing to read, and so has
+    one reporting ``unknown`` unless its model reads that as operating, the
+    way the handler reads it.
+
+    A control cycle is requested only when the report moved what the next
+    cycle acts on: the room's targets or mode, or the mode the device is
+    known to hold. A device answering inside every cycle with a report that
+    carries nothing new would otherwise keep one cycle following the next.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    """
+    for entity_id, trv in list(self.real_trvs.items()):
+        if not trv.report_unread:
+            continue
+        trv.report_unread = False
+        state = self.hass.states.get(entity_id)
+        if (
+            state is None
+            or state.state == STATE_UNAVAILABLE
+            or (
+                state.state == STATE_UNKNOWN
+                and not trv_state_unknown_as_available(self, entity_id)
+            )
+        ):
+            continue
+        held_report = Event(
+            EVENT_STATE_CHANGED,
+            EventStateChangedData(
+                entity_id=entity_id, old_state=state, new_state=state
+            ),
+            context=Context(),
+        )
+        acted_on_before = _held_report_control_inputs(self, trv)
+        try:
+            await trigger_trv_change(
+                self,
+                held_report,
+                mode_settled=trv.system_mode_received is False,
+                request_cycle=False,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "better_thermostat %s: reading the report TRV %s sent during the "
+                "cycle failed",
+                self.device_name,
+                entity_id,
+            )
+            continue
+        if _held_report_control_inputs(self, trv) != acted_on_before:
+            try:
+                self.control_queue_task.put_nowait(self)
+            except asyncio.QueueFull:
+                # A cycle is already queued, and it reads the same state.
+                pass
+
+
+def _held_report_control_inputs(self, trv) -> tuple:
+    """Return what a report read at cycle end can move that a cycle acts on."""
+    return (
+        self.bt_target_temp,
+        self.bt_target_cooltemp,
+        self.bt_hvac_mode,
+        trv.hvac_mode,
+    )
+
+
 async def control_queue(self):
     """Process control commands from the queue and coordinate TRV control.
 
@@ -406,6 +499,7 @@ async def control_queue(self):
                         # read as the change it carries.
                         refresh_cached_trv_modes(self)
                         self.ignore_states = False
+                        await read_reports_held_during_cycle(self)
     except asyncio.CancelledError:
         _LOGGER.debug(
             "better_thermostat %s: control_queue task cancelled, cleaning up",

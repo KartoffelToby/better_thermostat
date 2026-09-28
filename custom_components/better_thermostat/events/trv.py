@@ -93,8 +93,16 @@ def accepts_user_setpoint(
 
 
 @callback
-async def trigger_trv_change(self, event):
-    """Trigger a change in the trv state."""
+async def trigger_trv_change(
+    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+):
+    """Trigger a change in the trv state.
+
+    ``mode_settled`` reads a report whose mode the end of a control cycle
+    has already settled, so the mode it carries is left to the device's next
+    report. ``request_cycle=False`` reads the report without requesting a
+    control cycle for it, for a caller that decides that itself.
+    """
     if self.startup_running:
         return
     if self.control_queue_task is None:
@@ -243,6 +251,7 @@ async def trigger_trv_change(self, event):
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
+        trv.report_unread = True
         return
 
     # The offered HVAC modes change at runtime on devices whose heating /
@@ -294,7 +303,10 @@ async def trigger_trv_change(self, event):
     except Exception:
         pass
 
-    if mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL):
+    if (
+        mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL)
+        and not mode_settled
+    ):
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode
             _LOGGER.debug(
@@ -490,6 +502,9 @@ async def trigger_trv_change(self, event):
             )
 
         if advanced.get("no_off_system_mode", False):
+            # The setpoint of a device without an off mode carries the room's
+            # mode, so a report is a control change only where it moves it.
+            _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
             if _raw_heating_setpoint == trv.min_temp:
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
@@ -507,7 +522,11 @@ async def trigger_trv_change(self, event):
                         )
                     self.bt_hvac_mode = HVACMode.OFF
             else:
-                self.bt_hvac_mode = HVACMode.HEAT
+                # A room already heating keeps the spelling it holds: a room
+                # with a cooler stores its heating as HEAT or HEAT_COOL
+                # depending on the path that set it, and both name one mode.
+                if self.bt_hvac_mode not in (HVACMode.HEAT, HVACMode.HEAT_COOL):
+                    self.bt_hvac_mode = HVACMode.HEAT
                 # A valve that was switched off at the knob reports its turn
                 # back up while bt_hvac_mode still reads OFF, so the tie-break
                 # in the setpoint block above was gated out for a heating
@@ -518,9 +537,10 @@ async def trigger_trv_change(self, event):
                 # where the call only acts on a pair that is already crossed —
                 # the one case it exists to settle wherever it is called from.
                 self._enforce_cool_above_heat()
-            _main_change = True
+            if (self.bt_hvac_mode, self.bt_target_cooltemp) != _room_before:
+                _main_change = True
 
-    if _main_change is True:
+    if _main_change is True and request_cycle:
         self.async_write_ha_state()
         return await self.control_queue_task.put(self)
 
