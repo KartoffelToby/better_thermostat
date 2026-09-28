@@ -23,6 +23,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     import_mpc_v2_state,
     make_plant_prior,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
+    MIN_STEP_DT_S,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -716,3 +719,82 @@ def test_restored_disturbance_readings_stay_inside_their_bound(
     assert controller.dob.D_hat_K_per_min == pytest.approx(expected)
     assert controller.dob.planning_filtered == pytest.approx(expected)
 
+
+def test_a_clock_step_back_resumes_control_on_the_next_cycle() -> None:
+    """A cycle stamped before the previous one is controlled, not held.
+
+    The wall clock steps back four hours while the room is 4 K below the
+    setpoint. The stamps from before the step count as absent, so every
+    later cycle observes, re-plans and opens the valve instead of repeating
+    the command from before the step until the clock catches up.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    t_s = 1_700_000_000.0
+    for _ in range(12):
+        u, _ = controller.step(t_s=t_s, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+        controller.set_applied_u(u)
+        t_s += 300.0
+    held = controller._last_u
+    t_s -= 4 * 3600.0
+
+    commands = []
+    for _ in range(6):
+        u, diag = controller.step(
+            t_s=t_s, T_room_C=17.0, T_target_C=21.0, T_outdoor_C=5.0
+        )
+        controller.set_applied_u(u)
+        commands.append(u)
+        t_s += 300.0
+
+    assert diag.T_room_hat < 18.0
+    assert commands[0] > held
+    assert commands[-1] > held + 0.3
+
+
+def test_a_step_back_of_the_minimum_step_runs_a_cycle() -> None:
+    """A call exactly ``MIN_STEP_DT_S`` before the last one is a new cycle.
+
+    At that distance the stamp is no repeat call of the same pass: the
+    reading is folded into the filter and the call's stamp becomes the
+    latest one.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    t_s = 1_700_000_000.0
+    for _ in range(3):
+        u, _ = controller.step(t_s=t_s, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+        controller.set_applied_u(u)
+        t_s += 300.0
+    step_back_t_s = t_s - 300.0 - MIN_STEP_DT_S
+    covariance = controller.kalman.P.copy()
+
+    controller.step(t_s=step_back_t_s, T_room_C=20.5, T_target_C=22.0, T_outdoor_C=5.0)
+
+    assert not np.array_equal(controller.kalman.P, covariance)
+    assert controller._last_t_s == step_back_t_s
+
+
+@pytest.mark.parametrize("offset_s", [-0.5, -0.001, 0.5])
+def test_a_sub_second_step_either_way_holds_the_command(offset_s: float) -> None:
+    """A repeat call within ``MIN_STEP_DT_S`` of the last cycle is held.
+
+    Whether its stamp lies a little before or after the previous one, it
+    carries no new reading: the command stays and the filter's covariance
+    does not shrink.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    t_s = 1_700_000_000.0
+    for _ in range(3):
+        u, _ = controller.step(t_s=t_s, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+        controller.set_applied_u(u)
+        t_s += 300.0
+    last_t_s = t_s - 300.0
+    held = controller._last_u
+    covariance = controller.kalman.P.copy()
+    assert abs(offset_s) < MIN_STEP_DT_S
+
+    u, _ = controller.step(
+        t_s=last_t_s + offset_s, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+
+    assert u == held
+    np.testing.assert_array_equal(controller.kalman.P, covariance)

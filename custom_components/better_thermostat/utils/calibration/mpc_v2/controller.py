@@ -203,12 +203,13 @@ class MpcV2Controller:
             self.kalman.initialise(np.array([T_room_C, T_rad_init]))
             self._next_mpc_t_s = t_s
             self._initialised = True
+        self._forget_stamps_ahead_of_the_clock(t_s)
 
         dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
         if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
-            # Forward-only: a non-positive dt_s (backward time jump) or a step
-            # below the minimum reuses the previous state and must NOT advance
-            # _last_t_s, otherwise a stale timestamp would reach dob.update.
+            # A repeat step within the minimum reuses the previous state and
+            # must NOT advance _last_t_s, otherwise a stale timestamp would
+            # reach dob.update.
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
@@ -253,6 +254,24 @@ class MpcV2Controller:
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    def _forget_stamps_ahead_of_the_clock(self, t_s: float) -> None:
+        """Drop the cycle stamps when the previous one lies ahead of ``t_s``.
+
+        The stamps are read from the wall clock, which can step back (a time
+        sync, a host with a wrong clock at boot). Measured against a stamp
+        from before the step, every later interval comes out negative until
+        the clock catches up, and the controller would repeat its last
+        command for as long as the step. A stamp at least ``MIN_STEP_DT_S``
+        ahead is taken as absent, as on a first cycle: the observer advances
+        by one plant step and the plan is due at once. The estimates
+        themselves are kept. A stamp less than that ahead belongs to a repeat
+        call within the same pass and stays, so that call is held like one a
+        moment later.
+        """
+        if self._last_t_s - t_s >= MIN_STEP_DT_S:
+            self._last_t_s = 0.0
+            self._next_mpc_t_s = -1.0
 
     def export_snapshot(self) -> ControllerSnapshot:
         """Return a typed snapshot of the controller state for persistence."""
