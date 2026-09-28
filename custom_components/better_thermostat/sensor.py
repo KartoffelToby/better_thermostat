@@ -202,12 +202,12 @@ def _track_algorithm_sensors(
     tracked = _ACTIVE_ALGORITHM_ENTITIES.setdefault(entry_id, {}).setdefault(
         algorithm, []
     )
-    untracked = [
-        sensor
-        for sensor in sensors
-        if sensor.unique_id is not None and sensor.unique_id not in tracked
-    ]
-    tracked.extend(sensor.unique_id for sensor in untracked)
+    untracked: list[SensorEntity] = []
+    for sensor in sensors:
+        unique_id = sensor.unique_id
+        if unique_id is not None and unique_id not in tracked:
+            tracked.append(unique_id)
+            untracked.append(sensor)
     return untracked
 
 
