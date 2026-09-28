@@ -1070,9 +1070,7 @@ class TestControlTrvAvailablePath:
         )
 
     @pytest.mark.asyncio
-    async def test_a_refused_mode_on_a_trv_reading_unknown_keeps_the_old_command(
-        self,
-    ):
+    async def test_a_refused_mode_on_a_trv_reading_unknown_keeps_the_old_command(self):
         """A driven Spirit reads ``unknown``; that is no mode it holds.
 
         The device is operated while its entity reads ``unknown``, so the
