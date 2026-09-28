@@ -138,6 +138,7 @@ def mock_bt():
     )
     bt._configured_target_temp_step = None
     bt._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(bt, value)
+    bt._preset_target = lambda value: BetterThermostat._preset_target(bt, value)
     return bt
 
 
@@ -949,7 +950,8 @@ class TestAsyncSetPresetMode:
 
         The range ends at 86.5 °F, 30.28 °C, and Comfort is stored there.
         The configured 0.5 °C step rounds that to 30.5 °C, outside the range;
-        the applied target is the bound itself, as for a target set directly.
+        the applied target is the bound itself, as for a target set directly,
+        and setting that same target again keeps Comfort active.
         """
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
         mock_bt.preset_mgr.mode = PRESET_NONE
@@ -961,7 +963,12 @@ class TestAsyncSetPresetMode:
         mock_bt._configured_target_temp_step = 0.5
 
         await self._call(mock_bt, PRESET_COMFORT)
+        selected = mock_bt.bt_target_temp
+        await BetterThermostat.async_set_temperature(
+            mock_bt, **{ATTR_TEMPERATURE: 30.28}
+        )
 
+        assert selected == 30.28
         assert mock_bt.bt_target_temp == 30.28
         assert mock_bt.preset_mgr.mode == PRESET_COMFORT
 

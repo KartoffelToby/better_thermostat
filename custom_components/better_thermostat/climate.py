@@ -4045,6 +4045,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # 21.200000000000003.
         return round(rounded, 10)
 
+    def _preset_target(self, value: float) -> float:
+        """Return the target a stored preset temperature applies as.
+
+        Rounded onto the configured step first and clamped into the range
+        second, as a target set directly is: a bound between two steps would
+        otherwise round the preset past it.
+        """
+        on_grid = self._onto_target_grid(value)
+        return min(
+            self.max_temp, max(self.min_temp, value if on_grid is None else on_grid)
+        )
+
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(
@@ -4174,10 +4186,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and self.preset_mgr.mode != PRESET_NONE
         ):
             applied = float(self.bt_target_temp)
-            preset_stored = self._onto_target_grid(
-                self.preset_mgr.get_temperature(self.preset_mgr.mode)
-            )
-            if preset_stored is None or abs(applied - float(preset_stored)) > 1e-3:
+            preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
+            if (
+                preset_stored is None
+                or abs(applied - self._preset_target(preset_stored)) > 1e-3
+            ):
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
                 _LOGGER.debug(
@@ -4357,12 +4370,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # can be preserved and restored when returning to PRESET_NONE.
             previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
-                # Rounded onto the step first and clamped second, as a target
-                # set directly is: a bound between two steps would otherwise
-                # round the preset past it.
-                self.bt_target_temp = min(
-                    self.max_temp, max(self.min_temp, self._onto_target_grid(new_temp))
-                )
+                self.bt_target_temp = self._preset_target(new_temp)
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE
