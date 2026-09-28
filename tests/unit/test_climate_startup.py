@@ -2283,14 +2283,14 @@ class TestValidateHvacMode:
         # humidity should be re-read
         assert bt._current_humidity is not None
 
-    def test_humidity_sensor_none_sets_zero(self, bt):
-        """Test Humidity sensor none sets zero."""
+    def test_a_missing_humidity_sensor_leaves_the_humidity_unknown(self, bt):
+        """A humidity sensor with no state publishes no humidity, not 0 %."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
         bt.hass.states.get.return_value = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt._current_humidity == 0
+        assert bt._current_humidity is None
 
 
 class TestFinalizeStartupOnADualRoleEntity:
