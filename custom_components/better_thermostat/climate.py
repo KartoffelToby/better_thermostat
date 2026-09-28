@@ -1474,6 +1474,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             if hasattr(self, "real_trvs")
                             else None
                         )
+                        if _mq_trv is not None and _mq_trv.awaiting_initialization:
+                            # Its first write goes out with its initialization.
+                            continue
                         quirks = _mq_trv.model_quirks if _mq_trv is not None else None
                         if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                             ok = await quirks.maybe_set_external_temperature(
