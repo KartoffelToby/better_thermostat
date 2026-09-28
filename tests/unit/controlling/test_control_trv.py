@@ -845,6 +845,62 @@ class TestControlTrvAvailablePath:
             args = mock_set_valve.call_args[0]
             assert args[2] == 100
 
+    @pytest.mark.parametrize(
+        ("valve_answer", "expected"),
+        [
+            pytest.param(True, True, id="written"),
+            pytest.param(None, True, id="no_channel"),
+            pytest.param(False, False, id="attempts_spent"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_valve_write_that_failed_fails_the_cycle(
+        self, valve_answer, expected
+    ):
+        """Only a valve write that spent its attempts asks for another cycle.
+
+        A device without a valve channel has nothing to retry, so it leaves
+        the cycle successful.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], new=AsyncMock(return_value=valve_answer)),
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_window.return_value = HVACMode.HEAT
+
+            assert await control_trv(mock_self, "climate.trv1") is expected
+
     @pytest.mark.asyncio
     async def test_grouped_trv_calibration_fix(self):
         """Test grouped TRV calibration fix.

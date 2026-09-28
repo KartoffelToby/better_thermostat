@@ -246,7 +246,7 @@ async def set_offset(self, entity_id, offset) -> bool:
     return True
 
 
-async def set_valve(self, entity_id, valve) -> bool:
+async def set_valve(self, entity_id, valve) -> bool | None:
     """Set a new valve position and record the value that went out.
 
     A model quirk's ``override_set_valve`` owns the valve channel where
@@ -256,13 +256,14 @@ async def set_valve(self, entity_id, valve) -> bool:
     Home Assistant. Whichever wrote records ``last_valve_percent`` and
     ``last_valve_method``.
 
-    A device with no valve channel is not a failure and is answered
-    ``False`` without a single attempt. A write that raises is an
-    infrastructure failure and is retried; only once the attempts are spent
-    is it reported and answered ``False``, which leaves the caller free to
-    re-derive the position on its next cycle.
+    A device with no valve channel, or whose channels all decline the
+    position, is not a failure and is answered ``None`` without a single
+    attempt. A write that raises is an infrastructure failure and is
+    retried; only once the attempts are spent is it reported and answered
+    ``False``, which tells the caller to try the cycle again.
 
-    Returns True when a position was put on the wire, False otherwise.
+    Returns True when a position was put on the wire, False when a write was
+    attempted and failed, and None when no channel took the position.
     """
     try:
         target_pct = int(valve)
@@ -328,4 +329,4 @@ async def set_valve(self, entity_id, valve) -> bool:
                 exc,
             )
         return True
-    return False
+    return None
