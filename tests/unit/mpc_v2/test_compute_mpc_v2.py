@@ -685,3 +685,34 @@ def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
     assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
     assert controller.dob.planning_filtered == 0.0
     assert controller.dob.planning_rate == 0.0
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"), [(0.5, 0.05), (-0.5, -0.05), (0.01, 0.01)]
+)
+def test_restored_disturbance_readings_stay_inside_their_bound(
+    stored: float, expected: float
+) -> None:
+    """A stored estimate beyond ``max_abs_K_per_min`` restores at the bound.
+
+    0.05 K/min is already 3 K per hour, well beyond a real room load, so a
+    snapshot cannot hand either reading more.
+    """
+    params = MpcV2Params()
+    assert params.dob.max_abs_K_per_min == 0.05
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": stored,
+            "planning_disturbance": stored,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(expected)
+    assert controller.dob.planning_filtered == pytest.approx(expected)
+

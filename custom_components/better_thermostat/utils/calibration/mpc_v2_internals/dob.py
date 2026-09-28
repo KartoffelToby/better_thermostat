@@ -41,6 +41,10 @@ class DobParams:
     """Tunables for the disturbance observer (EMA time constant)."""
 
     tau_s: float = 600.0
+    # Plausible magnitude (K/min) of a persisted reading. 0.05 K/min is
+    # already 3 K/hour, well beyond a normal unmodelled room load, so a
+    # restored reading beyond it is taken at the bound.
+    max_abs_K_per_min: float = 0.05
     # Time constant (s) of the planning reading, and the band around zero
     # (K/min) it treats as no disturbance. Rates inside the band are what
     # sensor noise and quantisation produce on their own. A slower reading
@@ -85,14 +89,17 @@ class DisturbanceObserver:
         return rate - math.copysign(band, rate)
 
     def restore(self, estimate: float, planning: float | None) -> None:
-        """Adopt persisted estimates.
+        """Adopt persisted estimates, bounded by ``max_abs_K_per_min``.
 
         A missing planning reading starts from zero rather than from the fast
         estimate: that one follows the last few readings, and the free heat
         they saw before a restart is no evidence for the plan after it.
         """
-        self.D_hat_K_per_min = estimate
-        self.planning_filtered = 0.0 if planning is None else planning
+        max_abs = max(0.0, self.params.max_abs_K_per_min)
+        self.D_hat_K_per_min = max(-max_abs, min(max_abs, estimate))
+        self.planning_filtered = (
+            0.0 if planning is None else max(-max_abs, min(max_abs, planning))
+        )
 
     def update(self, correction_K: float, dt_s: float) -> float:
         """Fold one room correction into the EMA and return the disturbance estimate.
