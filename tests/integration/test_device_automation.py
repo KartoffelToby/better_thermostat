@@ -463,6 +463,8 @@ async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
     ), "the refusal did not name the device"
 
     # The thermostat that does exist changes; nothing is watching for it.
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
     await hass.async_block_till_done()
 
