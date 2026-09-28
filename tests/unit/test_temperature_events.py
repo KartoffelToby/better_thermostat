@@ -75,6 +75,7 @@ def mock_bt():
 
     # Startup
     bt.startup_running = False
+    bt.is_removed = False
 
     # Control queue
     bt.control_queue_task = MagicMock()
@@ -1087,6 +1088,27 @@ class TestConcurrentReadings:
 
         assert quirks.writes == [("climate.trv1", 20.05)]
         assert mock_bt.cur_temp == 20.05
+
+    @pytest.mark.asyncio
+    async def test_a_timer_that_gets_its_turn_after_removal_writes_nothing(
+        self, mock_bt
+    ):
+        """A removed entity no longer drives its TRVs, not even from a timer.
+
+        The timer fires while a reading holds the turn, and the entity is
+        removed before the turn passes to the timer.
+        """
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+
+        async with temperature_filter_lock(mock_bt):
+            timer = asyncio.create_task(plateau_timer(dt_util.now()))
+            await asyncio.sleep(0)
+            mock_bt.is_removed = True
+        await timer
+
+        assert quirks.writes == []
+        assert mock_bt.cur_temp == 20.0
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_waits_out_the_debounce_interval(self, mock_bt):

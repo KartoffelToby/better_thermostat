@@ -97,6 +97,7 @@ from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
+    EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
     _update_external_temp_ema,
     temperature_filter_lock,
     trigger_temperature_change,
@@ -1477,9 +1478,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         )
                         quirks = _mq_trv.model_quirks if _mq_trv is not None else None
                         if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                            ok = await quirks.maybe_set_external_temperature(
-                                self, entity_id, cur
-                            )
+                            async with asyncio.timeout(
+                                EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S
+                            ):
+                                ok = await quirks.maybe_set_external_temperature(
+                                    self, entity_id, cur
+                                )
                             _LOGGER.debug(
                                 "better_thermostat %s: external_temperature keepalive sent to %s (ok=%s, value=%s)",
                                 self.device_name,
