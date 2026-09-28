@@ -131,6 +131,11 @@ def _info(
     )
 
 
+def _setpoint_on_a_celsius_system(state) -> float | None:
+    """Read a TRV's setpoint as a Celsius system publishes it: unconverted."""
+    return state.attributes.get("temperature")
+
+
 def _ha_state(
     state: str = "heat", temperature: float = 21.0, hvac_modes: list[str] | None = None
 ):
@@ -266,7 +271,13 @@ class TestBuildTrvSnapshots:
     def test_state_none_skipped(self):
         """Test State none skipped."""
         trvs = {"trv1": _trv(maintenance=True)}
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: None, "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: None,
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result == []
 
     def test_basic_snapshot(self):
@@ -276,7 +287,13 @@ class TestBuildTrvSnapshots:
         def get_state(eid):
             return _ha_state("heat", 22.0)
 
-        result = build_trv_snapshots(trvs, ["trv1"], get_state, "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            get_state,
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert len(result) == 1
         assert result[0].entity_id == "trv1"
         assert result[0].cur_mode == "heat"
@@ -284,6 +301,25 @@ class TestBuildTrvSnapshots:
         assert result[0].max_temp == 28
         assert result[0].min_temp == 6
         assert result[0].use_direct_valve is False
+
+    def test_the_setpoint_to_restore_is_the_one_the_reader_returns(self):
+        """The snapshot holds the setpoint in Celsius, as the reader converts it.
+
+        A TRV state carries its setpoint in the system unit, and the restore
+        writes the snapshot back as Celsius, so the snapshot takes the
+        reader's value, not the raw attribute: 68 °F is restored as 20 °C.
+        """
+        trvs = {"trv1": _trv(maintenance=True)}
+
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state("heat", 68.0),
+            "Test",
+            read_setpoint=lambda state: (state.attributes["temperature"] - 32) / 1.8,
+        )
+
+        assert result[0].cur_temp == pytest.approx(20.0)
 
     def test_direct_valve_detection(self):
         """Test Direct valve detection."""
@@ -293,7 +329,13 @@ class TestBuildTrvSnapshots:
                 maintenance=True, quirks=quirks, calibration="direct_valve_based"
             )
         }
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].use_direct_valve is True
 
     def test_valve_entity_direct(self):
@@ -305,7 +347,13 @@ class TestBuildTrvSnapshots:
                 calibration="direct_valve_based",
             )
         }
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].use_direct_valve is True
 
     @pytest.mark.parametrize("writable", [False, None])
@@ -324,7 +372,13 @@ class TestBuildTrvSnapshots:
                 calibration="direct_valve_based",
             )
         }
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].use_direct_valve is False
 
     def test_a_model_without_a_valve_quirk_is_not_direct(self):
@@ -338,7 +392,13 @@ class TestBuildTrvSnapshots:
                 maintenance=True, quirks=default_quirk, calibration="direct_valve_based"
             )
         }
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].use_direct_valve is False
 
     def test_wake_mode_from_enum_repr_capabilities(self):
@@ -348,7 +408,13 @@ class TestBuildTrvSnapshots:
         def get_state(_):
             return _ha_state("off", 21.0, ["HVACMode.OFF", "HVACMode.HEAT"])
 
-        result = build_trv_snapshots(trvs, ["trv1"], get_state, "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            get_state,
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].wake_mode == HVACMode.HEAT
 
 
@@ -1078,7 +1144,11 @@ class TestUnreadableTrvStates:
         trvs = {"climate.trv1": _trv(maintenance=True)}
         with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
             result = build_trv_snapshots(
-                trvs, ["climate.trv1"], lambda _: _unreadable_ha_state(reported), "Test"
+                trvs,
+                ["climate.trv1"],
+                lambda _: _unreadable_ha_state(reported),
+                "Test",
+                read_setpoint=_setpoint_on_a_celsius_system,
             )
         assert result == []
         assert f"maintenance skip climate.trv1 (reports {reported}" in caplog.text
@@ -1093,7 +1163,11 @@ class TestUnreadableTrvStates:
         """
         trvs = {"climate.trv1": _trv(maintenance=True)}
         infos = build_trv_snapshots(
-            trvs, ["climate.trv1"], lambda _: _unreadable_ha_state(reported), "Test"
+            trvs,
+            ["climate.trv1"],
+            lambda _: _unreadable_ha_state(reported),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
         )
         valve_fn = AsyncMock(return_value=True)
         temp_fn = AsyncMock()
@@ -1123,7 +1197,11 @@ class TestUnreadableTrvStates:
         """
         trvs = {"climate.trv1": _trv(maintenance=True)}
         infos = build_trv_snapshots(
-            trvs, ["climate.trv1"], lambda _: _ha_state("heat", 21.0), "Test"
+            trvs,
+            ["climate.trv1"],
+            lambda _: _ha_state("heat", 21.0),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
         )
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
@@ -1146,7 +1224,11 @@ class TestUnreadableTrvStates:
         """Back in the mode the snapshot was taken in, only the setpoint moves."""
         trvs = {"climate.trv1": _trv(maintenance=True)}
         infos = build_trv_snapshots(
-            trvs, ["climate.trv1"], lambda _: _ha_state("heat", 21.0), "Test"
+            trvs,
+            ["climate.trv1"],
+            lambda _: _ha_state("heat", 21.0),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
         )
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()

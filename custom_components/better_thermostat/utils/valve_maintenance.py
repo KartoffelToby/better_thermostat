@@ -193,6 +193,8 @@ def build_trv_snapshots(
     trv_ids: list[str],
     get_state: Callable[[str], State | None],
     device_name: str,
+    *,
+    read_setpoint: Callable[[State], float | None],
 ) -> list[MaintenanceTrvInfo]:
     """Build per-TRV snapshots needed for the maintenance cycle.
 
@@ -213,6 +215,10 @@ def build_trv_snapshots(
             reads a TRV's reported state; ``hass.states.get``
     device_name : str
             thermostat instance name, for logging
+    read_setpoint : Callable[[State], float | None]
+            reads the setpoint a TRV's state publishes, in Celsius; the
+            state carries it in the system unit, and the restore writes the
+            snapshot back as Celsius
 
     Returns
     -------
@@ -257,7 +263,7 @@ def build_trv_snapshots(
             MaintenanceTrvInfo(
                 entity_id=trv_id,
                 cur_mode=trv_state.state,
-                cur_temp=trv_state.attributes.get("temperature"),
+                cur_temp=read_setpoint(trv_state),
                 use_direct_valve=use_direct,
                 max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
                 min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,

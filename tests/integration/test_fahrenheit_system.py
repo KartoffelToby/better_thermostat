@@ -24,7 +24,10 @@ from pytest_homeassistant_custom_component.common import (
 )
 import voluptuous as vol
 
-from custom_components.better_thermostat.utils.const import CONF_OFF_TEMPERATURE
+from custom_components.better_thermostat.utils.const import (
+    CONF_OFF_TEMPERATURE,
+    SERVICE_RUN_VALVE_MAINTENANCE,
+)
 
 from .conftest import (
     DOMAIN,
@@ -270,3 +273,43 @@ async def test_a_target_at_the_edge_of_the_range_reaches_the_device(
     ), f"no setpoint at {offered} °F reached the device"
 
     assert fake_trv.set_temperature_calls[-1] == pytest.approx(device_bound, abs=0.5)
+
+
+@pytest.mark.usefixtures("fahrenheit_system")
+@pytest.mark.parametrize("device", ["fahrenheit", "off_grid"])
+async def test_valve_maintenance_exercises_the_device_and_restores_its_setpoint(
+    hass, device
+):
+    """A maintenance run drives the device to both bounds and hands it back.
+
+    Every write of the run crosses the unit conversion: the bounds out of the
+    range the device publishes, the restore out of the setpoint it published.
+    """
+    if device == "fahrenheit":
+        fake_trv = await _fahrenheit_trv(hass)
+        min_temp, max_temp, tolerance = 41.0, 86.0, 1.0
+    else:
+        fake_trv = await _off_grid_trv(hass)
+        min_temp, max_temp, tolerance = 4.0, 30.5, 0.5
+    _publish_room(hass, 67.0)
+    await _start(hass, valve_maintenance=True)
+    await _set_target(hass, 68.0)
+    assert await wait_for(
+        hass,
+        lambda: float(hass.states.get(TRV_ID).attributes[ATTR_TEMPERATURE]) == 68.0,
+        timeout_s=2.0,
+    )
+    held = hass.states.get(TRV_ID).attributes[ATTR_TEMPERATURE]
+    baseline = len(fake_trv.set_temperature_calls)
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_RUN_VALVE_MAINTENANCE,
+        {ATTR_ENTITY_ID: BT_ENTITY},
+        blocking=True,
+    )
+
+    received = fake_trv.set_temperature_calls[baseline:]
+    assert any(v == pytest.approx(max_temp, abs=tolerance) for v in received), received
+    assert any(v == pytest.approx(min_temp, abs=tolerance) for v in received), received
+    assert hass.states.get(TRV_ID).attributes[ATTR_TEMPERATURE] == pytest.approx(held)
