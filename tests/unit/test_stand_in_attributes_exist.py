@@ -10,6 +10,8 @@ later assertion on that name checks nothing production writes.
 import ast
 from pathlib import Path
 
+from custom_components.better_thermostat.climate import BetterThermostat
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGE = _REPO_ROOT / "custom_components" / "better_thermostat"
 _TESTS = _REPO_ROOT / "tests"
@@ -66,16 +68,60 @@ def _stand_in_assignments(path: Path) -> list[tuple[int, str]]:
     return found
 
 
+def _inherited_names() -> set[str]:
+    """Return the attribute names the thermostat inherits from Home Assistant.
+
+    The class bodies and annotations of every base class outside this
+    integration: ``ClimateEntity``, ``RestoreEntity``, ``Entity`` and what
+    they build on.
+    """
+    names: set[str] = set()
+    for base in BetterThermostat.__mro__:
+        if base.__module__.startswith("custom_components."):
+            continue
+        names |= set(vars(base))
+        names |= set(getattr(base, "__annotations__", {}))
+    return names
+
+
+def _ghosts(paths: list[Path], known: set[str], root: Path = _REPO_ROOT) -> list[str]:
+    """Return ``file:line: attribute`` for each stand-in attribute not in ``known``."""
+    return [
+        f"{path.relative_to(root).as_posix()}:{line}: {attribute}"
+        for path in paths
+        for line, attribute in _stand_in_assignments(path)
+        if attribute not in known
+        and _TEST_ONLY.get(attribute) != path.relative_to(root).as_posix()
+    ]
+
+
+def test_an_inherited_attribute_passes_and_a_ghost_does_not(tmp_path):
+    """A name the thermostat inherits from Home Assistant is a real attribute.
+
+    The stand-in imitates the whole entity, so ``bt._attr_available`` or
+    ``bt.registry_entry`` set on it is what production reads through its
+    base classes; a name neither production nor those classes carry is not.
+    """
+    fixture = tmp_path / "tests" / "unit" / "test_probe.py"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text(
+        "bt._attr_available = True\n"
+        "bt.registry_entry = None\n"
+        "mock_bt._attr_hvac_action = None\n"
+        "bt._no_such_attribute_anywhere = 1\n",
+        encoding="utf-8",
+    )
+
+    ghosts = _ghosts([fixture], _production_names() | _inherited_names(), tmp_path)
+
+    assert ghosts == ["tests/unit/test_probe.py:4: _no_such_attribute_anywhere"]
+
+
 def test_a_stand_in_sets_only_attributes_production_names():
     """Every attribute a fixture sets on its thermostat is one production uses."""
-    production = _production_names()
-    ghosts = [
-        f"{path.relative_to(_REPO_ROOT).as_posix()}:{line}: {attribute}"
-        for path in sorted(_TESTS.rglob("*.py"))
-        for line, attribute in _stand_in_assignments(path)
-        if attribute not in production
-        and _TEST_ONLY.get(attribute) != path.relative_to(_REPO_ROOT).as_posix()
-    ]
+    ghosts = _ghosts(
+        sorted(_TESTS.rglob("*.py")), _production_names() | _inherited_names()
+    )
 
     assert not ghosts, "stand-in attributes production does not have:\n" + "\n".join(
         ghosts
