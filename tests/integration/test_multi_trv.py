@@ -976,3 +976,72 @@ async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
         )
 
     assert during == (True, False, [])
+
+
+ADAPTER_INIT = "custom_components.better_thermostat.climate.init"
+MAINTENANCE_CYCLE_SLEEP = (
+    "custom_components.better_thermostat.utils.valve_maintenance.asyncio.sleep"
+)
+
+
+@pytest.mark.parametrize("setup", ["failed_once", "in_progress"])
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_valve_maintenance_leaves_a_head_that_is_not_set_up_alone(
+    hass, trv_group, setup
+):
+    """Maintenance exercises only the heads that are set up.
+
+    A head that came back and whose setup failed or has not completed is
+    still waiting for it, and nothing about it is known that the exercise
+    relies on. Maintenance leaves it out, and the setup it is waiting for
+    brings it into the room.
+    """
+    absent = trv_group[-1]
+    present = [head for head in trv_group.entities if head is not absent]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+
+    setting_up = asyncio.Event()
+    release = asyncio.Event()
+
+    async def failing_setup(_bt, _entity_id):
+        setting_up.set()
+        raise RuntimeError("adapter")
+
+    async def slow_setup(_bt, _entity_id):
+        setting_up.set()
+        await release.wait()
+
+    with patch(ADAPTER_INIT, failing_setup if setup == "failed_once" else slow_setup):
+        absent.set_available(True)
+        await setting_up.wait()
+        if setup == "failed_once":
+            assert await wait_for(
+                hass,
+                lambda: bt.real_trvs[absent.entity_id].failed_initialization_attempts,
+            )
+    assert bt.real_trvs[absent.entity_id].awaiting_initialization
+    assert bt.real_trvs[absent.entity_id].failed_initialization_attempts == (
+        1 if setup == "failed_once" else 0
+    )
+
+    real_sleep = asyncio.sleep
+
+    async def no_cycle_wait(_seconds):
+        await real_sleep(0)
+
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+    with patch(MAINTENANCE_CYCLE_SLEEP, no_cycle_wait), patch(WRITE_BUDGET, 0.0):
+        await bt._run_valve_maintenance([head.entity_id for head in trv_group.entities])
+        exercised = sorted(
+            {
+                event.data["service_data"]["entity_id"]
+                for event in events
+                if event.data["domain"] == CLIMATE_DOMAIN
+            }
+        )
+        release.set()
+        assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
+
+    assert exercised == sorted(head.entity_id for head in present)

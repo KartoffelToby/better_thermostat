@@ -1216,3 +1216,58 @@ class TestUnreadableTrvStates:
 
         assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
         mode_fn.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRVs that are not set up yet
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _not_set_up(**kwargs) -> Trv:
+    """A TRV startup went ahead without and whose setup has not completed."""
+    trv = _trv(maintenance=True, **kwargs)
+    trv.awaiting_initialization = True
+    return trv
+
+
+class TestATrvThatIsNotSetUpYet:
+    """A TRV still awaiting its setup is left to that setup, not exercised.
+
+    Its range, calibration and valve channel are unknown until it is set up,
+    and the setup is what brings it into the room. Maintenance leaves it
+    alone; it is exercised on the first run after it has been set up.
+    """
+
+    def test_the_snapshot_leaves_it_out(self):
+        """Only the TRVs that are set up get a snapshot."""
+        trvs = {"climate.trv1": _trv(maintenance=True), "climate.trv2": _not_set_up()}
+        result = build_trv_snapshots(
+            trvs, ["climate.trv1", "climate.trv2"], lambda _: _ha_state(), "Test"
+        )
+        assert [info.entity_id for info in result] == ["climate.trv1"]
+
+    @pytest.mark.asyncio
+    async def test_a_full_run_writes_nothing_to_it(self):
+        """It is neither driven nor restored, while the other TRV is exercised."""
+        trvs = {"climate.trv1": _trv(maintenance=True), "climate.trv2": _not_set_up()}
+        infos = build_trv_snapshots(
+            trvs, ["climate.trv1", "climate.trv2"], lambda _: _ha_state(), "Test"
+        )
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        written = {
+            call.args[0]
+            for call in (*temp_fn.await_args_list, *mode_fn.await_args_list)
+        }
+        assert written == {"climate.trv1"}
