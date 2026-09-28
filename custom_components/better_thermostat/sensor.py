@@ -1087,11 +1087,23 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_should_poll = (
-        True  # Weather entity updates not strictly coupled to climate state
-    )
     _attr_icon = "mdi:solar-power"
     _unique_id_suffix = "solar_intensity"
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the weather entity as well as the thermostat.
+
+        The weather changes on its own schedule, not with the thermostat's
+        state.
+        """
+        await super().async_added_to_hass()
+        weather_entity = self._bt_climate.weather_entity
+        if weather_entity:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [weather_entity], self._on_climate_update
+                )
+            )
 
     def _update_state(self) -> None:
         """Update state using utility function."""
