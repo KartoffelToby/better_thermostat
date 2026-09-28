@@ -11,7 +11,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
@@ -22,7 +21,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
-    trv_state_unknown_as_available,
+    trv_report_is_unreadable,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
@@ -44,9 +43,11 @@ from custom_components.better_thermostat.utils.helpers import (
     last_sent_cooler_temperature,
     mode_remap,
     normalize_step,
+    published_in_whole_fahrenheit,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
+    setpoint_at_minimum,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
@@ -94,8 +95,16 @@ def accepts_user_setpoint(
     )
 
 
-async def trigger_trv_change(self, event):
-    """Trigger a change in the trv state."""
+async def trigger_trv_change(
+    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+):
+    """Trigger a change in the trv state.
+
+    ``mode_settled`` reads a report whose mode the end of a control cycle
+    has already settled, so the mode it carries is left to the device's next
+    report. ``request_cycle=False`` reads the report without requesting a
+    control cycle for it, for a caller that decides that itself.
+    """
     if self.startup_running:
         return
     if self.control_queue_task is None:
@@ -135,10 +144,7 @@ async def trigger_trv_change(self, event):
         )
         return
 
-    if _org_trv_state.state == STATE_UNAVAILABLE or (
-        _org_trv_state.state == STATE_UNKNOWN
-        and not trv_state_unknown_as_available(self, entity_id)
-    ):
+    if trv_report_is_unreadable(self, entity_id, _org_trv_state):
         # The device is gone; its last internal temperature must not
         # keep feeding SENSOR_FALLBACK and the ladder as if it were live.
         if trv.current_temperature is not None:
@@ -267,6 +273,7 @@ async def trigger_trv_change(self, event):
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
+        trv.report_unread = True
         return
 
     # The offered mode list changes at runtime on devices whose
@@ -314,7 +321,7 @@ async def trigger_trv_change(self, event):
             str(val_pos), self.device_name, "trv_event"
         )
 
-    if mapped_state in (HVACMode.OFF, HVACMode.HEAT):
+    if mapped_state in (HVACMode.OFF, HVACMode.HEAT) and not mode_settled:
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode
             _LOGGER.debug(
@@ -327,8 +334,24 @@ async def trigger_trv_change(self, event):
             )
             trv.hvac_mode = _org_trv_state.state
             _main_change = True
+            # A mode the room took back before the device applied it is
+            # Better Thermostat's own command landing late, not a press, for
+            # as long as a device is given to apply a command.
+            _withdrawn_command_landed = False
+            if trv.withdrawn_hvac_mode is not None:
+                _withdrawn_still_pending = (
+                    trv.withdrawn_hvac_mode_until is not None
+                    and self.clock.monotonic() < trv.withdrawn_hvac_mode_until
+                )
+                _withdrawn_command_landed = _withdrawn_still_pending and (
+                    trv.withdrawn_hvac_mode == _org_trv_state.state
+                )
+                if _withdrawn_command_landed or not _withdrawn_still_pending:
+                    trv.withdrawn_hvac_mode = None
+                    trv.withdrawn_hvac_mode_until = None
             if (
                 not child_lock
+                and not _withdrawn_command_landed
                 and trv.system_mode_received is True
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))
@@ -345,9 +368,12 @@ async def trigger_trv_change(self, event):
     _old_heating_setpoint = read_setpoint_celsius(
         self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    # Compare only against values BT itself wrote: the room target, the last
-    # command, and the writes since the one the device last confirmed, which
-    # a device may still hold against a later write it did not take.
+    # Compare only against values BT itself wrote to this device: the last
+    # command, the setpoint the device last confirmed, and the writes since,
+    # which a device may still hold against a later write it did not take.
+    # The room target is not one of them: the device holds it rounded onto
+    # its own grid, and a knob turned one step toward an off-grid target
+    # lands closer to the target than a step.
     # ``_old_heating_setpoint`` is the TRV's previously published state and is
     # not necessarily a BT-written value, so it does not belong in the
     # echo-suppression set.
@@ -361,7 +387,6 @@ async def trigger_trv_change(self, event):
     _cooling_owns = cooling_owns_dual_role_report(self, entity_id, _org_trv_state.state)
     if entity_id == dual_role_entity_id(self):
         _known_values = (
-            self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
@@ -370,7 +395,6 @@ async def trigger_trv_change(self, event):
         )
     else:
         _known_values = (
-            self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
@@ -396,8 +420,8 @@ async def trigger_trv_change(self, event):
             _setpoint.value,
             trv.last_temperature,
         )
-        # The no_off OFF detection compares against the device's true min_temp,
-        # so it uses the reported value, not one the clamp may have raised into
+        # The no_off OFF detection compares against the TRV's minimum, so it
+        # uses the reported value, not one the clamp may have raised into
         # [bt_min_temp, bt_max_temp].
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
@@ -511,7 +535,17 @@ async def trigger_trv_change(self, event):
             )
 
         if advanced.get("no_off_system_mode", False):
-            if _raw_heating_setpoint == trv.min_temp:
+            # The setpoint of a device without an off mode carries the room's
+            # mode, so a report is a control change only where it moves it.
+            _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
+            if setpoint_at_minimum(
+                _raw_heating_setpoint,
+                trv.min_temp,
+                step=trv.target_temp_step,
+                whole_degrees=published_in_whole_fahrenheit(
+                    new_state, self.hass.config.units.temperature_unit
+                ),
+            ):
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
                 # off heating - and only
@@ -528,15 +562,20 @@ async def trigger_trv_change(self, event):
                         )
                     self.bt_hvac_mode = HVACMode.OFF
             else:
-                self.bt_hvac_mode = HVACMode.HEAT
+                # A room already heating keeps the spelling it holds: a room
+                # with a cooler stores its heating as HEAT or HEAT_COOL
+                # depending on the path that set it, and both name one mode.
+                if self.bt_hvac_mode not in (HVACMode.HEAT, HVACMode.HEAT_COOL):
+                    self.bt_hvac_mode = HVACMode.HEAT
                 # Leaving OFF is what puts a group with a cooler into HEAT_COOL,
                 # so this is the first moment the ordering of the two targets is
                 # checked at all: a setpoint adopted while the group was still
                 # off has not passed that check yet.
                 self._enforce_cool_above_heat()
-            _main_change = True
+            if (self.bt_hvac_mode, self.bt_target_cooltemp) != _room_before:
+                _main_change = True
 
-    if _main_change is True:
+    if _main_change is True and request_cycle:
         self.async_write_ha_state()
         return request_control_cycle(self)
 

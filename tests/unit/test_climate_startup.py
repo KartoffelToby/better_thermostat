@@ -1500,16 +1500,6 @@ class TestInitializeTrvEchoSetpoints:
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 
-_FALLBACK_READ_IN_THE_SYSTEM_UNIT = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the fallback range 5 to 30 is passed through the reader that converts "
-        "a published value from the system unit, so on a Fahrenheit system it "
-        "becomes -15 to -1.1 °C"
-    ),
-)
-
-
 class TestInitializeTrvRangeFallback:
     """A device that publishes no range is given 5 to 30 °C, on any system.
 
@@ -1543,11 +1533,7 @@ class TestInitializeTrvRangeFallback:
         "unit",
         [
             pytest.param(UnitOfTemperature.CELSIUS, id="celsius"),
-            pytest.param(
-                UnitOfTemperature.FAHRENHEIT,
-                id="fahrenheit",
-                marks=_FALLBACK_READ_IN_THE_SYSTEM_UNIT,
-            ),
+            pytest.param(UnitOfTemperature.FAHRENHEIT, id="fahrenheit"),
         ],
     )
     @pytest.mark.parametrize(

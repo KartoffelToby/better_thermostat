@@ -7,6 +7,10 @@ did a control cycle complete recently?
 
 from __future__ import annotations
 
+# Interval of the periodic tick that recomputes balance and calibration. A
+# calibration mode sees a control cycle at least this often while it runs.
+CONTROL_TICK_S = 300.0
+
 WATCHDOG_MAX_AGE_S = 900.0
 
 
