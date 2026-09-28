@@ -449,7 +449,11 @@ async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
 
 
 async def _automation_on(hass, device_id, trigger_type, **extra):
-    """Arm an automation on the offered ``trigger_type`` and return its calls."""
+    """Arm an automation on the offered ``trigger_type`` and return its calls.
+
+    Each call carries the states the trigger fired between, so a test can
+    tell its own change from a state the thermostat wrote on its own.
+    """
     trigger = _offered(
         await async_get_device_automations(
             hass, DeviceAutomationType.TRIGGER, device_id
@@ -466,7 +470,17 @@ async def _automation_on(hass, device_id, trigger_type, **extra):
                 {
                     "alias": trigger_type,
                     "trigger": trigger,
-                    "action": {"service": "test.automation"},
+                    "action": {
+                        "service": "test.automation",
+                        "data": {
+                            "from_state": "{{ trigger.from_state.state }}",
+                            "to_state": "{{ trigger.to_state.state }}",
+                            "current": (
+                                "{{ trigger.to_state.attributes.current_temperature }}"
+                            ),
+                            "target": "{{ trigger.to_state.attributes.temperature }}",
+                        },
+                    },
                 }
             ]
         },
@@ -492,7 +506,12 @@ async def test_target_reached_fires_once_the_room_is_at_the_target(
     _republish(hass, current_temperature=current, **{ATTR_TEMPERATURE: target})
     await hass.async_block_till_done()
 
-    assert bool(calls) is fires
+    fired = [
+        call
+        for call in calls
+        if call.data["current"] == current and call.data["target"] == target
+    ]
+    assert bool(fired) is fires
 
 
 @pytest.mark.parametrize(
@@ -515,7 +534,7 @@ async def test_a_thermostat_going_unavailable_fires_no_trigger(
     hass.states.async_set(BT_ENTITY, STATE_UNAVAILABLE, {})
     await hass.async_block_till_done()
 
-    assert not calls
+    assert not [c for c in calls if c.data["to_state"] == STATE_UNAVAILABLE]
 
 
 async def test_a_mode_trigger_without_a_mode_is_refused_as_a_config_error(
@@ -559,4 +578,4 @@ async def test_a_thermostat_coming_back_unchanged_fires_no_trigger(
     hass.states.async_set(BT_ENTITY, state.state, attributes)
     await hass.async_block_till_done()
 
-    assert not calls
+    assert not [c for c in calls if c.data["from_state"] == STATE_UNAVAILABLE]
