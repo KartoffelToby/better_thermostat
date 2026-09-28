@@ -95,7 +95,6 @@ def fix_target_temperature_calibration(
     if entity_uses_mpc_calibration(self, entity_id):
         return temperature
 
-    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5

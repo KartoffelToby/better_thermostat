@@ -80,7 +80,6 @@ def fix_target_temperature_calibration(
         )
     if _cur_trv_temp is None:
         return temperature
-    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5
