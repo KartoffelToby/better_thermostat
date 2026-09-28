@@ -184,3 +184,37 @@ async def test_the_flow_suggests_an_off_temperature_of_20_celsius(
     )
 
     assert _form_default(result, CONF_OFF_TEMPERATURE) == suggested
+
+
+@pytest.mark.usefixtures("fahrenheit_system")
+async def test_a_configured_step_is_a_celsius_step_published_in_fahrenheit(hass):
+    """A step picked as 0.5 °C is the device's grid and is shown as 0.9 °F.
+
+    The step dropdown is labelled in Celsius, like the range next to it, so
+    it is read as Celsius. Home Assistant publishes the step unconverted next
+    to a target it converted, so the thermostat states it in Fahrenheit.
+    """
+    await _fahrenheit_trv(hass)
+    _publish_room(hass, 67.0)
+    bt = await _start(hass, step="0.5")
+
+    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(0.5)
+    assert hass.states.get(BT_ENTITY).attributes["target_temp_step"] == 0.9
+
+
+@pytest.mark.usefixtures("fahrenheit_system")
+async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(hass):
+    """A target set in Fahrenheit is held on the Celsius step the user configured.
+
+    The frontend steps the target by 0.9 °F from 0 °F, so it offers 68.4 °F,
+    20.22 °C. The thermostat holds the closest point of its own step, 20 °C,
+    and publishes it as 68 °F.
+    """
+    await _fahrenheit_trv(hass)
+    _publish_room(hass, 67.0)
+    bt = await _start(hass, step="0.5")
+
+    await _set_target(hass, 68.4)
+
+    assert bt.bt_target_temp == pytest.approx(20.0)
+    assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 68.0

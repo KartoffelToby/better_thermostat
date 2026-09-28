@@ -185,3 +185,39 @@ def test_non_overlapping_ranges_still_assigned(bt):
     assert bt.bt_min_temp == 25.0  # max of mins
     assert bt.bt_max_temp == 22.0  # min of maxes
     assert bt.bt_min_temp > bt.bt_max_temp
+
+
+@pytest.mark.parametrize(
+    ("system_unit", "published"),
+    [
+        pytest.param(UnitOfTemperature.CELSIUS, 0.5, id="celsius"),
+        pytest.param(UnitOfTemperature.FAHRENHEIT, 0.9, id="fahrenheit"),
+    ],
+)
+def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
+    """The step the entity publishes is a difference in the system unit.
+
+    Home Assistant publishes the step unconverted next to targets it has
+    converted into the system unit, so a 0.5 °C step is published as 0.9 on
+    a Fahrenheit system and as 0.5 on a Celsius one.
+    """
+    bt.bt_target_temp_step = 0.5
+    bt._unit = system_unit
+    step = BetterThermostat.target_temperature_step.fget(bt)
+    assert step == pytest.approx(published)
+
+
+@pytest.mark.parametrize(
+    ("system_unit", "published"),
+    [
+        pytest.param(UnitOfTemperature.CELSIUS, 0.1, id="celsius"),
+        pytest.param(UnitOfTemperature.FAHRENHEIT, 1.0, id="fahrenheit"),
+    ],
+)
+def test_without_a_step_the_default_of_the_system_unit_is_published(
+    bt, system_unit, published
+):
+    """Without a step the entity publishes Home Assistant's default for the unit."""
+    bt.bt_target_temp_step = None
+    bt._unit = system_unit
+    assert BetterThermostat.target_temperature_step.fget(bt) == published
