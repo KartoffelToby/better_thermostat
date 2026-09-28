@@ -552,6 +552,9 @@ class StateManager:
         # either. The live store holds its only copy, so nothing is written
         # over it until the copy exists.
         self._payload_awaiting_copy: dict[str, Any] | None = None
+        # Whether the failing copy has been reported at WARNING already; each
+        # further attempt that fails is logged at DEBUG only.
+        self._copy_failure_reported = False
 
     # -- Public properties ---------------------------------------------------
 
@@ -733,6 +736,20 @@ class StateManager:
 
     # -- Load / Save ---------------------------------------------------------
 
+    def _report_copy_failure(
+        self, message: str, key: str, *, with_traceback: bool = False
+    ) -> None:
+        """Log a copy that could not be set aside.
+
+        The first failure is a WARNING; the error behind it and every
+        further failed attempt go to DEBUG, so a disk that stays full does
+        not repeat the warning on each attempt.
+        """
+        if not self._copy_failure_reported:
+            self._copy_failure_reported = True
+            _LOGGER.warning(message, self._entry_id, key)
+        _LOGGER.debug(message, self._entry_id, key, exc_info=with_traceback)
+
     async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
         """Set an unreadable store aside before defaults take its place.
 
@@ -784,20 +801,18 @@ class StateManager:
             on_disk: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
             written = await on_disk.async_load()
         except HomeAssistantError, OSError:
-            _LOGGER.warning(
+            self._report_copy_failure(
                 "better_thermostat [%s]: could not set the unreadable state "
                 "aside as %s; the stored state is kept unchanged until it is",
-                self._entry_id,
                 key,
-                exc_info=True,
+                with_traceback=True,
             )
             self._payload_awaiting_copy = raw
             return
         if written != raw:
-            _LOGGER.warning(
+            self._report_copy_failure(
                 "better_thermostat [%s]: the unreadable state did not reach %s; "
                 "the stored state is kept unchanged until it does",
-                self._entry_id,
                 key,
             )
             self._payload_awaiting_copy = raw
@@ -878,10 +893,27 @@ class StateManager:
         )
 
     async def save_if_dirty(self) -> None:
-        """Persist current state only if it has been modified since last save."""
-        if self._dirty:
-            await self.save()
+        """Persist current state only if it has been modified since last save.
+
+        While a stored payload still waits for its copy, the save is skipped
+        and the state stays unsaved; :meth:`flush` tries the copy again.
+        """
+        if not self._dirty:
+            return
+        if self._payload_awaiting_copy is not None:
+            _LOGGER.debug(
+                "better_thermostat [%s]: save skipped, the stored state is "
+                "not set aside yet",
+                self._entry_id,
+            )
+            return
+        await self.save()
 
     async def flush(self) -> None:
-        """Flush unsaved changes -- call from async_will_remove_from_hass."""
-        await self.save_if_dirty()
+        """Flush unsaved changes -- call when the entity stops or is removed.
+
+        Unlike :meth:`save_if_dirty`, this tries again to set aside a stored
+        payload still waiting for its copy.
+        """
+        if self._dirty:
+            await self.save()

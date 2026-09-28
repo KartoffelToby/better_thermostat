@@ -136,7 +136,7 @@ async def test_the_last_state_save_survives_the_unload(hass, fake_trv):
 
     saved = asyncio.Event()
     let_the_write_land = asyncio.Event()
-    write_the_store = StateManager.save_if_dirty
+    write_the_store = StateManager.flush
 
     async def report_the_save(self):
         # A real save hands the loop back for the executor round trip, so it
@@ -145,7 +145,7 @@ async def test_the_last_state_save_survives_the_unload(hass, fake_trv):
         await write_the_store(self)
         saved.set()
 
-    with patch.object(StateManager, "save_if_dirty", report_the_save):
+    with patch.object(StateManager, "flush", report_the_save):
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
         let_the_write_land.set()

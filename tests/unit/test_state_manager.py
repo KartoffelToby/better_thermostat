@@ -1224,6 +1224,156 @@ class TestUnreadableStoreIsKeptForRecovery:
         assert mgr.dirty is False
 
 
+def _records(caplog, level: int) -> list[logging.LogRecord]:
+    """Return the state manager's log records of exactly *level*."""
+    return [r for r in caplog.records if r.name == _SM and r.levelno == level]
+
+
+def _copy_warnings(caplog) -> list[logging.LogRecord]:
+    """Return the WARNING records about a copy that could not be set aside."""
+    return [
+        r
+        for r in _records(caplog, logging.WARNING)
+        if "could not set the unreadable state aside" in r.getMessage()
+        or "did not reach" in r.getMessage()
+    ]
+
+
+class TestAFailingCopyIsReportedOnce:
+    """While the copy keeps failing, the log says so once, not on every save.
+
+    Runtime saves wait at DEBUG for a copy that cannot be written; the copy
+    is tried again when the entity flushes on stop or removal.
+    """
+
+    _PAYLOAD = _poisoned_payload(0.5)
+
+    @staticmethod
+    def _copy_failing(stores, failure: Exception | None) -> AsyncMock:
+        """Install a set-aside store that raises *failure* or cuts the write."""
+        copy = AsyncMock()
+        copy.async_load = AsyncMock(return_value=None)
+        if failure is not None:
+            copy.async_save = AsyncMock(side_effect=failure)
+        else:
+            copy.async_save = AsyncMock(side_effect=_truncated_into(copy))
+        for key in _SET_ASIDE_KEYS:
+            stores[key] = copy
+        return copy
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure",
+        [OSError("disk full"), HomeAssistantError("permission denied"), None],
+        ids=["os-error", "store-error", "read-back-differs"],
+    )
+    async def test_twenty_runtime_saves_log_one_warning(self, caplog, failure):
+        """One WARNING without traceback; the saves are skipped at DEBUG."""
+        with _stores_by_key() as stores, caplog.at_level(logging.DEBUG, logger=_SM):
+            copy = self._copy_failing(stores, failure)
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = self._PAYLOAD
+            await mgr.load()
+            for _ in range(20):
+                mgr.mark_dirty()
+                await mgr.save_if_dirty()
+
+        warnings = _copy_warnings(caplog)
+        assert len(warnings) == 1, [r.getMessage() for r in warnings]
+        assert warnings[0].exc_info is None
+        skipped = [
+            r
+            for r in _records(caplog, logging.DEBUG)
+            if "save skipped" in r.getMessage()
+        ]
+        assert len(skipped) == 20
+        assert copy.async_save.await_count == 1
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+        assert mgr.dirty is True
+
+    @pytest.mark.asyncio
+    async def test_the_traceback_of_the_failure_is_kept_at_debug(self, caplog):
+        """The storage error behind the warning is still in the debug log."""
+        with _stores_by_key() as stores, caplog.at_level(logging.DEBUG, logger=_SM):
+            self._copy_failing(stores, OSError("disk full"))
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = self._PAYLOAD
+            await mgr.load()
+
+        traced = [
+            r
+            for r in _records(caplog, logging.DEBUG)
+            if r.exc_info and "unreadable state aside" in r.getMessage()
+        ]
+        assert len(traced) == 1
+        assert "disk full" in str(traced[0].exc_info[1])
+
+    @pytest.mark.asyncio
+    async def test_a_flush_that_fails_again_adds_no_warning(self, caplog):
+        """The flush retries the copy; a second failure is logged at DEBUG."""
+        with _stores_by_key() as stores, caplog.at_level(logging.DEBUG, logger=_SM):
+            copy = self._copy_failing(stores, OSError("disk full"))
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = self._PAYLOAD
+            await mgr.load()
+            mgr.mark_dirty()
+            await mgr.flush()
+
+        assert copy.async_save.await_count == 2
+        assert len(_copy_warnings(caplog)) == 1
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_flush_retries_the_copy_and_then_saves(self):
+        """Once the copy succeeds on the flush, the state is written."""
+        with _stores_by_key() as stores:
+            copy = self._copy_failing(stores, OSError("disk full"))
+            mgr = StateManager(AsyncMock(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = self._PAYLOAD
+            await mgr.load()
+            mgr.mark_dirty()
+            await mgr.save_if_dirty()
+            copy.async_save.side_effect = _saved_into(copy)
+            await mgr.flush()
+
+        assert copy.async_load.return_value == self._PAYLOAD
+        stores[_LIVE_STORE_KEY].async_save.assert_awaited_once()
+        assert mgr.dirty is False
+
+    async def test_a_full_disk_on_home_assistant_storage_logs_once(
+        self, hass, hass_storage, caplog
+    ):
+        """On a real store, twenty saves give one warning and no store errors."""
+        live = "better_thermostat_copy_entry_state"
+        hass_storage[live] = {
+            "version": 1,
+            "minor_version": 1,
+            "key": live,
+            "data": self._PAYLOAD,
+        }
+        write = storage.Store._async_write_data
+
+        async def _write(store, data):
+            if ".corrupt" in store.key:
+                raise WriteError("disk full")
+            await write(store, data)
+
+        with (
+            patch.object(storage.Store, "_async_write_data", _write),
+            caplog.at_level(logging.DEBUG),
+        ):
+            mgr = StateManager(hass, "copy_entry")
+            await mgr.load()
+            for _ in range(20):
+                mgr.mark_dirty()
+                await mgr.save_if_dirty()
+
+        assert len(_copy_warnings(caplog)) == 1
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1, [r.getMessage() for r in errors]
+        assert hass_storage[live]["data"] == self._PAYLOAD
+
+
 class TestEveryDistinctPayloadIsKept:
     """Each distinct unreadable payload gets a copy before the store is written.
 
