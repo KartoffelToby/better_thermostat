@@ -7,6 +7,7 @@ used by Better Thermostat when a device-specific adapter does not exist.
 from __future__ import annotations
 
 import asyncio
+from itertools import pairwise
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
@@ -118,6 +119,15 @@ async def get_offset_step(self, entity_id):
         )
         if state is None:
             return None
+        # A select publishes no step; its grid is the spacing of its options.
+        if state.domain == "select":
+            parsed = (
+                _option_to_offset(option)
+                for option in state.attributes.get("options") or []
+            )
+            offered = sorted({value for value in parsed if value is not None})
+            spacings = [high - low for low, high in pairwise(offered)]
+            return min(spacings, default=1.0)
         return float(str(state.attributes.get("step", 1)))
     else:
         return None
