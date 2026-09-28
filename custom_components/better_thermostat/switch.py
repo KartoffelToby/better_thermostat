@@ -23,6 +23,7 @@ from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
 from .utils.helpers import (
     TrvNamedEntity,
     async_normalize_bt_entity_ids,
+    current_trv_name,
     find_device_entity,
 )
 
@@ -104,10 +105,10 @@ class BetterThermostatPIDAutoTuneSwitch(TrvNamedEntity, SwitchEntity, RestoreEnt
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_pid_auto_tune"
 
         if show_trv_name:
-            trv_state = bt_climate.hass.states.get(trv_entity_id)
-            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
             self._attr_translation_key = "pid_auto_tune"
-            self._attr_translation_placeholders = {"trv_name": trv_name}
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
         else:
             self._attr_translation_key = "pid_auto_tune_no_trv"
 
@@ -188,10 +189,10 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
         self._trv_entity_id = trv_entity_id
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_child_lock"
         if show_trv_name:
-            trv_state = bt_climate.hass.states.get(trv_entity_id)
-            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
             self._attr_translation_key = "child_lock"
-            self._attr_translation_placeholders = {"trv_name": trv_name}
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
         else:
             self._attr_translation_key = "child_lock_no_trv"
 

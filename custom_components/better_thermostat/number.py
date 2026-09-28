@@ -46,6 +46,7 @@ from .utils.helpers import (
     TrvNamedEntity,
     async_normalize_bt_entity_ids,
     convert_to_float_celsius,
+    current_trv_name,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -427,10 +428,10 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
         self._attr_unique_id = f"{bt_climate.unique_id}_{trv_entity_id}_pid_{parameter}"
 
         if show_trv_name:
-            trv_state = bt_climate.hass.states.get(trv_entity_id)
-            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
             self._attr_translation_key = f"pid_{parameter}"
-            self._attr_translation_placeholders = {"trv_name": trv_name}
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
         else:
             self._attr_translation_key = f"pid_{parameter}_no_trv"
 
@@ -526,10 +527,10 @@ class BetterThermostatValveMaxOpeningNumber(
         )
 
         if show_trv_name:
-            trv_state = bt_climate.hass.states.get(trv_entity_id)
-            trv_name = trv_state.name if trv_state and trv_state.name else trv_entity_id
             self._attr_translation_key = "valve_max_opening"
-            self._attr_translation_placeholders = {"trv_name": trv_name}
+            self._attr_translation_placeholders = {
+                "trv_name": current_trv_name(bt_climate.hass, trv_entity_id)
+            }
         else:
             self._attr_translation_key = "valve_max_opening_no_trv"
 

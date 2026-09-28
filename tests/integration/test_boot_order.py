@@ -242,3 +242,93 @@ async def test_per_head_entity_is_named_after_its_trv(hass, suffix, order):
     friendly_name = hass.states.get(entity_id).attributes["friendly_name"]
     assert "fake trv" in friendly_name
     assert TRV_ID not in friendly_name
+
+
+class _RegisteredTrv(_NamedTrv):
+    """A fake TRV with a registry entry, as a device integration creates one."""
+
+    def __init__(self, name):
+        super().__init__(name)
+        self._attr_unique_id = f"registered_{name}"
+
+
+def _per_head_entry(heads):
+    """Return an entry whose heads get every per-head entity."""
+    template = make_entry().data["thermostat"][0]
+    thermostats = [
+        {
+            **template,
+            "trv": head.entity_id,
+            "advanced": {
+                **template["advanced"],
+                "calibration": "direct_valve_based",
+                "calibration_mode": "pid_calibration",
+            },
+        }
+        for head in heads
+    ]
+    return _entry_with(make_entry(), thermostat=thermostats)
+
+
+@_ORDERS
+@pytest.mark.parametrize("suffix", _PER_HEAD_SUFFIXES)
+async def test_new_per_head_entity_id_is_derived_from_its_trv_name(hass, suffix, order):
+    """A per-head entity registered on a boot gets an entity_id from the TRV's name.
+
+    The TRV's registry entry is loaded before any integration is set up, so
+    its name is known even while its state is not reported yet.
+    """
+    heads = [_RegisteredTrv("warm head"), _RegisteredTrv("cold head")]
+    await _register(hass, *heads)
+    _set_room_sensor(hass)
+    entry = _per_head_entry(heads)
+    if order == "boot":
+        for head in heads:
+            hass.states.async_remove(head.entity_id)
+        await _set_up_during_boot(hass, entry)
+        for head in heads:
+            head.async_write_ha_state()
+        await hass.async_block_till_done()
+        bt = await _finish_boot(hass, entry)
+    else:
+        bt = await _set_up(hass, entry, order)
+
+    platform = "switch" if suffix in ("pid_auto_tune", "child_lock") else "number"
+    entity_id = er.async_get(hass).async_get_entity_id(
+        platform, DOMAIN, f"{bt.unique_id}_{heads[0].entity_id}_{suffix}"
+    )
+    assert entity_id is not None
+    assert entity_id.startswith(f"{platform}.bt_test_warm_head_")
+
+
+async def test_registered_per_head_entity_keeps_its_entity_id(hass):
+    """A per-head entity already in the registry keeps the entity_id it has.
+
+    Automations and dashboards refer to it by that id, whatever name it was
+    derived from.
+    """
+    heads = [_RegisteredTrv("warm head"), _RegisteredTrv("cold head")]
+    await _register(hass, *heads)
+    _set_room_sensor(hass)
+    entry = _per_head_entry(heads)
+    entry.add_to_hass(hass)
+    kept = "switch.bt_test_climate_warm_head_child_lock"
+    unique_id = f"{entry.entry_id}_{heads[0].entity_id}_child_lock"
+    er.async_get(hass).async_get_or_create(
+        "switch",
+        DOMAIN,
+        unique_id,
+        config_entry=entry,
+        suggested_object_id=kept.split(".", 1)[1],
+    )
+    for head in heads:
+        hass.states.async_remove(head.entity_id)
+    hass.set_state(CoreState.starting)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for head in heads:
+        head.async_write_ha_state()
+    await _finish_boot(hass, entry)
+
+    assert er.async_get(hass).async_get_entity_id("switch", DOMAIN, unique_id) == kept
+    assert hass.states.get(kept) is not None
