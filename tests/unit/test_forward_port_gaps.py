@@ -554,13 +554,21 @@ rejected = ["heater_entity_id"]
 """
 
 
-def _renamed_fix(line, *, glossary: str | None, develop_spelling: str) -> str:
+OLD_SPELLING = "trv_data.remember_the_setpoint(heater_entity_id, reported_{i})"
+
+
+def _renamed_fix(
+    line,
+    *,
+    glossary: str | None,
+    develop_spelling: str,
+    maintenance_spelling: str = OLD_SPELLING,
+) -> str:
     """Commit a fix spelled with rejected names on the maintenance line.
 
-    The development line holds four statements in ``develop_spelling``, a
-    format string over the statement's index. Returns the maintenance commit.
+    Each line holds four statements in its spelling, a format string over the
+    statement's index. Returns the maintenance commit.
     """
-    statement = "trv_data.remember_the_setpoint(heater_entity_id, reported_{i})\n"
     line.git("checkout", "-q", "develop")
     if glossary is not None:
         line.write("glossary.toml", glossary)
@@ -571,7 +579,9 @@ def _renamed_fix(line, *, glossary: str | None, develop_spelling: str) -> str:
     line.commit("refactor: rename onto the glossary")
     line.git("checkout", "-q", "maintenance")
     line.write(
-        "module.py", "shared = 1\n" + "".join(statement.format(i=i) for i in range(4))
+        "module.py",
+        "shared = 1\n"
+        + "".join(maintenance_spelling.format(i=i) + "\n" for i in range(4)),
     )
     return line.commit("fix: remember the setpoint")
 
@@ -604,17 +614,25 @@ def test_a_line_renamed_onto_the_glossary_is_found(lines, develop_spelling):
 
 
 @pytest.mark.parametrize(
-    ("glossary", "develop_spelling"),
+    ("glossary", "maintenance_spelling", "develop_spelling"),
     [
-        (None, "trv.remember_the_setpoint(entity_id, reported_{i})"),
-        (GLOSSARY, "trv.remember_the_setpoint(entity_id, confirmed_{i})"),
-        (GLOSSARY, "device.remember_the_setpoint(entity_id, reported_{i})"),
-        (GLOSSARY, "trv_datas.remember_the_setpoint(entity_id, reported_{i})"),
+        (None, OLD_SPELLING, "trv.remember_the_setpoint(entity_id, reported_{i})"),
+        (GLOSSARY, OLD_SPELLING, "trv.remember_the_setpoint(entity_id, confirmed_{i})"),
+        (
+            GLOSSARY,
+            OLD_SPELLING,
+            "device.remember_the_setpoint(entity_id, reported_{i})",
+        ),
+        (
+            GLOSSARY,
+            "trv_data.remember_the_setpoint(trv_data_cache, reported_{i})",
+            "trv.remember_the_setpoint(trv_cache, reported_{i})",
+        ),
     ],
-    ids=["no-glossary", "other-statement", "unlisted-name", "longer-identifier"],
+    ids=["no-glossary", "other-statement", "unlisted-name", "part-of-a-name"],
 )
 def test_a_rename_the_glossary_does_not_list_is_not_found(
-    lines, glossary, develop_spelling
+    lines, glossary, maintenance_spelling, develop_spelling
 ):
     """Only the glossary's own renames are undone, and only whole names.
 
@@ -623,7 +641,10 @@ def test_a_rename_the_glossary_does_not_list_is_not_found(
     """
     script, line = lines
     maintenance_commit = _renamed_fix(
-        line, glossary=glossary, develop_spelling=develop_spelling
+        line,
+        glossary=glossary,
+        develop_spelling=develop_spelling,
+        maintenance_spelling=maintenance_spelling,
     )
 
     commit = _measure(script, line, maintenance_commit)
