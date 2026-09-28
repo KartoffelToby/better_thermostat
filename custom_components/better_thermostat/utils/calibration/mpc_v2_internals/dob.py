@@ -41,9 +41,9 @@ class DobParams:
     """Tunables for the disturbance observer (EMA time constant)."""
 
     tau_s: float = 600.0
-    # Plausible magnitude (K/min) of a persisted reading. 0.05 K/min is
-    # already 3 K/hour, well beyond a normal unmodelled room load, so a
-    # restored reading beyond it is taken at the bound.
+    # A single quantised room-sensor jump must not become an arbitrarily large
+    # permanent heat source/sink in the steady-state feed-forward term.  0.05
+    # K/min is already 3 K/hour, well beyond a normal unmodelled room load.
     max_abs_K_per_min: float = 0.05
     # Time constant (s) of the planning reading, and the band around zero
     # (K/min) it treats as no disturbance. Rates inside the band are what
@@ -115,12 +115,20 @@ class DisturbanceObserver:
         ``60 * correction_K / tau_s`` even for near-zero intervals, as they
         occur when a shared group controller is stepped once per TRV within
         the same control pass.
+
+        The estimate itself is bounded by ``max_abs_K_per_min`` so a quantised
+        sensor jump cannot become an implausible steady-state load. That bound
+        belongs on the estimate rather than on the incoming rate: clamping the
+        rate first would scale it by the dt-proportional weight as well, which
+        drops the short-interval corrections this observer is meant to fold in.
         """
         if dt_s <= 0.0 or dt_s > self.params.max_reading_interval_s:
             return self.D_hat_K_per_min
         correction_rate = correction_K / (dt_s / 60.0)
         a = min(1.0, dt_s / max(self.params.tau_s, dt_s))
+        max_abs = max(0.0, self.params.max_abs_K_per_min)
         self.D_hat_K_per_min = (1.0 - a) * self.D_hat_K_per_min + a * correction_rate
+        self.D_hat_K_per_min = max(-max_abs, min(max_abs, self.D_hat_K_per_min))
         b = min(1.0, dt_s / max(self.params.planning_tau_s, dt_s))
         self.planning_filtered += b * (self.D_hat_K_per_min - self.planning_filtered)
         return self.D_hat_K_per_min
