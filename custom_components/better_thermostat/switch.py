@@ -10,7 +10,7 @@ from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 
 from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
 
@@ -21,7 +21,7 @@ from .utils.calibration.pid import (
     build_pid_key,
     resolve_unique_id,
 )
-from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
+from .utils.const import CONF_CALIBRATION_MODE, CONF_CHILD_LOCK, DOMAIN, CalibrationMode
 from .utils.helpers import async_normalize_bt_entity_ids, find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -197,6 +197,43 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        await self._restore_child_lock()
+
+    def _configured_child_lock(self) -> bool:
+        """Return the child-lock option the config entry holds for the TRV."""
+        for trv_config in self._bt_climate.all_trvs or []:
+            if trv_config.get("trv") == self._trv_entity_id:
+                return bool((trv_config.get("advanced") or {}).get(CONF_CHILD_LOCK))
+        return False
+
+    @property
+    def extra_restore_state_data(self) -> RestoredExtraData:
+        """Record the configured option next to the switch state.
+
+        A restore compares it with the option then configured; a difference
+        means the option was set in the options flow after the switch.
+        """
+        return RestoredExtraData({"configured": self._configured_child_lock()})
+
+    async def _restore_child_lock(self) -> None:
+        """Put the switch state from before a reload or restart back on the TRV.
+
+        The switch and the options flow both set the lock, and the one set
+        last wins: the restored state, unless the option has changed since.
+        """
+        trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
+        last_state = await self.async_get_last_state()
+        if trv is None or last_state is None:
+            return
+        if last_state.state not in (STATE_ON, STATE_OFF):
+            return
+        last_extra = await self.async_get_last_extra_data()
+        recorded = last_extra.as_dict().get("configured") if last_extra else None
+        if recorded is not None and recorded != self._configured_child_lock():
+            return
+        if trv.advanced is None:
+            trv.advanced = {}
+        trv.advanced[CONF_CHILD_LOCK] = last_state.state == STATE_ON
 
     @property
     def device_info(self):

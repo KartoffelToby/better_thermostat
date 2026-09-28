@@ -1,0 +1,134 @@
+"""The child-lock switch keeps what the user last set, from wherever they set it.
+
+The lock can be set from two places: the switch, and the child-lock option of
+the TRV in the options flow. Whichever the user touched last is what the
+thermostat holds after a reload or a restart, and a switch change has to
+survive a restart on its own rather than through some later save of the
+config entry.
+"""
+
+from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.core import State
+import pytest
+from pytest_homeassistant_custom_component.common import (
+    mock_restore_cache_with_extra_data,
+)
+
+from .conftest import (
+    build_devices,
+    click_through_the_options,
+    make_entry,
+    set_room_sensor,
+    setup_entry,
+    wait_for_startup,
+)
+from .device_profiles import GENERIC_HEAT_TRV
+
+SWITCH = "switch.bt_test_child_lock"
+
+
+def _held(bt) -> bool:
+    """Return the child-lock setting the thermostat applies to its TRV."""
+    (trv,) = bt.real_trvs.values()
+    return bool((trv.advanced or {}).get("child_lock"))
+
+
+async def _started(hass, entry):
+    await setup_entry(hass, entry)
+    return await wait_for_startup(hass, entry)
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_a_switch_change_survives_a_restart(hass, wanted):
+    """The switch state the user left before a restart is the one held after it."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    entry.data["thermostat"][0]["advanced"]["child_lock"] = not wanted
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(SWITCH, STATE_ON if wanted else STATE_OFF),
+                {"configured": not wanted},
+            )
+        ],
+    )
+    await build_devices(hass, GENERIC_HEAT_TRV)
+
+    bt = await _started(hass, entry)
+
+    assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
+    assert _held(bt) is wanted
+
+
+async def test_a_switch_change_does_not_touch_the_config_entry(hass, fake_trv):
+    """Flipping the switch leaves the entry's stored option as it was."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    await _started(hass, entry)
+
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": SWITCH}, blocking=True
+    )
+
+    assert entry.data["thermostat"][0]["advanced"]["child_lock"] is False
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_a_switch_change_survives_a_reload(hass, fake_trv, wanted):
+    """A reload that changes nothing keeps the switch where the user put it."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    entry.data["thermostat"][0]["advanced"]["child_lock"] = not wanted
+    await _started(hass, entry)
+    await hass.services.async_call(
+        "switch",
+        "turn_on" if wanted else "turn_off",
+        {"entity_id": SWITCH},
+        blocking=True,
+    )
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    bt = await wait_for_startup(hass, entry)
+
+    assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
+    assert _held(bt) is wanted
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_an_options_change_after_the_switch_wins(hass, fake_trv, wanted):
+    """Setting the option in the options flow overrides an earlier switch change."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    entry.data["thermostat"][0]["advanced"]["child_lock"] = not wanted
+    await _started(hass, entry)
+    await hass.services.async_call(
+        "switch",
+        "turn_off" if wanted else "turn_on",
+        {"entity_id": SWITCH},
+        blocking=True,
+    )
+
+    await click_through_the_options(hass, entry, child_lock=wanted)
+    await hass.async_block_till_done()
+    bt = await wait_for_startup(hass, entry)
+
+    assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
+    assert _held(bt) is wanted
+
+
+async def test_an_options_change_before_a_restart_wins_over_the_switch(hass):
+    """An option set after the last switch change is held after a restart."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    entry.data["thermostat"][0]["advanced"]["child_lock"] = True
+    mock_restore_cache_with_extra_data(
+        hass, [(State(SWITCH, STATE_OFF), {"configured": False})]
+    )
+    await build_devices(hass, GENERIC_HEAT_TRV)
+
+    bt = await _started(hass, entry)
+
+    assert hass.states.get(SWITCH).state == STATE_ON
+    assert _held(bt) is True
