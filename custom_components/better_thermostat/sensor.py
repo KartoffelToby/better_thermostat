@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from functools import partial
 import logging
 from typing import TYPE_CHECKING
 
@@ -194,6 +195,7 @@ async def _register_dynamic_entity_callback(
 
     # Store unsubscribe function for cleanup
     _DISPATCHER_UNSUBSCRIBES[entry.entry_id] = unsubscribe
+    entry.async_on_unload(partial(_release_entry, entry.entry_id))
 
 
 async def _handle_dynamic_entity_update(
@@ -559,8 +561,16 @@ async def _cleanup_pid_switch_entities(
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload sensor entry and cleanup tracking."""
-    entry_id = entry.entry_id
+    _release_entry(entry.entry_id)
+    return True
 
+
+def _release_entry(entry_id: str) -> None:
+    """Drop the dispatcher subscription and the entity tracking of one entry.
+
+    Home Assistant does not call a platform module's unload hook, so the
+    platform setup registers this with the config entry's own unload.
+    """
     # Unsubscribe from dispatcher signals
     unsubscribe = _DISPATCHER_UNSUBSCRIBES.pop(entry_id, None)
     if unsubscribe:
@@ -572,8 +582,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
     _ACTIVE_PID_NUMBERS.pop(entry_id, None)
     _ACTIVE_SWITCH_ENTITIES.pop(entry_id, None)
-
-    return True
 
 
 # Helper
