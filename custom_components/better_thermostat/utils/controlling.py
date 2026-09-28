@@ -379,15 +379,19 @@ def _locked_device_moved(self, entity_id, trv, state) -> bool:
     reported = read_setpoint_celsius(
         self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
     )
+    step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
     if entity_id == dual_role_entity_id(self):
-        known += [self.bt_target_cooltemp, self.last_sent_cooler_temp]
+        # The cooling channel's writes as the device holds them, on its grid,
+        # the way the inbound handler compares them.
+        known += [
+            round_by_step(self.bt_target_cooltemp, step),
+            round_by_step(self.last_sent_cooler_temp, step),
+        ]
     known_values = [float(value) for value in known if value is not None]
     if reported is None or not known_values:
         return False
-    window = setpoint_echo_window(
-        normalize_step(trv.target_temp_step or self.bt_target_temp_step)
-    )
+    window = setpoint_echo_window(step)
     return all(abs(reported - value) >= window for value in known_values)
 
 
