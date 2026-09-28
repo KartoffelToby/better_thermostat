@@ -111,6 +111,7 @@ from .model_fixes.model_quirks import (
     load_model_quirks,
     trv_state_unknown_as_available,
 )
+from .switch import restored_child_lock
 from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
@@ -136,6 +137,7 @@ from .utils.const import (
     ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
+    CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
     CONF_DOOR_TIMEOUT_AFTER,
@@ -1234,6 +1236,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # switch, must not rewrite the config entry in memory.
                 advanced=dict(_advanced),
             )
+            # The child lock the startup sends the TRV is the one its switch
+            # restores to, so the device is not set to the option first.
+            child_lock = restored_child_lock(
+                self.hass,
+                self.unique_id,
+                trv["trv"],
+                bool(_advanced.get(CONF_CHILD_LOCK)),
+            )
+            if child_lock is not None:
+                self.real_trvs[trv["trv"]].advanced[CONF_CHILD_LOCK] = child_lock
 
         def on_remove():
             self.is_removed = True
