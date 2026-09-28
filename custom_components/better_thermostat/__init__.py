@@ -7,10 +7,11 @@ import copy
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, Platform
+from homeassistant.const import CONF_NAME, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
 from .utils.const import (
@@ -19,10 +20,12 @@ from .utils.const import (
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_NO_SYSTEM_MODE_OFF,
+    CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
     CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
@@ -46,9 +49,50 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+def _warn_about_an_off_temperature_below_freezing(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Warn when a Fahrenheit entry stores an outdoor threshold below 0 °C.
+
+    The threshold is stored in the system unit. A number meant as Celsius,
+    such as 20, reads as 20 °F (-6.7 °C) on a Fahrenheit system and stops the
+    heating whenever it is warmer than that outside. The stored value stays
+    as it is; the warning names it so the user can change it.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry being set up.
+    """
+    if hass.config.units.temperature_unit != UnitOfTemperature.FAHRENHEIT:
+        return
+    if not (entry.data.get(CONF_OUTDOOR_SENSOR) or entry.data.get(CONF_WEATHER)):
+        return
+    try:
+        stored = float(entry.data[CONF_OFF_TEMPERATURE])
+    except KeyError, TypeError, ValueError:
+        return
+    celsius = TemperatureConverter.convert(
+        stored, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+    )
+    if celsius < 0.0:
+        _LOGGER.warning(
+            "better_thermostat %s: the outdoor threshold off_temperature is "
+            "%s °F (%.1f °C), so heating stops whenever it is warmer than that "
+            "outside; change it in the thermostat's settings if it was meant "
+            "in °C",
+            entry.data.get(CONF_NAME, entry.title),
+            entry.data[CONF_OFF_TEMPERATURE],
+            celsius,
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entry."""
     hass.data.setdefault(DOMAIN, {})
+    _warn_about_an_off_temperature_below_freezing(hass, entry)
     hass.data[DOMAIN][entry.entry_id] = {}
     try:
         # Setup climate platform first to ensure entity is available for other platforms
