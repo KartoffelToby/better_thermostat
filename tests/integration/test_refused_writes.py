@@ -12,7 +12,7 @@ import logging
 from unittest.mock import patch
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.utils import controlling, retry
@@ -61,8 +61,15 @@ class _RoundLog(logging.Handler):
 
 
 @pytest.fixture
-async def refusing_room(hass, fake_trv):
-    """A running room whose TRV refuses every setpoint above a line."""
+async def refusing_room(hass, fake_trv, request):
+    """A running room whose TRV refuses every setpoint above a line.
+
+    Parametrize indirectly with "numbered" for a refusal whose message
+    carries a running sequence number, the way a radio stack reports a
+    timeout.
+    """
+    numbered = getattr(request, "param", "fixed") == "numbered"
+    refusals = [0]
     hass.states.async_set(SENSOR_ID, "18.0", {"unit_of_measurement": "°C"})
     entry = make_entry()
     await setup_entry(hass, entry)
@@ -88,6 +95,9 @@ async def refusing_room(hass, fake_trv):
             and temperature > _DEVICE_TAKES_UP_TO
         ):
             fake_trv.set_temperature_calls.append(temperature)
+            refusals[0] += 1
+            if numbered:
+                raise HomeAssistantError(f"timeout (tsn {refusals[0]})")
             raise ServiceValidationError("temperature out of range")
         return await original(device, **kwargs)
 
@@ -118,6 +128,7 @@ async def _set_target(hass, temperature: float) -> None:
     )
 
 
+@pytest.mark.parametrize("refusing_room", ["fixed", "numbered"], indirect=True)
 async def test_a_refused_setpoint_is_retried_at_a_growing_distance(hass, refusing_room):
     """Each failed cycle waits twice as long as the one before, up to the cap."""
     _bt, _trv, log = refusing_room
@@ -135,6 +146,7 @@ async def test_a_refused_setpoint_is_retried_at_a_growing_distance(hass, refusin
     assert gaps[-1] >= FAILED_CYCLE_BACKOFF_MAX_S
 
 
+@pytest.mark.parametrize("refusing_room", ["fixed", "numbered"], indirect=True)
 async def test_a_refused_setpoint_logs_its_traceback_once(hass, refusing_room):
     """The first failure carries the traceback, every later one a single line."""
     _bt, _trv, log = refusing_room
