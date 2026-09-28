@@ -58,7 +58,9 @@ def async_retry(
     Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
     :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first
     attempt even when ``exceptions`` covers them, so a broken call fails fast
-    with its own traceback rather than after the whole backoff budget.
+    rather than after the whole backoff budget. Each failure is logged in one
+    line; its traceback goes to the debug log, and the caller the error is
+    handed back to reports it as loudly as it needs.
 
     Parameters
     ----------
@@ -114,7 +116,8 @@ def async_retry(
                             f"{log_prefix}{func.__name__} hit an error that "
                             f"retrying cannot fix: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(log_message)
+                        _LOGGER.debug(log_message, exc_info=True)
                         raise
 
                     if attempt >= retries:
@@ -122,7 +125,8 @@ def async_retry(
                             f"{log_prefix}{func.__name__} failed after "
                             f"{retries + 1} attempts: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(log_message)
+                        _LOGGER.debug(log_message, exc_info=True)
                         raise
 
                     # Calculate exponential backoff
@@ -139,7 +143,8 @@ def async_retry(
                         f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
                     )
 
-                    _LOGGER.log(log_level, log_message, exc_info=True)
+                    _LOGGER.log(log_level, log_message)
+                    _LOGGER.debug(log_message, exc_info=True)
 
                     await asyncio.sleep(actual_delay)
                     attempt += 1
