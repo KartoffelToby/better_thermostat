@@ -104,6 +104,15 @@ class Trv:
     confirmed_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
+    # A mode command still on the wire that the room took back before the
+    # device confirmed it. The device already held the mode the room wanted
+    # again, so no newer command went out to replace it, and a slow device
+    # may still apply it. Its report is Better Thermostat's own command
+    # landing late, not a press at the device, until the monotonic deadline
+    # beside it: a device gets as long to apply it as the mode watchdog gives
+    # any command, and a report after that is the user's again.
+    withdrawn_hvac_mode: str | None = None
+    withdrawn_hvac_mode_until: float | None = None
     # Whether the device reported something while a control cycle held the
     # inbound handler off. The end of the cycle reads the device's state then,
     # before a later cycle can write over a press nobody has read.

@@ -30,7 +30,9 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    WRITE_CONFIRM_TIMEOUT_S,
     check_calibration,
+    check_system_mode,
     check_target_temperature,
     control_trv,
 )
@@ -1021,6 +1023,65 @@ class TestControlTrvAvailablePath:
 
             # Task should be created for check_system_mode
             mock_self.task_manager.create_task.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_a_mode_command_the_room_took_back_ends_its_wait(self):
+        """A device already holding the mode the room wants again settles the channel.
+
+        The room switched off and straight back on before the slow device took
+        the off command. The device holds heat, which is what the room wants,
+        so no command goes out; the off command is remembered as withdrawn for
+        the confirmation window, and the mode watchdog ends on the mode the
+        device holds instead of waiting out its timeout.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    last_hvac_mode=HVACMode.OFF, system_mode_received=False
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with (
+            _setpoint_cycle(20.0),
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()) as set_mode,
+            patch(f"{_CTRL}.monotonic", return_value=1000.0),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        set_mode.assert_not_awaited()
+        assert trv.last_hvac_mode == HVACMode.HEAT
+        assert trv.withdrawn_hvac_mode == HVACMode.OFF
+        assert trv.withdrawn_hvac_mode_until == 1000.0 + WRITE_CONFIRM_TIMEOUT_S
+
+        with patch("asyncio.sleep", new=AsyncMock()) as sleep:
+            await check_system_mode(mock_self, "climate.trv1")
+
+        assert trv.system_mode_received is True
+        assert sleep.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_settled_device_holding_the_wanted_mode_records_no_withdrawal(self):
+        """With no command on the wire, nothing is withdrawn."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    last_hvac_mode=HVACMode.OFF, system_mode_received=True
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with _setpoint_cycle(20.0):
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_hvac_mode == HVACMode.HEAT
+        assert trv.withdrawn_hvac_mode is None
 
     @pytest.mark.asyncio
     async def test_lock_usage(self):

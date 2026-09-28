@@ -952,6 +952,75 @@ class TestHvacModeUpdate:
 
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
+    @staticmethod
+    def _off_landing_after_withdrawal(mock_bt, *, now: float):
+        """Let the room take back an off command that the device applies now.
+
+        The room is heating again and its watchdog has settled; the off
+        command went out earlier and was withdrawn with a deadline of 360 s
+        from ``t = 0``.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "heat"
+        trv.last_hvac_mode = "heat"
+        trv.system_mode_received = True
+        trv.withdrawn_hvac_mode = "off"
+        trv.withdrawn_hvac_mode_until = 360.0
+        trv_state = _make_state(
+            state_str="off",
+            attributes={"current_temperature": 18.0, "temperature": 19.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+        return patch(
+            "custom_components.better_thermostat.events.trv.monotonic", return_value=now
+        ), event
+
+    @pytest.mark.asyncio
+    async def test_a_withdrawn_mode_command_landing_late_does_not_switch_the_room(
+        self, mock_bt
+    ):
+        """A slow device applying a mode command the room has taken back is no press."""
+        clock, event = self._off_landing_after_withdrawal(mock_bt, now=100.0)
+
+        with (
+            clock,
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.OFF,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+        assert trv.hvac_mode == "off"
+        assert trv.withdrawn_hvac_mode is None
+        assert trv.withdrawn_hvac_mode_until is None
+
+    @pytest.mark.asyncio
+    async def test_a_press_after_the_withdrawn_command_had_its_time_is_adopted(
+        self, mock_bt
+    ):
+        """Once the confirmation window has passed, an off at the device is the user's."""
+        clock, event = self._off_landing_after_withdrawal(mock_bt, now=361.0)
+
+        with (
+            clock,
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.OFF,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        assert mock_bt.bt_hvac_mode == HVACMode.OFF
+        assert trv.withdrawn_hvac_mode is None
+        assert trv.withdrawn_hvac_mode_until is None
+
     @pytest.mark.asyncio
     async def test_mode_not_propagated_before_system_mode_received(self, mock_bt):
         """No propagation to bt_hvac_mode if system_mode_received is False."""
