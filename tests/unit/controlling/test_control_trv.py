@@ -215,7 +215,9 @@ class TestEchoSetpointsAcrossWrites:
 
         reported["temperature"] = 26.0
         with patch("asyncio.sleep", new=AsyncMock()):
-            await check_target_temperature(mock_self, "climate.trv1")
+            await check_target_temperature(
+                mock_self, "climate.trv1", trv.last_setpoint_write_id, 26.0
+            )
         assert trv.confirmed_setpoint == 26.0
         assert trv.echo_setpoint_values() == []
 
@@ -247,6 +249,39 @@ class TestEchoSetpointsAcrossWrites:
                 await control_trv(mock_self, "climate.trv1")
         assert trv.echo_setpoint_values() == [23.0, 24.0, 25.0]
         assert trv.last_setpoint_write_id > awaited_write_id
+
+    @pytest.mark.asyncio
+    async def test_a_write_made_while_a_watchdog_waits_is_watched_on_its_own(self):
+        """Every setpoint write starts a watchdog for the value it sent.
+
+        The first write's watchdog is still waiting when the next cycle writes
+        again; the second write gets a watchdog of its own, carrying its own
+        id and value, rather than being left to the watchdog of a write it
+        replaced.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": _default_trv_config(target_temp_received=True)},
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        watched: list[tuple[int, float | None]] = []
+
+        def _watch(self, entity_id, write_id, setpoint):
+            watched.append((write_id, setpoint))
+            return Mock()
+
+        with patch(f"{_CTRL}.check_target_temperature", new=_watch):
+            with _setpoint_cycle(23.0):
+                await control_trv(mock_self, "climate.trv1")
+            first_write = trv.last_setpoint_write_id
+            assert trv.target_temp_received is False
+
+            with _setpoint_cycle(24.0):
+                await control_trv(mock_self, "climate.trv1")
+
+        assert watched == [(first_write, 23.0), (trv.last_setpoint_write_id, 24.0)]
+        assert trv.last_setpoint_write_id > first_write
 
     @pytest.mark.asyncio
     async def test_the_intent_and_the_rounded_value_sent_are_both_remembered(self):

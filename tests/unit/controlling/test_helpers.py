@@ -378,6 +378,14 @@ def _seed_pending(*values):
     }
 
 
+def _watch_last_write(mock_self, entity_id):
+    """Start the setpoint watchdog for the last write the TRV records."""
+    trv = mock_self.real_trvs[entity_id]
+    return check_target_temperature(
+        mock_self, entity_id, trv.last_setpoint_write_id, trv.last_temperature
+    )
+
+
 class TestCheckTargetTemperature:
     """Test check_target_temperature function."""
 
@@ -400,7 +408,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -437,7 +445,7 @@ class TestCheckTargetTemperature:
         }
 
         result = await asyncio.wait_for(
-            check_target_temperature(mock_self, "climate.trv1"), timeout=10
+            _watch_last_write(mock_self, "climate.trv1"), timeout=10
         )
 
         assert result is True
@@ -466,7 +474,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -490,7 +498,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -521,7 +529,7 @@ class TestCheckTargetTemperature:
 
         update_task = asyncio.create_task(update_temp())
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         await update_task
         assert result is True
@@ -564,7 +572,7 @@ class TestCheckTargetTemperature:
         controlling_module.asyncio.sleep = mock_sleep
 
         try:
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
             assert result is True
             assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -599,7 +607,7 @@ class TestCheckTargetTemperature:
         }
 
         with _instant_sleep():
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].confirmed_setpoint == 25.0
@@ -608,33 +616,25 @@ class TestCheckTargetTemperature:
 
     @pytest.mark.asyncio
     async def test_writes_made_during_the_wait_survive_the_confirmation(self):
-        """Only one write is watched, so 24.0 and 25.0 are still in flight.
+        """A confirmation retires the watched write and leaves the newer ones.
 
-        The watchdog reads the command and its id at entry. The control loop
-        then writes 24.0 and 25.0 while the wait runs — neither gets a
-        watchdog of its own. When the device finally reports 23.0, the
-        confirmation must retire 23.0 alone.
+        The control loop writes 24.0 and 25.0 while the wait for 23.0 runs,
+        each under a watchdog of its own. When the device then reports 23.0,
+        the confirmation retires 23.0 alone, and the channel stays closed for
+        the watchdog of the newest write to release.
         """
         trv = Trv.from_legacy_dict(
             "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
         )
-        trv.remember_setpoint_written(23.0)
-
-        polls: list[int] = []
-
-        def _state(temperature):
-            state = Mock()
-            state.attributes = {"temperature": temperature}
-            return state
+        watched = trv.remember_setpoint_written(23.0)
 
         def report(_entity_id):
-            polls.append(1)
-            if len(polls) == 1:
-                # The control loop writes again while the wait runs.
-                trv.remember_setpoint_written(24.0)
-                trv.remember_setpoint_written(25.0)
-                return _state(20.0)
-            return _state(23.0)
+            # The control loop writes again while the wait runs.
+            trv.remember_setpoint_written(24.0)
+            trv.remember_setpoint_written(25.0)
+            state = Mock()
+            state.attributes = {"temperature": 23.0}
+            return state
 
         mock_hass = Mock()
         mock_hass.states.get.side_effect = report
@@ -645,11 +645,80 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {"climate.trv1": trv}
 
         with _instant_sleep():
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 23.0
+            )
 
         assert result is True
         assert trv.confirmed_setpoint == 23.0
         assert trv.echo_setpoint_values() == [24.0, 25.0]
+        assert trv.target_temp_received is False
+
+    @pytest.mark.asyncio
+    async def test_a_superseded_watchdog_ends_without_waiting_for_its_write(self):
+        """A write a newer one replaced holds the channel no longer.
+
+        The device never reports 23.0, and a newer write went out while the
+        wait ran. The watchdog for 23.0 ends at once, without the timeout and
+        without a warning; it confirms nothing and leaves the channel to the
+        watchdog of the newer write.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+        )
+        watched = trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_written(24.0)
+
+        state = Mock()
+        state.attributes = {"temperature": 24.0}
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        with _instant_sleep() as durations, patch(f"{_CTRL}._LOGGER") as logger:
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 23.0
+            )
+
+        assert result is True
+        assert durations == []
+        logger.warning.assert_not_called()
+        assert trv.confirmed_setpoint is None
+        assert trv.echo_setpoint_values() == [23.0, 24.0]
+        assert trv.target_temp_received is False
+
+    @pytest.mark.asyncio
+    async def test_the_watchdog_of_the_newest_write_releases_the_channel(self):
+        """The newest write's watchdog confirms it and opens the channel again."""
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 24.0, "target_temp_received": False}
+        )
+        trv.remember_setpoint_written(23.0)
+        newest = trv.remember_setpoint_written(24.0)
+
+        state = Mock()
+        state.attributes = {"temperature": 24.0}
+        mock_hass = Mock()
+        mock_hass.states.get.return_value = state
+
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+
+        with _instant_sleep():
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", newest, 24.0
+            )
+
+        assert result is True
+        assert trv.confirmed_setpoint == 24.0
+        assert trv.echo_setpoint_values() == []
+        assert trv.target_temp_received is True
 
     @pytest.mark.asyncio
     async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
@@ -687,7 +756,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {"climate.trv1": trv}
 
         with patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 3), _instant_sleep():
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert trv.confirmed_setpoint is None
@@ -717,7 +786,7 @@ class TestCheckTargetTemperature:
         }
 
         with _instant_sleep():
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].target_temp_received is True
@@ -750,7 +819,7 @@ class TestCheckTargetTemperature:
         }
 
         with patch(f"{_CTRL}.WRITE_CONFIRM_TIMEOUT_S", 3), _instant_sleep():
-            result = await check_target_temperature(mock_self, "climate.trv1")
+            result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         assert mock_self.real_trvs["climate.trv1"].echo_setpoint_values() == [
@@ -780,7 +849,7 @@ class TestCheckTargetTemperature:
             )
         }
 
-        result = await check_target_temperature(mock_self, "climate.trv1")
+        result = await _watch_last_write(mock_self, "climate.trv1")
 
         assert result is True
         # convert_to_float should handle string "21.0" and match float 21.0
@@ -1430,7 +1499,7 @@ class TestWriteConfirmTimeout:
         }
 
         with _instant_sleep() as durations:
-            await check_target_temperature(mock_self, "climate.trv1")
+            await _watch_last_write(mock_self, "climate.trv1")
 
         assert durations.count(1) == WRITE_CONFIRM_TIMEOUT_S + 1
 
