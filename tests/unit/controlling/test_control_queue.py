@@ -423,7 +423,11 @@ class TestControlQueue:
 
     @pytest.mark.asyncio
     async def test_handles_queue_full_when_retrying(self):
-        """Test that QueueFull is handled gracefully when retrying."""
+        """A retry that finds the queue full is dropped, and the loop goes on.
+
+        A request that arrived while the failing cycle ran already fills the
+        queue and runs on the newest state, so it stands in for the retry.
+        """
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
@@ -433,14 +437,23 @@ class TestControlQueue:
         mock_self.cooler_entity_id = None
         mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
 
-        # Create queue with maxsize=1
         queue = asyncio.Queue(maxsize=1)
         mock_self.control_queue_task = queue
         await queue.put(mock_self)
+        calls = 0
+
+        async def _control_trv(_self, _entity_id):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                queue.put_nowait(mock_self)
+                return False
+            return True
 
         with (
             patch(
-                "custom_components.better_thermostat.utils.controlling.control_trv"
+                "custom_components.better_thermostat.utils.controlling.control_trv",
+                side_effect=_control_trv,
             ) as mock_control_trv,
             # The failed-cycle backoff is collapsed so the retry lands
             # inside the window this test waits for.
@@ -449,20 +462,18 @@ class TestControlQueue:
                 0,
             ),
         ):
-            mock_control_trv.return_value = False
-
             queue_task = asyncio.create_task(control_queue(mock_self))
-            await asyncio.sleep(0.05)
-            queue_task.cancel()
-
             try:
-                await queue_task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(queue.join(), timeout=5)
+            finally:
+                queue_task.cancel()
+                try:
+                    await queue_task
+                except asyncio.CancelledError:
+                    pass
 
-            # The retry reached the full queue and the loop kept consuming.
-            assert mock_control_trv.await_count > 1
-            assert queue.qsize() <= 1
+        assert mock_control_trv.await_count == 2
+        assert queue.empty()
 
     @pytest.mark.asyncio
     async def test_a_persistently_failing_trv_does_not_spin_the_queue(self):
