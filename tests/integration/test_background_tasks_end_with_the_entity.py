@@ -36,7 +36,7 @@ async def test_a_pending_write_watchdog_ends_with_the_entity(hass, fake_trv, rem
 
     armed = asyncio.Event()
 
-    async def watchdog_in_its_window(_entity, _entity_id):
+    async def watchdog_in_its_window(_entity, _entity_id, *_write):
         armed.set()
         await asyncio.Event().wait()
 
