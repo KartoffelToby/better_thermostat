@@ -1,7 +1,7 @@
 """What model quirks and the offset channel read off the device they drive.
 
-A quirk reads the device's own report (its temperature, its mode select)
-and the offset channel reads the grid its entity
+A quirk reads the device's own report (its temperature, its mode select,
+its thermostat state) and the offset channel reads the grid its entity
 offers. Each reading has to come out the same whatever unit the system runs
 in, whichever of its identifiers a user renamed, and whatever grid the
 entity publishes.
@@ -10,15 +10,17 @@ entity publishes.
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.const import UnitOfTemperature
+from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import TemperatureConverter
 import pytest
 
 from custom_components.better_thermostat.adapters import base, delegate, generic
-from custom_components.better_thermostat.model_fixes import SPZB0001
+from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import CalibrationType
 from custom_components.better_thermostat.utils.helpers import round_by_step
 
 ENTITY_ID = "climate.trv"
@@ -152,6 +154,69 @@ class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
             blocking=True,
             context=None,
         )
+
+
+def _spirit_host(state):
+    return _host(
+        state=State(ENTITY_ID, state),
+        advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+    )
+
+
+class TestADrivenSpiritIsPutInValveModeOnce:
+    """The Spirit's valve mode is written when it is not engaged, not per cycle.
+
+    While the device is in its manufacturer-specific mode, its climate
+    entity reads ``unknown``; each write is a radio message to a battery
+    device.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_device_that_stays_in_valve_mode_is_not_written_again(self):
+        """The second cycle finds the mode engaged and leaves it."""
+        host = _spirit_host(STATE_UNKNOWN)
+
+        first = await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+        second = await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+
+        assert first is True
+        assert second is True
+        assert host.hass.services.async_call.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_device_that_left_valve_mode_is_written_again(self):
+        """A device reporting a standard mode is no longer in valve mode."""
+        host = _spirit_host(STATE_UNKNOWN)
+        await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+
+        host.hass.states.get.return_value = State(ENTITY_ID, HVACMode.HEAT)
+        await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+
+        assert host.hass.services.async_call.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_state_before_the_first_write_is_written(self):
+        """``unknown`` before BT engaged the mode proves nothing about it."""
+        host = _spirit_host(STATE_UNKNOWN)
+
+        assert await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+
+        host.hass.services.async_call.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_refused_write_is_written_again(self):
+        """A mode that did not go out is not engaged."""
+        host = _spirit_host(STATE_UNKNOWN)
+        host.hass.services.async_call = AsyncMock(
+            side_effect=[HomeAssistantError("node asleep"), None]
+        )
+
+        first = await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+        second = await ZWA021.override_set_hvac_mode(host, ENTITY_ID, HVACMode.HEAT)
+
+        assert first is False
+        assert second is True
+        assert host.hass.services.async_call.await_count == 2
 
 
 def _select_host(options):
