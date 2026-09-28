@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict
+from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,9 +25,11 @@ from homeassistant.core import CoreState
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import storage
 from homeassistant.helpers.json import json_bytes, prepare_save_json
+from homeassistant.util import dt as dt_util
 from homeassistant.util.file import WriteError
 from homeassistant.util.json import json_loads
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Params
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
@@ -2209,3 +2212,136 @@ class TestTheCopyIsConfirmedOnTheHomeAssistantStore:
         assert hass_storage[self._COPY_KEY]["data"] == older
         assert hass_storage[f"{self._COPY_KEY}.1"]["data"] == self._PAYLOAD
         assert hass_storage[self._LIVE_KEY]["data"] != self._PAYLOAD
+
+
+class TestAFailedCopyThatRecovers:
+    """Once the copy can be written again, the session's state is saved.
+
+    A copy that failed at load is retried by the runtime saves, first after
+    a minute and then at a doubling interval, so a disk that stays full is
+    not written to on every save.
+    """
+
+    _LIVE_KEY = "better_thermostat_retry_entry_state"
+    _COPY_KEY = "better_thermostat_retry_entry_state.corrupt"
+    _PAYLOAD = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
+
+    @contextmanager
+    def _disk(self, disk: dict):
+        """Fail every write of a set-aside copy while ``disk["full"]`` is set."""
+        write = storage.Store._async_write_data
+
+        async def _write(store, data):
+            if ".corrupt" in store.key and disk["full"]:
+                disk["attempts"] = disk.get("attempts", 0) + 1
+                raise WriteError("disk full")
+            await write(store, data)
+
+        with patch.object(storage.Store, "_async_write_data", _write):
+            yield
+
+    async def _loaded(self, hass, hass_storage) -> StateManager:
+        hass_storage[self._LIVE_KEY] = {
+            "version": 1,
+            "minor_version": 1,
+            "key": self._LIVE_KEY,
+            "data": self._PAYLOAD,
+        }
+        manager = StateManager(hass, "retry_entry")
+        await manager.load()
+        return manager
+
+    @staticmethod
+    async def _runtime_save(hass, manager: StateManager) -> None:
+        """Schedule a runtime save and let it run."""
+        manager.mark_dirty()
+        manager.schedule_delay_save(delay_s=1.0)
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
+        await hass.async_block_till_done()
+
+    async def test_a_runtime_save_after_recovery_lands(self, hass, hass_storage):
+        """The first runtime save once the retry is due writes copy and state."""
+        clock = {"now": 1000.0}
+        disk = {"full": True}
+        with self._disk(disk), patch(f"{_SM}.monotonic", lambda: clock["now"]):
+            manager = await self._loaded(hass, hass_storage)
+            disk["full"] = False
+            await self._runtime_save(hass, manager)
+            assert self._COPY_KEY not in hass_storage
+            assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+
+            clock["now"] += 60
+            await self._runtime_save(hass, manager)
+
+        assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] != self._PAYLOAD
+        assert manager.dirty is False
+
+    async def test_the_retry_interval_doubles_while_the_copy_fails(
+        self, hass, hass_storage, caplog
+    ):
+        """A disk that stays full is tried ever less often and reported once."""
+        caplog.set_level(logging.DEBUG, logger=_SM)
+        clock = {"now": 1000.0}
+        disk = {"full": True}
+        attempts: list[float] = []
+        with self._disk(disk), patch(f"{_SM}.monotonic", lambda: clock["now"]):
+            manager = await self._loaded(hass, hass_storage)
+            start = clock["now"]
+            for _ in range(450):
+                clock["now"] += 1
+                done = disk["attempts"]
+                manager.mark_dirty()
+                manager.schedule_delay_save(delay_s=1.0)
+                await hass.async_block_till_done()
+                if disk["attempts"] > done:
+                    attempts.append(clock["now"] - start)
+
+        assert attempts == [60, 180, 420]
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+        copy_warnings = [
+            r
+            for r in caplog.records
+            if r.name == _SM
+            and r.levelno == logging.WARNING
+            and "did not reach" in r.getMessage()
+        ]
+        assert len(copy_warnings) == 1
+        assert copy_warnings[0].exc_info is None
+
+    async def test_the_interval_stops_growing_at_an_hour(self, hass, hass_storage):
+        """A disk that stays full is retried once an hour at most, not less."""
+        clock = {"now": 1000.0}
+        disk = {"full": True}
+        with self._disk(disk), patch(f"{_SM}.monotonic", lambda: clock["now"]):
+            manager = await self._loaded(hass, hass_storage)
+            for _ in range(20):
+                clock["now"] += 3600
+                manager.mark_dirty()
+                manager.schedule_delay_save(delay_s=1.0)
+                await hass.async_block_till_done()
+
+        assert disk["attempts"] == 21
+
+    async def test_no_copy_is_attempted_while_home_assistant_stops(
+        self, hass, hass_storage
+    ):
+        """While stopping, a copy would only be queued, so it is left for later."""
+        disk = {"full": True}
+        with self._disk(disk):
+            manager = await self._loaded(hass, hass_storage)
+            disk["full"] = False
+            manager.mark_dirty()
+            hass.set_state(CoreState.stopping)
+            try:
+                await manager.flush()
+                hass.set_state(CoreState.final_write)
+                hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
+                await hass.async_block_till_done()
+            finally:
+                hass.set_state(CoreState.running)
+
+        assert self._COPY_KEY not in hass_storage
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+        assert manager.dirty is True

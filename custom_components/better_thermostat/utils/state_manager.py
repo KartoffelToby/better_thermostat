@@ -31,13 +31,14 @@ One-time data migration from the four legacy Store files is handled by
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
 import logging
 import math
+from time import monotonic
 from typing import Any, get_args, get_type_hints
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 
@@ -128,6 +129,12 @@ QUARANTINE_VERSION = 1
 # newest the latest learning; one more keeps the step between them. A
 # store that keeps turning unreadable does not fill the disk with copies.
 QUARANTINE_COPIES = 3
+
+# Seconds before a runtime save tries a failed copy again, doubling after
+# each failure up to the cap: a disk that recovers is used within the hour,
+# and one that stays full is not written to on every save.
+COPY_RETRY_FIRST_S = 60.0
+COPY_RETRY_MAX_S = 3600.0
 
 # State dataclasses (only those NOT owned by a controller module)
 
@@ -938,6 +945,14 @@ class StateManager:
         # either. The live store holds its only copy, so nothing is written
         # over it until the copy exists.
         self._payload_awaiting_copy: dict[str, Any] | None = None
+        # Whether the failing copy has been reported at WARNING already; each
+        # further attempt that fails is logged at DEBUG only.
+        self._copy_failure_reported = False
+        # When a runtime save next tries the copy, the wait after that, and
+        # whether a try is under way.
+        self._copy_retry_at = 0.0
+        self._copy_retry_s = COPY_RETRY_FIRST_S
+        self._copy_retry_running = False
 
     @staticmethod
     async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
@@ -1233,7 +1248,15 @@ class StateManager:
         if self._delay_save_pending:
             return
         if self._payload_awaiting_copy is not None:
-            # The delayed write cannot take the copy first; save() retries it.
+            # The delayed write cannot take the copy first. Once the retry is
+            # due, the copy is tried and the save scheduled behind it.
+            if not self._copy_retry_running and monotonic() >= self._copy_retry_at:
+                self._copy_retry_running = True
+                self._hass.async_create_background_task(
+                    self._retry_copy_then_delay_save(pre_save, delay_s),
+                    name=f"bt_state_copy_{self._entry_id}",
+                )
+                return
             _LOGGER.debug(
                 "better_thermostat [%s]: delayed save skipped, the stored state "
                 "is not set aside yet",
@@ -1273,6 +1296,55 @@ class StateManager:
             return data
 
         self._store.async_delay_save(_data_to_save, delay_s)
+
+    @property
+    def copy_pending(self) -> bool:
+        """Return whether saves wait for a copy of the stored payload."""
+        return self._payload_awaiting_copy is not None
+
+    def _schedule_copy_retry(self) -> None:
+        """Set when a runtime save next tries the copy, and double the wait."""
+        self._copy_retry_at = monotonic() + self._copy_retry_s
+        self._copy_retry_s = min(self._copy_retry_s * 2, COPY_RETRY_MAX_S)
+
+    def _report_copy_failure(
+        self, message: str, key: str, *, with_traceback: bool = False
+    ) -> None:
+        """Log a copy that could not be set aside.
+
+        The first failure is a WARNING; the error behind it and every
+        further failed attempt go to DEBUG, so a disk that stays full does
+        not repeat the warning on each attempt.
+        """
+        if not self._copy_failure_reported:
+            self._copy_failure_reported = True
+            _LOGGER.warning(message, self._entry_id, key)
+        _LOGGER.debug(message, self._entry_id, key, exc_info=with_traceback)
+
+    async def _retry_copy_then_delay_save(
+        self, pre_save: Callable[[], None] | None, delay_s: float
+    ) -> None:
+        """Try the awaited copy again and schedule the save once it is kept."""
+        try:
+            await self._retry_awaited_copy()
+        finally:
+            self._copy_retry_running = False
+        if self._payload_awaiting_copy is None:
+            self.schedule_delay_save(pre_save, delay_s)
+
+    async def _retry_awaited_copy(self) -> None:
+        """Try the awaited copy again, unless Home Assistant is stopping."""
+        payload = self._payload_awaiting_copy
+        if payload is None:
+            return
+        if self._hass.state is CoreState.stopping:
+            _LOGGER.debug(
+                "better_thermostat [%s]: copy left for the final write, the "
+                "Store only queues writes while Home Assistant stops",
+                self._entry_id,
+            )
+            return
+        await self._quarantine_unreadable_state(payload)
 
     async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
         """Set an unreadable store aside before defaults take its place.
@@ -1324,23 +1396,23 @@ class StateManager:
             on_disk: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
             written = await on_disk.async_load()
         except HomeAssistantError, OSError:
-            _LOGGER.warning(
+            self._report_copy_failure(
                 "better_thermostat [%s]: could not set the unreadable state "
                 "aside as %s; the stored state is kept unchanged until it is",
-                self._entry_id,
                 key,
-                exc_info=True,
+                with_traceback=True,
             )
             self._payload_awaiting_copy = raw
+            self._schedule_copy_retry()
             return
         if written != raw:
-            _LOGGER.warning(
+            self._report_copy_failure(
                 "better_thermostat [%s]: the unreadable state did not reach %s; "
                 "the stored state is kept unchanged until it does",
-                self._entry_id,
                 key,
             )
             self._payload_awaiting_copy = raw
+            self._schedule_copy_retry()
             return
         self._payload_awaiting_copy = None
         _LOGGER.warning(
@@ -1399,10 +1471,12 @@ class StateManager:
         The one exception is a stored payload that load() could not read in
         full and could not set aside: the copy is attempted again first,
         and while it fails the live store keeps that payload and the state
-        stays unsaved.
+        stays unsaved. While Home Assistant is stopping, the Store only
+        queues writes, so no copy can be confirmed and none is attempted;
+        the final write is where the copy is tried again.
         """
         if self._payload_awaiting_copy is not None:
-            await self._quarantine_unreadable_state(self._payload_awaiting_copy)
+            await self._retry_awaited_copy()
             if self._payload_awaiting_copy is not None:
                 return
         self._sync_mpc_v2_live()

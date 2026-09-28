@@ -38,6 +38,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
     PRECISION_TENTHS,
     PRECISION_WHOLE,
     STATE_UNAVAILABLE,
@@ -45,7 +46,7 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import Context, State, callback
+from homeassistant.core import Context, Event, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import (
     device_registry as dr,
@@ -1256,6 +1257,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
         self.async_on_remove(on_remove)
+
+        async def _save_held_back_state(_event: Event) -> None:
+            # A delayed save is flushed by the Store itself. One held back for
+            # a copy of the stored payload is taken here: in the final write
+            # the Store writes at once, so the copy is confirmed before the
+            # state replaces the payload.
+            if self.state_mgr is not None and self.state_mgr.copy_pending:
+                self._record_runtime_to_state()
+                await self.state_mgr.flush()
+
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                EVENT_HOMEASSISTANT_FINAL_WRITE, _save_held_back_state
+            )
+        )
 
         await super().async_added_to_hass()
 
