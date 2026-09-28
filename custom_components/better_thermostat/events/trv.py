@@ -354,11 +354,14 @@ async def trigger_trv_change(
     _old_heating_setpoint = read_setpoint_celsius(
         self, old_state, TRV_SETPOINT_KEYS, "trigger_trv_change()"
     )
-    # Compare only against values BT itself wrote. ``_old_heating_setpoint`` is
-    # the TRV's previously published state and is not necessarily a BT-written
-    # value, so it does not belong in the echo-suppression set. The confirmed
-    # setpoint and the writes since it join the set, because a device that
-    # never took the latest write still reports an earlier one.
+    # Compare only against values BT itself wrote to this device: the last
+    # command, the setpoint the device last confirmed, and the writes since,
+    # which a device may still hold against a later write it did not take.
+    # The room target is not one of them: the device holds it rounded onto
+    # its own grid, and a knob turned one step toward an off-grid target
+    # lands closer to the target than a step. ``_old_heating_setpoint`` is
+    # the TRV's previously published state and is not necessarily a
+    # BT-written value, so it does not belong in the echo-suppression set.
     _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
@@ -369,7 +372,6 @@ async def trigger_trv_change(
     _cooling_owns = cooling_owns_dual_role_report(self, entity_id, _org_trv_state.state)
     if entity_id == dual_role_entity_id(self):
         _known_values = (
-            self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
@@ -378,7 +380,6 @@ async def trigger_trv_change(
         )
     else:
         _known_values = (
-            self.bt_target_temp,
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),

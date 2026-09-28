@@ -2029,6 +2029,48 @@ class TestTargetTempBasedSync:
         assert mock_bt.bt_target_temp == 21.5
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("step", "room_target", "written", "turned_to"),
+        [
+            pytest.param(0.5, 20.25, 20.0, 20.5, id="half_degree_grid"),
+            pytest.param(1.0, 20.3, 20.0, 21.0, id="whole_degree_grid"),
+        ],
+    )
+    async def test_a_knob_turn_toward_an_off_grid_target_is_adopted(
+        self, mock_bt, step, room_target, written, turned_to
+    ):
+        """A setpoint is an echo only when it is a value Better Thermostat wrote.
+
+        The room target lies between two steps of the device's grid, so the
+        device holds it rounded. One step up from the written value lands
+        closer to the room target than a step, and is still the user's turn.
+        """
+        self._set_target_temp_based(mock_bt)
+        mock_bt.bt_target_temp = room_target
+        mock_bt.bt_target_temp_step = step
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.target_temp_step = step
+        trv.last_temperature = written
+        trv.confirmed_setpoint = written
+
+        old_state = _make_state(
+            attributes={"temperature": written, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": turned_to, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == turned_to
+
+    @pytest.mark.asyncio
     async def test_user_change_after_echo_not_suppressed(self, mock_bt):
         """A user change following a device echo is still adopted.
 
