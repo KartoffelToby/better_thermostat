@@ -307,55 +307,67 @@ class TestWhatComesBack:
 
 
 class TestWhatTheLogCarries:
-    """A failure is reported in one line; its traceback is for debug logging.
+    """A failed chain of attempts reaches the log as one warning.
 
-    The caller the error is handed back to decides how loud it gets, so the
-    retry helper does not print a traceback of its own at every attempt.
+    The caller the error is handed back to decides how loud it gets. The
+    attempts before the last one are debug detail, and the traceback is
+    only written where debug logging asks for it.
     """
 
     @staticmethod
-    async def _fail(caplog, error, retries):
+    async def _run(caplog, level, error, retries, succeed_on=None):
+        attempts = []
+
         @async_retry(retries=retries)
         async def write(self, entity_id):
+            attempts.append(entity_id)
+            if succeed_on is not None and len(attempts) == succeed_on:
+                return True
             raise error
 
-        with caplog.at_level(logging.DEBUG, logger=_RETRY):
+        with caplog.at_level(level, logger=_RETRY):
             with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
-                with pytest.raises(type(error)):
+                if succeed_on is None:
+                    with pytest.raises(type(error)):
+                        await write(object(), "climate.trv")
+                else:
                     await write(object(), "climate.trv")
         return [r for r in caplog.records if r.name == _RETRY]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("error", "retries", "attempts"),
+        ("error", "retries"),
         [
-            pytest.param(HomeAssistantError("no answer"), 2, 3, id="gave_up"),
-            pytest.param(ServiceValidationError("out of range"), 5, 1, id="refused"),
+            pytest.param(HomeAssistantError("no answer"), 5, id="gave_up"),
+            pytest.param(ServiceValidationError("out of range"), 5, id="refused"),
         ],
     )
-    async def test_the_final_failure_is_one_warning_without_traceback(
-        self, caplog, error, retries, attempts
-    ):
-        """The line that ends the attempts is a warning; debug holds the traceback."""
-        records = await self._fail(caplog, error, retries)
+    async def test_a_failed_chain_is_one_warning(self, caplog, error, retries):
+        """Without debug logging a failed chain leaves one warning, no traceback."""
+        records = await self._run(caplog, logging.INFO, error, retries)
 
-        final = [r for r in records if r.levelno >= logging.WARNING][-1]
-        assert final.levelno == logging.WARNING
-        assert final.exc_info is None
-        debug = [r for r in records if r.levelno == logging.DEBUG]
-        assert len(debug) == attempts
-        assert all(r.exc_info for r in debug)
+        assert [r.levelno for r in records] == [logging.WARNING]
+        assert not records[0].exc_info
 
     @pytest.mark.asyncio
-    async def test_an_attempt_that_is_retried_logs_no_traceback(self, caplog):
-        """Each retried attempt is one line at its level; debug holds the traceback."""
-        records = await self._fail(caplog, HomeAssistantError("no answer"), 2)
+    async def test_a_call_that_succeeds_on_a_later_attempt_logs_nothing(self, caplog):
+        """An attempt that is retried and then succeeds is no warning or error."""
+        records = await self._run(
+            caplog, logging.INFO, HomeAssistantError("no answer"), 5, succeed_on=2
+        )
 
-        attempts = [
-            r
-            for r in records
-            if "retrying in" in r.getMessage() and r.levelno > logging.DEBUG
+        assert records == []
+
+    @pytest.mark.asyncio
+    async def test_debug_logging_carries_every_attempt_once(self, caplog):
+        """With debug logging each attempt is one line, the traceback on each."""
+        records = await self._run(
+            caplog, logging.DEBUG, HomeAssistantError("no answer"), 2
+        )
+
+        assert [r.levelno for r in records] == [
+            logging.DEBUG,
+            logging.DEBUG,
+            logging.WARNING,
         ]
-        assert len(attempts) == 2
-        assert all(r.levelno == logging.ERROR and not r.exc_info for r in attempts)
-        assert not [r for r in records if r.levelno > logging.DEBUG and r.exc_info]
+        assert all(r.exc_info for r in records)
