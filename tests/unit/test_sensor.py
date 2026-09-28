@@ -986,6 +986,39 @@ class TestAsyncSetupEntry:
         sensors = async_add_entities.call_args[0][0]
         assert len(sensors) == 6
 
+    @pytest.mark.asyncio
+    async def test_a_setup_retried_after_a_failure_creates_the_algorithm_sensors(self):
+        """A record left by a setup that failed part way does not hide sensors.
+
+        The first setup tracks the MPC sensors and then fails before the
+        entry registers its unload cleanup. The retry creates them again.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        hass = MagicMock()
+        hass.data = {DOMAIN: {"entry_1": {"climate": bt}}}
+        entry = _make_entry()
+        async_add_entities = MagicMock()
+
+        with (
+            patch(
+                "custom_components.better_thermostat.sensor.async_get_entity_registry",
+                return_value=_make_entity_registry(),
+            ),
+            patch(
+                "custom_components.better_thermostat.sensor._register_dynamic_entity_callback"
+            ),
+            patch(
+                "custom_components.better_thermostat.sensor.async_normalize_bt_entity_ids",
+                side_effect=[RuntimeError("registry busy"), None],
+            ),
+        ):
+            with pytest.raises(RuntimeError):
+                await async_setup_entry(hass, entry, async_add_entities)
+            await async_setup_entry(hass, entry, async_add_entities)
+
+        sensors = async_add_entities.call_args[0][0]
+        assert sum(isinstance(s, BetterThermostatMpcGainSensor) for s in sensors) == 1
+
 
 # ===========================================================================
 # 9. async_unload_entry

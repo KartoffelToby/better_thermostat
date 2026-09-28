@@ -73,7 +73,10 @@ async def async_setup_entry(
         BetterThermostatSolarIntensitySensor(bt_climate),
     ]
 
-    # Dynamische algorithmus-spezifische Sensor-Erstellung
+    # No algorithm sensor of this entry is live before its platform is set
+    # up, so a record left by a setup that failed part way is dropped;
+    # otherwise the sensors it names would never be created.
+    _ACTIVE_ALGORITHM_ENTITIES.pop(entry.entry_id, None)
     algorithm_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
     sensors.extend(algorithm_sensors)
 
