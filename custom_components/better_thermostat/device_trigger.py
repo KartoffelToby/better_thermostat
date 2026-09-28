@@ -23,6 +23,7 @@ Classic triggers (kept for backwards compatibility):
 from __future__ import annotations
 
 from collections.abc import Sequence
+import logging
 
 from homeassistant.components.climate.const import HVAC_MODES, HVACAction
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
@@ -56,6 +57,8 @@ from . import DOMAIN
 from .utils.const import CONF_HUMIDITY
 from .utils.helpers import is_bt_climate_entity
 
+_LOGGER = logging.getLogger(__name__)
+
 # All supported trigger types
 
 # Purpose-specific (new in HA 2025.12)
@@ -82,14 +85,7 @@ TRIGGER_TYPES = _PURPOSE_TRIGGER_TYPES | _CLASSIC_TRIGGER_TYPES
 
 # Static TRIGGER_SCHEMA required by HA 2025.12 device automation framework.
 # Extra fields are validated dynamically via async_get_trigger_capabilities.
-def _require_mode_for_mode_trigger(config: ConfigType) -> ConfigType:
-    """Refuse an ``hvac_mode_changed`` trigger that names no mode to watch for."""
-    if config[CONF_TYPE] == "hvac_mode_changed" and CONF_TO not in config:
-        raise vol.Invalid("hvac_mode_changed needs the mode to watch for in 'to'")
-    return config
-
-
-_TRIGGER_FIELDS_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
+TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_TYPE): vol.In(TRIGGER_TYPES),
         # The automation editor stores the entity alongside the device, and
@@ -106,7 +102,6 @@ _TRIGGER_FIELDS_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
         vol.Optional(CONF_FOR): cv.positive_time_period_dict,
     }
 )
-TRIGGER_SCHEMA = vol.All(_TRIGGER_FIELDS_SCHEMA, _require_mode_for_mode_trigger)
 
 # The value each classic trigger compares against its threshold.
 #
@@ -433,6 +428,16 @@ async def async_attach_trigger(
 
     # Classic trigger: hvac_mode_changed
     if trigger_type == "hvac_mode_changed":
+        if CONF_TO not in config:
+            # Refused here rather than in the schema: a schema error disables
+            # the whole automation, this leaves its other triggers working.
+            _LOGGER.error(
+                "Better Thermostat trigger hvac_mode_changed on %s names no mode "
+                "to watch for; add 'to' with the mode, the trigger watches "
+                "nothing until then",
+                entity_id,
+            )
+            return lambda: None
         state_config = {
             state_trigger.CONF_PLATFORM: "state",
             state_trigger.CONF_ENTITY_ID: entity_id,

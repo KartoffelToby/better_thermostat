@@ -634,21 +634,63 @@ async def test_a_thermostat_going_unavailable_fires_no_trigger(
     assert not [c for c in calls if c.data["to_state"] == STATE_UNAVAILABLE]
 
 
-async def test_a_mode_trigger_without_a_mode_is_refused_as_a_config_error(
-    hass, fake_trv, caplog
-):
-    """``hvac_mode_changed`` without ``to`` is reported as invalid configuration."""
-    _entry, device_id = await _entry_with_device(hass)
+async def test_a_mode_trigger_without_a_mode_is_refused_by_name(hass, fake_trv, caplog):
+    """``hvac_mode_changed`` without ``to`` logs what is missing and watches nothing.
 
-    await _automation_on(hass, device_id, "hvac_mode_changed")
+    The automation's other triggers keep working.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        "hvac_mode_changed",
+    )
+    calls = async_mock_service(hass, "test", "automation")
+    hass.states.async_set("input_boolean.other", "off")
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": "mixed",
+                    "trigger": [
+                        trigger,
+                        {
+                            "platform": "state",
+                            "entity_id": "input_boolean.other",
+                            "to": "on",
+                        },
+                    ],
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
 
     assert "KeyError" not in caplog.text
     assert any(
-        "hvac_mode_changed" in record.getMessage()
-        and record.levelname == "ERROR"
+        record.levelname == "ERROR"
+        and "hvac_mode_changed" in record.getMessage()
+        and "'to'" in record.getMessage()
         and record.exc_info is None
         for record in caplog.records
     ), caplog.text
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, ATTR_HVAC_MODE: "off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert not calls
+
+    hass.states.async_set("input_boolean.other", "on")
+    await hass.async_block_till_done()
+    assert calls
 
 
 @pytest.mark.parametrize(
