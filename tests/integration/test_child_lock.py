@@ -72,11 +72,24 @@ async def test_a_locked_knob_turn_is_turned_back_at_once(hass, fake_trv, turn):
     assert bt.bt_target_temp == 21.0
 
 
-async def test_a_locked_mode_press_is_turned_back_at_once(hass, fake_trv):
-    """A mode switched at a locked device returns to the commanded one."""
+@pytest.mark.parametrize(
+    ("offered", "pressed"),
+    [
+        ((HVACMode.HEAT, HVACMode.OFF), HVACMode.OFF),
+        ((HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF), HVACMode.AUTO),
+        ((HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF), HVACMode.COOL),
+    ],
+    ids=["off", "auto", "cool"],
+)
+async def test_a_locked_mode_press_is_turned_back_at_once(
+    hass, fake_trv, offered, pressed
+):
+    """A locked device switched into any other mode it offers returns to heat."""
+    fake_trv._attr_hvac_modes = list(offered)
+    fake_trv.async_write_ha_state()
     bt = await _locked_room(hass, fake_trv)
 
-    _press(fake_trv, hvac_mode=HVACMode.OFF)
+    _press(fake_trv, hvac_mode=pressed)
 
     assert await wait_for(
         hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT, timeout_s=2.0

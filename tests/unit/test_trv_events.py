@@ -932,8 +932,11 @@ class TestHvacModeUpdate:
         [
             ("heat", "off", "heat", True),
             ("off", "heat", "off", True),
+            ("heat", "cool", "heat", True),
+            ("heat", "dry", "heat", True),
             ("heat", "off", "off", False),
             ("off", "off", "heat", False),
+            ("cool", "cool", "heat", False),
         ],
     )
     @pytest.mark.asyncio
@@ -942,8 +945,9 @@ class TestHvacModeUpdate:
     ):
         """A locked device leaving the commanded mode is driven back at once.
 
-        The device's own report of the commanded mode landing, and a report
-        that repeats the mode it held, request nothing.
+        That holds for any mode the device reports, including one the room
+        never adopts. The device's own report of the commanded mode landing,
+        and a report that repeats the mode it held, request nothing.
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.advanced["child_lock"] = True
@@ -958,7 +962,7 @@ class TestHvacModeUpdate:
 
         with patch(
             "custom_components.better_thermostat.events.trv.convert_inbound_states",
-            return_value=HVACMode(reported),
+            return_value=HVACMode(reported) if reported in ("heat", "off") else None,
         ):
             await trigger_trv_change(mock_bt, event)
 
