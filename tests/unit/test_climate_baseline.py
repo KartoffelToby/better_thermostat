@@ -272,7 +272,7 @@ class TestComputeHvacAction:
     def test_heat_cool_cooling_above_cooltemp(self, mock_bt):
         """HEAT_COOL, cur > cooltemp + tol → COOLING."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.cur_temp = 27.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_cooltemp = 26.0
@@ -1167,7 +1167,7 @@ class TestAsyncSetTemperature:
     async def test_heat_cool_low_high_setpoints(self, mock_bt):
         """HEAT_COOL with low/high setpoints."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
@@ -1181,7 +1181,7 @@ class TestAsyncSetTemperature:
     async def test_cool_target_enforced_above_heat(self, mock_bt):
         """Cool target adjusted to be above heat target in HEAT_COOL mode."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp

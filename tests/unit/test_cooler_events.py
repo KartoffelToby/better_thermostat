@@ -30,7 +30,7 @@ def mock_bt():
     bt.hass = MagicMock()
     bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Test Thermostat"
-    bt.bt_hvac_mode = HVACMode.HEAT_COOL
+    bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT_COOL
     bt.bt_target_temp = 20.0
     bt.bt_target_cooltemp = 25.0
