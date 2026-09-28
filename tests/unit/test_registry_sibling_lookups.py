@@ -581,7 +581,7 @@ def _runtime_host(helper: Any) -> MagicMock:
     return host
 
 
-async def _write(host: Any) -> bool:
+async def _write(host: Any) -> bool | None:
     record = host.real_trvs[TRV_ID]
     if record.valve_position_entity is not None:
         return await delegate.set_valve(host, TRV_ID, 40)
@@ -600,8 +600,8 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     """A helper disabled after discovery receives no write, and says so once.
 
     Home Assistant drops a service call aimed at a disabled entity. The
-    write answers ``False``, so the caller does not wait on a command that
-    never reaches the device, and the skip is named once on WARNING while
+    write answers that nothing was written, so the caller does not wait on a
+    command that never reaches the device, and the skip is named once on WARNING while
     the entity stays disabled. Once it is enabled again, writes resume and
     a later disable is named again.
     """
@@ -611,7 +611,7 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     )
     host = _runtime_host(enabled)
 
-    async def write_with(entry: Any) -> bool:
+    async def write_with(entry: Any) -> bool | None:
         host.hass.services.async_call.reset_mock()
         registry = make_entity_registry(entry)
         with patch(f"{helpers.__name__}.er.async_get", return_value=registry):
@@ -620,14 +620,14 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     assert await write_with(enabled) is True
     assert _written_to(host, helper_id)
 
-    assert await write_with(disabled) is False
+    assert not await write_with(disabled)
     assert not _written_to(host, helper_id)
-    assert await write_with(disabled) is False
+    assert not await write_with(disabled)
     assert len(_disabled_sibling_warnings(caplog)) == 1
 
     assert await write_with(enabled) is True
     assert _written_to(host, helper_id)
-    assert await write_with(disabled) is False
+    assert not await write_with(disabled)
     assert len(_disabled_sibling_warnings(caplog)) == 2
 
 
