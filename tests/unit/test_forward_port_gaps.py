@@ -520,7 +520,7 @@ def test_check_fails_on_a_missing_fix_too_small_to_score(lines, capsys):
 
 
 def test_prose_inside_a_docstring_with_code_punctuation_is_not_a_marker(lines):
-    """A docstring line is prose even when it quotes code.
+    """A docstring line that quotes code is prose, not a marker.
 
     The punctuation rule cannot tell a sentence that quotes
     ``int(value / step)`` from a statement; where the text sits can.
