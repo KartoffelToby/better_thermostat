@@ -264,6 +264,65 @@ def test_portable_solver_commands_the_valve_daqp_commands(
     assert worst <= 1e-4, f"{100 * worst:.3f} percentage points apart"
 
 
+def test_missing_daqp_is_logged_once_per_optimiser(monkeypatch, caplog) -> None:
+    """A controller built without daqp says in the log which solver plans."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(qp_optimiser, "_daqp", None)
+    caplog.set_level("INFO", logger=qp_optimiser.__name__)
+    opt = _make_optimiser()
+    for _ in range(3):
+        opt.solve(np.array([19.0, 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.3)
+
+    notes = [r for r in caplog.records if "daqp" in r.getMessage()]
+    assert len(notes) == 1
+    assert notes[0].levelname == "INFO"
+    assert "NumPy" in notes[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param((np.zeros(12), 0.0, -1, {}), id="exit-flag"),
+        pytest.param(ValueError("singular"), id="exception"),
+    ],
+)
+def test_a_failing_daqp_solve_is_logged_once_and_the_plan_still_comes(
+    monkeypatch, caplog, failure
+) -> None:
+    """A daqp failure warns once per optimiser and the NumPy solver plans instead."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    def _failing_solve(*_args):
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", True)
+    monkeypatch.setattr(qp_optimiser, "_daqp", SimpleNamespace(solve=_failing_solve))
+    caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
+    opt = _make_optimiser()
+    commands = [
+        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+        for _ in range(3)
+    ]
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    portable = _make_optimiser().solve(
+        np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3
+    )
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "daqp" in warnings[0].getMessage()
+    assert commands == [pytest.approx(portable, abs=1e-12)] * 3
+
+
 def test_portable_solver_holds_the_valve_on_a_non_finite_objective(monkeypatch) -> None:
     """A NaN in the plant state keeps the last command instead of a rail."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (

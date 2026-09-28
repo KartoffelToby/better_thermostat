@@ -20,12 +20,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib
+import logging
 from typing import Any
 
 import numpy as np
 
 from ._types import FloatArray
 from .plant import PlantModelRC2
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _try_import_daqp() -> Any | None:
@@ -118,6 +121,14 @@ class QpOptimiser:
         self.N = params.horizon_steps
         self.e_integral_K_min: float = 0.0
         self._L_cumsum = np.tril(np.ones((self.N, self.N)))
+        # A daqp failure is reported once per optimiser at WARNING, later
+        # ones at DEBUG, so a solver that keeps failing does not flood the log.
+        self._daqp_failure_reported = False
+        if not DAQP_AVAILABLE:
+            _LOGGER.info(
+                "MPC v2 plans with its NumPy solver; the daqp package is not "
+                "installed on this system"
+            )
 
     def reset_integral(self) -> None:
         """Clear the accumulated integral tracking error."""
@@ -266,10 +277,11 @@ class QpOptimiser:
                 )
                 if exitflag == 1:
                     return max(u_min, min(u_max, float(x[0])))
-            except ArithmeticError, RuntimeError, ValueError:
+                self._report_daqp_failure(f"exit flag {exitflag}")
+            except (ArithmeticError, RuntimeError, ValueError) as err:
                 # DAQP is an optional accelerator. A numerical failure must
                 # not disable heating when the portable solver can continue.
-                pass
+                self._report_daqp_failure(repr(err))
 
         x = self._solve_active_set(
             H_scaled,
@@ -281,6 +293,16 @@ class QpOptimiser:
         # ``x[0]`` is a numpy scalar; convert once to a plain float so the
         # caller doesn't propagate numpy types into JSON-bound state.
         return max(u_min, min(u_max, float(x[0])))
+
+    def _report_daqp_failure(self, reason: str) -> None:
+        """Log that daqp gave no plan and the NumPy solver computes it."""
+        level = logging.DEBUG if self._daqp_failure_reported else logging.WARNING
+        self._daqp_failure_reported = True
+        _LOGGER.log(
+            level,
+            "MPC v2 daqp solve failed (%s); the NumPy solver computed the plan",
+            reason,
+        )
 
     def _solve_active_set(
         self, hessian: FloatArray, gradient: FloatArray, bounds: _SolverBounds
