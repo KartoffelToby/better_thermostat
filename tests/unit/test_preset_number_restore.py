@@ -7,7 +7,7 @@ restore path must convert back to Celsius before writing the preset
 temperature dict that ``BetterThermostat`` consumes.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import PRESET_HOME, HVACMode
 from homeassistant.const import UnitOfTemperature
@@ -17,6 +17,16 @@ from custom_components.better_thermostat.number import (
     BetterThermostatPresetCoolNumber,
     BetterThermostatPresetNumber,
 )
+
+
+@pytest.fixture(autouse=True)
+def _detached_state_tracking():
+    """Let the entities subscribe to the thermostat's state without a hass."""
+    with patch(
+        "custom_components.better_thermostat.number.async_track_state_change_event",
+        MagicMock(),
+    ):
+        yield
 
 
 def _make_entity():
