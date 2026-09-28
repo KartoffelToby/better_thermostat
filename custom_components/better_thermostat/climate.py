@@ -2337,15 +2337,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self.async_write_ha_state()
 
-    async def _initialize_trvs(self, entity_ids: Iterable[str] | None = None) -> None:
+    async def _initialize_trvs(
+        self, entity_ids: Iterable[str] | None = None
+    ) -> set[str]:
         """Initialize TRVs: init, tweak, calibration offsets, attributes.
+
+        A step that fails is logged and the TRV is initialised as far as the
+        remaining steps go, with defaults where the failed step would have
+        read a value.
 
         Parameters
         ----------
         entity_ids : Iterable[str] | None
             The TRVs to initialise. ``None`` initialises every TRV that is not
             awaiting a later initialisation.
+
+        Returns
+        -------
+        set[str]
+            The TRVs for which a step failed.
         """
+        failed: set[str] = set()
         if entity_ids is None:
             entity_ids = [
                 entity_id
@@ -2367,12 +2379,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     entity_id,
                 )
             except TimeoutError:
+                failed.add(entity_id)
                 _LOGGER.error(
                     "better_thermostat %s: Timeout initializing TRV %s",
                     self.device_name,
                     entity_id,
                 )
             except Exception as exc:
+                failed.add(entity_id)
                 _LOGGER.error(
                     "better_thermostat %s: Error initializing TRV %s: %s",
                     self.device_name,
@@ -2383,6 +2397,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             try:
                 await initial_tweak(self, entity_id)
             except Exception as exc:
+                failed.add(entity_id)
                 _LOGGER.error(
                     "better_thermostat %s: Error running initial tweak for TRV %s: %s",
                     self.device_name,
@@ -2417,6 +2432,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         entity_id,
                     )
                 except TimeoutError:
+                    failed.add(entity_id)
                     _LOGGER.error(
                         "better_thermostat %s: Timeout getting offsets for TRV %s",
                         self.device_name,
@@ -2424,6 +2440,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     self._set_trv_calibration_defaults(entity_id)
                 except Exception as exc:
+                    failed.add(entity_id)
                     _LOGGER.error(
                         "better_thermostat %s: Error getting offsets for TRV %s: %s",
                         self.device_name,
@@ -2504,6 +2521,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 _current_temp = None
             trv.current_temperature = _current_temp
+        return failed
 
     async def _initialize_arrived_trvs(self) -> None:
         """Initialise the TRVs startup went ahead without, once they are back.
@@ -2528,11 +2546,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 entity_id,
             )
             try:
-                await self._initialize_trvs([entity_id])
+                failed = await self._initialize_trvs([entity_id])
             finally:
                 self._trvs_initializing.discard(entity_id)
             if self.is_removed or self.real_trvs.get(entity_id) is not trv:
                 return
+            if entity_id in failed:
+                # It has not been driven yet, so it waits for a complete
+                # initialisation rather than being driven on defaults.
+                _LOGGER.warning(
+                    "better_thermostat %s: initialising TRV %s failed; it "
+                    "stays out of control until its next report succeeds",
+                    self.device_name,
+                    entity_id,
+                )
+                continue
             trv.awaiting_initialization = False
             self._resolve_temperature_range(self._collect_trv_states())
             if self.bt_target_temp is not None:

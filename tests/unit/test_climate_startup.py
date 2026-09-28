@@ -6,6 +6,7 @@ _restore_state, _validate_hvac_mode.
 """
 
 import asyncio
+import contextlib
 from datetime import timedelta
 import json
 import logging
@@ -3219,6 +3220,7 @@ class TestATrvThatArrivesAfterStartup:
         async def slow_initialization(_entity_ids):
             started.set()
             await release.wait()
+            return set()
 
         bt._initialize_trvs.side_effect = slow_initialization
 
@@ -3237,7 +3239,7 @@ class TestATrvThatArrivesAfterStartup:
     async def test_a_failed_initialization_is_tried_again_on_the_next_report(self, bt):
         """An initialisation that raised leaves the TRV awaiting its next try."""
         _room_with_a_trv_left_behind(bt, available=True)
-        bt._initialize_trvs.side_effect = [RuntimeError("boom"), None]
+        bt._initialize_trvs.side_effect = [RuntimeError("boom"), set()]
 
         with patch(f"{_CLIMATE}.request_control_cycle"), pytest.raises(RuntimeError):
             await BetterThermostat._initialize_arrived_trvs(bt)
@@ -3246,6 +3248,74 @@ class TestATrvThatArrivesAfterStartup:
         with patch(f"{_CLIMATE}.request_control_cycle"):
             await BetterThermostat._initialize_arrived_trvs(bt)
         assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failing_step",
+        ["init_raises", "init_times_out", "tweak_raises", "offset_read_raises"],
+    )
+    async def test_a_setup_step_that_fails_quietly_keeps_the_trv_out(
+        self, bt, failing_step
+    ):
+        """A TRV joins the room only after its initialisation has succeeded.
+
+        The initialisation logs a failing step and carries on, which is how
+        startup treats the TRVs it has. A TRV that arrives later has not been
+        driven yet, so it stays out of the control cycles and is tried again
+        on its next report instead of being driven on what the failed step
+        left behind.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        # A calibration type that reads the device's offset, so the offset
+        # read is one of the steps.
+        bt.real_trvs[TRV_ID_2].calibration = LOCAL_CALIBRATION
+        bt._initialize_trvs = lambda entity_ids=None: BetterThermostat._initialize_trvs(
+            bt, entity_ids
+        )
+        failure = {
+            "init_raises": RuntimeError("adapter"),
+            "init_times_out": TimeoutError(),
+            "tweak_raises": RuntimeError("quirk"),
+            "offset_read_raises": RuntimeError("offset"),
+        }[failing_step]
+        failing = {
+            "init_raises": "init",
+            "init_times_out": "init",
+            "tweak_raises": "initial_tweak",
+            "offset_read_raises": "get_current_offset",
+        }[failing_step]
+
+        def patched(fail: bool):
+            steps = {
+                name: AsyncMock(return_value=0.0)
+                for name in (
+                    "init",
+                    "initial_tweak",
+                    "get_current_offset",
+                    "get_min_offset",
+                    "get_max_offset",
+                    "get_offset_step",
+                )
+            }
+            if fail:
+                steps[failing].side_effect = failure
+            return [patch(f"{_CLIMATE}.{name}", mock) for name, mock in steps.items()]
+
+        for fail in (True, False):
+            with contextlib.ExitStack() as stack:
+                for p in patched(fail):
+                    stack.enter_context(p)
+                request = stack.enter_context(
+                    patch(f"{_CLIMATE}.request_control_cycle")
+                )
+                await BetterThermostat._initialize_arrived_trvs(bt)
+            if fail:
+                assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+                request.assert_not_called()
+                assert bt._trvs_initializing == set()
+
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+        request.assert_called_once_with(bt)
 
     @pytest.mark.asyncio
     async def test_nothing_joins_a_thermostat_removed_meanwhile(self, bt):
