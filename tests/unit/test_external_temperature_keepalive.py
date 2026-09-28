@@ -193,7 +193,7 @@ async def test_a_trv_that_refuses_the_write_does_not_cost_the_others_their_tick(
 
 @pytest.mark.asyncio
 async def test_a_trv_that_never_answers_does_not_hold_the_tick():
-    """A write that never returns is given up, and the next TRV is served.
+    """A write that does not return in time is given up, and the next TRV is served.
 
     The tick holds the filter lock while it writes, so an unbounded wait on
     one device would also hold back every later room reading.
