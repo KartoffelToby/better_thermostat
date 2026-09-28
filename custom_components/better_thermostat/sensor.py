@@ -83,10 +83,7 @@ async def async_setup_entry(
 
 
 async def _setup_algorithm_sensors(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    bt_climate: BetterThermostat,
-    algorithms_to_create: set[CalibrationMode] | None = None,
+    hass: HomeAssistant, entry: ConfigEntry, bt_climate: BetterThermostat
 ) -> list[SensorEntity]:
     """Set up algorithm-specific sensors based on current configuration.
 
@@ -98,33 +95,34 @@ async def _setup_algorithm_sensors(
         Config entry the sensors belong to.
     bt_climate : BetterThermostat
         Better Thermostat climate entity the sensors report on.
-    algorithms_to_create : set | None
-        When provided, only sensors for these algorithms are created.
-        When ``None`` (initial setup), all active algorithms are created.
+
+    The entities of every algorithm no TRV uses any more are removed first.
+    Sensors are created for the algorithms the TRVs use. A sensor already tracked for its
+    algorithm is live and is not created a second time, so an algorithm
+    whose cleanup removed only some of its sensors gets exactly the missing
+    ones back when it is used again.
     """
     algorithm_sensors: list[SensorEntity] = []
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
 
-    if algorithms_to_create is not None:
-        # Only create sensors for newly added algorithms
-        current_algorithms = current_algorithms & algorithms_to_create
-
-    # Cleanup stale algorithm entities from previous configurations
     await _cleanup_stale_algorithm_entities(
         hass, entry_id, bt_climate, current_algorithms
     )
 
     # Setup MPC sensors
     if CalibrationMode.MPC_CALIBRATION in current_algorithms:
-        mpc_sensors = [
-            BetterThermostatVirtualTempSensor(bt_climate),
-            BetterThermostatMpcGainSensor(bt_climate),
-            BetterThermostatMpcLossSensor(bt_climate),
-            BetterThermostatMpcKaSensor(bt_climate),
-        ]
+        mpc_sensors = _track_algorithm_sensors(
+            entry_id,
+            CalibrationMode.MPC_CALIBRATION,
+            [
+                BetterThermostatVirtualTempSensor(bt_climate),
+                BetterThermostatMpcGainSensor(bt_climate),
+                BetterThermostatMpcLossSensor(bt_climate),
+                BetterThermostatMpcKaSensor(bt_climate),
+            ],
+        )
         algorithm_sensors.extend(mpc_sensors)
-        _track_algorithm_sensors(entry_id, CalibrationMode.MPC_CALIBRATION, mpc_sensors)
 
         _LOGGER.debug(
             "Better Thermostat %s: Created MPC sensors for entry %s",
@@ -134,15 +132,18 @@ async def _setup_algorithm_sensors(
 
     # Setup PID sensors
     if CalibrationMode.PID_CALIBRATION in current_algorithms:
-        pid_sensors = [
-            BetterThermostatPidKpSensor(bt_climate),
-            BetterThermostatPidKiSensor(bt_climate),
-            BetterThermostatPidKdSensor(bt_climate),
-            BetterThermostatPidOutputSensor(bt_climate),
-            BetterThermostatPidErrorSensor(bt_climate),
-        ]
+        pid_sensors = _track_algorithm_sensors(
+            entry_id,
+            CalibrationMode.PID_CALIBRATION,
+            [
+                BetterThermostatPidKpSensor(bt_climate),
+                BetterThermostatPidKiSensor(bt_climate),
+                BetterThermostatPidKdSensor(bt_climate),
+                BetterThermostatPidOutputSensor(bt_climate),
+                BetterThermostatPidErrorSensor(bt_climate),
+            ],
+        )
         algorithm_sensors.extend(pid_sensors)
-        _track_algorithm_sensors(entry_id, CalibrationMode.PID_CALIBRATION, pid_sensors)
 
         _LOGGER.debug(
             "Better Thermostat %s: Created PID sensors for entry %s",
@@ -155,15 +156,25 @@ async def _setup_algorithm_sensors(
 
 def _track_algorithm_sensors(
     entry_id: str, algorithm: CalibrationMode, sensors: Sequence[SensorEntity]
-) -> None:
-    """Record the unique_ids of the sensors one algorithm just created.
+) -> list[SensorEntity]:
+    """Record the unique_ids of one algorithm's sensors, return the untracked ones.
 
     The stale-entity cleanup removes exactly what is recorded here, so the
-    record is taken from the sensors themselves.
+    record is taken from the sensors themselves. A sensor whose unique_id is
+    already recorded is live, and adding it again would register a second
+    entity under the same unique_id; only the others come back.
     """
-    _ACTIVE_ALGORITHM_ENTITIES.setdefault(entry_id, {})[algorithm] = [
-        sensor.unique_id for sensor in sensors if sensor.unique_id is not None
-    ]
+    tracked = _ACTIVE_ALGORITHM_ENTITIES.setdefault(entry_id, {}).setdefault(
+        algorithm, []
+    )
+    untracked: list[SensorEntity] = []
+    for sensor in sensors:
+        unique_id = sensor.unique_id
+        if unique_id is None or unique_id in tracked:
+            continue
+        tracked.append(unique_id)
+        untracked.append(sensor)
+    return untracked
 
 
 async def _register_dynamic_entity_callback(
@@ -221,12 +232,13 @@ async def _handle_dynamic_entity_update(
             [alg.value for alg in algorithms_removed],
         )
 
-        # Setup only newly added algorithm-specific sensors
-        new_sensors = await _setup_algorithm_sensors(
-            hass, entry, bt_climate, algorithms_to_create=algorithms_added
-        )
-        if new_sensors:
-            async_add_entities(new_sensors, True)
+    # Set up for every active algorithm, not only the added ones: one whose
+    # earlier cleanup removed some of its sensors is still tracked, so it is
+    # not "added" when a TRV uses it again, and only its missing sensors are
+    # created.
+    new_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
+    if new_sensors:
+        async_add_entities(new_sensors, True)
 
     # Always check and cleanup entities regardless of algorithm changes
     # This ensures preset and PID number cleanup happens even when only presets change

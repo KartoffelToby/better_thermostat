@@ -45,6 +45,7 @@ from custom_components.better_thermostat.sensor import (
     _cleanup_stale_algorithm_entities,
     _get_active_algorithms,
     _get_filtered_temp,
+    _handle_dynamic_entity_update,
     _setup_algorithm_sensors,
     async_setup_entry,
     async_unload_entry,
@@ -797,31 +798,30 @@ class TestSetupAlgorithmSensors:
         assert sensors == []
 
     @pytest.mark.asyncio
-    async def test_algorithms_to_create_filters(self):
-        """When algorithms_to_create is provided, only those algorithms create sensors."""
-        hass = MagicMock()
-        entry = _make_entry()
-        bt = _make_bt_climate(
-            real_trvs={
-                "trv_1": Trv.from_legacy_dict(
-                    "trv_1",
-                    {
-                        "advanced": {
-                            CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
-                        }
-                    },
-                )
-            }
-        )
+    async def test_only_used_algorithms_get_sensors_and_live_ones_are_not_recreated(
+        self,
+    ):
+        """Sensors exist only for algorithms a TRV uses, each one created once.
+
+        With MPC in use and PID not, setup creates the MPC sensors and none of
+        the PID ones; a later setup with the same configuration creates
+        nothing, because every MPC sensor is already live.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         with patch(
             "custom_components.better_thermostat.sensor.async_get_entity_registry",
             return_value=_make_entity_registry(),
         ):
-            # Request only PID sensors → MPC should be excluded
-            sensors = await _setup_algorithm_sensors(
-                hass, entry, bt, algorithms_to_create={CalibrationMode.PID_CALIBRATION}
-            )
-        assert sensors == []
+            first = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+            second = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+
+        assert {type(s) for s in first} == {
+            BetterThermostatVirtualTempSensor,
+            BetterThermostatMpcGainSensor,
+            BetterThermostatMpcLossSensor,
+            BetterThermostatMpcKaSensor,
+        }
+        assert second == []
 
     @pytest.mark.asyncio
     async def test_mpc_tracking_names_exactly_the_created_sensors(self):
@@ -1132,6 +1132,117 @@ class TestCleanupStaleAlgorithmEntities:
                 bt_climate=bt,
                 current_algorithms=set(),
             )
+
+
+class TestDynamicAlgorithmSensors:
+    """A configuration change adds and removes algorithm sensors as TRVs use them."""
+
+    @staticmethod
+    def _registry_of(registered, failing=()):
+        """Build a registry that holds `registered` and refuses to remove `failing`."""
+        reg = _make_entity_registry()
+        reg.async_get_entity_id.side_effect = lambda _domain, _platform, unique_id: (
+            registered.get(unique_id)
+        )
+
+        def remove(entity_id):
+            if entity_id in failing:
+                raise RuntimeError("registry error")
+            registered.pop(
+                next(uid for uid, eid in registered.items() if eid == entity_id)
+            )
+
+        reg.async_remove.side_effect = remove
+        return reg
+
+    @staticmethod
+    async def _config_change(bt, reg):
+        """Run one configuration change and return the entities it added."""
+        async_add_entities = MagicMock()
+        with (
+            patch(
+                "custom_components.better_thermostat.sensor.async_get_entity_registry",
+                return_value=reg,
+            ),
+            patch(
+                "custom_components.better_thermostat.sensor._cleanup_unused_number_entities"
+            ),
+        ):
+            await _handle_dynamic_entity_update(
+                MagicMock(), _make_entry(), bt, async_add_entities
+            )
+        if not async_add_entities.call_count:
+            return []
+        return list(async_add_entities.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_a_second_algorithm_leaves_the_first_ones_sensors_in_place(self):
+        """A TRV switching to PID beside one on MPC adds PID and keeps MPC.
+
+        The MPC sensors stay registered and tracked; only the PID sensors are
+        created.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+        registered = {s.unique_id: f"sensor.{s.unique_id}" for s in mpc_sensors}
+        reg = self._registry_of(registered)
+
+        bt.real_trvs = _trvs_in_modes(
+            CalibrationMode.MPC_CALIBRATION, CalibrationMode.PID_CALIBRATION
+        )
+        added = await self._config_change(bt, reg)
+
+        reg.async_remove.assert_not_called()
+        assert len(registered) == len(mpc_sensors)
+        assert {type(s) for s in added} == {
+            BetterThermostatPidKpSensor,
+            BetterThermostatPidKiSensor,
+            BetterThermostatPidKdSensor,
+            BetterThermostatPidOutputSensor,
+            BetterThermostatPidErrorSensor,
+        }
+        assert set(_ACTIVE_ALGORITHM_ENTITIES["entry_1"]) == {
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_algorithm_used_again_after_a_partial_cleanup_gets_its_sensors_back(
+        self,
+    ):
+        """Only the sensors a partial cleanup removed are created again.
+
+        Dropping MPC removes three of its four sensors; the registry refuses
+        the fourth, which stays live. When a TRV uses MPC again, the three
+        removed ones are created and the live one is not added a second time.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+        mpc_ids = {s.unique_id for s in mpc_sensors}
+        registered = {uid: f"sensor.{uid}" for uid in mpc_ids}
+        refused_id = mpc_sensors[1].unique_id
+        reg = self._registry_of(registered, failing={f"sensor.{refused_id}"})
+
+        bt.real_trvs = {}
+        assert await self._config_change(bt, reg) == []
+        assert set(registered) == {refused_id}
+
+        bt.real_trvs = _trvs_in_modes(CalibrationMode.MPC_CALIBRATION)
+        added = await self._config_change(bt, reg)
+
+        assert {s.unique_id for s in added} == mpc_ids - {refused_id}
+        assert (
+            set(_ACTIVE_ALGORITHM_ENTITIES["entry_1"][CalibrationMode.MPC_CALIBRATION])
+            == mpc_ids
+        )
 
 
 # ===========================================================================
