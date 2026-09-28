@@ -159,12 +159,15 @@ class TaskManager:
     """Manages background asyncio tasks with automatic cleanup.
 
     Tracks created tasks and automatically removes them from the set when they complete.
+    The entity cancels what is still running when it is removed; from then on
+    the manager starts nothing.
     """
 
     def __init__(self, hass=None):
         """Initialize the task manager with an empty task set."""
         self.tasks = set()
         self.hass = hass
+        self.closed = False
 
     def create_task(self, coro, name=None):
         """Create and track an asyncio task with automatic cleanup on completion.
@@ -178,9 +181,12 @@ class TaskManager:
 
         Returns
         -------
-        asyncio.Task
-            The created task
+        asyncio.Task or None
+            The created task, or None once the manager is closed
         """
+        if self.closed:
+            coro.close()
+            return None
         if self.hass is not None:
             task = self.hass.async_create_background_task(
                 coro, name=name or "bt_task_manager_task"
@@ -190,6 +196,21 @@ class TaskManager:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
+
+    def cancel_all(self):
+        """Cancel every tracked task and close the manager to new ones.
+
+        Returns
+        -------
+        list[asyncio.Task]
+            The cancelled tasks, for the caller to await
+        """
+        self.closed = True
+        tasks = list(self.tasks)
+        self.tasks.clear()
+        for task in tasks:
+            task.cancel()
+        return tasks
 
 
 @dataclass
