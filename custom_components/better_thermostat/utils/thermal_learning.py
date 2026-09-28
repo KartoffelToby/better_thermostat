@@ -26,6 +26,11 @@ _MIN_CYCLE_DURATION: float = 1.0  # minimum cycle minutes to accept
 _BASE_ALPHA: float = 0.10  # EMA base smoothing factor
 _ALPHA_MIN: float = 0.02
 _ALPHA_MAX: float = 0.25
+# Minutes the heat-loss measurement waits after the cooler stops. The room
+# keeps falling fast for a few minutes (4 in the measured case) while cold air
+# leaves the unit and the sensor catches up; ten minutes covers that tail
+# plus one report interval of a sensor that reports every five minutes.
+_COOLER_SETTLE_MIN: float = 10.0
 
 # Telemetry deque sizes
 _STATS_MAXLEN: int = 10
@@ -398,6 +403,7 @@ class HeatLossTracker:
     end_temp: float | None = None  # lowest observed temperature
     end_ts: datetime | None = None
     _prev_action: HVACAction | None = None
+    _settle_until: datetime | None = None
     stats: deque[LossStats] = field(default_factory=lambda: deque(maxlen=_STATS_MAXLEN))
     cycles: deque[LossCycle] = field(
         default_factory=lambda: deque(maxlen=_CYCLES_MAXLEN)
@@ -419,12 +425,19 @@ class HeatLossTracker:
         # An open window or a running cooler drives the drop, so the stretch
         # it covers says nothing about passive heat loss: reset tracking.
         if window_open or current_action == _HA.COOLING:
+            if current_action == _HA.COOLING:
+                self._settle_until = now + timedelta(minutes=_COOLER_SETTLE_MIN)
             self.start_temp = None
             self.start_ts = None
             self.end_temp = None
             self.end_ts = None
             self._prev_action = current_action
             return HeatLossUpdate()
+
+        if self._settle_until is not None and now < self._settle_until:
+            self._prev_action = current_action
+            return HeatLossUpdate()
+        self._settle_until = None
 
         # Track idle cooling
         if current_action != _HA.HEATING:

@@ -92,3 +92,38 @@ class TestHeatLossIgnoresTheCooler:
         )
 
         assert tracker.heat_loss_rate == 0.01
+
+
+class TestHeatLossWaitsOutTheCoolerTail:
+    """The room keeps falling fast for a few minutes after the cooler stops.
+
+    Cold air still leaving the unit and the sensor catching up drive that
+    fall, not the room's own loss, so the measurement waits the settle window
+    out before it starts.
+    """
+
+    @pytest.mark.parametrize("tail_minutes", [2, 4, 8])
+    def test_the_tail_after_the_cooler_stops_is_not_learned(self, tail_minutes):
+        """A fast tail after the cooler leaves the measured rate at the true loss."""
+        tracker = HeatLossTracker()
+        _loss_cycle(
+            tracker,
+            0.0,
+            [
+                (HVACAction.COOLING, 30, 0.1),
+                (HVACAction.IDLE, tail_minutes, 0.08),
+                (HVACAction.IDLE, 40, 0.005),
+            ],
+        )
+
+        assert tracker.stats[-1]["rate"] == pytest.approx(0.005, abs=1e-9)
+
+    def test_a_stretch_shorter_than_the_settle_window_teaches_nothing(self):
+        """Heating that resumes inside the settle window finalizes no cycle."""
+        tracker = HeatLossTracker()
+        _loss_cycle(
+            tracker, 0.0, [(HVACAction.COOLING, 30, 0.1), (HVACAction.IDLE, 8, 0.02)]
+        )
+
+        assert list(tracker.stats) == []
+        assert tracker.heat_loss_rate == 0.01
