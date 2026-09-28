@@ -623,30 +623,26 @@ def _on_cooler_grid(self, cooler_state, value):
     lands on that grid point again. A cooler that publishes no usable step is
     rounded onto the step its reports are compared with.
     """
-    if value is None:
-        return None
     step = convert_to_float(
         str(cooler_state.attributes.get("target_temp_step")),
         self.device_name,
         "control_cooler()",
     )
+    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
     if step is None or step <= 0:
-        return round_by_step(
-            value, device_setpoint_step(self, cooler_state, "control_cooler()")
+        step = device_setpoint_step(self, cooler_state, "control_cooler()")
+        fahrenheit = False
+    if fahrenheit:
+        value = TemperatureConverter.convert(
+            value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
         )
-    if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
-        on_grid = round_by_step(
-            TemperatureConverter.convert(
-                value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
-            step,
-        )
-        if on_grid is None:
-            return None
+    rounded = round_by_step(value, step)
+    on_grid = value if rounded is None else rounded
+    if fahrenheit:
         return TemperatureConverter.convert(
             on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
         )
-    return round_by_step(value, step)
+    return on_grid
 
 
 async def control_cooler(self):
@@ -699,7 +695,9 @@ async def control_cooler(self):
     # setpoints on its own grid only, so the command is the cooling target
     # rounded once onto that grid; every comparison below and the send cache
     # work with the value the device is actually sent.
-    desired_temp = _on_cooler_grid(self, cooler_state, self.bt_target_cooltemp)
+    desired_temp = self.bt_target_cooltemp
+    if isinstance(desired_temp, (int, float)):
+        desired_temp = _on_cooler_grid(self, cooler_state, float(desired_temp))
 
     # A range write needs both bounds, and Home Assistant rejects a low bound
     # above the high one. The heating target is the natural lower bound; it can
