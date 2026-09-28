@@ -285,7 +285,10 @@ async def read_reports_held_during_cycle(self) -> None:
     over the turn before anyone has read it. The caller runs this right after
     it releases ``ignore_states`` and before it takes the next cycle, so each
     TRV that reported meanwhile has its current state read by the inbound
-    handler as a report of its own.
+    handler as a report of its own. That report replaces the state the first
+    held report replaced, so a device that came back from ``unavailable``
+    inside the cycle is read as a return, the way the handler reads it outside
+    a cycle, and not as a setpoint turned at the device.
 
     The mode such a state carries is read the same way, unless a mode
     command to the device is still unconfirmed. The handler declines a mode
@@ -310,6 +313,8 @@ async def read_reports_held_during_cycle(self) -> None:
         if not trv.report_unread:
             continue
         trv.report_unread = False
+        previous = trv.state_before_held_report
+        trv.state_before_held_report = None
         state = self.hass.states.get(entity_id)
         if (
             state is None
@@ -323,7 +328,7 @@ async def read_reports_held_during_cycle(self) -> None:
         held_report = Event(
             EVENT_STATE_CHANGED,
             EventStateChangedData(
-                entity_id=entity_id, old_state=state, new_state=state
+                entity_id=entity_id, old_state=previous, new_state=state
             ),
             context=Context(),
         )
