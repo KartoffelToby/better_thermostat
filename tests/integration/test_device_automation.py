@@ -12,6 +12,7 @@ the change it claims to watch.
 """
 
 import json
+import logging
 
 from homeassistant.components import automation
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION, ATTR_HVAC_MODE
@@ -718,3 +719,34 @@ async def test_a_thermostat_coming_back_unchanged_fires_no_trigger(
     await hass.async_block_till_done()
 
     assert not [c for c in calls if c.data["from_state"] == STATE_UNAVAILABLE]
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "attribute"),
+    [
+        ("current_temperature_changed", "current_temperature"),
+        ("current_humidity_changed", "current_humidity"),
+    ],
+)
+@pytest.mark.parametrize("missing", ["absent", "none"])
+async def test_a_value_trigger_on_a_missing_value_stays_quiet(
+    hass, fake_trv, caplog, trigger_type, attribute, missing
+):
+    """A value trigger whose value is missing neither fires nor logs a warning."""
+    _entry, device_id = await _entry_with_device(hass)
+    calls = await _automation_on(
+        hass, device_id, trigger_type, **TRIGGER_EXTRA_FIELDS[trigger_type]
+    )
+    state = hass.states.get(BT_ENTITY)
+    attributes = {k: v for k, v in state.attributes.items() if k != attribute}
+    if missing == "none":
+        attributes[attribute] = None
+    caplog.clear()
+
+    for step in range(3):
+        hass.states.async_set(BT_ENTITY, state.state, {**attributes, "step": step})
+        await hass.async_block_till_done()
+
+    noise = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert noise == []
+    assert not calls
