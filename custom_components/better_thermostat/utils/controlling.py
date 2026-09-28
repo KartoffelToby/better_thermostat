@@ -16,11 +16,13 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
+    calibration_entity_disabled,
     get_current_offset,
     set_hvac_mode,
     set_offset,
     set_temperature,
     set_valve,
+    valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
@@ -1606,6 +1608,12 @@ async def control_trv(
                     valve_settings, _source = _get_valve_control(
                         self, snapshot, entity_id, _calibration_mode, _calibration_type
                     )
+                # A valve with no channel to write through is not pursued,
+                # and no retry is scheduled for it, until one appears.
+                if valve_settings is not None and not valve_channel_available(
+                    self, entity_id
+                ):
+                    valve_settings = None
                 if valve_settings is not None:
                     target_pct = int(round(valve_settings.get("valve_percent", 0)))
                     target_pct = int(
@@ -1780,6 +1788,9 @@ async def control_trv(
                 _calibration is not None
                 and _new_hvac_mode != HVACMode.OFF
                 and _calibration_mode != CalibrationMode.NO_CALIBRATION
+                # A disabled calibration entity is no offset channel: the
+                # offset is not pursued until it is enabled again.
+                and not calibration_entity_disabled(self, entity_id)
             ):
                 _current_calibration_s = await get_current_offset(self, entity_id)
 
