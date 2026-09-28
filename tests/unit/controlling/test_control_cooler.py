@@ -1049,9 +1049,10 @@ class TestControlCoolerFahrenheit:
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
-        # 75.2 °F == 24.0 °C, the desired cooling setpoint.
+        # 24.0 °C is 75.2 °F; a °F cooler that publishes no step holds whole
+        # degrees, so 75 °F is the target as it holds it.
         mock_hass.states.get.return_value = _make_cooler_state(
-            state=HVACMode.COOL, temperature=75.2
+            state=HVACMode.COOL, temperature=75.0
         )
 
         mock_self = _make_mock_self(
@@ -1297,7 +1298,8 @@ class TestControlCoolerTargetRange:
         await control_cooler(mock_self)
 
         payload = self._set_temperature_payload(mock_hass)
-        assert payload["target_temp_high"] == 75.2  # 24.0 °C
+        # Without a published step the cooler holds whole degrees Fahrenheit.
+        assert payload["target_temp_high"] == 75.0  # 24.0 °C is 75.2 °F
         assert payload["target_temp_low"] == 68.0  # 20.0 °C
 
     @pytest.mark.asyncio

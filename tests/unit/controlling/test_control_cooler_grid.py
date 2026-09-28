@@ -145,3 +145,22 @@ async def test_a_failed_write_leaves_the_previous_one_recorded():
         22.0,
         1.0,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        # 24.4 °C is 75.92 °F, 22.0 °C is 71.6 °F.
+        pytest.param(24.4, 76.0, id="up"),
+        pytest.param(22.0, 72.0, id="down"),
+    ],
+)
+async def test_a_fahrenheit_cooler_without_a_step_gets_whole_degrees(target, expected):
+    """A °F cooler that publishes no step is sent whole degrees Fahrenheit."""
+    hass = _hass(UnitOfTemperature.FAHRENHEIT, _make_cooler_state(temperature=80.0))
+    mock_self = _make_mock_self(hass, cur_temp=27.0, bt_target_cooltemp=target)
+
+    await control_cooler(mock_self)
+
+    assert _payload(hass)["temperature"] == pytest.approx(expected, abs=1e-9)
