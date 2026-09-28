@@ -315,9 +315,18 @@ async def control_queue(self):
                             self.device_name,
                         )
 
-                    # Handle cooler logic once per cycle
+                    # Handle cooler logic once per cycle. A cooler that is also
+                    # a TRV still awaiting its initialisation joins the cycles
+                    # only once that is done, like the heating channel.
                     _cooler_pass_completed = False
-                    if self.cooler_entity_id is not None:
+                    _cooler_trv = (
+                        self.real_trvs.get(self.cooler_entity_id)
+                        if self.cooler_entity_id is not None
+                        else None
+                    )
+                    if self.cooler_entity_id is not None and not (
+                        _cooler_trv is not None and _cooler_trv.awaiting_initialization
+                    ):
                         try:
                             await control_cooler(self)
                         except Exception:
