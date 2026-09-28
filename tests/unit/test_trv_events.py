@@ -927,6 +927,79 @@ class TestHvacModeUpdate:
 
         assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
 
+    @pytest.mark.parametrize(
+        ("previous", "reported", "commanded", "cycle"),
+        [
+            ("heat", "off", "heat", True),
+            ("off", "heat", "off", True),
+            ("heat", "off", "off", False),
+            ("off", "off", "heat", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_mode_switched_at_a_locked_device_requests_a_cycle(
+        self, mock_bt, previous, reported, commanded, cycle
+    ):
+        """A locked device leaving the commanded mode is driven back at once.
+
+        The device's own report of the commanded mode landing, and a report
+        that repeats the mode it held, request nothing.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["child_lock"] = True
+        trv.hvac_mode = previous
+        trv.last_hvac_mode = commanded
+        mock_bt.bt_hvac_mode = HVACMode(commanded)
+        trv_state = _make_state(state_str=reported)
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str=previous)
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode(reported),
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode(commanded)
+        assert mock_bt.control_queue_task.put.await_count == int(cycle)
+
+    @pytest.mark.parametrize(
+        ("previous", "reported", "cycle"),
+        [(19.0, 22.0, True), (19.0, 17.5, True), (19.0, 19.0, False)],
+    )
+    @pytest.mark.asyncio
+    async def test_a_setpoint_turned_at_a_locked_device_requests_a_cycle(
+        self, mock_bt, previous, reported, cycle
+    ):
+        """A turn at a locked device is driven back at once, not adopted.
+
+        A report that repeats the setpoint the device held requests nothing,
+        so a device that keeps a turned setpoint is not written on every
+        report it sends.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["child_lock"] = True
+        trv.last_temperature = 21.0
+        mock_bt.bt_target_temp = 21.0
+        new_state = _make_state(attributes={"temperature": reported})
+        mock_bt.hass.states.get.return_value = new_state
+        event = _make_event(
+            mock_bt,
+            new_state=new_state,
+            old_state=_make_state(attributes={"temperature": previous}),
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 21.0
+        assert mock_bt.control_queue_task.put.await_count == int(cycle)
+
     @pytest.mark.asyncio
     async def test_mode_propagates_to_bt_hvac_mode(self, mock_bt):
         """Mode change propagates to bt_hvac_mode when conditions are met."""

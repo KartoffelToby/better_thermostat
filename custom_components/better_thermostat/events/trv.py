@@ -48,6 +48,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
+    setpoint_echo_window,
 )
 
 if TYPE_CHECKING:
@@ -349,6 +350,14 @@ async def trigger_trv_change(
                 # room with a cooler. The service path stores the mode the
                 # same way.
                 self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, mapped_state))
+        elif (
+            child_lock
+            and new_state.state != old_state.state
+            and _org_trv_state.state != trv.last_hvac_mode
+        ):
+            # A mode switched at a locked device is not adopted, and the cycle
+            # requested for it drives the device back to the room's mode.
+            _main_change = True
 
     # The previous state only answers whether the TRV was publishing a setpoint
     # at all, so it is read without clamping or echo detection.
@@ -489,6 +498,22 @@ async def trigger_trv_change(
                     # the exception.
                     self._enforce_cool_above_heat()
 
+            _main_change = True
+        elif (
+            child_lock
+            and not _is_echo
+            and abs(_raw_heating_setpoint - _old_heating_setpoint)
+            >= setpoint_echo_window(_step)
+        ):
+            # A turn at a locked device is not adopted, and the cycle requested
+            # for it writes the room's setpoint back over it.
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s is child-locked, turning its "
+                "setpoint %s back",
+                self.device_name,
+                entity_id,
+                _new_heating_setpoint,
+            )
             _main_change = True
         elif _new_heating_setpoint != _old_heating_setpoint:
             # A setpoint change arrived from the TRV but was not adopted as user
