@@ -22,6 +22,8 @@ Classic triggers (kept for backwards compatibility):
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from homeassistant.components.climate.const import HVAC_MODES, HVACAction
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
 from homeassistant.components.device_automation.exceptions import (
@@ -108,6 +110,9 @@ TRIGGER_SCHEMA = vol.All(_TRIGGER_FIELDS_SCHEMA, _require_mode_for_mode_trigger)
 # Default threshold values
 DEFAULT_HUMIDITY_THRESHOLD = 60.0  # %
 DEFAULT_BATTERY_THRESHOLD = 20.0  # %
+# What a state trigger on an attribute matches: one value, or any of several.
+type _AttributeMatch = str | bool | Sequence[str]
+
 # The actions a thermostat reports while it is not heating. A thermostat that
 # is unavailable has no action, which is not one of them.
 _NOT_HEATING_ACTIONS = [action for action in HVACAction if action != HVACAction.HEATING]
@@ -231,7 +236,9 @@ async def async_attach_trigger(
 
     # Helpers
     def _build_state(
-        attribute: str, to: str | None = None, from_: str | None = None
+        attribute: str,
+        to: _AttributeMatch | None = None,
+        from_: _AttributeMatch | None = None,
     ) -> dict:
         cfg: dict = {
             state_trigger.CONF_PLATFORM: "state",
