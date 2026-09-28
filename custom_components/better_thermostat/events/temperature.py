@@ -107,12 +107,6 @@ def temperature_filter_lock(self) -> asyncio.Lock:
     return lock
 
 
-async def _apply_temperature_update(self, new_temp):
-    """Apply the new external temperature once the filter is free."""
-    async with temperature_filter_lock(self):
-        await _commit_temperature_update(self, new_temp)
-
-
 async def _commit_temperature_update(self, new_temp):
     """Apply the new external temperature and trigger updates.
 
@@ -383,23 +377,32 @@ async def trigger_temperature_change(self, event):
         # Schedule timer if not already scheduled
         if not _plateau_ok and getattr(self, "plateau_timer_cancel", None) is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
+            _plateau_value = self.pending_temp
 
             async def _plateau_cb(_now):
                 self.plateau_timer_cancel = None
-                # Re-check debounce interval so HomematicIP 600s is respected
-                _cb_age = (
-                    (dt_util.now() - self.last_external_sensor_change).total_seconds()
-                    if self.last_external_sensor_change is not None
-                    else 999999
-                )
-                _cb_interval_ok = _cb_age > _time_diff
-                if self.pending_temp is not None and _cb_interval_ok:
+                async with temperature_filter_lock(self):
+                    # A reading handled while the timer waited for the filter
+                    # has applied or replaced the value the timer was armed
+                    # for; only that value, still pending, is applied.
+                    if self.pending_temp is None or self.pending_temp != _plateau_value:
+                        return
+                    # Re-check debounce interval so HomematicIP 600s is respected
+                    _cb_age = (
+                        (
+                            dt_util.now() - self.last_external_sensor_change
+                        ).total_seconds()
+                        if self.last_external_sensor_change is not None
+                        else 999999
+                    )
+                    if _cb_age <= _time_diff:
+                        return
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature plateau auto-accepted (value=%.2f)",
                         self.device_name,
                         self.pending_temp,
                     )
-                    await _apply_temperature_update(self, self.pending_temp)
+                    await _commit_temperature_update(self, self.pending_temp)
 
             self.plateau_timer_cancel = async_call_later(
                 self.hass, remaining, _plateau_cb
