@@ -87,6 +87,12 @@ async def _setup_algorithm_sensors(
 ) -> list[SensorEntity]:
     """Set up algorithm-specific sensors based on current configuration.
 
+    The entities of every algorithm no TRV uses any more are removed first.
+    Sensors are created for the algorithms the TRVs use. A sensor already
+    tracked for its algorithm is live and is not created a second time, so an
+    algorithm whose cleanup removed only some of its sensors gets exactly the
+    missing ones back when it is used again.
+
     Parameters
     ----------
     hass : HomeAssistant
@@ -96,11 +102,10 @@ async def _setup_algorithm_sensors(
     bt_climate : BetterThermostat
         Better Thermostat climate entity the sensors report on.
 
-    The entities of every algorithm no TRV uses any more are removed first.
-    Sensors are created for the algorithms the TRVs use. A sensor already tracked for its
-    algorithm is live and is not created a second time, so an algorithm
-    whose cleanup removed only some of its sensors gets exactly the missing
-    ones back when it is used again.
+    Returns
+    -------
+    list[SensorEntity]
+        The sensors not yet tracked, for the caller to add.
     """
     algorithm_sensors: list[SensorEntity] = []
     entry_id = entry.entry_id
