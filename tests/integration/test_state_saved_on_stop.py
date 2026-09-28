@@ -14,12 +14,17 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
 )
 from homeassistant.core import CoreState
+from homeassistant.helpers import storage
 from homeassistant.util import dt as dt_util
+from homeassistant.util.file import WriteError
+import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat.utils.state_manager import StateManager
 
 from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
+
+_SM = "custom_components.better_thermostat.utils.state_manager"
 
 LEARNED = 0.5
 CHANGED = 0.02
@@ -104,3 +109,81 @@ async def test_a_pending_change_is_saved_once(hass, hass_storage, fake_trv):
 
     assert save.await_count == 1
     assert _stored_power(hass_storage, entry) == CHANGED
+
+
+POISON = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": "NaN"}}}
+
+
+async def _started_on_a_store_whose_copy_fails(hass, hass_storage, entry, disk):
+    live = f"{DOMAIN}_{entry.entry_id}_state"
+    hass_storage[live] = {"version": 1, "minor_version": 1, "key": live, "data": POISON}
+    write = storage.Store._async_write_data
+
+    async def _write(store, data):
+        if ".corrupt" in store.key and disk["full"]:
+            raise WriteError("disk full")
+        await write(store, data)
+
+    patcher = patch.object(storage.Store, "_async_write_data", _write)
+    patcher.start()
+    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    return bt, live, patcher
+
+
+@pytest.mark.parametrize("disk_recovers", [True, False])
+async def test_a_copy_that_failed_at_start_is_retried_at_stop(
+    hass, hass_storage, fake_trv, disk_recovers
+):
+    """At stop the copy is tried again; the state is saved only behind it.
+
+    With the disk back, the copy and the learned value both reach storage.
+    With the disk still full, the stored payload stays as it was.
+    """
+    entry = make_entry()
+    disk = {"full": True}
+    bt, live, patcher = await _started_on_a_store_whose_copy_fails(
+        hass, hass_storage, entry, disk
+    )
+    try:
+        disk["full"] = not disk_recovers
+        bt.heating_power = 0.77
+        bt.schedule_save_state()
+        try:
+            await _stop(hass)
+        finally:
+            hass.set_state(CoreState.running)
+    finally:
+        patcher.stop()
+
+    if disk_recovers:
+        assert hass_storage[f"{live}.corrupt"]["data"] == POISON
+        assert hass_storage[live]["data"]["thermal"]["heating_power"] == 0.77
+    else:
+        assert hass_storage[live]["data"] == POISON
+        assert not [key for key in hass_storage if ".corrupt" in key]
+
+
+async def test_a_copy_that_failed_at_start_is_retried_while_running(
+    hass, hass_storage, fake_trv
+):
+    """A runtime save after the disk recovers writes the copy and the state."""
+    entry = make_entry()
+    disk = {"full": True}
+    clock = {"now": 1000.0}
+    with patch(f"{_SM}.monotonic", lambda: clock["now"]):
+        bt, live, patcher = await _started_on_a_store_whose_copy_fails(
+            hass, hass_storage, entry, disk
+        )
+        try:
+            disk["full"] = False
+            clock["now"] += 3600
+            bt.heating_power = 0.77
+            bt.schedule_save_state()
+            await _let_the_save_run(hass)
+        finally:
+            patcher.stop()
+
+    assert hass_storage[f"{live}.corrupt"]["data"] == POISON
+    assert hass_storage[live]["data"]["thermal"]["heating_power"] == 0.77

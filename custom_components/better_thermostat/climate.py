@@ -37,7 +37,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
-    EVENT_HOMEASSISTANT_STOP,
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     Platform,
@@ -1007,7 +1007,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         async def _save_on_stop(_event: Event) -> None:
             # Home Assistant does not remove entities when it stops, so a
-            # save still waiting out its delay is written now instead.
+            # save still waiting out its delay is written now instead. The
+            # final write is the stage in which the Store writes at once, so
+            # a copy the state waits for can be confirmed before the save.
             if self._save_cancel is not None:
                 self._save_cancel()
                 self._save_cancel = None
@@ -1016,7 +1018,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self.state_mgr.flush()
 
         self.async_on_remove(
-            self.hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _save_on_stop)
+            self.hass.bus.async_listen(EVENT_HOMEASSISTANT_FINAL_WRITE, _save_on_stop)
         )
 
         await super().async_added_to_hass()

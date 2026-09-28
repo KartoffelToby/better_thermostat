@@ -1243,7 +1243,8 @@ class TestAFailingCopyIsReportedOnce:
     """While the copy keeps failing, the log says so once, not on every save.
 
     Runtime saves wait at DEBUG for a copy that cannot be written; the copy
-    is tried again when the entity flushes on stop or removal.
+    is tried again at a growing interval and when the entity flushes on stop
+    or removal.
     """
 
     _PAYLOAD = _poisoned_payload(0.5)
@@ -1372,6 +1373,125 @@ class TestAFailingCopyIsReportedOnce:
         errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert len(errors) == 1, [r.getMessage() for r in errors]
         assert hass_storage[live]["data"] == self._PAYLOAD
+
+
+class _Clock:
+    """A settable stand-in for the monotonic clock the retries are timed on."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class TestAFailedCopyThatRecovers:
+    """Once the copy can be written again, the session's state is saved.
+
+    A copy that failed at load is retried by the runtime saves, first after
+    a minute and then at a doubling interval, so a disk that stays full is
+    not written to on every save.
+    """
+
+    _PAYLOAD = _poisoned_payload(0.5)
+
+    @staticmethod
+    def _copy_store(stores, disk: dict) -> AsyncMock:
+        copy = AsyncMock()
+        copy.async_load = AsyncMock(return_value=None)
+        save = _saved_into(copy)
+
+        def _write(data):
+            if disk["full"]:
+                raise OSError("disk full")
+            save(data)
+
+        copy.async_save = AsyncMock(side_effect=_write)
+        for key in _SET_ASIDE_KEYS:
+            stores[key] = copy
+        return copy
+
+    async def _loaded(self, stores, disk):
+        copy = self._copy_store(stores, disk)
+        mgr = StateManager(AsyncMock(), "test_entry")
+        stores[_LIVE_STORE_KEY].async_load.return_value = self._PAYLOAD
+        await mgr.load()
+        return mgr, copy
+
+    @pytest.mark.asyncio
+    async def test_a_runtime_save_after_recovery_lands(self):
+        """The first runtime save once the retry is due writes copy and state."""
+        clock = _Clock()
+        disk = {"full": True}
+        with _stores_by_key() as stores, patch(f"{_SM}.monotonic", clock):
+            mgr, copy = await self._loaded(stores, disk)
+            disk["full"] = False
+            mgr.mark_dirty()
+            await mgr.save_if_dirty()
+            assert copy.async_save.await_count == 1
+            stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+
+            clock.now += 60
+            await mgr.save_if_dirty()
+
+        assert copy.async_load.return_value == self._PAYLOAD
+        stores[_LIVE_STORE_KEY].async_save.assert_awaited_once()
+        assert mgr.dirty is False
+
+    @pytest.mark.asyncio
+    async def test_the_retry_interval_doubles_while_the_copy_fails(self):
+        """A disk that stays full is tried ever less often."""
+        clock = _Clock()
+        disk = {"full": True}
+        attempts: list[float] = []
+        with _stores_by_key() as stores, patch(f"{_SM}.monotonic", clock):
+            mgr, copy = await self._loaded(stores, disk)
+            start = clock.now
+            for _ in range(500):
+                clock.now += 1
+                done = copy.async_save.await_count
+                mgr.mark_dirty()
+                await mgr.save_if_dirty()
+                if copy.async_save.await_count > done:
+                    attempts.append(clock.now - start)
+
+        assert attempts == [60, 180, 420]
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_interval_stops_growing_at_an_hour(self):
+        """A disk that stays full is retried once an hour at most, not less."""
+        clock = _Clock()
+        disk = {"full": True}
+        with _stores_by_key() as stores, patch(f"{_SM}.monotonic", clock):
+            mgr, copy = await self._loaded(stores, disk)
+            for _ in range(20):
+                clock.now += 3600
+                mgr.mark_dirty()
+                await mgr.save_if_dirty()
+
+        assert copy.async_save.await_count == 21
+
+    @pytest.mark.asyncio
+    async def test_no_copy_is_attempted_while_home_assistant_stops(self):
+        """While stopping, a copy would only be queued, so it is left for later."""
+        disk = {"full": False}
+        with _stores_by_key() as stores:
+            copy = self._copy_store(stores, disk)
+            hass = AsyncMock()
+            hass.state = CoreState.running
+            mgr = StateManager(hass, "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = self._PAYLOAD
+            copy.async_save.side_effect = OSError("disk full")
+            await mgr.load()
+            copy.async_save.side_effect = _saved_into(copy)
+            hass.state = CoreState.stopping
+            mgr.mark_dirty()
+            await mgr.flush()
+
+        assert copy.async_save.await_count == 1
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+        assert mgr.dirty is True
 
 
 class TestEveryDistinctPayloadIsKept:

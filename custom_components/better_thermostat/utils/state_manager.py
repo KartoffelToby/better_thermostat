@@ -36,9 +36,10 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import logging
 import math
+from time import monotonic
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 
@@ -93,6 +94,12 @@ QUARANTINE_VERSION = 1
 # newest the latest learning; one more keeps the step between them. A
 # store that keeps turning unreadable does not fill the disk with copies.
 QUARANTINE_COPIES = 3
+
+# Seconds before a runtime save tries a failed copy again, doubling after
+# each failure up to the cap: a disk that recovers is used within the hour,
+# and one that stays full is not written to on every save.
+COPY_RETRY_FIRST_S = 60.0
+COPY_RETRY_MAX_S = 3600.0
 
 # State dataclasses (only those NOT owned by a controller module)
 
@@ -555,6 +562,9 @@ class StateManager:
         # Whether the failing copy has been reported at WARNING already; each
         # further attempt that fails is logged at DEBUG only.
         self._copy_failure_reported = False
+        # When a runtime save next tries the copy, and the wait after that.
+        self._copy_retry_at = 0.0
+        self._copy_retry_s = COPY_RETRY_FIRST_S
 
     # -- Public properties ---------------------------------------------------
 
@@ -736,6 +746,11 @@ class StateManager:
 
     # -- Load / Save ---------------------------------------------------------
 
+    def _schedule_copy_retry(self) -> None:
+        """Set when a runtime save next tries the copy, and double the wait."""
+        self._copy_retry_at = monotonic() + self._copy_retry_s
+        self._copy_retry_s = min(self._copy_retry_s * 2, COPY_RETRY_MAX_S)
+
     def _report_copy_failure(
         self, message: str, key: str, *, with_traceback: bool = False
     ) -> None:
@@ -808,6 +823,7 @@ class StateManager:
                 with_traceback=True,
             )
             self._payload_awaiting_copy = raw
+            self._schedule_copy_retry()
             return
         if written != raw:
             self._report_copy_failure(
@@ -816,6 +832,7 @@ class StateManager:
                 key,
             )
             self._payload_awaiting_copy = raw
+            self._schedule_copy_retry()
             return
         self._payload_awaiting_copy = None
         _LOGGER.warning(
@@ -874,9 +891,18 @@ class StateManager:
         The one exception is a stored payload that load() could not read in
         full and could not set aside: the copy is attempted again first,
         and while it fails the live store keeps that payload and the state
-        stays unsaved.
+        stays unsaved. While Home Assistant is stopping, the Store only
+        queues writes, so no copy can be confirmed and none is attempted;
+        the final write is where the copy is tried again.
         """
         if self._payload_awaiting_copy is not None:
+            if self._hass.state is CoreState.stopping:
+                _LOGGER.debug(
+                    "better_thermostat [%s]: save left for the final write, the "
+                    "stored state is not set aside yet",
+                    self._entry_id,
+                )
+                return
             await self._quarantine_unreadable_state(self._payload_awaiting_copy)
             if self._payload_awaiting_copy is not None:
                 return
@@ -895,10 +921,17 @@ class StateManager:
     async def save_if_dirty(self) -> None:
         """Persist current state only if it has been modified since last save.
 
-        While a stored payload still waits for its copy, the save is skipped
-        and the state stays unsaved; :meth:`flush` tries the copy again.
+        While a stored payload still waits for its copy, the copy is tried
+        again once :data:`COPY_RETRY_FIRST_S`, and after each failure twice
+        as long, has passed; until it succeeds the save is skipped and the
+        state stays unsaved. :meth:`flush` tries the copy regardless.
         """
         if not self._dirty:
+            return
+        if self._payload_awaiting_copy is not None and monotonic() >= (
+            self._copy_retry_at
+        ):
+            await self.save()
             return
         if self._payload_awaiting_copy is not None:
             _LOGGER.debug(
