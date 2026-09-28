@@ -5,6 +5,7 @@ at least one of them is reachable, and a TRV that comes back later is set up
 and driven from then on. A room with no reachable TRV keeps waiting.
 """
 
+import asyncio
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -23,6 +24,7 @@ TRV_ID_2 = "climate.fake_trv_2"
 CRITICAL_GRACE = (
     "custom_components.better_thermostat.climate.STARTUP_CRITICAL_GRACE_PERIOD"
 )
+_CLIMATE = "custom_components.better_thermostat.climate"
 # A startup grace window that is already over by the time the first check
 # runs, for a room that has to start without waiting it out.
 NO_GRACE = timedelta(seconds=0)
@@ -167,3 +169,46 @@ async def test_a_head_that_arrives_after_the_room_started_is_initialised_and_dri
     assert bt.real_trvs[TRV_ID_2].target_temp_step == 0.5
     assert await wait_for(hass, lambda: second.set_temperature_calls)
     assert second.set_temperature_calls[-1] == first.set_temperature_calls[-1]
+
+
+async def test_valve_maintenance_leaves_a_head_that_is_not_set_up_alone(
+    hass, two_heads
+):
+    """Maintenance exercises only the heads that are set up.
+
+    A head that came back and whose setup has not completed is still waiting
+    for it, and nothing about it is known that the exercise relies on.
+    Maintenance leaves it out; its setup brings it into the room.
+    """
+    first, second = two_heads
+    bt, started = await _boot(hass, grace=NO_GRACE)
+    assert started
+    setting_up = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_setup(_bt, entity_id):
+        if entity_id == TRV_ID_2:
+            setting_up.set()
+            await release.wait()
+
+    exercised: list[list[str]] = []
+
+    async def record_exercise(infos, **_kwargs):
+        exercised.append([info.entity_id for info in infos])
+
+    with (
+        patch(f"{_CLIMATE}.init", slow_setup),
+        patch(f"{_CLIMATE}.run_valve_maintenance", record_exercise),
+    ):
+        _bring_back(hass, second)
+        await setting_up.wait()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+
+        await bt._run_valve_maintenance([TRV_ID, TRV_ID_2])
+
+        release.set()
+        assert await wait_for(
+            hass, lambda: not bt.real_trvs[TRV_ID_2].awaiting_initialization
+        )
+
+    assert exercised == [[TRV_ID]]
