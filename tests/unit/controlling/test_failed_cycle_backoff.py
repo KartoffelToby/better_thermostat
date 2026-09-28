@@ -335,3 +335,43 @@ async def test_a_pending_retry_ends_with_the_queue():
         await _REAL_SLEEP(0)
 
     assert entity.control_queue_task.empty()
+
+
+@pytest.mark.asyncio
+async def test_a_run_at_its_longest_pause_warns_once_an_hour(caplog):
+    """A device that keeps refusing is reported hourly once the pause is capped.
+
+    Below the cap each failure is a warning of its own. At the cap the run
+    has settled into one attempt every few minutes, and a warning for each
+    of those would fill the log with the same line all day.
+    """
+    entity = _make_self()
+    caplog.set_level(logging.DEBUG, logger=_CTRL)
+    queue = _Queue(entity, lambda _n: HomeAssistantError("no answer"))
+    real_call = queue.sleep.__call__
+    clock = [1000.0]
+
+    async def advancing_sleep(delay, result=None):
+        if delay and delay >= 1:
+            clock[0] += delay
+        return await real_call(delay, result)
+
+    queue.sleep = advancing_sleep
+    queue.sleep.waits = []
+    with patch(f"{_CTRL}.monotonic", new=lambda: clock[0]):
+        async with queue:
+            # The ninth failure reaches the cap; 36 more span three hours there.
+            await queue.until_calls(45, timeout=10.0)
+
+    lines = [
+        r
+        for r in caplog.records
+        if r.name == _CTRL and "controlling TRV" in r.getMessage()
+    ]
+    warnings = [r for r in lines if r.levelno == logging.WARNING]
+    below_cap = [r for r in warnings if "failed again" in r.getMessage()]
+    at_cap = [r for r in warnings if "still failing" in r.getMessage()]
+    assert len(below_cap) == 7
+    assert 3 <= len(at_cap) <= 4
+    assert all("min" in r.getMessage() for r in at_cap)
+    assert len(lines) >= 45
