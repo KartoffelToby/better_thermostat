@@ -12,7 +12,7 @@ import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -196,20 +196,68 @@ async def test_a_new_user_input_starts_a_new_run(attribute, value):
 
 
 @pytest.mark.asyncio
-async def test_a_changed_payload_starts_a_new_run():
-    """A failure of a different write is a new run, not a continuation."""
+async def test_a_payload_that_drifts_between_failures_keeps_the_run():
+    """A write that moves with the room while the device refuses it is one run.
+
+    The calibration moves the setpoint a worker sends from one cycle to the
+    next, so the refused payload drifts without anyone setting a new target.
+    """
     entity = _make_self()
     trv = entity.real_trvs[_TRV]
 
     def outcome(n):
         # The worker records what it sends before the device refuses it.
-        trv.last_temperature = 22.0 if n < 4 else 22.5
+        trv.last_temperature = 22.0 + 0.1 * n
         return ServiceValidationError("out of range")
 
     async with _Queue(entity, outcome) as queue:
         await queue.until_calls(5)
 
-    assert queue.sleep.waits[:5] == [2.0, 4.0, 8.0, 16.0, FAILED_CYCLE_BACKOFF_S]
+    assert queue.sleep.waits[:4] == [2.0, 4.0, 8.0, 16.0]
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_whose_message_varies_keeps_the_run(caplog):
+    """A refusal that numbers its messages is paced and reported as one run."""
+    entity = _make_self()
+    caplog.set_level(logging.DEBUG, logger=_CTRL)
+    async with _Queue(
+        entity, lambda n: HomeAssistantError(f"timeout (tsn {n})")
+    ) as queue:
+        await queue.until_calls(5)
+
+    assert queue.sleep.waits[:4] == [2.0, 4.0, 8.0, 16.0]
+    tracebacks = [r for r in caplog.records if r.name == _CTRL and r.exc_info]
+    assert len(tracebacks) == 1
+
+
+@pytest.mark.asyncio
+async def test_two_trvs_failing_in_turn_are_one_run(caplog):
+    """Devices that fail alternately are paced as one run, each reported once."""
+    other = "climate.trv2"
+    entity = _make_self()
+    entity.real_trvs[other] = Trv.from_legacy_dict(other, {})
+    caplog.set_level(logging.DEBUG, logger=_CTRL)
+    rounds = []
+
+    async def control_trv(_entity, entity_id, cycle=None):
+        rounds.append(entity_id)
+        failing = _TRV if (len(rounds) - 1) // 2 % 2 == 0 else other
+        if entity_id == failing:
+            raise HomeAssistantError(f"no answer from {entity_id}")
+        return True
+
+    queue = _Queue(entity, None)
+    queue._control_trv = control_trv
+    async with queue:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 5
+        while len(rounds) < 12 and loop.time() < deadline:
+            await _REAL_SLEEP(0)
+
+    assert queue.sleep.waits[:5] == [2.0, 4.0, 8.0, 16.0, 32.0]
+    tracebacks = [r for r in caplog.records if r.name == _CTRL and r.exc_info]
+    assert sorted(_TRV in r.getMessage() for r in tracebacks) == [False, True]
 
 
 @pytest.mark.asyncio

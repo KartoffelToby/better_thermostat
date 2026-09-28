@@ -732,15 +732,16 @@ class TaskManager:
 
 @dataclass
 class _FailedCycleRun:
-    """Consecutive control cycles that failed in the same way.
+    """Consecutive control cycles that failed while the user's targets stood.
 
-    ``signature`` is what the failing cycles tried and how they failed,
-    ``intent`` the room targets the user had set at the time, ``wait_s`` the
-    pause the run has reached and ``retry`` the pending re-queue.
+    ``intent`` is the room targets the user had set at the time, ``reported``
+    the failures already logged with their traceback, as the TRV and the kind
+    of error, ``wait_s`` the pause the run has reached and ``retry`` the
+    pending re-queue.
     """
 
-    signature: tuple[Any, ...]
     intent: tuple[Any, ...]
+    reported: frozenset[tuple[str, str]]
     count: int
     wait_s: float
     retry: asyncio.Task[None] | None = None
@@ -749,29 +750,6 @@ class _FailedCycleRun:
 def _user_intent(self: BetterThermostat) -> tuple[Any, ...]:
     """Return the room targets a user sets, as the failure pacing compares them."""
     return (self.bt_target_temp, self.bt_target_cooltemp, self.bt_hvac_mode)
-
-
-def _failed_cycle_signature(
-    self: BetterThermostat, failures: list[tuple[str, BaseException | bool]]
-) -> tuple[Any, ...]:
-    """Describe what a failed cycle tried to write and how each device refused it.
-
-    The setpoint and mode a worker last sent are recorded before the write
-    goes out, so they name the refused payload as well.
-    """
-    parts = []
-    for entity_id, outcome in failures:
-        trv = self.real_trvs.get(entity_id)
-        parts.append(
-            (
-                entity_id,
-                getattr(trv, "last_temperature", None),
-                getattr(trv, "last_hvac_mode", None),
-                type(outcome).__name__,
-                str(outcome),
-            )
-        )
-    return (_user_intent(self), tuple(parts))
 
 
 async def _requeue_failed_cycle(self: BetterThermostat, delay_s: float) -> None:
@@ -787,11 +765,15 @@ def _pace_failed_cycle(
 ) -> _FailedCycleRun | None:
     """Report a cycle's failures and schedule its retry; return the run.
 
-    A cycle that fails the way the previous one did doubles the pause, up
-    to its ceiling; any other failure starts a run at the base pause. The
-    retry is a task of its own, so the queue goes on serving requests while
-    it waits: a new target reaches the devices at once. The first failure of
-    a run is logged with its traceback, each later one in a single line.
+    A cycle that fails while the user's targets stand continues the run and
+    doubles the pause, up to its ceiling, whichever TRV failed and whatever
+    its error said: a refusal that numbers its messages, a payload the
+    calibration moves between cycles and devices failing in turn are all
+    still the same run. A failure after the user set new targets starts a
+    run at the base pause. The retry is a task of its own, so the queue goes
+    on serving requests while it waits: a new target reaches the devices at
+    once. Each TRV and kind of error is logged with its traceback the first
+    time it fails in a run, and in a single line after that.
 
     A clean cycle ends the run once the retry has fired or the user has set
     new targets. A clean cycle before that, one the write budget deferred
@@ -810,13 +792,15 @@ def _pace_failed_cycle(
             run.retry.cancel()
         return None
 
-    signature = _failed_cycle_signature(self, failures)
-    if run is not None and run.signature == signature:
+    intent = _user_intent(self)
+    if run is not None and run.intent == intent:
         count = run.count + 1
         wait_s = min(run.wait_s * 2, FAILED_CYCLE_BACKOFF_MAX_S)
+        reported = run.reported
     else:
         count = 1
         wait_s = FAILED_CYCLE_BACKOFF_S
+        reported = frozenset()
     if run is not None and run.retry is not None:
         run.retry.cancel()
 
@@ -829,7 +813,9 @@ def _pace_failed_cycle(
     for entity_id, outcome in failures:
         if not isinstance(outcome, BaseException):
             continue
-        if count == 1:
+        kind = (entity_id, type(outcome).__name__)
+        if kind not in reported:
+            reported = reported | {kind}
             _LOGGER.error(
                 "better_thermostat %s: ERROR controlling TRV %s: %s",
                 self.device_name,
@@ -851,7 +837,7 @@ def _pace_failed_cycle(
         _requeue_failed_cycle(self, delay_s),
         name=f"bt_failed_cycle_retry_{self.device_name}",
     )
-    return _FailedCycleRun(signature, _user_intent(self), count, wait_s, retry)
+    return _FailedCycleRun(intent, reported, count, wait_s, retry)
 
 
 def advance_hvac_action(self: BetterThermostat) -> None:
