@@ -386,10 +386,12 @@ async def trigger_trv_change(self, event):
     _is_no_off_device = advanced.get("no_off_system_mode", False)
     # An AUTO the mode decoding ignores says nothing about the room, so the
     # setpoint it carries, typically the device's own schedule, is not adopted
-    # either. A swapped device decodes AUTO as HEAT and never matches.
-    _ignored_auto_report = (
-        mapped_state is None and _org_trv_state.state == HVACMode.AUTO
-    )
+    # either. A swapped device decodes AUTO as HEAT and never matches. The
+    # setpoint comes from the event's own state, so that state decides, not
+    # the registry state, which may already hold a later report.
+    _ignored_auto_report = new_state.state == HVACMode.AUTO and mode_remap(
+        self, entity_id, str(new_state.state), True
+    ) not in (HVACMode.OFF, HVACMode.HEAT)
     if (
         _setpoint is not None
         and _old_heating_setpoint is not None
