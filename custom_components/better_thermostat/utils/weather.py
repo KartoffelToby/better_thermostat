@@ -6,6 +6,7 @@ from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta
 import logging
+from time import monotonic
 
 from homeassistant.components.recorder import history
 from homeassistant.components.weather import (
@@ -25,6 +26,14 @@ from .helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
+# How long a weather-only setup keeps its decision while the weather entity
+# gives no forecast verdict. check_weather runs once an hour, so this holds
+# the decision across three silent checks: long enough to ride out a cloud
+# weather service that is rate-limited or reconnecting, short enough that an
+# entity gone for good cannot keep a room in summer mode, which is the side
+# the outdoor sensor path also falls back to when it has no data.
+WEATHER_VERDICT_HOLD = timedelta(hours=3)
+
 
 async def check_weather(self) -> bool:
     """Check weather predictions or ambient air temperature if available.
@@ -43,14 +52,43 @@ async def check_weather(self) -> bool:
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
 
-    self.call_for_heat = True
-
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
-        if isinstance(
-            _call_for_heat_weather, bool
-        ):  # Only apply if we got a valid response
+        if isinstance(_call_for_heat_weather, bool):
+            if self.weather_fallback_active:
+                _LOGGER.info(
+                    "better_thermostat %s: weather entity %s gives a forecast "
+                    "verdict again, heating follows the forecast",
+                    self.device_name,
+                    self.weather_entity,
+                )
+            self.weather_verdict_missing_since = None
+            self.weather_fallback_active = False
             self.call_for_heat = _call_for_heat_weather
+        elif self.outdoor_sensor is None:
+            # None means the prediction has no opinion: the previous decision
+            # stays for WEATHER_VERDICT_HOLD, then the room heats. With an
+            # outdoor sensor configured its verdict decides below, so the
+            # hold only applies where the forecast is the only source.
+            # Monotonic time keeps the hold its length across a DST change.
+            _now = monotonic()
+            if self.weather_verdict_missing_since is None:
+                self.weather_verdict_missing_since = _now
+            _silent_s = _now - self.weather_verdict_missing_since
+            if (
+                not self.weather_fallback_active
+                and _silent_s >= WEATHER_VERDICT_HOLD.total_seconds()
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: weather entity %s has given no forecast "
+                    "for %.1f hours, resuming heating until it does",
+                    self.device_name,
+                    self.weather_entity,
+                    _silent_s / 3600.0,
+                )
+                self.weather_fallback_active = True
+            if self.weather_fallback_active:
+                self.call_for_heat = True
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
@@ -130,7 +168,7 @@ async def check_weather_prediction(self) -> bool | None:
             "better_thermostat %s: off_temperature not set or not a float.",
             self.device_name,
         )
-        return False
+        return None
 
     try:
         state = self.hass.states.get(self.weather_entity)
