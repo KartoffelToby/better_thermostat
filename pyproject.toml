@@ -151,6 +151,9 @@ skip-magic-trailing-comma = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Seconds a single test may run. The slowest takes about ten; a hung one
+# fails with its traceback instead of running into the CI job's limit.
+timeout = 120
 filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
