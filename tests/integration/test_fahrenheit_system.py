@@ -225,6 +225,31 @@ async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(
 
 
 @pytest.mark.usefixtures("fahrenheit_system")
+@pytest.mark.parametrize("requested", [63.0, 64.0, 70.0])
+async def test_a_whole_degree_target_reaches_the_device_unchanged(hass, requested):
+    """A whole degree Fahrenheit asked for is the setpoint the device receives.
+
+    Whole degrees sit on the device's own grid, so rounding towards the room,
+    down for a room warmer than the target (63 and 64 °F) and up for a colder
+    one (70 °F), leaves them where they are.
+    """
+    fake_trv = await _fahrenheit_trv(hass, current=67.0)
+    _publish_room(hass, 67.0)
+    await _start(hass)
+    baseline = len(fake_trv.set_temperature_calls)
+
+    await _set_target(hass, requested)
+    assert await wait_for(
+        hass,
+        lambda: (
+            fake_trv.set_temperature_calls[baseline:]
+            and fake_trv.set_temperature_calls[-1] == pytest.approx(requested)
+        ),
+        timeout_s=2.0,
+    ), fake_trv.set_temperature_calls[baseline:]
+
+
+@pytest.mark.usefixtures("fahrenheit_system")
 async def test_the_range_is_published_in_tenths_inside_the_device_range(hass):
     """The range the thermostat publishes lies inside the device's, in tenths.
 
