@@ -10,6 +10,8 @@ import logging
 import re
 from types import ModuleType
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 from homeassistant.helpers.importlib import async_import_module
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
@@ -146,6 +148,38 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     if not hasattr(quirks, "trv_state_unknown_as_available"):
         return False
     return bool(quirks.trv_state_unknown_as_available(self, entity_id))
+
+
+def trv_report_is_unreadable(
+    self: ModelFixHost, entity_id: str, state: State | None
+) -> bool:
+    """Answer whether a TRV state carries nothing the inbound handler can read.
+
+    A missing state and an unavailable one carry nothing. ``unknown`` carries
+    nothing either, unless the model reports an operating device that way.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV the state belongs to
+    state : State | None
+        The state the TRV publishes
+
+    Returns
+    -------
+    bool
+        True when the state is to be read as the device being gone
+    """
+    return (
+        state is None
+        or state.state == STATE_UNAVAILABLE
+        or (
+            state.state == STATE_UNKNOWN
+            and not trv_state_unknown_as_available(self, entity_id)
+        )
+    )
 
 
 def fix_local_calibration(self, entity_id, offset):
