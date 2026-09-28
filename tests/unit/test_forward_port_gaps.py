@@ -426,20 +426,119 @@ def test_a_merge_carries_no_content_of_its_own(lines):
     assert measured == {maintenance_commit}
 
 
-def test_a_commit_too_small_to_score_is_neither_carried_nor_behind(lines):
-    """A version bump has one marker, and one marker decides nothing."""
+@pytest.mark.parametrize(
+    ("name", "template"),
+    [
+        (
+            "manifest.json",
+            '{\n  "domain": "better_thermostat",\n  "version": "%s"\n}\n',
+        ),
+        ("pyproject.toml", '[project]\nname = "better_thermostat"\nversion = "%s"\n'),
+    ],
+)
+def test_a_version_bump_is_neither_carried_nor_behind(lines, name, template):
+    """Each line carries its own version, so a bump has nothing to forward."""
     script, line = lines
-    manifest = '{\n  "domain": "better_thermostat",\n  "version": "%s"\n}\n'
     line.git("checkout", "-q", "maintenance")
-    line.write("manifest.json", manifest % "1.9.1")
-    line.commit("[TASK] add the manifest")
-    line.write("manifest.json", manifest % "1.9.2")
+    line.write(name, template % "1.9.1")
+    line.commit("[TASK] add the metadata")
+    line.write(name, template % "1.9.2")
     maintenance_commit = line.commit("[TASK] bump version")
 
     commit = _measure(script, line, maintenance_commit)
 
-    assert commit.markers == 1
+    assert commit.markers == 0
+    assert commit.carried_forward
+
+
+def _small_fix(line, *, lines_on_develop: int) -> str:
+    """Commit two production lines and a test on the maintenance line.
+
+    The development line gets the first ``lines_on_develop`` of the two
+    production lines. Returns the maintenance commit.
+    """
+    production = _body(2)
+    if lines_on_develop:
+        line.git("checkout", "-q", "develop")
+        line.write("module.py", f"shared = 1\n{_body(lines_on_develop)}")
+        line.commit("fix: the development line's form")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{production}")
+    line.write("tests/test_module.py", _body(6, start=20))
+    return line.commit("fix: a two-line fix with its test")
+
+
+@pytest.mark.parametrize(
+    ("lines_on_develop", "is_carried"), [(0, False), (1, False), (2, True)]
+)
+def test_a_fix_too_small_to_score_is_carried_only_when_all_of_it_is_there(
+    lines, lines_on_develop, is_carried
+):
+    """A small fix cannot be judged by a share, so every line of it counts.
+
+    Two production lines are too few for a rate to mean anything, and passing
+    such a fix unread would let a missing one-line fix through. It is carried
+    forward when every production line is on the development line and behind
+    when any one is missing.
+    """
+    script, line = lines
+    maintenance_commit = _small_fix(line, lines_on_develop=lines_on_develop)
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 2
     assert not commit.scored
+    assert commit.carried_forward is is_carried
+
+
+def test_a_small_fix_renamed_onto_the_glossary_is_carried(lines):
+    """The complete-presence rule reads the glossary's renames like the rate."""
+    script, line = lines
+    line.git("checkout", "-q", "develop")
+    line.write("glossary.toml", GLOSSARY)
+    line.write(
+        "module.py", "shared = 1\ntrv.remember_the_setpoint(entity_id, reported_1)\n"
+    )
+    line.commit("refactor: rename onto the glossary")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{OLD_SPELLING.format(i=1)}\n")
+    maintenance_commit = line.commit("fix: remember the setpoint")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 1
+    assert commit.carried_forward
+
+
+def test_check_fails_on_a_missing_fix_too_small_to_score(lines, capsys):
+    """A missing two-line fix closes the gate like a low rate does."""
+    script, line = lines
+    maintenance_commit = _small_fix(line, lines_on_develop=1)
+
+    assert script.check("maintenance", "develop") == 1
+    assert maintenance_commit[:8] in capsys.readouterr().out
+
+
+def test_prose_inside_a_docstring_with_code_punctuation_is_not_a_marker(lines):
+    """A docstring line is prose even when it quotes code.
+
+    The punctuation rule cannot tell a sentence that quotes
+    ``int(value / step)`` from a statement; where the text sits can.
+    """
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write(
+        "module.py",
+        "shared = 1\n\n\ndef tol(step):\n"
+        '    """Return the window.\n\n'
+        "    The platform truncates onto that grid (``int(value / step)``): a\n"
+        "    written 6.3 becomes 62 counts = 6.2 {reported}.\n"
+        '    """\n'
+        f"    {DISTINCTIVE % 0}\n",
+    )
+    maintenance_commit = line.commit("fix: widen the window")
+
+    assert script.markers_of(maintenance_commit) == [DISTINCTIVE % 0]
 
 
 def _fix_with_tests(line, *, production_on_develop: bool, tests_on_develop: bool):
@@ -705,18 +804,21 @@ def test_the_list_mode_names_every_group(lines, capsys):
     script, line = lines
     gap = _partly_present(line, markers=4, found=4)
     line.write("module.py", f"shared = 1\n{_body(4)}{OTHER_DISTINCTIVE}\n")
-    too_small = line.commit("[TASK] bump version")
+    too_small = line.commit("fix: one more line")
+    line.write("tests/test_module.py", _body(3))
+    unmarked = line.commit("test: pin the value")
 
     assert script.show("maintenance", "develop") == 0
 
     printed = capsys.readouterr().out
     assert "against the tree of develop" in printed
-    assert "not carried forward — under 50%:" in printed
-    assert "carried forward — 50% or more:" in printed
-    assert "too few markers to score — under 3:" in printed
+    assert "not carried forward — under 50%, or a marker missing" in printed
+    assert "carried forward — 50% or more, or every marker" in printed
+    assert "no production markers:" in printed
     assert "by commit convention:" in printed
     assert gap[:8] in printed
     assert too_small[:8] in printed
+    assert unmarked[:8] in printed
 
 
 def test_check_fails_on_an_unrecorded_gap(lines, capsys):
