@@ -23,6 +23,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    _locked_device_moved,
     control_queue,
     read_reports_held_during_cycle,
 )
@@ -478,3 +479,35 @@ class TestALockedPressHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         request.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(24.0, True, id="one_step_below_the_held_target"),
+            pytest.param(24.5, False, id="the_held_target"),
+        ],
+    )
+    async def test_a_dual_role_device_compares_cooling_writes_as_it_holds_them(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit reads a press against its grid.
+
+        The cooling target 24.3 is held as 24.5 on a 0.5 grid, so a press to
+        24.0 is one step away from what the device was sent, and 24.5 is the
+        write itself.
+        """
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.3
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with (
+            patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
+            patch(f"{_CTRL}.last_sent_cooler_temperature", return_value=24.3),
+        ):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
