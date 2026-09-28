@@ -7,6 +7,7 @@ used by Better Thermostat when a device-specific adapter does not exist.
 from __future__ import annotations
 
 import asyncio
+from itertools import pairwise
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -216,12 +217,17 @@ async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
     Returns
     -------
     float
-        Step the entity publishes, or the shared default when it
-        publishes none.
+        Step a number entity publishes, the smallest spacing between the
+        options of a select, or the shared default when neither is
+        readable.
     """
     state = _calibration_state(self, entity_id)
     if state is None:
         return DEFAULT_OFFSET_STEP
+    if state.domain == "select":
+        offered = sorted(set(_offered_offsets(state)))
+        spacings = [high - low for low, high in pairwise(offered)]
+        return min(spacings, default=DEFAULT_OFFSET_STEP)
     return float(str(state.attributes.get("step", DEFAULT_OFFSET_STEP)))
 
 
