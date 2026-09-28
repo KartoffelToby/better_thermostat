@@ -12,7 +12,6 @@ import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.exceptions import HomeAssistantError
 
 from ..utils.helpers import (
     celsius_to_system_temperature,
@@ -20,6 +19,7 @@ from ..utils.helpers import (
     normalize_hvac_mode,
 )
 from .base import wait_for_calibration_entity_or_timeout
+from .delegate import set_hvac_mode as delegate_set_hvac_mode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -324,20 +324,11 @@ async def set_offset(self, entity_id, offset) -> bool:
         ):
             await asyncio.sleep(3)
             # The offset is on the wire whatever happens to the mode after
-            # it; a refused mode is the mode channel's to report and retry.
-            try:
-                await set_hvac_mode(
-                    self, entity_id, self.real_trvs[entity_id].last_hvac_mode
-                )
-            except HomeAssistantError as exc:
-                _LOGGER.warning(
-                    "better_thermostat %s: hvac mode %s could not be restored on "
-                    "%s after the offset write: %s",
-                    self.device_name,
-                    self.real_trvs[entity_id].last_hvac_mode,
-                    entity_id,
-                    exc,
-                )
+            # it. The mode goes out through the mode channel, which retries,
+            # reports and paces a refusal like any other mode write.
+            await delegate_set_hvac_mode(
+                self, entity_id, self.real_trvs[entity_id].last_hvac_mode
+            )
 
         return True
     else:

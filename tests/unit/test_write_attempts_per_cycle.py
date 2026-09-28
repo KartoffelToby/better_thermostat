@@ -8,12 +8,16 @@ anyway. The same holds for all four channels a cycle writes: setpoint,
 mode, offset and valve.
 """
 
+from datetime import UTC, datetime
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
+import voluptuous as vol
 
 from custom_components.better_thermostat.adapters import (
     deconz,
@@ -30,7 +34,8 @@ VALVE_ENTITY = "number.trv_valve_position"
 CALIBRATION_ENTITY = "number.trv_local_temperature_calibration"
 
 _RETRY = "custom_components.better_thermostat.utils.retry"
-_LOGGERS = ("custom_components.better_thermostat.adapters.delegate", _RETRY)
+_DELEGATE = "custom_components.better_thermostat.adapters.delegate"
+_LOGGERS = (_DELEGATE, _RETRY)
 
 # Attempts one write is worth while its channel is not known to be out of
 # reach: the first one plus the delegate's retries.
@@ -308,3 +313,193 @@ class TestARefusedModeChange:
         assert answer is True
         assert calls.count(("number", "set_value")) == 1
         assert trv.last_calibration_requested == 1.0
+
+
+def _reports(thermostat, state):
+    """The TRV's climate entity publishes ``state`` in a Celsius system."""
+    thermostat.hass.states.get = MagicMock(return_value=state)
+    thermostat.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+
+
+def _ok(channel):
+    return True if channel == "offset" else None
+
+
+class TestAMarkThatNoLongerHolds:
+    """An out-of-reach mark lasts only as long as the outage it records."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("channel", "mode", "attributes"),
+        [("hvac_mode", "heat", {}), ("temperature", "off", {"temperature": 21.0})],
+        ids=["hvac_mode", "temperature"],
+    )
+    async def test_a_write_that_landed_despite_its_error_restores_the_retry(
+        self, channel, mode, attributes
+    ):
+        """A device reporting the value whose write raised took that write."""
+        stale = datetime(2026, 1, 1, tzinfo=UTC)
+        write = AsyncMock(
+            side_effect=[_unreachable()] * FULL_ATTEMPTS + [_unreachable(), None]
+        )
+        thermostat = _thermostat(_adapter(**{channel: write}))
+        _reports(thermostat, State(ENTITY_ID, "off", last_changed=stale))
+
+        with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+            await _write(channel, thermostat)
+            _reports(thermostat, State(ENTITY_ID, mode, attributes, last_changed=stale))
+            second = await _write(channel, thermostat)
+
+        assert write.await_count == FULL_ATTEMPTS + 2
+        assert not isinstance(second, Exception)
+        assert second is not False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_a_device_back_from_an_outage_restores_the_retry(self, channel):
+        """A TRV whose state changed after the failure is talking again."""
+        before = datetime(2026, 1, 1, tzinfo=UTC)
+        write = AsyncMock(
+            side_effect=[_unreachable()] * FULL_ATTEMPTS
+            + [_unreachable(), _ok(channel)]
+        )
+        thermostat = _thermostat(_adapter(**{channel: write}))
+        _reports(thermostat, State(ENTITY_ID, "unavailable", last_changed=before))
+
+        with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+            await _write(channel, thermostat)
+            _reports(thermostat, State(ENTITY_ID, "off", {"temperature": 5.0}))
+            await _write(channel, thermostat)
+
+        assert write.await_count == FULL_ATTEMPTS + 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_a_device_that_holds_its_old_value_stays_out_of_reach(self, channel):
+        """A refused write leaves the device as it was; the bound holds."""
+        before = datetime(2026, 1, 1, tzinfo=UTC)
+        write = AsyncMock(side_effect=_unreachable())
+        thermostat = _thermostat(_adapter(**{channel: write}))
+        _reports(
+            thermostat,
+            State(ENTITY_ID, "off", {"temperature": 5.0}, last_changed=before),
+        )
+
+        with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+            await _write(channel, thermostat)
+            await _write(channel, thermostat)
+
+        assert write.await_count == FULL_ATTEMPTS + 1
+
+
+class TestAnOngoingOutage:
+    """An outage that lasts is named again from time to time."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_it_is_reported_again_once_an_hour(self, channel, caplog):
+        """A radiator left unreachable for a day is not silent for a day."""
+        write = AsyncMock(side_effect=_unreachable())
+        thermostat = _thermostat(_adapter(**{channel: write}))
+        clock = MagicMock(return_value=1000.0)
+
+        def loud():
+            found = [
+                r
+                for r in caplog.records
+                if r.name in _LOGGERS and r.levelno >= logging.WARNING
+            ]
+            caplog.clear()
+            return found
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
+            patch(f"{_DELEGATE}.time.monotonic", clock),
+        ):
+            await _write(channel, thermostat)
+            loud()
+            clock.return_value = 1000.0 + 1800
+            await _write(channel, thermostat)
+            half_hour = loud()
+            clock.return_value = 1000.0 + 3601
+            await _write(channel, thermostat)
+            hour = loud()
+            clock.return_value = 1000.0 + 3700
+            await _write(channel, thermostat)
+            just_after = loud()
+
+        assert half_hour == []
+        assert len(hour) == 1
+        assert just_after == []
+
+
+class TestTheModeRestoredAfterAnOffset:
+    """The offset channel restores the mode through the mode channel."""
+
+    def _offset_thermostat(self, service_call):
+        thermostat = _thermostat_on(generic, service_call)
+        thermostat.hass.states.get = MagicMock(return_value=None)
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.local_temperature_calibration_entity = CALIBRATION_ENTITY
+        trv.last_hvac_mode = "heat"
+        return thermostat
+
+    @pytest.mark.asyncio
+    async def test_a_restored_mode_takes_the_mode_channel_out_of_its_outage(self):
+        """A mode that went out proves the mode channel is back in reach."""
+        thermostat = self._offset_thermostat(AsyncMock(return_value=None))
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.unreachable_write_channels["hvac_mode"] = delegate.WriteOutage(
+            since=datetime(2026, 1, 1, tzinfo=UTC), attempted="off", reported_at=0.0
+        )
+
+        with patch("asyncio.sleep", new=AsyncMock()):
+            assert await delegate.set_offset(thermostat, ENTITY_ID, 1.0) is True
+
+        assert "hvac_mode" not in trv.unreachable_write_channels
+
+    @pytest.mark.asyncio
+    async def test_a_refused_restore_is_reported_once_per_outage(self, caplog):
+        """Every offset write re-asserts the mode; the log names it once."""
+
+        async def service_call(domain, service, data, **kwargs):
+            if domain == "climate":
+                raise _unreachable()
+
+        thermostat = self._offset_thermostat(service_call)
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
+        ):
+            await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            caplog.clear()
+            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.5)
+
+        assert answer is True
+        assert [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "better_thermostat" in r.name
+        ] == []
+
+    @pytest.mark.asyncio
+    async def test_a_restore_refused_as_invalid_leaves_the_offset_written(self):
+        """A payload Home Assistant rejects does not unwrite the offset."""
+
+        async def service_call(domain, service, data, **kwargs):
+            if domain == "climate":
+                raise vol.Invalid("not a valid mode")
+
+        thermostat = self._offset_thermostat(service_call)
+
+        with (
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
+        ):
+            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+
+        assert answer is True
+        assert thermostat.real_trvs[ENTITY_ID].last_calibration_requested == 1.0
