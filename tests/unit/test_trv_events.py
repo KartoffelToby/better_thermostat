@@ -1217,6 +1217,79 @@ class TestTargetTempAdoption:
 
         assert mock_bt.bt_target_temp == 22.0
 
+    @pytest.mark.parametrize(
+        ("no_off", "bt_hvac_mode"),
+        [
+            pytest.param(False, HVACMode.HEAT, id="heating"),
+            pytest.param(True, HVACMode.OFF, id="no_off_device_room_off"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_an_ignored_auto_report_adopts_no_setpoint(
+        self, mock_bt, no_off, bt_hvac_mode
+    ):
+        """An AUTO report without the swap option is ignored as a whole.
+
+        The setpoint such a device shows in AUTO is its own schedule's, so it
+        changes neither the room's target nor, on a no_off device, its mode.
+        """
+        mock_bt.bt_hvac_mode = bt_hvac_mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.last_temperature = 19.0
+        trv.advanced["no_off_system_mode"] = no_off
+        attributes = {
+            "current_temperature": 18.0,
+            "temperature": 16.0,
+            "hvac_modes": ["off", "heat", "auto"],
+        }
+        new_state = _make_state(state_str="auto", attributes=attributes)
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="auto", attributes=attributes
+        )
+        old_state = _make_state(
+            state_str="heat",
+            attributes={"temperature": 19.0, "current_temperature": 18.0},
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 19.0
+        assert mock_bt.bt_hvac_mode == bt_hvac_mode
+
+    @pytest.mark.asyncio
+    async def test_a_swapped_device_reporting_auto_adopts_its_setpoint(self, mock_bt):
+        """On a heat auto swapped device AUTO is heating, so its setpoint counts.
+
+        A knob turn on such a device reports AUTO with the new setpoint, and
+        that setpoint becomes the room's target like any heating report's.
+        """
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.last_temperature = 19.0
+        trv.advanced["heat_auto_swapped"] = True
+        attributes = {
+            "current_temperature": 18.0,
+            "temperature": 16.0,
+            "hvac_modes": ["off", "heat", "auto"],
+        }
+        new_state = _make_state(state_str="auto", attributes=attributes)
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="auto", attributes=attributes
+        )
+        old_state = _make_state(
+            state_str="auto",
+            attributes={"temperature": 19.0, "current_temperature": 18.0},
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 16.0
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
     @pytest.mark.asyncio
     async def test_same_setpoint_not_adopted(self, mock_bt):
         """Setpoint == bt_target_temp should not trigger adoption."""
