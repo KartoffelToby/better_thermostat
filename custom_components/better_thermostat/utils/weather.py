@@ -255,6 +255,13 @@ async def check_weather_prediction(self) -> bool | None:
             if valid_temps:
                 avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
 
+            # A forecast whose entries and current reading are all unusable
+            # carries no temperature at all, so it gives no opinion rather
+            # than the "warm" an empty comparison would read as.
+            if avg_forecast_temp is None and not isinstance(
+                cur_outside_temp, (int, float)
+            ):
+                return None
             cond_cur = (
                 isinstance(cur_outside_temp, (int, float))
                 and cur_outside_temp < self.off_temperature

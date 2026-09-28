@@ -355,6 +355,35 @@ class TestCheckWeatherPrediction:
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
+    async def test_a_forecast_without_any_usable_temperature_gives_no_opinion(self):
+        """No usable reading anywhere is no verdict, not a warm forecast.
+
+        The entity returns forecast entries, but none carries a temperature,
+        and the entity reports no current temperature either. Answering False
+        would switch a weather-only room into summer mode on no data.
+        """
+        states = {WEATHER_ID: weather_state(temperature=None)}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value={
+                WEATHER_ID: {"forecast": [{"foo": 1}, {"condition": "sunny"}]}
+            }
+        )
+        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is None
+
+    async def test_a_warm_current_reading_decides_when_the_forecast_has_none(self):
+        """A usable current temperature still gives a verdict on its own."""
+        states = {WEATHER_ID: weather_state(temperature=18.0)}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value={
+                WEATHER_ID: {"forecast": [{"foo": 1}, {"condition": "sunny"}]}
+            }
+        )
+        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is False
+
     async def test_twice_daily_forecast_is_used(self):
         """An entity advertising twice-daily forecasts uses that type."""
         states = {
