@@ -19,7 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
@@ -36,6 +36,10 @@ from custom_components.better_thermostat.utils.controlling import (
     check_system_mode,
     check_target_temperature,
     control_trv,
+)
+from custom_components.better_thermostat.utils.helpers import (
+    TRV_SETPOINT_KEYS,
+    resolve_inbound_setpoint,
 )
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
@@ -338,6 +342,62 @@ class TestEchoSetpointsAcrossWrites:
         )
         assert trv.last_temperature == 20.5
         assert trv.echo_setpoint_values() == [20.0, 20.7, 20.5]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("intent", "sent"),
+        [
+            pytest.param(20.7, 20.5, id="rounded_onto_the_grid"),
+            pytest.param(27.0, 25.0, id="clamped_to_the_device_maximum"),
+        ],
+    )
+    async def test_the_value_a_failed_write_sent_is_remembered(self, intent, sent):
+        """The value the delegate put on the wire is an echo even when the call raised.
+
+        The device may have taken that value although the call failed, so a
+        later report of it, after the next write went out, is Better
+        Thermostat's write coming back, not a knob turn.
+        """
+        mock_self = _delegate_driven_self(**_seed_pending(20.0))
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.max_temp = 25.0
+        trv.adapter.set_temperature = AsyncMock(
+            side_effect=HomeAssistantError("timeout")
+        )
+
+        with (
+            _setpoint_cycle(intent, through_delegate=True),
+            pytest.raises(HomeAssistantError),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_temperature == sent
+        assert trv.echo_setpoint_values() == [20.0, intent, sent]
+
+        # The next write goes out; the device then reports the failed one.
+        trv.adapter.set_temperature = AsyncMock(return_value=True)
+        with _setpoint_cycle(21.0, through_delegate=True):
+            await control_trv(mock_self, "climate.trv1")
+
+        room = MagicMock()
+        room.device_name = "test_thermostat"
+        room.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        room.bt_min_temp = 5.0
+        room.bt_max_temp = 30.0
+        report = resolve_inbound_setpoint(
+            room,
+            State("climate.trv1", HVACMode.HEAT, {"temperature": sent}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(
+                trv.last_temperature,
+                trv.confirmed_setpoint,
+                *trv.echo_setpoint_values(),
+            ),
+            step=0.5,
+            log_source="test",
+        )
+        assert report is not None
+        assert report.is_echo is True
 
     @pytest.mark.asyncio
     async def test_a_direct_delegate_write_is_not_remembered(self):

@@ -1297,24 +1297,21 @@ async def control_trv(self, heater_entity_id=None):
                         )
                         if _tvr_has_quirk is False:
                             await set_temperature(self, heater_entity_id, _temperature)
+                    finally:
                         # The delegate stores the value it put on the wire, which
                         # its rounding and clamping may have moved off the
                         # intent; the device echoes that value, so it is
-                        # remembered as well.
-                        _sent_setpoint = self.real_trvs[
-                            heater_entity_id
-                        ].last_temperature
-                        if _sent_setpoint is not None:
-                            self.real_trvs[heater_entity_id].remember_setpoint_written(
-                                _sent_setpoint
-                            )
-                    finally:
-                        # Every write is watched on its own, a failed call
-                        # included: the device may have taken the value, and a
-                        # watchdog still waiting on an earlier write steps aside
-                        # for this one rather than holding the channel for a
-                        # command the device may never report.
+                        # remembered as well, a failed call included: the device
+                        # may have taken the value anyway. Every write is watched
+                        # on its own for the same reason, and a watchdog still
+                        # waiting on an earlier write steps aside for this one
+                        # rather than holding the channel for a command the
+                        # device may never report.
                         _written_trv = self.real_trvs[heater_entity_id]
+                        if _written_trv.last_temperature is not None:
+                            _written_trv.remember_setpoint_written(
+                                _written_trv.last_temperature
+                            )
                         _written_trv.target_temp_received = False
                         self.task_manager.create_task(
                             check_target_temperature(
