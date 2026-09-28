@@ -11,7 +11,16 @@ clock lies in the future after the wall clock stepped back.
 import json
 from unittest.mock import patch
 
-from custom_components.better_thermostat.utils.calibration import pid as pid_module
+from custom_components.better_thermostat.utils.calibration import (
+    mpc as mpc_module,
+    pid as pid_module,
+)
+from custom_components.better_thermostat.utils.calibration.mpc import (
+    MpcInput,
+    MpcParams,
+    MpcState,
+    compute_mpc,
+)
 from custom_components.better_thermostat.utils.calibration.pid import (
     MAX_DT_S,
     PIDParams,
@@ -30,6 +39,27 @@ _PREVIOUS_UPTIME_S = 20 * 86400.0
 
 _UPTIME_AFTER_REBOOT_S = 180.0
 """The monotonic clock on the first control cycle after the reboot."""
+
+_WALL_START_S = 1_700_000_000.0
+"""The wall-clock reading of the first MPC cycle."""
+
+_WALL_STEP_BACK_S = 4 * 3600.0
+"""How far the wall clock steps back, in seconds."""
+
+_MPC_WALL_STAMPS = (
+    "last_update_ts",
+    "last_time",
+    "last_trv_temp_ts",
+    "last_window_open_ts",
+    "last_learn_time",
+    "last_residual_time",
+    "virtual_temp_ts",
+    "last_room_temp_ts",
+    "last_integration_ts",
+    "created_ts",
+)
+"""Every MPC state field that holds a wall-clock stamp."""
+
 
 # -- Monotonic stamps: restored from a longer previous uptime -----------------
 
@@ -173,3 +203,70 @@ def test_auto_tune_resumes_within_the_first_cycles_after_a_core_restart():
     state = _tuning_cycles(_PREVIOUS_UPTIME_S + 300.0)
 
     assert state.pid_ki > 0.01
+
+
+# -- Wall-clock stamps: a step back of the wall clock -------------------------
+
+
+def _mpc_cycle(state: MpcState, wall_s: float, room: float) -> tuple[int, MpcState]:
+    """Run one MPC cycle at the wall-clock reading ``wall_s``."""
+    inp = MpcInput(
+        key="k",
+        target_temp_C=21.0,
+        current_temp_C=room,
+        trv_temp_C=22.0,
+        temp_slope_K_per_min=0.0,
+        outdoor_temp_C=5.0,
+    )
+    with patch.object(mpc_module, "time", return_value=wall_s):
+        out, state = compute_mpc(inp, MpcParams(), state=state, all_states={})
+    assert out is not None
+    return out.valve_percent, state
+
+
+def test_every_mpc_stamp_ahead_of_the_clock_is_taken_as_absent():
+    """No MPC stamp stays ahead of the wall clock after a cycle.
+
+    Every wall-clock stamp starts a day in the future, as after the clock
+    stepped back; one cycle later none lies ahead of the clock.
+    """
+    ahead = _WALL_START_S + 86400.0
+    state = MpcState(last_percent=100.0, last_temp=20.0, last_trv_temp=21.0)
+    for name in _MPC_WALL_STAMPS:
+        setattr(state, name, ahead)
+
+    _, state = _mpc_cycle(state, _WALL_START_S, room=20.0)
+
+    ahead_of_clock = {
+        name: getattr(state, name)
+        for name in _MPC_WALL_STAMPS
+        if getattr(state, name) is not None and getattr(state, name) > _WALL_START_S
+    }
+    assert ahead_of_clock == {}
+
+
+def test_mpc_backs_off_on_the_first_cycle_after_the_wall_clock_steps_back():
+    """A room over target closes the valve right after a clock step back.
+
+    Before the step the room is cold and the valve fully open. The step
+    back leaves the last update ahead of the clock; the minimum interval
+    between updates is measured within one clock, so it does not hold the
+    valve open until the clock catches up. Loss learning resumes as the
+    room cools.
+    """
+    state = MpcState()
+    wall = _WALL_START_S
+    for cycle in range(20):
+        percent, state = _mpc_cycle(state, wall, room=19.0 + 0.02 * cycle)
+        wall += 300.0
+    assert percent == 100
+    learned_before = state.loss_learn_count
+
+    wall -= _WALL_STEP_BACK_S
+    percent, state = _mpc_cycle(state, wall, room=21.8)
+    assert percent < 100
+
+    for cycle in range(1, 10):
+        wall += 300.0
+        _, state = _mpc_cycle(state, wall, room=21.8 - 0.02 * cycle)
+    assert state.loss_learn_count > learned_before
