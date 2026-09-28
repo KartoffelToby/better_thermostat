@@ -887,7 +887,7 @@ def _locked_device_moved(
     known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
     if entity_id == dual_role_entity_id(self):
         known += [self.bt_target_cooltemp, last_sent_cooler_temperature(self)]
-    known_values = [float(value) for value in known if value is not None]
+    known_values = [value for value in known if value is not None]
     if reported is None or not known_values:
         return False
     window = setpoint_echo_window(
