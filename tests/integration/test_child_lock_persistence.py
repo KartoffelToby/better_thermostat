@@ -7,13 +7,17 @@ survive a restart on its own rather than through some later save of the
 config entry.
 """
 
+from dataclasses import replace
+
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
+from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
+from .boot_sequence import finish_boot, set_up_during_boot
 from .conftest import (
     build_devices,
     click_through_the_options,
@@ -132,3 +136,156 @@ async def test_an_options_change_before_a_restart_wins_over_the_switch(hass):
 
     assert hass.states.get(SWITCH).state == STATE_ON
     assert _held(bt) is True
+
+
+DEVICE_LOCK = "lock.fake_trv_child_lock"
+LOCKING_TRV = replace(
+    GENERIC_HEAT_TRV, name="locking_trv", has_device_registry_entry=True
+)
+"""A head whose device carries a child-lock entity next to its thermostat."""
+
+
+async def _device_with_a_child_lock(
+    hass, locked: bool, *, reports: bool = True
+) -> list[str]:
+    """Build the head and give its device a child lock; return its commands.
+
+    With ``reports`` the lock's state follows each command at once; without
+    it the lock keeps reporting ``locked`` as it did before, as a device
+    whose reports lag behind its commands does.
+    """
+    await build_devices(hass, LOCKING_TRV)
+    registry = er.async_get(hass)
+    trv = registry.async_get(LOCKING_TRV.entity_id)
+    assert trv is not None and trv.device_id is not None
+    registry.async_get_or_create(
+        "lock",
+        "test",
+        "fake_trv_child_lock",
+        device_id=trv.device_id,
+        suggested_object_id="fake_trv_child_lock",
+    )
+    hass.states.async_set(DEVICE_LOCK, "locked" if locked else "unlocked")
+
+    commands: list[str] = []
+
+    async def _apply(call):
+        commands.append(call.service)
+        if reports:
+            hass.states.async_set(
+                DEVICE_LOCK, "locked" if call.service == "lock" else "unlocked"
+            )
+
+    hass.services.async_register("lock", "lock", _apply)
+    hass.services.async_register("lock", "unlock", _apply)
+    return commands
+
+
+def _device_locked(hass) -> bool:
+    return hass.states.get(DEVICE_LOCK).state == "locked"
+
+
+def _entry_with_option(child_lock: bool):
+    entry = make_entry(LOCKING_TRV)
+    entry.data["thermostat"][0]["advanced"]["child_lock"] = child_lock
+    return entry
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_the_device_follows_the_switch_after_a_restart(hass, wanted):
+    """After a restart the device holds the state the switch restored."""
+    set_room_sensor(hass, 19.0)
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(SWITCH, STATE_ON if wanted else STATE_OFF),
+                {"configured": not wanted},
+            )
+        ],
+    )
+    await _device_with_a_child_lock(hass, locked=wanted)
+    entry = _entry_with_option(not wanted)
+
+    await set_up_during_boot(hass, entry)
+    await finish_boot(hass, entry)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
+    assert _device_locked(hass) is wanted
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+@pytest.mark.parametrize("how", ["reload", "options_save"])
+async def test_the_device_follows_the_switch_after_a_reload(hass, wanted, how):
+    """A reload, or saving the options unchanged, leaves the device as the switch."""
+    set_room_sensor(hass, 19.0)
+    await _device_with_a_child_lock(hass, locked=not wanted)
+    entry = _entry_with_option(not wanted)
+    await _started(hass, entry)
+    await hass.services.async_call(
+        "switch",
+        "turn_on" if wanted else "turn_off",
+        {"entity_id": SWITCH},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert _device_locked(hass) is wanted
+
+    if how == "reload":
+        assert await hass.config_entries.async_reload(entry.entry_id)
+    else:
+        await click_through_the_options(hass, entry)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
+    assert _device_locked(hass) is wanted
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_the_device_follows_an_option_set_after_the_switch(hass, wanted):
+    """An option changed after the switch is what the device ends up with."""
+    set_room_sensor(hass, 19.0)
+    await _device_with_a_child_lock(hass, locked=not wanted)
+    entry = _entry_with_option(not wanted)
+    await _started(hass, entry)
+    await hass.services.async_call(
+        "switch",
+        "turn_off" if wanted else "turn_on",
+        {"entity_id": SWITCH},
+        blocking=True,
+    )
+
+    await click_through_the_options(hass, entry, child_lock=wanted)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
+    assert _device_locked(hass) is wanted
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_the_last_command_is_the_switch_state_while_reports_lag(hass, wanted):
+    """With the device's reports lagging, the last command sent is the switch's."""
+    set_room_sensor(hass, 19.0)
+    commands = await _device_with_a_child_lock(hass, locked=True, reports=False)
+    entry = _entry_with_option(not wanted)
+    await _started(hass, entry)
+    await hass.services.async_call(
+        "switch",
+        "turn_on" if wanted else "turn_off",
+        {"entity_id": SWITCH},
+        blocking=True,
+    )
+    commands.clear()
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    assert commands, "nothing was sent to the device"
+    assert commands[-1] == ("lock" if wanted else "unlock")

@@ -220,6 +220,9 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
 
         The switch and the options flow both set the lock, and the one set
         last wins: the restored state, unless the option has changed since.
+        The thermostat's startup may already have sent the configured option
+        to the device, so a restored state that differs from it is sent too,
+        after it.
         """
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
         last_state = await self.async_get_last_state()
@@ -233,7 +236,13 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
             return
         if trv.advanced is None:
             trv.advanced = {}
-        trv.advanced[CONF_CHILD_LOCK] = last_state.state == STATE_ON
+        restored = last_state.state == STATE_ON
+        configured = bool(trv.advanced.get(CONF_CHILD_LOCK))
+        trv.advanced[CONF_CHILD_LOCK] = restored
+        if restored != configured:
+            # The device may still report the state from before a command
+            # the startup sent, so the restored one is sent regardless.
+            await self._set_child_lock(restored, force=True)
 
     @property
     def device_info(self):
@@ -268,8 +277,12 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
         trv.advanced["child_lock"] = state
         self.async_write_ha_state()
 
-    async def _set_child_lock(self, state: bool):
-        """Set the child lock on the real device."""
+    async def _set_child_lock(self, state: bool, *, force: bool = False):
+        """Set the child lock on the real device.
+
+        With ``force`` the command is sent even when the device already
+        reports the target state.
+        """
         entity_registry = er.async_get(self._bt_climate.hass)
         reg_entity = entity_registry.async_get(self._trv_entity_id)
 
@@ -294,7 +307,7 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
             try:
                 if domain == "switch":
                     cur = self._bt_climate.hass.states.get(cl_entity)
-                    if cur and cur.state != target_state:
+                    if cur and (force or cur.state != target_state):
                         _LOGGER.debug(
                             "Better Thermostat Child Lock: Setting child lock (switch) for %s to %s",
                             cl_entity,
@@ -307,7 +320,7 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
                 elif domain == "lock":
                     target_lock = "locked" if state else "unlocked"
                     cur = self._bt_climate.hass.states.get(cl_entity)
-                    if cur and cur.state != target_lock:
+                    if cur and (force or cur.state != target_lock):
                         _LOGGER.debug(
                             "Better Thermostat Child Lock: Setting child lock (lock) for %s to %s",
                             cl_entity,
