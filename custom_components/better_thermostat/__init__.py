@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from asyncio import Lock
+import copy
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -152,16 +153,28 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
-    new = {**config_entry.data}
+    if isinstance(config_entry.data.get(CONF_HEATER), str):
+        _LOGGER.error(
+            "better_thermostat %s: this entry was created before version "
+            "1.0.0-Beta36 of the Better Thermostat integration; remove the BT "
+            "devices (integration) and add it again.",
+            config_entry.title,
+        )
+        return False
 
-    if config_entry.version == 1:
+    new = copy.deepcopy(dict(config_entry.data))
+    version = config_entry.version
+
+    # Each step lifts the entry by one version, so an old entry passes every
+    # step written after the one it was stored at.
+    if version <= 1:
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
 
-    if config_entry.version == 2:
+    if version <= 2:
         new[CONF_WINDOW_TIMEOUT] = 0
 
-    if config_entry.version == 3:
+    if version <= 3:
         for trv in new[CONF_HEATER]:
             if (
                 CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
@@ -175,11 +188,11 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                     {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
                 )
 
-    if config_entry.version == 4:
+    if version <= 4:
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CONF_NO_SYSTEM_MODE_OFF: False})
 
-    if config_entry.version == 5:
+    if version <= 5:
         new[CONF_WINDOW_TIMEOUT_AFTER] = new[CONF_WINDOW_TIMEOUT]
 
     if config_entry.version < 18:
