@@ -384,10 +384,17 @@ async def trigger_trv_change(self, event):
         log_source="trigger_trv_change()",
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
+    # An AUTO the mode decoding ignores says nothing about the room, so the
+    # setpoint it carries, typically the device's own schedule, is not adopted
+    # either. A swapped device decodes AUTO as HEAT and never matches.
+    _ignored_auto_report = (
+        mapped_state is None and _org_trv_state.state == HVACMode.AUTO
+    )
     if (
         _setpoint is not None
         and _old_heating_setpoint is not None
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
+        and not _ignored_auto_report
     ):
         _LOGGER.debug(
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",

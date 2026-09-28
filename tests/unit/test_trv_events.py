@@ -1266,6 +1266,71 @@ class TestHvacModeUpdate:
 
         assert mock_bt.bt_hvac_mode == bt_hvac_mode
 
+    @pytest.mark.parametrize(
+        ("bt_hvac_mode", "no_off"),
+        [(HVACMode.HEAT, False), (HVACMode.OFF, True)],
+        ids=["heating", "no_off_device_room_off"],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unswapped_device_reporting_auto_leaves_the_room_target(
+        self, mock_bt, bt_hvac_mode, no_off
+    ):
+        """A reported AUTO without the swap option carries no setpoint either.
+
+        The setpoint belongs to the ambiguous report, typically the device's
+        own schedule, so it must not become the room target, and on a
+        no_off_system_mode device it must not switch a room that is off on.
+        """
+        mock_bt.bt_hvac_mode = bt_hvac_mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = no_off
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "heat"
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 16.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert (mock_bt.bt_hvac_mode, mock_bt.bt_target_temp) == (bt_hvac_mode, 19.0)
+
+    @pytest.mark.asyncio
+    async def test_a_swapped_device_reporting_auto_sets_the_room_target(self, mock_bt):
+        """A reported AUTO with the swap option is heating and carries a setpoint.
+
+        On such a device AUTO is the heating mode, so a press on its own
+        controls reaches the room target like one reported in HEAT.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "auto"
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 16.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="auto")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert (mock_bt.bt_hvac_mode, mock_bt.bt_target_temp) == (HVACMode.HEAT, 16.0)
+
     @pytest.mark.asyncio
     async def test_a_missing_child_lock_flag_counts_as_unlocked(self, mock_bt):
         """A TRV whose config carries no child lock flag is not locked.
