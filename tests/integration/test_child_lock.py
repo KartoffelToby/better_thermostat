@@ -5,6 +5,7 @@ does not adopt it, and it puts the device back on its own command as soon as
 the device reports the press rather than on some later cycle.
 """
 
+from dataclasses import replace
 from unittest.mock import patch
 
 from homeassistant.components.climate import (
@@ -35,11 +36,11 @@ def _no_write_budget():
         yield
 
 
-async def _locked_room(hass):
+async def _locked_room(hass, profile=GENERIC_HEAT_TRV):
     """Set up a room whose only device is child-locked, and settle it."""
-    (device,) = await build_devices(hass, GENERIC_HEAT_TRV)
+    (device,) = await build_devices(hass, profile)
     set_room_sensor(hass, 19.0)
-    entry = make_entry(GENERIC_HEAT_TRV)
+    entry = make_entry(profile)
     entry.data["thermostat"][0]["advanced"]["child_lock"] = True
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
@@ -90,11 +91,21 @@ async def test_a_locked_knob_turn_is_turned_back_at_once(hass, turn):
     assert bt.bt_target_temp == 21.0
 
 
-async def test_a_locked_mode_press_is_turned_back_at_once(hass):
-    """A mode switched at a locked device returns to the commanded one."""
-    bt, device = await _locked_room(hass)
+@pytest.mark.parametrize(
+    ("offered", "pressed"),
+    [
+        ((HVACMode.HEAT, HVACMode.OFF), HVACMode.OFF),
+        ((HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF), HVACMode.AUTO),
+        ((HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF), HVACMode.COOL),
+    ],
+    ids=["off", "auto", "cool"],
+)
+async def test_a_locked_mode_press_is_turned_back_at_once(hass, offered, pressed):
+    """A locked device switched into any other mode it offers returns to heat."""
+    profile = replace(GENERIC_HEAT_TRV, hvac_modes=offered)
+    bt, device = await _locked_room(hass, profile)
 
-    _press(device, hvac_mode=HVACMode.OFF)
+    _press(device, hvac_mode=pressed)
 
     assert await wait_for(
         hass, lambda: device.hvac_mode == HVACMode.HEAT, timeout_s=2.0

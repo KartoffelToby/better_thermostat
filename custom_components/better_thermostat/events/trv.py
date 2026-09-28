@@ -359,14 +359,17 @@ async def trigger_trv_change(
                 # paths store the same way; get_hvac_bt_mode() publishes it as
                 # HEAT_COOL in a room with a cooler.
                 self.bt_hvac_mode = room_mode_intent(HVACMode(mapped_state))
-        elif (
-            child_lock
-            and new_state.state != old_state.state
-            and _org_trv_state.state != trv.last_hvac_mode
-        ):
-            # A mode switched at a locked device is not adopted, and the cycle
-            # requested for it drives the device back to the room's mode.
-            _main_change = True
+
+    if (
+        child_lock
+        and not mode_settled
+        and new_state.state != old_state.state
+        and _org_trv_state.state != trv.last_hvac_mode
+    ):
+        # A mode switched at a locked device is not adopted, whichever mode it
+        # is, and the cycle requested for it drives the device back to the
+        # mode Better Thermostat last sent it.
+        _main_change = True
 
     # The previous state only answers whether the TRV was publishing a setpoint
     # at all, so it is read without clamping or echo detection.
