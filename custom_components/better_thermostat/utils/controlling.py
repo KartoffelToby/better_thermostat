@@ -172,6 +172,11 @@ FAILED_CYCLE_BACKOFF_S = 2.0
 # not space the attempts any further; it would only hold back the retry that
 # picks up a device which starts accepting the command again.
 FAILED_CYCLE_BACKOFF_MAX_S = 300.0
+# Once a run of failed cycles has reached that ceiling it is reported as a
+# warning at most this often, with how long it has lasted; the attempts in
+# between go to the debug log. A device that refuses for good would otherwise
+# leave the same warning every few minutes all day.
+FAILED_CYCLE_WARNING_INTERVAL_S = 3600.0
 # How long a write channel waits for the device to confirm a command
 # before its watchdog releases the in-flight flag and assumes the command
 # applied. Shared by the mode, setpoint and calibration watchdogs, so a
@@ -734,16 +739,26 @@ class TaskManager:
 class _FailedCycleRun:
     """Consecutive control cycles that failed while the user's targets stood.
 
-    ``intent`` is the room targets the user had set at the time, ``reported``
-    the failures already logged with their traceback, as the TRV and the kind
-    of error, ``wait_s`` the pause the run has reached and ``retry`` the
-    pending re-queue.
+    ``intent`` is the room targets the user had set at the time and the whole
+    of what tells one run from the next. ``reported`` holds the failures
+    already logged with their traceback, as the TRV and the kind of error,
+    ``wait_s`` the pause the run has reached, ``started_at`` when its first
+    failure happened, ``warned_at`` when a failure at the ceiling was last
+    reported as a warning and ``retry`` the pending re-queue.
+
+    A TRV that starts failing during a run joins it and inherits its pause,
+    up to the ceiling, for the retry of its own write. The five-minute
+    reconcile tick queues a cycle for a device that does not hold what it
+    was sent anyway, so that write is not held back any longer than the
+    periodic ticks already space it.
     """
 
     intent: tuple[Any, ...]
     reported: frozenset[tuple[str, str]]
     count: int
     wait_s: float
+    started_at: float
+    warned_at: float | None = None
     retry: asyncio.Task[None] | None = None
 
 
@@ -793,14 +808,24 @@ def _pace_failed_cycle(
         return None
 
     intent = _user_intent(self)
+    now = self.clock.monotonic()
     if run is not None and run.intent == intent:
         count = run.count + 1
         wait_s = min(run.wait_s * 2, FAILED_CYCLE_BACKOFF_MAX_S)
         reported = run.reported
+        started_at = run.started_at
+        warned_at = run.warned_at
     else:
         count = 1
         wait_s = FAILED_CYCLE_BACKOFF_S
         reported = frozenset()
+        started_at = now
+        warned_at = None
+    # At the ceiling the run is reported hourly; below it every failure is.
+    at_ceiling = wait_s >= FAILED_CYCLE_BACKOFF_MAX_S
+    warn_again = not at_ceiling or (
+        warned_at is None or now - warned_at >= FAILED_CYCLE_WARNING_INTERVAL_S
+    )
     if run is not None and run.retry is not None:
         run.retry.cancel()
 
@@ -823,7 +848,7 @@ def _pace_failed_cycle(
                 outcome,
                 exc_info=outcome,
             )
-        else:
+        elif not at_ceiling:
             _LOGGER.warning(
                 "better_thermostat %s: controlling TRV %s failed again (%d cycles "
                 "in a row): %s; retrying in %.0f s",
@@ -833,11 +858,27 @@ def _pace_failed_cycle(
                 outcome,
                 delay_s,
             )
+        else:
+            _LOGGER.log(
+                logging.WARNING if warn_again else logging.DEBUG,
+                "better_thermostat %s: controlling TRV %s still failing after %d "
+                "cycles in %.0f min: %s; retrying every %.0f s",
+                self.device_name,
+                entity_id,
+                count,
+                (now - started_at) / 60.0,
+                outcome,
+                delay_s,
+            )
+    if at_ceiling and warn_again:
+        warned_at = now
     retry = asyncio.create_task(
         _requeue_failed_cycle(self, delay_s),
         name=f"bt_failed_cycle_retry_{self.device_name}",
     )
-    return _FailedCycleRun(intent, reported, count, wait_s, retry)
+    return _FailedCycleRun(
+        intent, reported, count, wait_s, started_at, warned_at, retry
+    )
 
 
 def advance_hvac_action(self: BetterThermostat) -> None:
