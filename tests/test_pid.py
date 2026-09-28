@@ -714,3 +714,20 @@ class TestPidTimeHandling:
         assert debug["dt_s"] == MAX_DT_S
         # error = 1 K -> integral step = ki * e * MAX_DT_S, not ki * e * 6 h.
         assert state.pid_integral == pytest.approx(0.001 * 1.0 * MAX_DT_S)
+
+    def test_auto_tune_that_cannot_compute_leaves_the_gains(self):
+        """Auto-tune is best effort: a setting it cannot use tunes nothing.
+
+        The control output is still computed; only the tuning step is
+        skipped, and the gains and the tuning stamp stay as they were.
+        """
+        params = PIDParams(auto_tune=True, tune_min_interval_s="300")
+        state = PIDState(pid_kp=60.0, pid_ki=0.01, pid_kd=2000.0)
+
+        percent, _, state = compute_pid(
+            params, 22.0, 20.0, 20.0, 0.0, "k", state=state, now=1000.0
+        )
+
+        assert percent > 0
+        assert (state.pid_kp, state.pid_ki, state.pid_kd) == (60.0, 0.01, 2000.0)
+        assert state.last_tune_ts == 0.0

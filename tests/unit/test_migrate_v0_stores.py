@@ -176,6 +176,32 @@ class TestImportLegacyData:
         assert tpi.last_percent == pytest.approx(65.0)
         assert tpi.last_update_ts == pytest.approx(1700000000.0)
 
+    @pytest.mark.parametrize(
+        ("section", "entry"),
+        [
+            ("mpc", {"gain_est": "abc"}),
+            ("mpc", {"gain_est": float("nan")}),
+            ("pid", {"pid_kp": "abc"}),
+            ("pid", {"pid_kp": float("nan")}),
+            ("tpi", {"last_update_ts": "abc"}),
+            ("tpi", {"last_update_ts": float("nan")}),
+        ],
+    )
+    def test_a_legacy_value_that_is_dropped_names_its_key(
+        self, caplog, section, entry
+    ) -> None:
+        """A legacy value the import cannot use is reported with the entry key."""
+        mgr = _make_state_manager()
+
+        with caplog.at_level(logging.WARNING):
+            _import_legacy_data(mgr, **{f"{section}_data": {"uid1:trv_a": entry}})
+
+        assert any(
+            "uid1:trv_a" in record.getMessage()
+            for record in caplog.records
+            if record.levelno >= logging.WARNING
+        ), caplog.text
+
     def test_import_thermal_data(self) -> None:
         """Thermal data is deserialized and stored as ThermalStats."""
         mgr = _make_state_manager()

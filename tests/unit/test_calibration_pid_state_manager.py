@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from custom_components.better_thermostat.calibration import _compute_pid_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,
@@ -36,6 +37,7 @@ def _make_bt(state_mgr: _PidStateStub) -> MagicMock:
     bt.temp_slope = 0.0
     bt.window_open = False
     bt.bt_hvac_mode = "heat"
+    bt.clock = FakeClock(monotonic_value=1_000.0)
     bt.real_trvs = {
         "climate.trv": Trv.from_legacy_dict(
             "climate.trv",
