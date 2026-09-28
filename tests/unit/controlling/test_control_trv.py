@@ -3793,7 +3793,9 @@ class TestEchoSetpointBookkeeping:
             assert trv.echo_setpoint_values() == [26.0]
 
             trv_attrs["temperature"] = 26.0
-            await check_target_temperature(mock_self, "climate.trv1")
+            await check_target_temperature(
+                mock_self, "climate.trv1", trv.last_setpoint_write_id, 26.0
+            )
             assert trv.confirmed_setpoint == 26.0
             assert trv.echo_setpoint_values() == []
 

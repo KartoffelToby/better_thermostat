@@ -2128,6 +2128,43 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
+    async def test_a_routine_no_off_report_in_a_room_with_a_cooler_requests_no_cycle(
+        self, mock_bt
+    ):
+        """A device without an off mode repeating its setpoint leaves a heating room as it is.
+
+        A room with a cooler heats in HEAT_COOL. A routine report of the
+        setpoint the device already holds names the mode the room is in, so
+        it moves nothing and requests no control cycle.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 25.0
+        routine = {"temperature": 20.0, "current_temperature": 18.0}
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat", attributes=routine
+        )
+        event = _make_event(
+            mock_bt,
+            new_state=_make_state(attributes=routine),
+            old_state=_make_state(attributes=routine),
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT_COOL
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_no_off_wakeup_is_capped_without_a_tie_break(self, mock_bt):
         """A no_off wakeup against a cool target with room below it needs no fallback.
 
