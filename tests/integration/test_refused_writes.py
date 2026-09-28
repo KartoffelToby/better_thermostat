@@ -71,10 +71,7 @@ class _RoundLog(logging.Handler):
         self.rounds: list[tuple[float, logging.LogRecord]] = []
 
     def emit(self, record: logging.LogRecord) -> None:
-        if (
-            record.levelno >= logging.WARNING
-            and "controlling TRV" in record.getMessage()
-        ):
+        if "controlling TRV" in record.getMessage():
             self.rounds.append((self.clock.t, record))
 
 
@@ -121,6 +118,8 @@ async def refusing_room(hass, fake_trv, request):
 
     log = _RoundLog(clock)
     logger = logging.getLogger(controlling.__name__)
+    level = logger.level
+    logger.setLevel(logging.DEBUG)
     logger.addHandler(log)
     try:
         with (
@@ -136,6 +135,7 @@ async def refusing_room(hass, fake_trv, request):
             yield bt, fake_trv, log
     finally:
         logger.removeHandler(log)
+        logger.setLevel(level)
 
 
 async def _set_target(hass, temperature: float) -> None:
