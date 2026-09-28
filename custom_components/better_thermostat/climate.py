@@ -371,6 +371,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def reset_heating_power(self):
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
+        self.schedule_save_state()
         self.async_write_ha_state()
 
     # Thermal tracker properties
