@@ -7,12 +7,19 @@ algorithm it runs now must be there and alive.
 """
 
 import copy
+from unittest.mock import patch
 
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    setup_test_component_platform,
+)
 
+from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -22,6 +29,7 @@ from .conftest import (
     DOMAIN,
     SENSOR_ID,
     TRV_ID,
+    FakeTrvEntity,
     make_entry,
     setup_entry,
     wait_for_startup,
@@ -213,3 +221,66 @@ async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass, fake_t
     }
     assert left == set()
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[MPC]
+
+
+class _Head(FakeTrvEntity):
+    """A head with its own name and entity id."""
+
+    def __init__(self, name):
+        super().__init__()
+        self._attr_name = name
+
+
+async def test_a_setup_missing_a_trv_removes_none_of_its_entities(hass):
+    """A thermostat that could not set up one of its TRVs keeps that TRV's entities.
+
+    The registry entries of a TRV the thermostat failed to build are not
+    stale; they come back once it is built.
+    """
+    heads = [_Head("head a"), _Head("head b"), _Head("head c")]
+    setup_test_component_platform(hass, CLIMATE_DOMAIN, heads)
+    assert await async_setup_component(
+        hass, CLIMATE_DOMAIN, {CLIMATE_DOMAIN: {"platform": "test"}}
+    )
+    await hass.async_block_till_done()
+    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
+    template = _entry_in_mode(PID)
+    thermostats = [
+        {**copy.deepcopy(template.data["thermostat"][0]), "trv": head.entity_id}
+        for head in heads
+    ]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=template.version,
+        data={**template.data, "thermostat": thermostats},
+        title=template.title,
+    )
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    before = _registered(hass, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    broken = heads[1].entity_id
+    load = climate_module.load_model_quirks
+
+    async def _failing_for_one(bt, model, entity_id):
+        if entity_id == broken:
+            raise RuntimeError("quirk module broken")
+        return await load(bt, model, entity_id)
+
+    with patch.object(
+        climate_module, "load_model_quirks", autospec=True, side_effect=_failing_for_one
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert before <= _registered(hass, entry)
+
+
+def _registered(hass, entry) -> set[str]:
+    """Return the unique_ids of the entry's registered entities."""
+    registry = er.async_get(hass)
+    return {
+        reg.unique_id
+        for reg in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
