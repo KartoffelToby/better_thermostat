@@ -38,6 +38,7 @@ from custom_components.better_thermostat.adapters import (
     zwave_js,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -50,6 +51,17 @@ ADAPTERS = {
     "zwave_js": zwave_js,
 }
 ADAPTER_IDS = sorted(ADAPTERS)
+
+
+@pytest.fixture(autouse=True)
+def _helper_entities_registered_and_enabled():
+    """The registry holds the TRV's helper entities as enabled entries."""
+    registry = make_entity_registry(make_registry_entry(VALVE_ENTITY))
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
 
 
 def _declares_valve_write(module):

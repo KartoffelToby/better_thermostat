@@ -233,7 +233,12 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
 
     @property
     def native_step(self) -> float:
-        """Return the step the thermostat's setpoint moves in."""
+        """Return the step the thermostat's setpoint moves in.
+
+        Home Assistant converts this number's value and range into the system
+        unit but publishes its step as given, so the step is the one of the
+        system unit, as the climate entity publishes it.
+        """
         return self._bt_climate.target_temperature_step or 0.1
 
     def _follow_thermostat(self) -> None:
