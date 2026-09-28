@@ -1018,12 +1018,13 @@ class TestControlTrvAvailablePath:
             mock_self.task_manager.create_task.assert_called()
 
     @pytest.mark.asyncio
-    async def test_a_refused_mode_write_arms_no_confirmation_wait(self):
-        """A refused mode leaves user presses on the device to be adopted.
+    async def test_a_refused_mode_is_not_taken_as_the_device_mode(self):
+        """A refused mode is retried, and the device keeps the mode it reports.
 
-        While the confirmation wait runs, a setpoint or mode the user sets on
-        the device is not adopted; arming it for a refused write would ignore
-        the user for minutes and then assume the mode was applied.
+        The mode last commanded is what the end-of-cycle refresh caches and
+        what the inbound handler compares a report against. A refused
+        command recorded there would read the device's next plain report as
+        a press back to its old mode and undo the user's choice.
         """
         trv = _default_trv_config(
             last_hvac_mode=HVACMode.OFF, system_mode_received=True
@@ -1033,10 +1034,11 @@ class TestControlTrvAvailablePath:
             trv_attrs={"temperature": 20.0},
             real_trvs={"climate.trv1": trv},
         )
+        set_mode = AsyncMock(return_value=False)
 
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_hvac_mode"], new=AsyncMock(return_value=False)),
+            patch(_PATCHES["set_hvac_mode"], new=set_mode),
             patch(
                 _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
             ),
@@ -1054,7 +1056,13 @@ class TestControlTrvAvailablePath:
             mock_window.return_value = HVACMode.HEAT
 
             await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
 
+        assert [c.args[2] for c in set_mode.await_args_list] == [
+            HVACMode.HEAT,
+            HVACMode.HEAT,
+        ]
+        assert trv.last_hvac_mode == HVACMode.OFF
         assert trv.system_mode_received is True
         assert not any(
             call.kwargs.get("name") == "bt_check_system_mode_climate.trv1"

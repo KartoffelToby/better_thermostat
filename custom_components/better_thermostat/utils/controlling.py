@@ -1042,6 +1042,7 @@ async def control_trv(self, heater_entity_id=None):
                     _trv.state,
                     _new_hvac_mode,
                 )
+                _commanded_before = self.real_trvs[heater_entity_id].last_hvac_mode
                 self.real_trvs[heater_entity_id].last_hvac_mode = _new_hvac_mode
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, heater_entity_id, _new_hvac_mode
@@ -1054,7 +1055,17 @@ async def control_trv(self, heater_entity_id=None):
                     )
                 # A refused mode is written again by the next cycle, which
                 # still finds the device in its old mode; there is nothing to
-                # wait for until then.
+                # wait for until then. Until it goes through, the device holds
+                # the mode it reports, and that is the mode last commanded as
+                # far as the mode cache and the inbound handler are concerned:
+                # the refused one would read the device's next plain report
+                # as a press back to its old mode.
+                if _mode_refused:
+                    self.real_trvs[heater_entity_id].last_hvac_mode = (
+                        _commanded_before
+                        if _trv.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                        else _trv.state
+                    )
                 if (
                     not _mode_refused
                     and self.real_trvs[heater_entity_id].system_mode_received is True
