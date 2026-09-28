@@ -173,6 +173,23 @@ def test_derivative_after_a_core_restart_spreads_the_drift_over_the_gap():
     assert abs(debug["d"]) <= params.kd * 0.3 / 240.0
 
 
+def test_auto_tune_reads_no_overshoot_across_a_host_reboot():
+    """The error before a reboot and the first one after it form no pair.
+
+    The room was well below target at shutdown and reached it while the
+    host was down. Auto-tune reads an overshoot from two errors of
+    consecutive cycles; across the downtime they are not, so the first
+    cycle after the reboot leaves the proportional and derivative gains.
+    """
+    params = PIDParams(auto_tune=True, min_hold_time_s=0.0)
+    state = _restored_after_reboot(_state_at_shutdown(last_abs_error=1.0))
+    first_cycle_s = params.tune_min_interval_s + 60.0
+
+    _, _, state = _cycle(params, state, now=first_cycle_s, room=21.0)
+
+    assert (state.pid_kp, state.pid_kd) == (60.0, 2000.0)
+
+
 def _tuning_cycles(start_s: float) -> PIDState:
     """Run a sluggish room for three cycles from ``start_s`` and return the state.
 
