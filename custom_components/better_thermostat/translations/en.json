@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Please select at least one real thermostat.",
-      "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature."
+      "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
+      "no_sensor": "Please select a room temperature sensor."
     }
   },
   "issues": {

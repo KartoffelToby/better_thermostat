@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
-      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır."
+      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
+      "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin."
     }
   },
   "issues": {

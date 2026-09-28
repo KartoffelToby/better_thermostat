@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Vyberte prosím aspoň jeden skutočný termostat.",
-      "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu."
+      "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
+      "no_sensor": "Vyberte snímač izbovej teploty."
     }
   },
   "issues": {

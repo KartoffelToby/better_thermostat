@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
-      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen."
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
+      "no_sensor": "Vælg venligst en rumtemperatursensor."
     }
   },
   "issues": {

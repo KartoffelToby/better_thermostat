@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
-      "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej."
+      "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
+      "no_sensor": "Wybierz czujnik temperatury pomieszczenia."
     }
   },
   "issues": {

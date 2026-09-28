@@ -1169,6 +1169,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 raise
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
             self.updated_config = normalized
+            # The room sensor is required, but in this form it is optional so
+            # the stored one can be pre-filled; an emptied selector arrives as
+            # a missing key.
+            if not normalized.get(CONF_SENSOR):
+                errors[CONF_SENSOR] = "no_sensor"
 
             if not errors:
                 self.trv_bundle = []

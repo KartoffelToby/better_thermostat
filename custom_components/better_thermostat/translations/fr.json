@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Veuillez sélectionner au moins un vrai thermostat.",
-      "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale."
+      "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale.",
+      "no_sensor": "Veuillez sélectionner un capteur de température ambiante."
     }
   },
   "issues": {

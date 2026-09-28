@@ -120,7 +120,8 @@
     },
     "error": {
       "no_heater": "Seleziona almeno un vero termostato.",
-      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima."
+      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
+      "no_sensor": "Seleziona un sensore di temperatura ambiente."
     }
   },
   "issues": {
