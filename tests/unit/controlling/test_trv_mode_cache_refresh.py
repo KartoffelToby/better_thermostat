@@ -399,6 +399,25 @@ class TestReportsHeldDuringACycle:
         assert handler.await_args.kwargs["mode_settled"] is True
 
     @pytest.mark.asyncio
+    async def test_a_pending_mode_command_keeps_the_commanded_mode_cached(
+        self, thermostat, reported_states
+    ):
+        """A mode reported while a mode command is unconfirmed stays out of the cache.
+
+        The cache keeps the commanded mode, so the device's next report after
+        the command is settled reaches the handler as the change it carries.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.system_mode_received = False
+        trv.report_unread = True
+        reported_states[ENTITY_ID] = _reported_state("off")
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert trv.hvac_mode == "heat"
+        assert thermostat.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
     async def test_an_unavailable_device_has_nothing_to_read(
         self, thermostat, reported_states
     ):
