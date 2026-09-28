@@ -119,6 +119,10 @@ class Trv:
     # reports each one once instead of on every cycle. Cleared whenever the
     # device reports a different mode list.
     unsupported_modes_logged: set[str] = field(default_factory=set)
+    # Helper entities (calibration, valve) already annunciated as disabled
+    # in Home Assistant, so the warning is logged once per entity while it
+    # stays disabled instead of per lookup or write.
+    disabled_siblings_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None

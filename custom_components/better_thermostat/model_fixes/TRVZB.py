@@ -13,6 +13,8 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
+from ..utils.helpers import is_sibling_entry
+
 _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 84
@@ -173,7 +175,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         _TK_CLOSING = {"valve_closing_degree"}
 
         for ent in entity_registry.entities.values():
-            if ent.device_id != device_id or ent.domain != "number":
+            if not is_sibling_entry(ent, device_id) or ent.domain != "number":
                 continue
             # Prefer translation_key (stable, language-independent)
             tk = getattr(ent, "translation_key", None)
@@ -437,7 +439,7 @@ def _find_device_entity(
     device_id : str | None
         The device the sibling has to belong to. ``None`` is no device and
         matches nothing: every entity that belongs to no device would
-        otherwise be a candidate.
+        otherwise be a candidate. A disabled entry is no sibling either.
     domain : str
         The entity domain to search, ``number`` or ``select`` here.
     translation_keys : frozenset[str]
@@ -453,12 +455,10 @@ def _find_device_entity(
         match when no entry carries one of the keys, or ``None`` when the
         device has no such entity.
     """
-    if device_id is None:
-        return None
     siblings = [
         ent
         for ent in entity_registry.entities.values()
-        if ent.device_id == device_id and ent.domain == domain
+        if is_sibling_entry(ent, device_id) and ent.domain == domain
     ]
     for ent in siblings:
         if getattr(ent, "translation_key", None) in translation_keys:
