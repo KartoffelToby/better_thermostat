@@ -3623,15 +3623,15 @@ class TestHomematicIPWritePacing:
         """Close the budget retries a test leaves without running them."""
         self._retries = []
         yield
-        for coro, _name in self._retries:
+        for coro, _name, _task in self._retries:
             coro.close()
 
     def _room(self, heads):
         """Return a thermostat driving ``heads`` (entity id -> homematicip).
 
         Only the budget retries the cycles queue are kept, for the test to
-        run; every other task a cycle creates, such as a confirmation
-        watchdog, is closed at once.
+        run, each with the task handle it was given; every other task a
+        cycle creates, such as a confirmation watchdog, is closed at once.
         """
         real_trvs = {
             entity_id: _paced_trv(entity_id, homematicip=flag)
@@ -3645,11 +3645,12 @@ class TestHomematicIPWritePacing:
         created = self._retries
 
         def _capture(coro, name=None, **kwargs):
+            task = Mock()
             if (name or "").startswith("bt_budget_retry_"):
-                created.append((coro, name))
+                created.append((coro, name, task))
             else:
                 coro.close()
-            return Mock()
+            return task
 
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_capture))
         mock_self.last_user_change_monotonic = None
@@ -3683,14 +3684,17 @@ class TestHomematicIPWritePacing:
 
     @staticmethod
     async def _retry_delays(created, entity_id):
-        """Run the budget retries queued for ``entity_id``; return their waits."""
+        """Run the budget retries queued for ``entity_id``; return their waits.
+
+        A retry whose task was cancelled never wakes, so it is not run.
+        """
         delays = []
 
         async def _sleep(seconds):
             delays.append(seconds)
 
-        for coro, name in created:
-            if name == f"bt_budget_retry_{entity_id}":
+        for coro, name, task in created:
+            if name == f"bt_budget_retry_{entity_id}" and not task.cancel.called:
                 with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
                     await coro
             else:
@@ -3819,10 +3823,12 @@ class TestHomematicIPWritePacing:
         mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
         await self._cycle(mock_self, [self.HMIP], 24.0, written)
         assert written == [(self.HMIP, 22.0)]
+        tasks = [task for _coro, name, task in created if name.endswith(self.HMIP)]
+        assert [task.cancel.called for task in tasks] == [True, False]
 
         delays = await self._retry_delays(created, self.HMIP)
-        assert min(delays) == pytest.approx(MIN_WRITE_INTERVAL_S - 15.0)
+        assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S - 15.0)]
 
-        mock_self.clock.advance(min(delays))
+        mock_self.clock.advance(delays[0])
         await self._cycle(mock_self, [self.HMIP], 24.0, written)
         assert written[1:] == [(self.HMIP, 24.0)]
