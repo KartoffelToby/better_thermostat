@@ -2557,6 +2557,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             try:
                 failed = await self._initialize_trvs([entity_id])
+            except Exception:
+                # A raise outside the steps that log their own failure ends
+                # this attempt the same way a failed step does, so it counts
+                # toward the bound instead of repeating on every report.
+                _LOGGER.exception(
+                    "better_thermostat %s: initialising TRV %s raised",
+                    self.device_name,
+                    entity_id,
+                )
+                failed = {entity_id}
             finally:
                 self._trvs_initializing.discard(entity_id)
             if self.is_removed or self.real_trvs.get(entity_id) is not trv:

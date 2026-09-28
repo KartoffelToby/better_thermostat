@@ -3294,17 +3294,52 @@ class TestATrvThatArrivesAfterStartup:
 
     @pytest.mark.asyncio
     async def test_a_failed_initialization_is_tried_again_on_the_next_report(self, bt):
-        """An initialisation that raised leaves the TRV awaiting its next try."""
+        """An initialisation that raised leaves the TRV awaiting its next try.
+
+        The raise ends that attempt, not the look for returned TRVs, which
+        runs inside the TRV listener.
+        """
         _room_with_a_trv_left_behind(bt, available=True)
         bt._initialize_trvs.side_effect = [RuntimeError("boom"), set()]
 
-        with patch(f"{_CLIMATE}.request_control_cycle"), pytest.raises(RuntimeError):
+        with patch(f"{_CLIMATE}.request_control_cycle") as request:
             await BetterThermostat._initialize_arrived_trvs(bt)
         assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+        assert bt._trvs_initializing == set()
+        request.assert_not_called()
 
-        with patch(f"{_CLIMATE}.request_control_cycle"):
+        with patch(f"{_CLIMATE}.request_control_cycle") as request:
             await BetterThermostat._initialize_arrived_trvs(bt)
         assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+        assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == 0
+        request.assert_called_once_with(bt)
+
+    @pytest.mark.asyncio
+    async def test_an_initialization_that_keeps_raising_counts_toward_the_bound(
+        self, bt
+    ):
+        """A raising attempt is a failed attempt like a quietly failing step.
+
+        Otherwise a TRV whose initialisation raises every time would be kept
+        out for good and set up again on every report, which the bound on
+        failed attempts exists to prevent.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt._initialize_trvs.side_effect = RuntimeError("boom")
+
+        for attempt in range(1, LATE_SETUP_ATTEMPTS):
+            with patch(f"{_CLIMATE}.request_control_cycle") as request:
+                await BetterThermostat._initialize_arrived_trvs(bt)
+            assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+            assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == attempt
+            request.assert_not_called()
+
+        with patch(f"{_CLIMATE}.request_control_cycle") as request:
+            await BetterThermostat._initialize_arrived_trvs(bt)
+
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+        assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == 0
+        request.assert_called_once_with(bt)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("failing_step", _FAILING_STEPS)
