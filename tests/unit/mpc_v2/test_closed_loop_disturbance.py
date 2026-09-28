@@ -81,7 +81,7 @@ def _simulate(
     *,
     plant: PlantParams,
     outdoor: float,
-    free_heat_k_per_min: float,
+    free_heat_k_per_min: float | Callable[[float], float],
     setpoint_at: Callable[[float], float],
     start: float,
     window_open_h: tuple[float, float] | None = None,
@@ -134,9 +134,14 @@ def _simulate(
         setpoints.append(setpoint)
         valves.append(applied_pct)
         windows.append(is_open)
-        drift = free_heat_k_per_min + (DRAFT_K_PER_MIN if is_open else 0.0)
+        draft = DRAFT_K_PER_MIN if is_open else 0.0
         for _step in range(int(CYCLE_S / ROOM_STEP_S)):
-            x = room.discrete_step(x, applied_pct / 100.0, outdoor, drift)
+            free_heat = (
+                free_heat_k_per_min(t_s / 3600.0)
+                if callable(free_heat_k_per_min)
+                else free_heat_k_per_min
+            )
+            x = room.discrete_step(x, applied_pct / 100.0, outdoor, free_heat + draft)
             t_s += ROOM_STEP_S
     return _Trace(
         tuple(hours), tuple(rooms), tuple(setpoints), tuple(valves), tuple(windows)
@@ -189,77 +194,15 @@ def _reachable(outdoor: float, free_heat: float) -> bool:
     return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT_C + 0.5
 
 
-_OFFSET = pytest.mark.xfail(
-    strict=True,
-    reason="the optimiser predicts the room at the radiator temperature it would "
-    "need without free heat, so a standing heat gain settles the room 0.1 to "
-    "1.5 K above the setpoint",
-)
-_OFFSET_AND_OVERESTIMATE = pytest.mark.xfail(
-    strict=True,
-    reason="the room settles 0.3 K above the setpoint: the optimiser plans without "
-    "the free heat, and the disturbance observer reports it at about 1.6 times "
-    "its real rate",
-)
-_WINDUP_AFTER_STEP = pytest.mark.xfail(
-    strict=True,
-    reason="the integral term accumulates the error of the whole valve ramp and "
-    "keeps the room more than 0.1 K above the new setpoint for hours",
-)
-_WINDUP_AFTER_GAP = pytest.mark.xfail(
-    strict=True,
-    reason="the first re-plan after the window closes integrates the error of the "
-    "whole gap, and the room overshoots the setpoint by more than 0.1 K",
-)
-_OFFSET_PLUS_WINDUP = pytest.mark.xfail(
-    strict=True,
-    reason="the room overshoots the setpoint: the offset from planning without "
-    "the free heat adds to the integral the recovery ramp winds up",
-)
-
-
-def _cells(marks: dict[tuple[float, float], pytest.MarkDecorator]) -> list:
-    """Return the outdoor × free-heat grid with the given per-cell marks."""
+def _cells() -> list:
+    """Return the outdoor × free-heat grid as test parameters."""
     return [
         pytest.param(
-            outdoor,
-            free_heat,
-            marks=[marks[(outdoor, free_heat)]]
-            if (outdoor, free_heat) in marks
-            else [],
-            id=f"outdoor{outdoor:+.0f}-free_heat{free_heat:.2f}",
+            outdoor, free_heat, id=f"outdoor{outdoor:+.0f}-free_heat{free_heat:.2f}"
         )
         for outdoor in OUTDOOR_C
         for free_heat in FREE_HEAT_K_PER_MIN
     ]
-
-
-_SETTLED_MARKS = {
-    (0.0, 0.02): _OFFSET,
-    (0.0, 0.03): _OFFSET_AND_OVERESTIMATE,
-    (-10.0, 0.02): _OFFSET,
-    (-10.0, 0.03): _OFFSET,
-    (-16.0, 0.02): _OFFSET,
-    (-16.0, 0.03): _OFFSET,
-}
-_STEP_MARKS = {
-    (0.0, 0.0): _WINDUP_AFTER_STEP,
-    **{
-        (outdoor, free_heat): _OFFSET_PLUS_WINDUP
-        for outdoor in OUTDOOR_C
-        for free_heat in FREE_HEAT_K_PER_MIN
-        if free_heat > 0.0
-    },
-}
-_GAP_MARKS = {
-    (0.0, 0.0): _WINDUP_AFTER_GAP,
-    **{
-        (outdoor, free_heat): _OFFSET_PLUS_WINDUP
-        for outdoor in OUTDOOR_C
-        for free_heat in FREE_HEAT_K_PER_MIN
-        if free_heat > 0.0
-    },
-}
 
 
 def test_grid_holds_reachable_and_unreachable_cells() -> None:
@@ -279,7 +222,7 @@ def test_grid_holds_reachable_and_unreachable_cells() -> None:
     assert _ceiling(PlantParams(), -16.0, 0.0) == pytest.approx(16.4)
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_SETTLED_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells())
 def test_settled_room_holds_the_setpoint_under_standing_free_heat(
     outdoor: float, free_heat: float
 ) -> None:
@@ -338,7 +281,7 @@ def _assert_recovery_without_overshoot(
     )
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_STEP_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells())
 def test_setpoint_step_is_reached_without_overshoot(
     outdoor: float, free_heat: float
 ) -> None:
@@ -348,7 +291,7 @@ def test_setpoint_step_is_reached_without_overshoot(
     _assert_recovery_without_overshoot(trace, STEP_AT_H, outdoor, free_heat)
 
 
-@pytest.mark.parametrize(("outdoor", "free_heat"), _cells(_GAP_MARKS))
+@pytest.mark.parametrize(("outdoor", "free_heat"), _cells())
 def test_ventilation_gap_is_recovered_without_overshoot(
     outdoor: float, free_heat: float
 ) -> None:
@@ -378,22 +321,8 @@ HARD_SETPOINT_C = 25.0
 @pytest.mark.parametrize(
     "free_heat",
     [
-        pytest.param(0.0, id="free_heat0.000"),
-        *(
-            pytest.param(
-                free_heat,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="once the governor passes the setpoint, the optimiser "
-                    "linearises at a radiator temperature above the water "
-                    "temperature, predicts that opening the valve cools the room, "
-                    "and keeps the valve closed while the room cools far below "
-                    "the setpoint",
-                ),
-                id=f"free_heat{free_heat:.3f}",
-            )
-            for free_heat in (0.012, 0.02, 0.03)
-        ),
+        pytest.param(free_heat, id=f"free_heat{free_heat:.3f}")
+        for free_heat in (0.0, 0.012, 0.02, 0.03)
     ],
 )
 def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None:
@@ -437,22 +366,8 @@ def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None
 @pytest.mark.parametrize(
     "free_heat",
     [
-        pytest.param(0.0, id="free_heat0.00"),
-        *(
-            pytest.param(
-                free_heat,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="the observer divides the raw Kalman innovation by "
-                    "the elapsed time, and a constant heat gain keeps that "
-                    "innovation at the rate over the filter's room gain: the "
-                    "estimate is 1.6 times the real rate at five-minute cycles "
-                    "and runs into its 0.05 K/min clamp at one-minute cycles",
-                ),
-                id=f"free_heat{free_heat:.2f}",
-            )
-            for free_heat in (0.02, 0.03)
-        ),
+        pytest.param(free_heat, id=f"free_heat{free_heat:.2f}")
+        for free_heat in (0.0, 0.02, 0.03)
     ],
 )
 def test_disturbance_estimate_matches_a_standing_heat_gain(
@@ -499,24 +414,13 @@ def test_disturbance_estimate_matches_a_standing_heat_gain(
 @pytest.mark.parametrize(
     "gap_s",
     [
-        pytest.param(300.0, id="gap5min"),
-        *(
-            pytest.param(
-                gap_s,
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="the observer propagates the whole gap with the valve "
-                    "gain frozen at the previous radiator estimate, so an open "
-                    "valve drives the estimate past the supply water temperature",
-                ),
-                id=label,
-            )
-            for gap_s, label in (
-                (900.0, "gap15min"),
-                (3600.0, "gap1h"),
-                (86_400.0, "gap1d"),
-            )
-        ),
+        pytest.param(gap_s, id=label)
+        for gap_s, label in (
+            (300.0, "gap5min"),
+            (900.0, "gap15min"),
+            (3600.0, "gap1h"),
+            (86_400.0, "gap1d"),
+        )
     ],
 )
 def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(
@@ -544,3 +448,68 @@ def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(
         f"radiator estimate {diag.T_rad_hat:.1f} °C after {gap_s:.0f} s, water "
         f"{water:.0f} °C"
     )
+
+
+# A sunny afternoon: the gain ramps up over an hour, holds for four and
+# ramps down over another hour, on a 0 °C day in the default room.
+SUN_ON_H = 4.0
+SUN_RAMP_H = 1.0
+SUN_HOLD_H = 4.0
+
+
+def _sun(peak_k_per_min: float) -> Callable[[float], float]:
+    """Return the free heat (K/min) of a sunny afternoon at each hour."""
+    rise_end = SUN_ON_H + SUN_RAMP_H
+    fall_start = rise_end + SUN_HOLD_H
+    fall_end = fall_start + SUN_RAMP_H
+
+    def free_heat(hour: float) -> float:
+        if hour < SUN_ON_H or hour >= fall_end:
+            return 0.0
+        if hour < rise_end:
+            return peak_k_per_min * (hour - SUN_ON_H) / SUN_RAMP_H
+        if hour < fall_start:
+            return peak_k_per_min
+        return peak_k_per_min * (fall_end - hour) / SUN_RAMP_H
+
+    return free_heat
+
+
+@pytest.mark.parametrize(
+    ("peak_k_per_min", "max_overshoot_k", "max_dip_k"),
+    [
+        pytest.param(0.02, 0.3, 0.25, id="sun0.02"),
+        pytest.param(0.04, 0.45, 0.4, id="sun0.04"),
+    ],
+)
+def test_passing_sun_neither_overheats_the_room_nor_leaves_it_cold(
+    peak_k_per_min: float, max_overshoot_k: float, max_dip_k: float
+) -> None:
+    """The room rides out a sunny afternoon close to its setpoint.
+
+    While the sun rises and holds, the controller has to learn the gain
+    quickly enough to close the valve before the room overheats; once it
+    sets, it has to forget it quickly enough to reopen the valve before the
+    room cools. Both excursions are bounded for the rest of the run.
+    """
+    trace = _simulate(
+        plant=PlantParams(),
+        outdoor=0.0,
+        free_heat_k_per_min=_sun(peak_k_per_min),
+        setpoint_at=lambda h: SETPOINT_C,
+        start=SETPOINT_C,
+    )
+    during = trace.indices_from(SUN_ON_H)
+    sun_end_h = SUN_ON_H + 2.0 * SUN_RAMP_H + SUN_HOLD_H
+    after = trace.indices_from(sun_end_h)
+    overshoot = max(trace.room[i] - SETPOINT_C for i in during)
+    dip = max(SETPOINT_C - trace.room[i] for i in after)
+    # The run has to extend well past sunset for the dip to be seen.
+    assert trace.hours[-1] - sun_end_h >= 5.0
+    # The valve has to throttle well below its pre-sun opening, or the gain
+    # was too small to test anything.
+    before_sun = trace.valve_percent[during[0] - 1]
+    assert min(trace.valve_percent[i] for i in during) <= before_sun - 20
+
+    assert overshoot <= max_overshoot_k, f"room {overshoot:+.2f} K over the setpoint"
+    assert dip <= max_dip_k, f"room {dip:.2f} K under the setpoint after sunset"

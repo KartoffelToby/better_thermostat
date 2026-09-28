@@ -93,6 +93,7 @@ from .core.fsm.mode import (
 )
 from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
+from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
@@ -2734,7 +2735,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self._trigger_time if recomputes else self._availability_tick,
                     "bt_periodic_tick",
                 ),
-                timedelta(minutes=5),
+                timedelta(seconds=CONTROL_TICK_S),
             )
         )
         _LOGGER.debug(
