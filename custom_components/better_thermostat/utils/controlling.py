@@ -81,8 +81,7 @@ _LOGGER = logging.getLogger(__name__)
 MIN_WRITE_INTERVAL_S = 30.0
 # A HomematicIP head shares its access point's 1 % radio duty cycle (36 s of
 # airtime an hour) with every other HomematicIP device in the home, so it is
-# written at most once per ten minutes per channel. That is the pace the room
-# sensor's reading reached such a head at before, and the interval its own
+# written at most once per ten minutes per channel, the interval its own
 # internal temperature is read at.
 HOMEMATICIP_MIN_WRITE_INTERVAL_S = 600.0
 # Device tolerance when comparing commanded vs reported setpoints.
