@@ -1738,6 +1738,49 @@ def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
         return
 
 
+def _room_rise_over(
+    state: _MpcState, inp: MpcInput, now: float, window_s: float
+) -> float | None:
+    """Return how far the room moved over the last *window_s* seconds.
+
+    The room reading comes from the controller's own record, which the
+    performance curve refreshes once per window after post-processing, so
+    it spans an interval of its own. The move is scaled from that interval
+    to *window_s*. ``None`` when there is no earlier reading to compare.
+    """
+    if inp.current_temp_C is None or state.last_room_temp_C is None:
+        return None
+    elapsed_s = now - state.last_room_temp_ts
+    if state.last_room_temp_ts <= 0.0 or elapsed_s <= 0.0:
+        return None
+    room_delta = float(inp.current_temp_C) - float(state.last_room_temp_C)
+    return room_delta * window_s / elapsed_s
+
+
+def _decay_min_effective_percent(
+    state: _MpcState,
+    params: MpcParams,
+    temp_delta: float | None,
+    name: str,
+    entity: str,
+) -> None:
+    """Lower the learned minimum opening one step when the TRV responds."""
+    if (
+        state.min_effective_percent is None
+        or temp_delta is None
+        or temp_delta <= params.deadzone_temp_delta_K
+    ):
+        return
+    new_min = state.min_effective_percent - params.deadzone_decay_pct
+    state.min_effective_percent = new_min if new_min > 0.0 else None
+    _LOGGER.debug(
+        "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
+        name,
+        entity,
+        _round_for_debug(state.min_effective_percent, 2),
+    )
+
+
 def _post_process_percent(
     inp: MpcInput,
     params: MpcParams,
@@ -1857,7 +1900,9 @@ def _post_process_percent(
         time_delta = now - state.last_trv_temp_ts
         eval_after = max(params.deadzone_time_s, 1.0)
 
-        if time_delta >= eval_after and state.trv_profile == "unknown":
+        # A threshold-like TRV is the case dead-zone learning exists for, so
+        # evaluation continues once the profile is classified as one.
+        if time_delta >= eval_after and state.trv_profile in ("unknown", "threshold"):
             tol = max(inp.tolerance_K, 0.0)
             needs_heat = delta_t is not None and delta_t > tol
             small_command = 0 < percent_out <= params.deadzone_threshold_pct
@@ -1875,13 +1920,7 @@ def _post_process_percent(
             )
 
             if bool(getattr(params, "enable_min_effective_percent", True)):
-                # Optional: upstream may attach a previous room temp dynamically.
-                last_room_temp_C = getattr(inp, "last_room_temp_C", None)
-                room_temp_delta = (
-                    (inp.current_temp_C - last_room_temp_C)
-                    if last_room_temp_C is not None and inp.current_temp_C is not None
-                    else None
-                )
+                room_temp_delta = _room_rise_over(state, inp, now, time_delta)
 
                 measured_ok = (
                     room_temp_delta is not None
@@ -1941,22 +1980,9 @@ def _post_process_percent(
                 else:
                     # --- Reset / decay ---
                     prev_hits = state.dead_zone_hits
-                    if (
-                        state.min_effective_percent is not None
-                        and temp_delta is not None
-                        and temp_delta > params.deadzone_temp_delta_K
-                    ):
-                        new_min = (
-                            state.min_effective_percent - params.deadzone_decay_pct
-                        )
-                        state.min_effective_percent = new_min if new_min > 0.0 else None
-                        _LOGGER.debug(
-                            "better_thermostat %s: MPC dead-zone DECAY (%s) new_min=%s",
-                            name,
-                            entity,
-                            _round_for_debug(state.min_effective_percent, 2),
-                        )
-
+                    _decay_min_effective_percent(
+                        state, params, temp_delta, name, entity
+                    )
                     state.dead_zone_hits = 0
                     if prev_hits:
                         _LOGGER.debug(
@@ -1968,9 +1994,13 @@ def _post_process_percent(
             else:
                 state.dead_zone_hits = 0
 
-        else:
-            # deadzone fully disabled because TRV profile is known
-            pass
+        elif time_delta >= eval_after and bool(
+            getattr(params, "enable_min_effective_percent", True)
+        ):
+            # A linear or exponential TRV counts no dead-zone hits, but a
+            # minimum opening learned before it was classified still decays
+            # while the TRV responds to it.
+            _decay_min_effective_percent(state, params, temp_delta, name, entity)
 
         state.last_trv_temp = inp.trv_temp_C
         state.last_trv_temp_ts = now
