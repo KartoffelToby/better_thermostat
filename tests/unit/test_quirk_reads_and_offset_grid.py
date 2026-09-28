@@ -277,7 +277,7 @@ class TestTheForcedZeroCalibrationWaitsForItsAnswer:
 
     @pytest.mark.asyncio
     async def test_a_refused_zero_is_logged(self, hass, caplog):
-        """A calibration entity that never came up and refuses zero is named."""
+        """A refused zero calibration leaves a trace in the log."""
 
         async def refuse(call):
             raise HomeAssistantError("refused")

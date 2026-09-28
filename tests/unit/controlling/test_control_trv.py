@@ -1020,7 +1020,7 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_a_refused_mode_write_arms_no_confirmation_wait(self):
-        """A mode that never went out is not waited for.
+        """A refused mode leaves user presses on the device to be adopted.
 
         While the confirmation wait runs, a setpoint or mode the user sets on
         the device is not adopted; arming it for a refused write would ignore

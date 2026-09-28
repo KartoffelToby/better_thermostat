@@ -423,7 +423,7 @@ async def set_offset(self, entity_id, offset) -> bool:
             self,
             entity_id,
             "offset",
-            f"calibration offset {offset}",
+            "calibration offset",
             self.real_trvs[entity_id].adapter.set_offset,
             offset,
         )

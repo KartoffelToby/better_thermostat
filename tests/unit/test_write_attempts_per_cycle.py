@@ -89,7 +89,7 @@ async def _write(channel, thermostat):
         if channel == "offset":
             return await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
         return await delegate.set_valve(thermostat, ENTITY_ID, 50)
-    except Exception as exc:  # noqa: BLE001 - the caller's view of a raise
+    except HomeAssistantError as exc:
         return exc
 
 
@@ -103,7 +103,7 @@ class TestADeviceThatStaysOutOfReach:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("channel", CHANNELS)
     async def test_the_next_cycle_gets_one_attempt_and_no_backoff(self, channel):
-        """An unreachable valve must not hold the room lock for ~30 s per cycle."""
+        """The other TRVs of the room are not kept waiting on a lost device."""
         write = AsyncMock(side_effect=_unreachable())
         thermostat = _thermostat(_adapter(**{channel: write}))
         sleeps = AsyncMock()
