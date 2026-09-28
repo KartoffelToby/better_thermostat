@@ -421,8 +421,9 @@ class HeatLossTracker:
         window_open: bool = False,
     ) -> HeatLossUpdate:
         """Process one temperature reading and return what changed."""
-        # Window open → reset tracking
-        if window_open:
+        # An open window or a running cooler drives the drop, so the stretch
+        # it covers says nothing about passive heat loss: reset tracking.
+        if window_open or current_action == HVACAction.COOLING:
             self.start_temp = None
             self.start_ts = None
             self.end_temp = None
