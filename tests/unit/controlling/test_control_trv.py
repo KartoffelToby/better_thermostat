@@ -3618,9 +3618,21 @@ class TestHomematicIPWritePacing:
     HMIP = "climate.hmip"
     HMIP_PEER = "climate.hmip_peer"
 
-    @staticmethod
-    def _room(heads):
-        """Return a thermostat driving ``heads`` (entity id -> homematicip)."""
+    @pytest.fixture(autouse=True)
+    def _close_unrun_retries(self):
+        """Close the budget retries a test leaves without running them."""
+        self._retries = []
+        yield
+        for coro, _name in self._retries:
+            coro.close()
+
+    def _room(self, heads):
+        """Return a thermostat driving ``heads`` (entity id -> homematicip).
+
+        Only the budget retries the cycles queue are kept, for the test to
+        run; every other task a cycle creates, such as a confirmation
+        watchdog, is closed at once.
+        """
         real_trvs = {
             entity_id: _paced_trv(entity_id, homematicip=flag)
             for entity_id, flag in heads.items()
@@ -3630,10 +3642,13 @@ class TestHomematicIPWritePacing:
             trv_attrs={"temperature": 20.0},
             real_trvs=real_trvs,
         )
-        created = []
+        created = self._retries
 
         def _capture(coro, name=None, **kwargs):
-            created.append((coro, name))
+            if (name or "").startswith("bt_budget_retry_"):
+                created.append((coro, name))
+            else:
+                coro.close()
             return Mock()
 
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_capture))
