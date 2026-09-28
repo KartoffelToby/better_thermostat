@@ -96,6 +96,9 @@ class KalmanObserver:
         self.Q = np.diag([params.q_room, params.q_rad])
         self.R = np.array([[params.r_sensor]])
         self.C = np.array([[1.0, 0.0]])
+        # How far the latest ``update`` moved the room estimate towards the
+        # measurement (K); the disturbance observer's input.
+        self.room_correction: float = 0.0
 
     def initialise(self, x0: FloatArray) -> None:
         """Seed the state estimate from ``x0`` and reset the covariance."""
@@ -118,10 +121,7 @@ class KalmanObserver:
         new ``[T_room, T_rad]`` estimate.
         """
         elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
-        A, B, d = self.plant.linearised_AB(
-            T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
-        )
-        x_pred = A @ self.x_hat + B.flatten() * u + d
+        A, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
         # ``Q`` is configured for the plant's nominal observer step.  Scale
         # it with elapsed time so sparse events increase uncertainty instead
         # of making the filter over-confident.
@@ -134,6 +134,7 @@ class KalmanObserver:
         s = float((self.C @ P_pred @ self.C.T + self.R)[0, 0])
         K = P_pred @ self.C.T * (1.0 / max(s, 1e-12))
         self.x_hat = x_pred + (K.flatten() * innovation)
+        self.room_correction = float(self.x_hat[0] - x_pred[0])
         # ``(I - K·C)·P_pred`` is symmetric in exact arithmetic only; the
         # floating-point product drifts a little off the diagonal every step.
         # Keeping just the symmetric part holds the invariant exactly, so the
@@ -176,13 +177,17 @@ class KalmanObserver:
         self.P = symmetric
         return True
 
-    def innovation(
-        self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
-    ) -> float:
-        """Pre-update residual — used by the disturbance observer."""
-        elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
-        A, B, d = self.plant.linearised_AB(
+    def _predict(
+        self, u: float, T_outdoor_C: float, elapsed_s: float
+    ) -> tuple[FloatArray, FloatArray]:
+        """Return the state transition ``A`` and the predicted state.
+
+        The state follows the plant's own sub-stepped dynamics, whose valve
+        drive shrinks as the radiator approaches the supply water, so no
+        interval between readings carries the estimate past it. ``A`` does
+        not depend on the operating point and propagates the covariance.
+        """
+        A, _, _ = self.plant.linearised_AB(
             T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
         )
-        x_pred = A @ self.x_hat + B.flatten() * u + d
-        return y_meas - float((self.C @ x_pred).item())
+        return A, self.plant.propagate(self.x_hat, u, T_outdoor_C, elapsed_s)
