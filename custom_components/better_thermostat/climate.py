@@ -986,6 +986,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_avg_outdoor_temp = None
         self.last_main_hvac_mode = None
         self._last_call_for_heat = None
+        self.weather_verdict_missing_since: float | None = None
+        self.weather_fallback_active = False
         self._available = False
         self.context = None
         self.attr_hvac_action = None

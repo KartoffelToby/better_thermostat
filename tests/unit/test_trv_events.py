@@ -1233,6 +1233,39 @@ class TestHvacModeUpdate:
 
         assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
 
+    @pytest.mark.parametrize(
+        "bt_hvac_mode", [HVACMode.HEAT, HVACMode.OFF], ids=["heating", "off"]
+    )
+    @pytest.mark.asyncio
+    async def test_an_unswapped_device_reporting_auto_leaves_the_room_mode(
+        self, mock_bt, bt_hvac_mode
+    ):
+        """A reported AUTO without the swap option changes neither room mode.
+
+        The report is ambiguous: a heating room must not be switched off by
+        it, and a room that is off must not be switched on.
+        """
+        mock_bt.bt_hvac_mode = bt_hvac_mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "heat"
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == bt_hvac_mode
+
     @pytest.mark.asyncio
     async def test_a_missing_child_lock_flag_counts_as_unlocked(self, mock_bt):
         """A TRV whose config carries no child lock flag is not locked.
@@ -2529,11 +2562,6 @@ class TestConvertInboundStates:
                 [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
                 "heat_cool",
                 id="both_spellings_reporting_heat_cool",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a device offering heat and heat_cool that reports "
-                    "heat_cool is decoded as no mode at all",
-                ),
             ),
             pytest.param(
                 [HVACMode.OFF, HVACMode.HEAT_COOL], "heat_cool", id="heat_cool_only"
@@ -2574,12 +2602,25 @@ class TestConvertInboundStates:
 
         assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
 
-    def test_an_unswapped_device_reporting_auto_is_decoded_as_off(self, mock_bt):
-        """A reported AUTO without the swap option reaches the adoption as OFF.
+    def test_a_swapped_heat_cool_device_reporting_heat_cool_heats(self, mock_bt):
+        """A swapped device whose heating mode is heat_cool reports it as HEAT.
+
+        Better Thermostat writes heat_cool to such a device, so switching it
+        back on at the panel has to reach the adoption as heating.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
+        state = _make_state(state_str="heat_cool")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.HEAT
+
+    def test_an_unswapped_device_reporting_auto_is_ignored(self, mock_bt):
+        """A reported AUTO without the swap option reaches the adoption as no mode.
 
         AUTO names the device's heating mode only when the swap option says
-        so; without it the report is read as the device leaving the heating
-        mode, which is what the remap's error about the swap option explains.
+        so; without it the report is ambiguous and must neither switch the
+        room off nor on.
         """
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
             HVACMode.OFF,
@@ -2588,7 +2629,7 @@ class TestConvertInboundStates:
         ]
         state = _make_state(state_str="auto")
 
-        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) is None
 
     def test_unsupported_mode_returns_none(self, mock_bt):
         """Return None for unsupported HVAC modes like COOL."""
