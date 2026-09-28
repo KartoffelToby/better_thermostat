@@ -1010,6 +1010,10 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    # A valve write that spent its attempts fails the cycle, so the queue
+    # retries it after its backoff instead of leaving the valve at its old
+    # position until some later event.
+    _valve_write_failed = False
     async with self._temp_lock:
         self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
@@ -1100,9 +1104,11 @@ async def control_trv(self, heater_entity_id=None):
                         _source,
                     )
                     ok = await set_valve(self, heater_entity_id, target_pct)
-                    if not ok:
+                    if ok is False:
+                        _valve_write_failed = True
+                    elif not ok:
                         _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                            "better_thermostat %s: no valve channel took %s%% for %s (source=%s)",
                             self.device_name,
                             target_pct,
                             heater_entity_id,
@@ -1136,7 +1142,8 @@ async def control_trv(self, heater_entity_id=None):
                     "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
                     self.device_name,
                 )
-                await set_valve(self, heater_entity_id, 0)
+                if await set_valve(self, heater_entity_id, 0) is False:
+                    _valve_write_failed = True
 
             # Manage TRVs with no HVACMode.OFF
             # The cache holds the device's own spelling, so whether it offers OFF
@@ -1330,7 +1337,7 @@ async def control_trv(self, heater_entity_id=None):
             await asyncio.sleep(3)
         finally:
             self.real_trvs[heater_entity_id].ignore_trv_states = False
-    return True
+    return not _valve_write_failed
 
 
 def handle_contact_open(self, _remapped_states):
