@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
+import math
 
 import numpy as np
 import pytest
@@ -596,3 +597,91 @@ def test_restore_without_estimate_matches_a_freshly_built_controller(
         out_fresh.diagnostics.T_room_hat
     )
     assert out_restored.valve_percent == out_fresh.valve_percent
+
+
+def _radiator_estimate_after_gap(gap_s: float) -> float:
+    """Return the radiator estimate after one ``gap_s`` gap at half open."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.set_applied_u(0.5)
+    _, diag = controller.step(
+        t_s=1_000.0 + gap_s, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+    )
+    return diag.T_rad_hat
+
+
+def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
+    """The first step after 180 days predicts once, over a bounded span.
+
+    The observer's plant is asked for one transition and one propagation, and
+    the propagation covers no more sub-steps than its settling time holds:
+    beyond that the state is on its fixed point, so a year-long gap lands on
+    the same estimate.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.set_applied_u(0.5)
+    plant = controller.plant_fine
+    calls = {"linearised_AB": 0, "propagate": 0, "euler": 0}
+    for name, key in (
+        ("linearised_AB", "linearised_AB"),
+        ("propagate", "propagate"),
+        ("_euler_step", "euler"),
+    ):
+        original = getattr(plant, name)
+
+        def counted(*args, _original=original, _key=key, **kwargs):
+            calls[_key] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(plant, name, counted)
+
+    _, diag = controller.step(
+        t_s=1_000.0 + 180 * 86_400.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+    )
+
+    settled_steps = math.ceil(plant.settling_time_s / plant.dt_s)
+    assert settled_steps < 180 * 86_400.0 / plant.dt_s / 20
+    assert calls["linearised_AB"] == 1
+    assert calls["propagate"] == 1
+    assert calls["euler"] <= settled_steps
+    assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)
+    assert 21.0 < diag.T_rad_hat < plant.params.T_water_C
+
+
+def test_the_planning_reading_survives_a_snapshot_round_trip() -> None:
+    """A restored controller plans with the disturbance reading it persisted."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.dob.D_hat_K_per_min = 0.02
+    controller.dob.planning_filtered = 0.015
+    snap = ControllerSnapshot.from_mapping(
+        json.loads(json.dumps(asdict(controller.export_snapshot())))
+    )
+    assert snap is not None
+    resumed = MpcV2Controller(MpcV2Params())
+
+    resumed.restore_snapshot(snap)
+
+    assert resumed.dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert resumed.dob.planning_filtered == pytest.approx(0.015)
+    assert resumed.dob.planning_rate == pytest.approx(controller.dob.planning_rate)
+
+
+def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
+    """A snapshot from before the planning reading existed starts it at zero.
+
+    The fast estimate it does carry reflects the free heat of the minutes
+    before the restart, which the plan after it has no reason to assume.
+    """
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 30.0], "D_hat_K_per_min": 0.02}
+    )
+    assert snap is not None
+    assert snap.planning_disturbance is None
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert controller.dob.planning_filtered == 0.0
+    assert controller.dob.planning_rate == 0.0

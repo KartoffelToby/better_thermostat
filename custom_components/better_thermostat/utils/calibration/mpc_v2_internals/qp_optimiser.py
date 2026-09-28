@@ -71,6 +71,11 @@ class QpParams:
     # ``u_min`` / ``u_max`` we treat it as saturated and skip the integral
     # update if the error sign would only grow it.
     saturation_band: float = 1e-3
+    # Conditional integration: the integral only collects tracking errors
+    # within this band (K). Larger errors belong to a setpoint ramp or a
+    # recovery the plan already drives at full effort, and integrating them
+    # leaves an overshoot that takes hours to unwind.
+    integral_error_band: float = 0.5
     # Plant-aware step-size scaling. With ``adaptive_step_s=True`` the
     # ``step_s`` field above is recomputed at controller construction as
     # ``clamp(min, max, tau_room · per_tau)`` so fast envelopes get a finer
@@ -124,10 +129,13 @@ class QpOptimiser:
         """Accumulate the tracking error with anti-windup and clipping.
 
         Skips accumulation when the applied input is saturated and the error
-        sign would only grow the integral further, then clips the running total
-        to ``±integral_clip_K_min``.
+        sign would only grow the integral further, or when the error lies
+        outside ``integral_error_band``. The running total is clipped to
+        ``±integral_clip_K_min``.
         """
         err = T_room - T_sp
+        if abs(err) > self.params.integral_error_band:
+            return
         band = self.params.saturation_band
         at_upper = u_applied >= self.params.u_max - band
         at_lower = u_applied <= self.params.u_min + band
@@ -155,9 +163,20 @@ class QpOptimiser:
         n = self.plant.state_dim
         N = self.N
 
-        x_target = self._steady_state_for(T_sp, T_outdoor_C)
+        # The operating point and the drift both carry the disturbance
+        # estimate, so the prediction settles where ``u_ss`` holds the room.
+        # A setpoint the radiator cannot hold puts the steady radiator above
+        # what a fully open valve reaches, where the linearised valve gain
+        # vanishes or turns negative; the hottest reachable radiator bounds it.
+        # That bound keeps the gain positive only for a setpoint below the
+        # supply water, which a room setpoint always is.
+        radiator_operating_point = min(
+            self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min),
+            self.plant.hottest_radiator_temp(T_sp),
+        )
         u_ss = self._steady_input_for(T_sp, T_outdoor_C, D_hat_K_per_min)
-        A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, float(x_target[1]))
+        A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, radiator_operating_point)
+        d_vec = d_vec + np.array([D_hat_K_per_min * self.plant.dt_min, 0.0])
 
         A_pow = [np.eye(n)]
         for _ in range(N):
@@ -313,10 +332,6 @@ class QpOptimiser:
             if max_change < 1e-8:
                 break
         return x
-
-    def _steady_state_for(self, T_sp: float, T_outdoor_C: float) -> FloatArray:
-        T_rad_ss = self.plant.steady_radiator_temp(T_sp, T_outdoor_C)
-        return np.array([T_sp, T_rad_ss])
 
     def _steady_input_for(
         self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0

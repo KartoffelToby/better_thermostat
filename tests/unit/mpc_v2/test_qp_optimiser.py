@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
@@ -26,6 +27,48 @@ def test_cold_room_commands_heat() -> None:
     x_pred = np.array([18.0, 18.0])
     u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=5.0, u_last=0.0)
     assert u > 0.1, f"expected substantial heat call, got u={u}"
+
+
+@pytest.mark.parametrize("target_temperature", [25.0, 30.0])
+def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
+    target_temperature: float,
+) -> None:
+    """A setpoint whose steady radiator lies above the supply water still heats.
+
+    At -16 °C a large room needs a radiator of ``2·T_sp + 16`` °C, beyond the
+    65 °C water for both setpoints. The valve can still only warm the
+    radiator, so a room 3 K below the setpoint gets the full first ramp.
+    """
+    plant_params = PlantParams(tau_room_min=720.0)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    target = target_temperature
+    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+
+    u = opt.solve(np.array([target - 3.0, target - 3.0]), target, -16.0, u_last=0.0)
+
+    assert u == pytest.approx(QpParams().delta_u_max)
+
+
+@pytest.mark.parametrize("target_temperature", [25.0, 30.0])
+def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
+    target_temperature: float,
+) -> None:
+    """A room 2 K above a setpoint the radiator cannot hold gets less heat.
+
+    The radiator already sits at the hottest a fully open valve holds it, so
+    opening further cannot help and the room has margin to fall; the plan
+    closes the valve as far as the ramp limit allows. The optimiser must see
+    the valve's full gain at that radiator temperature to decide this.
+    """
+    plant_params = PlantParams(tau_room_min=720.0)
+    opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
+    target = target_temperature
+    hottest = opt.plant.hottest_radiator_temp(target)
+    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+
+    u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
+
+    assert u == pytest.approx(0.5 - QpParams().delta_u_max)
 
 
 def test_warm_room_above_target_commands_zero() -> None:
@@ -56,30 +99,51 @@ def test_anti_windup_skips_saturated_integration() -> None:
     """Integration must skip when u is pinned *against* the sign of the error."""
     # Mid-rail u — always integrates.
     opt = _make_optimiser()
-    opt.update_integral(T_room=21.0, T_sp=22.0, u_applied=0.5, dt_s=300.0)
-    assert opt.e_integral_K_min < 0.0  # err = -1, dt = 5 min ⇒ −5 K·min
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=0.5, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(-2.0)  # err = -0.4, dt = 5 min
 
     # u = u_max with T_room < T_sp (we want more heat but valve already pinned
     # open against an err that would only grow the negative integrator).
     opt.reset_integral()
-    opt.update_integral(T_room=21.0, T_sp=22.0, u_applied=1.0, dt_s=300.0)
+    opt.update_integral(T_room=21.6, T_sp=22.0, u_applied=1.0, dt_s=300.0)
     assert opt.e_integral_K_min == 0.0
 
     # u = u_min with T_room > T_sp (valve closed, can't cool faster, positive
     # err would push the integrator up — skip).
     opt.reset_integral()
-    opt.update_integral(T_room=23.0, T_sp=22.0, u_applied=0.0, dt_s=300.0)
+    opt.update_integral(T_room=22.4, T_sp=22.0, u_applied=0.0, dt_s=300.0)
     assert opt.e_integral_K_min == 0.0
+
+
+@pytest.mark.parametrize(
+    ("room_temperature", "expected_integral"),
+    [(21.4, 0.0), (21.6, -2.0), (22.4, 2.0), (22.6, 0.0)],
+)
+def test_integral_collects_only_errors_inside_the_band(
+    room_temperature: float, expected_integral: float
+) -> None:
+    """Errors beyond ``integral_error_band`` leave the integral untouched.
+
+    A room 0.6 K off the setpoint is still being driven there by the plan,
+    while 0.4 K counts as residual offset. The valve sits mid-rail, so only
+    the band decides.
+    """
+    opt = _make_optimiser()
+    assert opt.params.integral_error_band == 0.5
+
+    opt.update_integral(T_room=room_temperature, T_sp=22.0, u_applied=0.5, dt_s=300.0)
+
+    assert opt.e_integral_K_min == pytest.approx(expected_integral)
 
 
 def test_integral_clipping() -> None:
     """The error integrator is clipped to its configured magnitude."""
     opt = _make_optimiser()
     opt.params.integral_clip_K_min = 5.0
-    # Hammer the integrator: T_room - T_sp = 10 K, dt = 5 min, 100 times.
+    # Hammer the integrator: T_room - T_sp = 0.4 K, dt = 5 min, 100 times.
     for _ in range(100):
-        opt.update_integral(T_room=30.0, T_sp=20.0, u_applied=0.5, dt_s=300.0)
-    assert abs(opt.e_integral_K_min) <= 5.0 + 1e-6
+        opt.update_integral(T_room=20.4, T_sp=20.0, u_applied=0.5, dt_s=300.0)
+    assert opt.e_integral_K_min == pytest.approx(5.0)
 
 
 def test_numpy_fallback_obeys_constraints(monkeypatch) -> None:
