@@ -884,6 +884,28 @@ class TestForecastOutage:
         assert bt.call_for_heat is True
         assert len(_weather_records(caplog, logging.WARNING)) == 1
 
+    async def test_the_logbook_names_the_missing_forecast_as_the_reason(self):
+        """Heating resumed by the fallback is not credited to the outdoor air.
+
+        No outdoor temperature was read on this path, so the logbook entry
+        names the missing forecast instead.
+        """
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        prediction = AsyncMock(side_effect=[False] + [None] * 5)
+        logbook = AsyncMock()
+        with (
+            patch(f"{WEATHER_MOD}.check_weather_prediction", prediction),
+            patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook),
+        ):
+            for _ in range(6):
+                await check_weather(bt)
+                bt.clock.advance(HOUR_S)
+
+        assert [c.args[1] for c in logbook.await_args_list] == [
+            "summer_mode_on",
+            "weather_forecast_missing",
+        ]
+
     async def test_a_short_outage_keeps_summer_mode(self):
         """An outage within the hold leaves the room resting."""
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID)

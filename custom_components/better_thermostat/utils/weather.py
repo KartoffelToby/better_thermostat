@@ -124,6 +124,12 @@ async def check_weather(self) -> bool:
                 "summer_mode_on",
                 "turned off because the outdoor temperature is too high",
             )
+        elif self.weather_fallback_active:
+            await async_fire_logbook_entry(
+                self,
+                "weather_forecast_missing",
+                "resumed heating because the weather forecast is unavailable",
+            )
         else:
             await async_fire_logbook_entry(
                 self,
