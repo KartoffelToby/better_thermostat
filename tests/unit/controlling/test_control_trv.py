@@ -37,7 +37,7 @@ from custom_components.better_thermostat.core.fsm.window import WindowPhase, Win
 from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
-from custom_components.better_thermostat.model_fixes import TRVZB
+from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -1068,6 +1068,59 @@ class TestControlTrvAvailablePath:
             call.kwargs.get("name") == "bt_check_system_mode_climate.trv1"
             for call in mock_self.task_manager.create_task.call_args_list
         )
+
+    @pytest.mark.asyncio
+    async def test_a_refused_mode_on_a_trv_reading_unknown_keeps_the_old_command(
+        self,
+    ):
+        """A driven Spirit reads ``unknown``; that is no mode it holds.
+
+        The device is operated while its entity reads ``unknown``, so the
+        cycle writes its mode. A refusal there leaves the mode last commanded
+        where it was rather than recording ``unknown`` as one.
+        """
+        trv = _default_trv_config(
+            model="Spirit",
+            model_quirks=ZWA021,
+            last_hvac_mode=HVACMode.HEAT,
+            system_mode_received=True,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                "no_off_system_mode": False,
+            },
+        )
+        mock_self = _make_mock_self(
+            trv_state=STATE_UNKNOWN,
+            trv_attrs={"temperature": 21.0, "hvac_modes": ["heat", "off"]},
+            real_trvs={"climate.trv1": trv},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_set_hvac,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "system_mode": HVACMode.HEAT,
+                "temperature": 21.0,
+            }
+
+            await control_trv(mock_self, "climate.trv1")
+
+        mock_set_hvac.assert_awaited_once()
+        assert trv.last_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_dropout_after_valve_write_sends_no_hvac_mode(self):
