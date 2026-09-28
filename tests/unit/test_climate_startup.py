@@ -3150,6 +3150,63 @@ def _room_with_a_trv_left_behind(bt, *, available: bool):
     bt.hass.states.get.side_effect = state
 
 
+# How many attempts a TRV that arrives after startup gets before a failing
+# setup step is accepted the way startup accepts it.
+LATE_SETUP_ATTEMPTS = 3
+
+_FAILING_STEPS = ["init_raises", "init_times_out", "tweak_raises", "offset_read_raises"]
+_STEP_FAILURES = {
+    "init_raises": ("init", RuntimeError("adapter")),
+    "init_times_out": ("init", TimeoutError()),
+    "tweak_raises": ("initial_tweak", RuntimeError("quirk")),
+    "offset_read_raises": ("get_current_offset", RuntimeError("offset")),
+}
+
+
+def _late_trv_with_real_setup(bt) -> None:
+    """Leave ``TRV_ID_2`` behind, available, with the real setup steps run."""
+    _room_with_a_trv_left_behind(bt, available=True)
+    # A calibration type that reads the device's offset, so the offset read
+    # is one of the steps.
+    bt.real_trvs[TRV_ID_2].calibration = LOCAL_CALIBRATION
+    bt._initialize_trvs = lambda entity_ids=None: BetterThermostat._initialize_trvs(
+        bt, entity_ids
+    )
+
+
+async def _attempt_setup(bt, failing_step: str, *, fail: bool) -> MagicMock:
+    """Run one look for returned TRVs; return the control-cycle request mock."""
+    steps = {
+        name: AsyncMock(return_value=0.0)
+        for name in (
+            "init",
+            "initial_tweak",
+            "get_current_offset",
+            "get_min_offset",
+            "get_max_offset",
+            "get_offset_step",
+        )
+    }
+    if fail:
+        step, failure = _STEP_FAILURES[failing_step]
+        steps[step].side_effect = failure
+    with contextlib.ExitStack() as stack:
+        for name, mock in steps.items():
+            stack.enter_context(patch(f"{_CLIMATE}.{name}", mock))
+        request = stack.enter_context(patch(f"{_CLIMATE}.request_control_cycle"))
+        await BetterThermostat._initialize_arrived_trvs(bt)
+    return request
+
+
+def _late_setup_warnings(caplog) -> list[str]:
+    """The warnings the look for returned TRVs logged about ``TRV_ID_2``."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.WARNING and TRV_ID_2 in record.getMessage()
+    ]
+
+
 class TestATrvThatArrivesAfterStartup:
     """A TRV startup went ahead without is set up once it is back."""
 
@@ -3250,72 +3307,58 @@ class TestATrvThatArrivesAfterStartup:
         assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "failing_step",
-        ["init_raises", "init_times_out", "tweak_raises", "offset_read_raises"],
-    )
+    @pytest.mark.parametrize("failing_step", _FAILING_STEPS)
     async def test_a_setup_step_that_fails_quietly_keeps_the_trv_out(
         self, bt, failing_step
     ):
-        """A TRV joins the room only after its initialisation has succeeded.
+        """A failed attempt keeps a late TRV out; a later success lets it in.
 
-        The initialisation logs a failing step and carries on, which is how
-        startup treats the TRVs it has. A TRV that arrives later has not been
-        driven yet, so it stays out of the control cycles and is tried again
-        on its next report instead of being driven on what the failed step
-        left behind.
+        The initialisation logs a failing step and carries on. A TRV that
+        arrives after startup has not been driven yet, so a failed attempt
+        leaves it out of the control cycles and its next report tries again,
+        which is what a TRV that is still waking up needs.
         """
-        _room_with_a_trv_left_behind(bt, available=True)
-        # A calibration type that reads the device's offset, so the offset
-        # read is one of the steps.
-        bt.real_trvs[TRV_ID_2].calibration = LOCAL_CALIBRATION
-        bt._initialize_trvs = lambda entity_ids=None: BetterThermostat._initialize_trvs(
-            bt, entity_ids
-        )
-        failure = {
-            "init_raises": RuntimeError("adapter"),
-            "init_times_out": TimeoutError(),
-            "tweak_raises": RuntimeError("quirk"),
-            "offset_read_raises": RuntimeError("offset"),
-        }[failing_step]
-        failing = {
-            "init_raises": "init",
-            "init_times_out": "init",
-            "tweak_raises": "initial_tweak",
-            "offset_read_raises": "get_current_offset",
-        }[failing_step]
+        _late_trv_with_real_setup(bt)
 
-        def patched(fail: bool):
-            steps = {
-                name: AsyncMock(return_value=0.0)
-                for name in (
-                    "init",
-                    "initial_tweak",
-                    "get_current_offset",
-                    "get_min_offset",
-                    "get_max_offset",
-                    "get_offset_step",
-                )
-            }
-            if fail:
-                steps[failing].side_effect = failure
-            return [patch(f"{_CLIMATE}.{name}", mock) for name, mock in steps.items()]
+        request = await _attempt_setup(bt, failing_step, fail=True)
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+        request.assert_not_called()
+        assert bt._trvs_initializing == set()
 
-        for fail in (True, False):
-            with contextlib.ExitStack() as stack:
-                for p in patched(fail):
-                    stack.enter_context(p)
-                request = stack.enter_context(
-                    patch(f"{_CLIMATE}.request_control_cycle")
-                )
-                await BetterThermostat._initialize_arrived_trvs(bt)
-            if fail:
-                assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
-                request.assert_not_called()
-                assert bt._trvs_initializing == set()
+        request = await _attempt_setup(bt, failing_step, fail=False)
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+        assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == 0
+        request.assert_called_once_with(bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing_step", _FAILING_STEPS)
+    async def test_a_trv_whose_setup_keeps_failing_is_driven_on_defaults(
+        self, bt, failing_step, caplog
+    ):
+        """After three failed attempts a late TRV is driven like a boot TRV.
+
+        Startup drives a TRV whose setup step failed on the defaults the
+        failed step left, a device that cannot report an offset among them.
+        A late TRV gets the same after a bounded number of attempts rather
+        than being kept out for good and set up again on every report. The
+        switch is announced once; the attempts before it are not warnings.
+        """
+        _late_trv_with_real_setup(bt)
+
+        for _ in range(LATE_SETUP_ATTEMPTS - 1):
+            with caplog.at_level(logging.WARNING):
+                request = await _attempt_setup(bt, failing_step, fail=True)
+            assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+            request.assert_not_called()
+        assert _late_setup_warnings(caplog) == []
+
+        with caplog.at_level(logging.WARNING):
+            request = await _attempt_setup(bt, failing_step, fail=True)
 
         assert bt.real_trvs[TRV_ID_2].awaiting_initialization is False
+        assert bt.real_trvs[TRV_ID_2].failed_initialization_attempts == 0
         request.assert_called_once_with(bt)
+        assert len(_late_setup_warnings(caplog)) == 1
 
     @pytest.mark.asyncio
     async def test_nothing_joins_a_thermostat_removed_meanwhile(self, bt):

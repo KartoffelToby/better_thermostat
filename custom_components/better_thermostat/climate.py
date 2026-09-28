@@ -242,6 +242,14 @@ from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
 
+# How many attempts a TRV that arrives after startup gets before a step that
+# keeps failing is accepted with defaults, the way startup accepts it for the
+# TRVs it has. A device that is still waking up gets two more reports to
+# complete its setup; one that can never complete a step, such as a device
+# without a readable offset, is driven after its third report instead of
+# being set up again on every report.
+LATE_TRV_INITIALIZATION_ATTEMPTS = 3
+
 # How often the room temperature is re-sent to TRVs that mirror it into an
 # input of their own. Such a device falls back to its own sensor after a fixed
 # silence, two hours on a Sonoff TRVZB, and BT's own writes are driven by
@@ -2530,7 +2538,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         temperature range is derived again with it included. It joins the
         control cycles only once that is done, and a control cycle is
         requested right after so it is commanded without waiting for the
-        next event.
+        next event. An attempt in which a step failed keeps it out and its
+        next report tries again; after ``LATE_TRV_INITIALIZATION_ATTEMPTS``
+        such attempts it joins on the defaults the failed steps left.
         """
         for entity_id, trv in list(self.real_trvs.items()):
             if (
@@ -2552,15 +2562,32 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.is_removed or self.real_trvs.get(entity_id) is not trv:
                 return
             if entity_id in failed:
-                # It has not been driven yet, so it waits for a complete
-                # initialisation rather than being driven on defaults.
+                trv.failed_initialization_attempts += 1
+                if (
+                    trv.failed_initialization_attempts
+                    < LATE_TRV_INITIALIZATION_ATTEMPTS
+                ):
+                    # The failed step has logged its own error; this line
+                    # only says what happens next, so it stays below warning.
+                    _LOGGER.info(
+                        "better_thermostat %s: initialising TRV %s failed "
+                        "(attempt %d of %d); it stays out of control and is "
+                        "tried again on its next report",
+                        self.device_name,
+                        entity_id,
+                        trv.failed_initialization_attempts,
+                        LATE_TRV_INITIALIZATION_ATTEMPTS,
+                    )
+                    continue
                 _LOGGER.warning(
-                    "better_thermostat %s: initialising TRV %s failed; it "
-                    "stays out of control until its next report succeeds",
+                    "better_thermostat %s: initialising TRV %s failed %d "
+                    "times; it is driven on defaults for what could not be "
+                    "read, as at startup",
                     self.device_name,
                     entity_id,
+                    trv.failed_initialization_attempts,
                 )
-                continue
+            trv.failed_initialization_attempts = 0
             trv.awaiting_initialization = False
             self._resolve_temperature_range(self._collect_trv_states())
             if self.bt_target_temp is not None:
