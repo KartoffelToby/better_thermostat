@@ -61,7 +61,8 @@ def async_retry(
                             f"{log_prefix}{func.__name__} failed after "
                             f"{retries + 1} attempts: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(log_message)
+                        _LOGGER.debug(log_message, exc_info=True)
                         raise
 
                     # Calculate exponential backoff
@@ -78,7 +79,8 @@ def async_retry(
                         f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
                     )
 
-                    _LOGGER.log(log_level, log_message, exc_info=True)
+                    _LOGGER.log(log_level, log_message)
+                    _LOGGER.debug(log_message, exc_info=True)
 
                     await asyncio.sleep(actual_delay)
                     attempt += 1
