@@ -499,12 +499,46 @@ class TestMPCController:
                 trv_temp_C=21.0 + 0.5 * cycle,
                 tolerance_K=0.0,
             )
+            # The controller asks for less than the minimum, so the output
+            # is clamped to it.
             _post_process_percent(
-                inp, params, state, 1000.0 + 120.0 * cycle, 20.0, None
+                inp, params, state, 1000.0 + 120.0 * cycle, 10.0, None
             )
 
         assert state.trv_profile == "linear"
         assert state.min_effective_percent == 14.0
+
+    @pytest.mark.parametrize("profile", ["linear", "threshold"])
+    def test_a_wide_opening_does_not_lower_the_learned_minimum(self, profile):
+        """A TRV warming at a wide opening keeps a small learned minimum.
+
+        The minimum records that openings below it do not reach the
+        valve. A TRV that warms at a far wider opening says nothing about
+        that.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_decay_pct=1.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState(trv_profile=profile, min_effective_percent=16.0)
+        for cycle in range(3):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=18.0,
+                trv_temp_C=21.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            percent, _, _ = _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 100.0, None
+            )
+            assert percent == 100
+
+        assert state.min_effective_percent == 16.0
 
     @pytest.mark.parametrize("profile", ["linear", "threshold"])
     def test_a_closed_valve_does_not_lower_the_learned_minimum(self, profile):

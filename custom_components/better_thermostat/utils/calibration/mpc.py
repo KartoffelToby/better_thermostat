@@ -1782,11 +1782,18 @@ def _decay_min_effective_percent(
     while the valve is commanded open answers an opening. Behind a closed
     valve the radiator's stored heat still warms it for a while, which
     says nothing about the dead zone.
+
+    The minimum records that openings below it do not reach the valve, so
+    only an opening near it is evidence against it: one no wider than the
+    step a dead-zone hit raises the minimum by. A command the minimum
+    clamps is rounded to a whole percent, up to half a point above it.
     """
     if (
         state.min_effective_percent is None
         or state.last_percent is None
         or state.last_percent <= 0.0
+        or state.last_percent
+        > state.min_effective_percent + max(params.deadzone_raise_pct, 0.0) + 0.5
         or temp_delta is None
         or temp_delta <= params.deadzone_temp_delta_K
     ):
