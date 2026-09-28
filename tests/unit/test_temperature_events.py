@@ -522,8 +522,14 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_homematicip_within_600s_rejected(self, mock_bt):
-        """Reject a HomematicIP change within the 600s debounce window."""
+    async def test_an_all_homematicip_room_reads_the_sensor_at_its_own_pace(
+        self, mock_bt
+    ):
+        """A room of HomematicIP heads takes a reading once the sensor's interval passed.
+
+        The heads' radio limit is paced where their writes are sent, so the
+        room temperature itself stays current.
+        """
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
         mock_bt.cur_temp = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
@@ -531,8 +537,8 @@ class TestTemperatureAcceptance:
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.0
-        mock_bt.control_queue_task.put_nowait.assert_not_called()
+        assert mock_bt.cur_temp == 20.5
+        mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sub_threshold_change_not_accepted_immediately(self, mock_bt):
@@ -567,16 +573,17 @@ class TestTemperatureAcceptance:
         assert mock_bt.cur_temp == 21.5
 
     @pytest.mark.asyncio
-    async def test_homematicip_sets_600s_time_diff(self, mock_bt):
-        """Use a 600s debounce interval for HomematicIP TRVs."""
+    async def test_an_all_homematicip_room_keeps_the_sensor_debounce(self, mock_bt):
+        """A reading inside the sensor's own interval waits, HomematicIP or not."""
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
         mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=700)
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=3)
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.cur_temp == 20.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -713,6 +720,32 @@ class TestPlateauLogic:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_plateau_timer_inside_the_sensor_interval_applies_nothing(
+        self, mock_bt
+    ):
+        """A plateau timer firing right after an accepted reading waits.
+
+        The timer re-checks the sensor's debounce interval when it fires, so
+        a reading accepted in the meantime is not followed at once by the
+        pending value.
+        """
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
+        event = _make_event(State(SENSOR_ID, "20.05"))
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ) as mock_timer:
+            await trigger_temperature_change(mock_bt, event)
+        plateau_callback = mock_timer.call_args.args[2]
+        mock_bt.last_external_sensor_change = dt_util.now()
+
+        await plateau_callback(dt_util.now())
+
+        assert mock_bt.cur_temp == 20.0
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_sub_threshold_accumulated_to_significant(self, mock_bt):
         """Accept via accumulation when small deltas sum above the threshold."""
         mock_bt.cur_temp = 20.0
@@ -734,35 +767,6 @@ class TestPlateauLogic:
 
 class TestEdgeCasesAndRobustness:
     """Edge cases that probe error handling and invariant boundaries."""
-
-    @pytest.mark.asyncio
-    async def test_all_trvs_none_does_not_crash(self, mock_bt):
-        """all_trvs=None should not crash the HomematicIP detection loop.
-
-        The loop `for trv in self.all_trvs` raises TypeError when
-        all_trvs is None, which is NOT caught by `except KeyError`.
-        """
-        mock_bt.all_trvs = None
-        mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-        assert mock_bt.cur_temp == 21.0
-
-    @pytest.mark.asyncio
-    async def test_all_trvs_advanced_none_does_not_crash(self, mock_bt):
-        """TRV with advanced=None should not crash HomematicIP detection.
-
-        `None[CONF_HOMEMATICIP]` raises TypeError, not KeyError.
-        """
-        mock_bt.all_trvs = [{"advanced": None}]
-        mock_bt.cur_temp = 20.0
-        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-        assert mock_bt.cur_temp == 21.0
 
     @pytest.mark.asyncio
     async def test_minus_50_exactly_accepted(self, mock_bt):
@@ -905,11 +909,6 @@ class TestEdgeCasesAndRobustness:
         # With fallback _age=999999, _interval_ok=True → accepted
         assert mock_bt.cur_temp == 21.0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the external sensor's debounce interval is raised to 600s as soon "
-        "as any configured TRV is HomematicIP",
-    )
     @pytest.mark.asyncio
     async def test_room_sensor_debounce_survives_a_homematicip_trv(self, mock_bt):
         """Accept a room sensor reading once the sensor's own interval elapsed.

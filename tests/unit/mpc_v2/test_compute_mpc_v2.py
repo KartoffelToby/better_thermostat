@@ -169,18 +169,24 @@ def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
     assert seen_previous_input == [0.2]
 
 
+_REPLAN_ERROR_K = -0.4
+
+
 def _integral_after_one_replan(gap_s: float) -> tuple[float, float]:
     """Return the error integral after a replan ``gap_s`` after the first one.
 
-    The room sits 2 K below target with the valve mid-rail, so the
-    anti-windup guard never skips the step. Also returns the replan interval.
+    The room sits ``_REPLAN_ERROR_K`` off the target, inside the integration
+    band, with the valve mid-rail, so the anti-windup guard never skips the
+    step. Also returns the replan interval.
     """
     params = MpcV2Params()
     params.governor.enabled = False
     controller = MpcV2Controller(params)
-    controller.step(100.0, 20.0, 22.0, 5.0)
+    assert abs(_REPLAN_ERROR_K) < controller.params.qp.integral_error_band
+    room_temperature = 22.0 + _REPLAN_ERROR_K
+    controller.step(100.0, room_temperature, 22.0, 5.0)
     controller.set_applied_u(0.5)
-    controller.step(100.0 + gap_s, 20.0, 22.0, 5.0)
+    controller.step(100.0 + gap_s, room_temperature, 22.0, 5.0)
     return controller.optimiser.e_integral_K_min, controller.params.qp.step_s
 
 
@@ -192,14 +198,9 @@ def test_integral_covers_an_on_schedule_replan_interval() -> None:
 
     integral, _ = _integral_after_one_replan(step_s)
 
-    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a replan after a gap integrates the error over the whole gap, "
-    "not over one replan interval",
-)
 def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
     """A gap between replans adds no more error than one interval would.
 
@@ -209,7 +210,7 @@ def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
     integral, step_s = _integral_after_one_replan(900.0)
 
     assert step_s < 900.0
-    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
 
 
 def test_snapshot_round_trip_preserves_last_u() -> None:
@@ -928,3 +929,103 @@ def test_restored_snapshot_reproduces_the_uninterrupted_command_sequence(
     after_restart = drive(resumed, range(resume_at, steps))
 
     assert before_restart + after_restart == uninterrupted
+
+
+def _radiator_estimate_after_gap(gap_s: float) -> float:
+    """Return the radiator estimate after one ``gap_s`` gap at half open."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.set_applied_u(0.5)
+    _, diag = controller.step(
+        t_s=1_000.0 + gap_s, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+    )
+    return diag.T_rad_hat
+
+
+def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
+    """The first step after 180 days predicts once, over a bounded span.
+
+    The observer's plant is asked for one transition and one propagation, and
+    the propagation covers no more sub-steps than its settling time holds:
+    beyond that the state is on its fixed point, so a year-long gap lands on
+    the same estimate.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.set_applied_u(0.5)
+    plant = controller.plant_fine
+    calls = {"linearised_AB": 0, "propagate": 0, "euler": 0}
+    for name, key in (
+        ("linearised_AB", "linearised_AB"),
+        ("propagate", "propagate"),
+        ("_euler_step", "euler"),
+    ):
+        original = getattr(plant, name)
+
+        def counted(*args, _original=original, _key=key, **kwargs):
+            calls[_key] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(plant, name, counted)
+
+    _, diag = controller.step(
+        t_s=1_000.0 + 180 * 86_400.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+    )
+
+    settled_steps = math.ceil(plant.settling_time_s / plant.dt_s)
+    assert settled_steps < 180 * 86_400.0 / plant.dt_s / 20
+    assert calls["linearised_AB"] == 1
+    assert calls["propagate"] == 1
+    assert calls["euler"] <= settled_steps
+    assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)
+    assert 21.0 < diag.T_rad_hat < plant.params.T_water_C
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"), [(0.5, 0.05), (-0.5, -0.05), (0.01, 0.01)]
+)
+def test_restored_disturbance_readings_stay_inside_their_bound(
+    stored: float, expected: float
+) -> None:
+    """A stored estimate beyond ``max_abs_K_per_min`` restores at the bound.
+
+    Both the fast estimate and the planning reading are bounded that way
+    while the controller runs, so a snapshot cannot hand them more.
+    """
+    params = MpcV2Params()
+    assert params.dob.max_abs_K_per_min == 0.05
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": stored,
+            "planning_disturbance": stored,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(expected)
+    assert controller.dob.planning_filtered == pytest.approx(expected)
+
+
+def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
+    """A snapshot from before the planning reading existed starts it at zero.
+
+    The fast estimate it does carry reflects the free heat of the minutes
+    before the restart, which the plan after it has no reason to assume.
+    """
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 30.0], "D_hat_K_per_min": 0.02}
+    )
+    assert snap is not None
+    assert snap.planning_disturbance is None
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert controller.dob.planning_filtered == 0.0
+    assert controller.dob.planning_rate == 0.0

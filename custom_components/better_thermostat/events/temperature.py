@@ -20,7 +20,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
+from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
@@ -265,20 +265,13 @@ async def trigger_temperature_change(self, event):
         None if _incoming_temperature is None else round(_incoming_temperature, 2)
     )
 
-    # Base debounce (seconds) for normal devices; anti-flicker lets us go down to 5s
-    # here. HomematicIP still gets a higher interval (600s) below.
+    # Debounce (seconds) of the room sensor; anti-flicker lets us go down to 5s
+    # here. The radio limits of the heads are paced where BT writes to them.
     _time_diff = 5
     # Significance threshold: 0.11°C (to filter out 0.1°C noise).
     # We ignore the tolerance setting here so we keep getting precise sensor
     # updates even with a larger control tolerance.
     _sig_threshold = 0.11
-
-    try:
-        for trv in self.all_trvs:
-            if trv["advanced"][CONF_HOMEMATICIP]:
-                _time_diff = 600
-    except KeyError, TypeError:
-        pass
 
     # First-run guard: seed the timestamp far enough in the past that the
     # first real update clears the debounce interval finalized above (setting
@@ -400,7 +393,7 @@ async def trigger_temperature_change(self, event):
                     # for; only that value, still pending, is applied.
                     if self.pending_temp is None or self.pending_temp != _plateau_value:
                         return
-                    # Re-check debounce interval so HomematicIP 600s is respected
+                    # Re-check the debounce interval at the time the timer fires
                     _cb_age = (
                         (
                             dt_util.now() - self.last_external_sensor_change
