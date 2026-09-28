@@ -1318,7 +1318,11 @@ class TestATrvThatIsNotSetUpYet:
         """Only the TRVs that are set up get a snapshot."""
         trvs = {"climate.trv1": _trv(maintenance=True), "climate.trv2": _not_set_up()}
         result = build_trv_snapshots(
-            trvs, ["climate.trv1", "climate.trv2"], lambda _: _ha_state(), "Test"
+            trvs,
+            ["climate.trv1", "climate.trv2"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
         )
         assert [info.entity_id for info in result] == ["climate.trv1"]
 
@@ -1327,7 +1331,11 @@ class TestATrvThatIsNotSetUpYet:
         """It is neither driven nor restored, while the other TRV is exercised."""
         trvs = {"climate.trv1": _trv(maintenance=True), "climate.trv2": _not_set_up()}
         infos = build_trv_snapshots(
-            trvs, ["climate.trv1", "climate.trv2"], lambda _: _ha_state(), "Test"
+            trvs,
+            ["climate.trv1", "climate.trv2"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
         )
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
