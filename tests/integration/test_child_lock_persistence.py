@@ -8,6 +8,7 @@ config entry.
 """
 
 import copy
+from unittest.mock import patch
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_OFF, STATE_ON
@@ -20,6 +21,8 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
     setup_test_component_platform,
 )
+
+from custom_components.better_thermostat import climate as climate_module
 
 from .conftest import (
     DOMAIN,
@@ -224,7 +227,7 @@ async def test_the_device_follows_the_switch_after_a_restart(hass, wanted):
             )
         ],
     )
-    trv, _commands = await _device_with_a_child_lock(hass, locked=wanted)
+    trv, commands = await _device_with_a_child_lock(hass, locked=not wanted)
     entry = _entry_on(trv, not wanted)
     hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
     hass.set_state(CoreState.starting)
@@ -238,13 +241,18 @@ async def test_the_device_follows_the_switch_after_a_restart(hass, wanted):
     await hass.async_block_till_done()
 
     assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
-    assert _device_locked(hass) is wanted
+    assert commands == ["lock" if wanted else "unlock"]
 
 
 @pytest.mark.parametrize("wanted", [True, False])
-async def test_the_device_follows_the_switch_after_a_reload(hass, wanted):
-    """A reload that changes nothing leaves the device as the switch shows."""
-    trv, _commands = await _device_with_a_child_lock(hass, locked=not wanted)
+@pytest.mark.parametrize("how", ["reload", "unchanged_save"])
+async def test_the_device_follows_the_switch_after_a_reload(hass, wanted, how):
+    """A reload, or saving the configuration unchanged, sends the device nothing.
+
+    The device already holds the switch's state; a command to the configured
+    option would unlock it for a moment.
+    """
+    trv, commands = await _device_with_a_child_lock(hass, locked=not wanted)
     entry = _entry_on(trv, not wanted)
     await _started(hass, entry)
     await hass.services.async_call(
@@ -255,18 +263,22 @@ async def test_the_device_follows_the_switch_after_a_reload(hass, wanted):
     )
     await hass.async_block_till_done()
     assert _device_locked(hass) is wanted
+    commands.clear()
 
-    await _reload(hass, entry)
+    if how == "reload":
+        await _reload(hass, entry)
+    else:
+        await _reload(hass, entry, child_lock=not wanted)
     await hass.async_block_till_done()
 
     assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
-    assert _device_locked(hass) is wanted
+    assert commands == []
 
 
 @pytest.mark.parametrize("wanted", [True, False])
 async def test_the_device_follows_an_option_set_after_the_switch(hass, wanted):
-    """An option changed after the switch is what the device ends up with."""
-    trv, _commands = await _device_with_a_child_lock(hass, locked=not wanted)
+    """An option changed after the switch reaches the device in one command."""
+    trv, commands = await _device_with_a_child_lock(hass, locked=not wanted)
     entry = _entry_on(trv, not wanted)
     await _started(hass, entry)
     await hass.services.async_call(
@@ -275,16 +287,18 @@ async def test_the_device_follows_an_option_set_after_the_switch(hass, wanted):
         {"entity_id": SWITCH},
         blocking=True,
     )
+    await hass.async_block_till_done()
+    commands.clear()
 
     await _reload(hass, entry, child_lock=wanted)
     await hass.async_block_till_done()
 
     assert hass.states.get(SWITCH).state == (STATE_ON if wanted else STATE_OFF)
-    assert _device_locked(hass) is wanted
+    assert commands == ["lock" if wanted else "unlock"]
 
 
-async def test_the_last_command_is_the_switch_state_while_reports_lag(hass):
-    """With the device's reports lagging, the last command sent is the switch's."""
+async def test_no_command_contradicts_the_switch_while_reports_lag(hass):
+    """With the device's reports lagging, every command sent is the switch's."""
     trv, commands = await _device_with_a_child_lock(hass, locked=True, reports=False)
     entry = _entry_on(trv, False)
     await _started(hass, entry)
@@ -296,5 +310,31 @@ async def test_the_last_command_is_the_switch_state_while_reports_lag(hass):
     await _reload(hass, entry)
     await hass.async_block_till_done()
 
-    assert commands, "nothing was sent to the device"
-    assert commands[-1] == "lock"
+    assert all(command == "lock" for command in commands)
+
+
+@pytest.mark.parametrize("wanted", [True, False])
+async def test_the_switch_sets_the_device_when_the_startup_could_not(hass, wanted):
+    """Without the switch's restored state at startup, the switch still sets the device.
+
+    The startup then sends the option; the switch restores after it and has
+    to put its own state on the device.
+    """
+    trv, _commands = await _device_with_a_child_lock(hass, locked=not wanted)
+    entry = _entry_on(trv, not wanted)
+    await _started(hass, entry)
+    await hass.services.async_call(
+        "switch",
+        "turn_on" if wanted else "turn_off",
+        {"entity_id": SWITCH},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    with patch.object(
+        climate_module, "restored_child_lock", autospec=True, return_value=None
+    ):
+        await _reload(hass, entry)
+        await hass.async_block_till_done()
+
+    assert _device_locked(hass) is wanted

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 
@@ -177,6 +178,44 @@ class BetterThermostatPIDAutoTuneSwitch(TrvNamedEntity, SwitchEntity, RestoreEnt
         self.async_write_ha_state()
 
 
+def _switch_state_wins(
+    state: str | None, extra: Mapping[str, object] | None, configured: bool
+) -> bool | None:
+    """Return the child lock a restored switch state stands for, if it wins.
+
+    The switch and the configured option both set the lock, and the one set
+    last wins. The switch records the option next to its state; a recorded
+    option that differs from the current one was changed after the switch,
+    and then the option holds (``None``).
+    """
+    if state not in (STATE_ON, STATE_OFF):
+        return None
+    recorded = (extra or {}).get("configured")
+    if recorded is not None and recorded != configured:
+        return None
+    return state == STATE_ON
+
+
+def restored_child_lock(
+    hass: HomeAssistant, bt_unique_id: str, trv_entity_id: str, configured: bool
+) -> bool | None:
+    """Return the child lock the TRV's switch restores to, or ``None``.
+
+    Read before the switch itself is set up, so the thermostat's startup sends
+    the device the lock the switch will show rather than the option.
+    """
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "switch", DOMAIN, f"{bt_unique_id}_{trv_entity_id}_child_lock"
+    )
+    if entity_id is None:
+        return None
+    stored = restore_state.async_get(hass).last_states.get(entity_id)
+    if stored is None:
+        return None
+    extra = stored.extra_data.as_dict() if stored.extra_data else None
+    return _switch_state_wins(stored.state.state, extra, configured)
+
+
 class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntity):
     """Switch for Child Lock."""
 
@@ -224,26 +263,27 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
 
         The switch and the configuration both set the lock, and the one set
         last wins: the restored state, unless the option has changed since.
-        The thermostat's startup may already have sent the configured option
-        to the device, so a restored state that differs from it is sent too,
-        after it.
+        The thermostat takes the restored state over before its startup
+        sends the lock to the device; should the TRV still hold another one,
+        the restored state is sent after it.
         """
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
         last_state = await self.async_get_last_state()
         if trv is None or last_state is None:
             return
-        if last_state.state not in (STATE_ON, STATE_OFF):
-            return
         last_extra = await self.async_get_last_extra_data()
-        recorded = last_extra.as_dict().get("configured") if last_extra else None
-        if recorded is not None and recorded != self._configured_child_lock():
+        restored = _switch_state_wins(
+            last_state.state,
+            last_extra.as_dict() if last_extra else None,
+            self._configured_child_lock(),
+        )
+        if restored is None:
             return
         if trv.advanced is None:
             trv.advanced = {}
-        restored = last_state.state == STATE_ON
-        configured = bool(trv.advanced.get(CONF_CHILD_LOCK))
+        held = bool(trv.advanced.get(CONF_CHILD_LOCK))
         trv.advanced[CONF_CHILD_LOCK] = restored
-        if restored != configured:
+        if restored != held:
             # The device may still report the state from before a command
             # the startup sent, so the restored one is sent regardless.
             await self._set_child_lock(restored, force=True)
