@@ -1532,7 +1532,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
-        # Only update humidity if sensor is available
+        # A sensor that stops reporting leaves the humidity unknown, as it
+        # does at startup.
         if self.humidity_sensor_entity_id is not None and is_entity_available(
             self.hass, self.humidity_sensor_entity_id
         ):
@@ -1541,6 +1542,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._current_humidity = convert_to_float(
                     str(humidity_state.state), self.device_name, "humidity_update"
                 )
+        else:
+            self._current_humidity = None
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
