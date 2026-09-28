@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
@@ -284,6 +285,44 @@ class TestEchoSetpointsAcrossWrites:
 
         assert watched == [(first_write, 23.0), (trv.last_setpoint_write_id, 24.0)]
         assert trv.last_setpoint_write_id > first_write
+
+    @pytest.mark.asyncio
+    async def test_a_write_whose_call_fails_is_still_watched(self):
+        """A setpoint write that raises still gets a watchdog of its own.
+
+        The device may have taken the value although the call failed. Its
+        write id is the newest, so the watchdog of the earlier write steps
+        aside; without a watchdog for the failed write, the channel would
+        stay closed and every knob turn would be refused.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": _default_trv_config(target_temp_received=True)},
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        watched: list[tuple[int, float | None]] = []
+
+        def _watch(self, entity_id, write_id, setpoint):
+            watched.append((write_id, setpoint))
+            return Mock()
+
+        with patch(f"{_CTRL}.check_target_temperature", new=_watch):
+            with _setpoint_cycle(23.0):
+                await control_trv(mock_self, "climate.trv1")
+            with (
+                _setpoint_cycle(24.0),
+                patch(
+                    _PATCHES["set_temperature"],
+                    new=AsyncMock(side_effect=HomeAssistantError("timeout")),
+                ),
+                pytest.raises(HomeAssistantError),
+            ):
+                await control_trv(mock_self, "climate.trv1")
+
+        assert watched[-1] == (trv.last_setpoint_write_id, 24.0)
+        assert len(watched) == 2
+        assert trv.target_temp_received is False
 
     @pytest.mark.asyncio
     async def test_the_intent_and_the_rounded_value_sent_are_both_remembered(self):

@@ -1291,34 +1291,40 @@ async def control_trv(self, heater_entity_id=None):
                     self.real_trvs[heater_entity_id].remember_setpoint_written(
                         _temperature
                     )
-                    _tvr_has_quirk = await override_set_temperature(
-                        self, heater_entity_id, _temperature
-                    )
-                    if _tvr_has_quirk is False:
-                        await set_temperature(self, heater_entity_id, _temperature)
-                    # The delegate stores the value it put on the wire, which its
-                    # rounding and clamping may have moved off the intent; the
-                    # device echoes that value, so it is remembered as well.
-                    _sent_setpoint = self.real_trvs[heater_entity_id].last_temperature
-                    if _sent_setpoint is not None:
-                        self.real_trvs[heater_entity_id].remember_setpoint_written(
-                            _sent_setpoint
+                    try:
+                        _tvr_has_quirk = await override_set_temperature(
+                            self, heater_entity_id, _temperature
                         )
-                    # Every write is watched on its own: a watchdog still
-                    # waiting on an earlier write steps aside for this one
-                    # rather than holding the channel for a command the
-                    # device may never report.
-                    _written_trv = self.real_trvs[heater_entity_id]
-                    _written_trv.target_temp_received = False
-                    self.task_manager.create_task(
-                        check_target_temperature(
-                            self,
-                            heater_entity_id,
-                            _written_trv.last_setpoint_write_id,
-                            _written_trv.last_temperature,
-                        ),
-                        name=f"bt_check_target_temp_{heater_entity_id}",
-                    )
+                        if _tvr_has_quirk is False:
+                            await set_temperature(self, heater_entity_id, _temperature)
+                        # The delegate stores the value it put on the wire, which
+                        # its rounding and clamping may have moved off the
+                        # intent; the device echoes that value, so it is
+                        # remembered as well.
+                        _sent_setpoint = self.real_trvs[
+                            heater_entity_id
+                        ].last_temperature
+                        if _sent_setpoint is not None:
+                            self.real_trvs[heater_entity_id].remember_setpoint_written(
+                                _sent_setpoint
+                            )
+                    finally:
+                        # Every write is watched on its own, a failed call
+                        # included: the device may have taken the value, and a
+                        # watchdog still waiting on an earlier write steps aside
+                        # for this one rather than holding the channel for a
+                        # command the device may never report.
+                        _written_trv = self.real_trvs[heater_entity_id]
+                        _written_trv.target_temp_received = False
+                        self.task_manager.create_task(
+                            check_target_temperature(
+                                self,
+                                heater_entity_id,
+                                _written_trv.last_setpoint_write_id,
+                                _written_trv.last_temperature,
+                            ),
+                            name=f"bt_check_target_temp_{heater_entity_id}",
+                        )
 
             # Let TRV state updates propagate before accepting new state events
             await asyncio.sleep(3)
