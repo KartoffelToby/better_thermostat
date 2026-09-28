@@ -417,7 +417,7 @@ def test_portable_solver_plans_feasibly_and_like_daqp_for_any_plant_and_weights(
 def test_portable_solver_plans_flat_and_says_so_when_it_does_not_converge(
     monkeypatch, caplog
 ) -> None:
-    """An unconverged solve yields the best feasible flat plan, logged at DEBUG."""
+    """An unconverged solve yields the best feasible flat plan and says so."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
@@ -440,10 +440,7 @@ def test_portable_solver_plans_flat_and_says_so_when_it_does_not_converge(
     (plan,) = plans
     assert np.all(plan == plan[0])
     assert u == pytest.approx(0.5)
-    assert any(
-        r.levelname == "DEBUG" and "planning flat" in r.getMessage()
-        for r in caplog.records
-    )
+    assert any("planning flat" in r.getMessage() for r in caplog.records)
 
 
 def test_portable_solver_is_exact_on_arbitrary_convex_plans() -> None:
@@ -464,7 +461,7 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans() -> None:
     if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
         pytest.skip("the daqp solver is not installed")
     rng = np.random.default_rng(1)
-    opt = QpOptimiser.__new__(QpOptimiser)
+    opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), QpParams())
     worst_gap = 0.0
     worst_violation = 0.0
     compared = 0
@@ -549,3 +546,114 @@ def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -
 
     assert u == pytest.approx(0.5)
     assert any("planning flat" in r.getMessage() for r in caplog.records)
+
+
+def test_portable_solver_finishes_a_plan_whose_last_newton_matrix_breaks_down(
+    monkeypatch,
+) -> None:
+    """A nearly converged plan is finished, not dropped for a flat one.
+
+    The weak radiator and tight coupling here drive the Newton matrix to
+    lose definiteness in the last iterations, when the plan is already all
+    but optimal; the finished plan equals daqp's.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
+        pytest.skip("the daqp solver is not installed")
+    plant = PlantModelRC2(
+        PlantParams(
+            tau_room_min=30.0,
+            tau_rad_min=8.027735022147063,
+            gain_heater=0.05,
+            coupling_rad_room=10.0,
+            T_water_C=25.0,
+        ),
+        300.0,
+    )
+    plans: dict[str, np.ndarray] = {}
+    real_portable = qp_optimiser.QpOptimiser._solve_portable
+    real_daqp_solve = qp_optimiser._daqp.solve
+
+    def _recording_portable(self, *args):
+        plans["portable"] = np.asarray(real_portable(self, *args), dtype=float)
+        return plans["portable"]
+
+    def _recording_daqp(*args):
+        result = real_daqp_solve(*args)
+        plans["daqp"] = np.asarray(result[0], dtype=float)
+        return result
+
+    monkeypatch.setattr(
+        qp_optimiser.QpOptimiser, "_solve_portable", _recording_portable
+    )
+    monkeypatch.setattr(qp_optimiser, "_daqp", SimpleNamespace(solve=_recording_daqp))
+    args = (
+        np.array([36.0637556, 34.79238931]),
+        9.273441583115412,
+        12.462598956697983,
+        0.55,
+        -0.16768932240961143,
+    )
+    for daqp_available in (True, False):
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", daqp_available)
+        opt = QpOptimiser(plant, QpParams(delta_u_max=0.25))
+        opt.e_integral_K_min = 33.99403235665278
+        opt.solve(*args)
+
+    assert np.max(np.abs(plans["portable"] - plans["daqp"])) <= 1e-6
+
+
+_NON_FINITE_STATES = {
+    "room-nan": {"x_pred": np.array([float("nan"), 30.0])},
+    "radiator-inf": {"x_pred": np.array([19.0, float("inf")])},
+    "setpoint-nan": {"T_sp": float("nan")},
+    "outdoor-nan": {"T_outdoor_C": float("nan")},
+    "disturbance-inf": {"D_hat_K_per_min": float("inf")},
+}
+
+
+@pytest.mark.parametrize("solver", ["daqp", "portable"])
+@pytest.mark.parametrize("state", list(_NON_FINITE_STATES))
+def test_a_non_finite_plan_holds_the_last_command(
+    monkeypatch, solver: str, state: str
+) -> None:
+    """A state that makes the plan non-finite keeps the valve where it was."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    if solver == "daqp" and (
+        not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None
+    ):
+        pytest.skip("the daqp solver is not installed")
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", solver == "daqp")
+    arguments = {
+        "x_pred": np.array([19.0, 30.0]),
+        "T_sp": 21.0,
+        "T_outdoor_C": 0.0,
+        "u_last": 0.4,
+        "D_hat_K_per_min": 0.0,
+    }
+    arguments.update(_NON_FINITE_STATES[state])
+
+    assert _make_optimiser(delta_u_max=0.45).solve(**arguments) == pytest.approx(0.4)
+
+
+def test_a_repeated_flat_fallback_warns_once(monkeypatch, caplog) -> None:
+    """The first plan the NumPy solver cannot finish warns, later ones do not."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(qp_optimiser, "_INTERIOR_POINT_ITERATIONS", 1)
+    caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
+    opt = _make_optimiser(delta_u_max=0.2)
+    for _ in range(3):
+        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+
+    flat = [r for r in caplog.records if "planning flat" in r.getMessage()]
+    assert [r.levelname for r in flat] == ["WARNING", "DEBUG", "DEBUG"]
