@@ -931,9 +931,20 @@ async def control_queue(self: BetterThermostat) -> None:
                             )
 
                         # Handle cooler logic once per cycle, on the same
-                        # observation the TRVs are controlled with.
+                        # observation the TRVs are controlled with. A cooler
+                        # that is also a TRV still awaiting its initialisation
+                        # joins the cycles only once that is done, like the
+                        # heating channel.
                         _cooler_pass_completed = False
-                        if self.cooler_entity_id is not None:
+                        _cooler_trv = (
+                            self.real_trvs.get(self.cooler_entity_id)
+                            if self.cooler_entity_id is not None
+                            else None
+                        )
+                        if self.cooler_entity_id is not None and not (
+                            _cooler_trv is not None
+                            and _cooler_trv.awaiting_initialization
+                        ):
                             try:
                                 await control_cooler(
                                     self, cycle[0] if cycle is not None else None
