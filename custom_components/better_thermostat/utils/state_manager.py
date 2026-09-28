@@ -667,7 +667,7 @@ class StateManager:
         """Return persisted thermal stats clamped to their valid bounds.
 
         Returns ``(heating_power, heat_loss_rate)``; an element is ``None`` when
-        the persisted value is absent or cannot be parsed as a float.
+        the persisted value is absent or is not a finite number.
         """
         thermal = self._state.thermal
 
@@ -675,7 +675,9 @@ class StateManager:
         if thermal.heating_power is not None:
             try:
                 heating_power = clamp(
-                    float(thermal.heating_power), MIN_HEATING_POWER, MAX_HEATING_POWER
+                    _finite_float(thermal.heating_power),
+                    MIN_HEATING_POWER,
+                    MAX_HEATING_POWER,
                 )
             except TypeError, ValueError, OverflowError:
                 heating_power = None
@@ -684,7 +686,7 @@ class StateManager:
         if thermal.heat_loss_rate is not None:
             try:
                 heat_loss_rate = clamp(
-                    float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
+                    _finite_float(thermal.heat_loss_rate), MIN_HEAT_LOSS, MAX_HEAT_LOSS
                 )
             except TypeError, ValueError, OverflowError:
                 heat_loss_rate = None

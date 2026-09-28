@@ -732,6 +732,17 @@ class TestClampedThermal:
         mgr.thermal = ThermalStats(heating_power="oops")  # type: ignore[arg-type]
         assert mgr.clamped_thermal()[0] is None
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_a_non_finite_value_yields_none(self, value):
+        """A non-finite stat is no learned value; clamping must not pass it on.
+
+        A NaN compares false against both bounds and would reach the entity
+        unchanged, and an infinity would be taken for a learned extreme.
+        """
+        mgr = _make_manager()
+        mgr.thermal = ThermalStats(heating_power=value, heat_loss_rate=value)
+        assert mgr.clamped_thermal() == (None, None)
+
 
 # ---------------------------------------------------------------------------
 # Thermal stats recording
