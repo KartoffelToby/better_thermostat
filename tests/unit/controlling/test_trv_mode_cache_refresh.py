@@ -455,3 +455,95 @@ class TestHeldReportAgainstThePreviousState:
         )
 
         assert thermostat.bt_target_temp == 23.0
+
+
+class TestHeldReportsAcrossAnOutage:
+    """Held reports that span a device dropping out and coming back."""
+
+    UNAVAILABLE = State(ENTITY_ID, STATE_UNAVAILABLE)
+
+    @staticmethod
+    async def _reports_inside_a_cycle(thermostat, reported_states, states):
+        """Let the TRV publish ``states`` in order while a cycle holds it off.
+
+        Each state is reported against the one before it, the first against
+        the state the TRV held when the cycle started. The cycle end then
+        reads what the handler held off.
+        """
+        thermostat.control_queue_task = MagicMock()
+        thermostat.ignore_states = True
+        for state in states:
+            previous = reported_states[ENTITY_ID]
+            reported_states[ENTITY_ID] = state
+            event = MagicMock()
+            event.data = {
+                "old_state": previous,
+                "new_state": state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            with patch(
+                "custom_components.better_thermostat.events.trv.request_control_cycle"
+            ):
+                await trigger_trv_change(thermostat, event)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle"):
+            await read_reports_held_during_cycle(thermostat)
+
+    @pytest.mark.asyncio
+    async def test_a_return_after_an_earlier_report_does_not_set_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A device that reported, dropped out and came back is read as a return.
+
+        The report before the outage does not make the device's state after it
+        a press: the value it came back with is whatever the device holds.
+        """
+        await self._reports_inside_a_cycle(
+            thermostat,
+            reported_states,
+            [
+                _reported_state("heat", setpoint=19.0),
+                self.UNAVAILABLE,
+                _reported_state("heat", setpoint=16.0),
+            ],
+        )
+
+        assert thermostat.bt_target_temp == 19.0
+
+    @pytest.mark.asyncio
+    async def test_a_knob_turned_after_the_return_sets_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A setpoint changed at the device after it came back is a press."""
+        reported_states[ENTITY_ID] = self.UNAVAILABLE
+
+        await self._reports_inside_a_cycle(
+            thermostat,
+            reported_states,
+            [
+                _reported_state("heat", setpoint=16.0),
+                _reported_state("heat", setpoint=23.0),
+            ],
+        )
+
+        assert thermostat.bt_target_temp == 23.0
+
+    @pytest.mark.asyncio
+    async def test_a_report_after_the_return_that_keeps_the_setpoint_is_no_press(
+        self, thermostat, reported_states
+    ):
+        """A second report carrying the value the device came back with is no press."""
+        reported_states[ENTITY_ID] = self.UNAVAILABLE
+        returned = _reported_state("heat", setpoint=16.0)
+        settled = State(
+            ENTITY_ID,
+            "heat",
+            attributes={**returned.attributes, "current_temperature": 18.5},
+        )
+
+        await self._reports_inside_a_cycle(
+            thermostat, reported_states, [returned, settled]
+        )
+
+        assert thermostat.bt_target_temp == 19.0

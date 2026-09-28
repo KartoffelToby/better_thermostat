@@ -95,6 +95,34 @@ def accepts_user_setpoint(
     )
 
 
+def _hold_report(
+    self, trv: Trv, old_state: State | None, new_state: State | None
+) -> None:
+    """Park a report that arrives while a control cycle holds the handler off.
+
+    The end of the cycle reads the device's state against the state kept
+    here, which answers the one question the handler asks of a previous
+    state: whether the device was publishing a setpoint. A report whose
+    previous state carries none is the device coming back, and the state it
+    came back from becomes the reference. A later report that moves the
+    setpoint the device came back with makes the state before that move the
+    reference, so a knob turned after the return is still read as a press.
+    """
+    previous_setpoint = _held_setpoint(self, old_state)
+    returned = previous_setpoint is None
+    moved_after_return = _held_setpoint(
+        self, trv.state_before_held_report
+    ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    if not trv.report_unread or returned or moved_after_return:
+        trv.state_before_held_report = old_state
+    trv.report_unread = True
+
+
+def _held_setpoint(self, state: State | None) -> float | None:
+    """Return the setpoint a held report's state carries, or None."""
+    return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
+
+
 async def trigger_trv_change(
     self, event, *, mode_settled: bool = False, request_cycle: bool = True
 ):
@@ -273,9 +301,7 @@ async def trigger_trv_change(
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
-        if not trv.report_unread:
-            trv.state_before_held_report = old_state
-        trv.report_unread = True
+        _hold_report(self, trv, old_state, new_state)
         return
 
     # The offered mode list changes at runtime on devices whose
