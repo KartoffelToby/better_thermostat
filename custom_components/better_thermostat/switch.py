@@ -83,6 +83,7 @@ async def async_setup_entry(
         entry,
         Platform.SWITCH,
         (switch.unique_id for switch in switches),
+        bt_climate,
     )
     async_normalize_bt_entity_ids(hass, entry, Platform.SWITCH)
     async_add_entities(switches)

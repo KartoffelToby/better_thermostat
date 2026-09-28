@@ -178,6 +178,7 @@ async def async_setup_entry(
         entry,
         Platform.NUMBER,
         (number.unique_id for number in numbers),
+        bt_climate,
     )
     async_normalize_bt_entity_ids(hass, entry, Platform.NUMBER)
     async_add_entities(numbers)

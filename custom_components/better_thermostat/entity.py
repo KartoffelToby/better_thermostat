@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import (
@@ -23,12 +25,18 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .utils.const import DOMAIN
 
+if TYPE_CHECKING:
+    from .climate import BetterThermostat
+
+_LOGGER = logging.getLogger(__name__)
+
 
 def remove_unclaimed_registry_entries(
     registry: EntityRegistry,
     entry: ConfigEntry,
     domain: str,
     live_unique_ids: Iterable[str | None],
+    bt_climate: BetterThermostat,
 ) -> None:
     """Remove the entry's registry entries of ``domain`` no live entity claims.
 
@@ -36,9 +44,28 @@ def remove_unclaimed_registry_entries(
     up. A registry entry of the same entry and domain that none of them claims
     belongs to a setting the thermostat no longer has, such as another
     calibration algorithm; left in place it shows as an unavailable entity.
+
+    That holds only while the thermostat built every TRV it is configured
+    with. The entities of a TRV it failed to build are not stale, so nothing
+    is removed then.
     """
     # An unloaded registry (a mocked hass in unit tests) has no entries.
     if not hasattr(registry, "entities"):
+        return
+    configured = {
+        trv_entity_id
+        for trv_config in bt_climate.all_trvs or []
+        if (trv_entity_id := trv_config.get("trv"))
+    }
+    missing = configured - set(bt_climate.real_trvs or {})
+    if missing:
+        _LOGGER.debug(
+            "Better Thermostat %s: keeping the %s registry entries, TRVs %s are "
+            "not set up",
+            bt_climate.device_name,
+            domain,
+            sorted(missing),
+        )
         return
     live = set(live_unique_ids)
     for reg_entry in async_entries_for_config_entry(registry, entry.entry_id):

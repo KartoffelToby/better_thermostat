@@ -85,6 +85,7 @@ async def async_setup_entry(
         entry,
         Platform.SENSOR,
         (sensor.unique_id for sensor in sensors),
+        bt_climate,
     )
 
     async_normalize_bt_entity_ids(hass, entry, Platform.SENSOR)

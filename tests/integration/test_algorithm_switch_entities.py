@@ -7,11 +7,13 @@ the ones of the algorithm it runs now must be there and alive.
 """
 
 from dataclasses import replace
+from unittest.mock import patch
 
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.helpers import entity_registry as er
 import pytest
 
+from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
@@ -26,7 +28,7 @@ from .conftest import (
     setup_entry,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, VALVE_TRV
+from .device_profiles import GENERIC_HEAT_TRV, GROUP_OF_THREE, VALVE_TRV
 
 PID = CalibrationMode.PID_CALIBRATION.value
 MPC = CalibrationMode.MPC_CALIBRATION.value
@@ -197,3 +199,44 @@ async def test_a_boot_removes_controls_left_by_an_earlier_algorithm(hass):
     }
     assert left == set()
     assert _sensor_suffixes(hass, entry) == _ALGORITHM_SENSOR_SUFFIXES[MPC]
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True)
+async def test_a_setup_missing_a_trv_removes_none_of_its_entities(hass, trv_group):
+    """A thermostat that could not set up one of its TRVs keeps that TRV's entities.
+
+    The registry entries of a TRV the thermostat failed to build are not
+    stale; they come back once it is built.
+    """
+    set_room_sensor(hass, 18.0)
+    profiles = [replace(p, calibration_mode=PID) for p in trv_group.scenario.profiles]
+    entry = make_entry(replace(trv_group.scenario, profiles=tuple(profiles)))
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    before = _registered(hass, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    broken = trv_group.entities[1].entity_id
+    load = climate_module.load_model_quirks
+
+    async def _failing_for_one(bt, model, entity_id):
+        if entity_id == broken:
+            raise RuntimeError("quirk module broken")
+        return await load(bt, model, entity_id)
+
+    with patch.object(
+        climate_module, "load_model_quirks", autospec=True, side_effect=_failing_for_one
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert before <= _registered(hass, entry)
+
+
+def _registered(hass, entry) -> set[str]:
+    """Return the unique_ids of the entry's registered entities."""
+    registry = er.async_get(hass)
+    return {
+        reg.unique_id
+        for reg in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
