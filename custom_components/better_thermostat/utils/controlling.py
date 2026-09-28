@@ -207,7 +207,9 @@ def _consume_budget(
     stamp_attr = _BUDGET_STAMPS[channel]
     now = self.clock.monotonic()
     last = getattr(trv, stamp_attr)
-    if not bypass and not _budget_open(last, now, _write_interval_s(self, trv, channel)):
+    if not bypass and not _budget_open(
+        last, now, _write_interval_s(self, trv, channel)
+    ):
         _LOGGER.debug(
             "better_thermostat %s: write budget defers %s write to %s "
             "(%.0fs since last write)",
