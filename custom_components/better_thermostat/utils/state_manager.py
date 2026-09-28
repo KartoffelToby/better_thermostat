@@ -357,6 +357,31 @@ def _stored_entries(
     return entries
 
 
+def _stored_optional_number(
+    values: Mapping[str, Any], section: str, attr: str
+) -> float | None:
+    """Return one optional number of an unkeyed section, naming an unusable one.
+
+    A missing value and a stored null are a value never learned and pass
+    as ``None`` silently. Anything else that is not a finite number is
+    dropped as well, and named, since past the load path it looks like one
+    never learned.
+    """
+    value = values.get(attr)
+    if value is None:
+        return None
+    try:
+        return _finite_float(value)
+    except TypeError, ValueError, OverflowError:
+        _LOGGER.warning(
+            "better_thermostat: stored %s section has an unusable %s, "
+            "continuing without it",
+            section,
+            attr,
+        )
+        return None
+
+
 def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     """Reconstruct a RuntimeState from a raw dict (loaded from Store)."""
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
@@ -375,33 +400,21 @@ def _deserialize(raw: dict[str, Any]) -> RuntimeState:
 
     thermal_raw = _stored_section(raw, "thermal")
     if thermal_raw is not None:
-        heating_power = thermal_raw.get("heating_power")
-        heat_loss_rate = thermal_raw.get("heat_loss_rate")
-        try:
-            heating_power = float(heating_power) if heating_power is not None else None
-            if heating_power is not None and not math.isfinite(heating_power):
-                heating_power = None
-        except TypeError, ValueError, OverflowError:
-            heating_power = None
-        try:
-            heat_loss_rate = (
-                float(heat_loss_rate) if heat_loss_rate is not None else None
-            )
-            if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
-                heat_loss_rate = None
-        except TypeError, ValueError, OverflowError:
-            heat_loss_rate = None
         state.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=_stored_optional_number(
+                thermal_raw, "thermal", "heating_power"
+            ),
+            heat_loss_rate=_stored_optional_number(
+                thermal_raw, "thermal", "heat_loss_rate"
+            ),
         )
 
     presets_raw = _stored_section(raw, "presets")
     if presets_raw is not None:
-        for name, temp in presets_raw.items():
-            try:
-                state.presets[str(name)] = float(temp)
-            except TypeError, ValueError, OverflowError:
-                continue
+        for name in presets_raw:
+            number = _stored_optional_number(presets_raw, "presets", name)
+            if number is not None:
+                state.presets[str(name)] = number
 
     return state
 

@@ -933,6 +933,49 @@ class TestDroppedStoredValuesAreReported:
         )
 
     @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("heating_power", "later"),
+            ("heat_loss_rate", "Infinity"),
+            ("heat_loss_rate", 1e400),
+            ("heating_power", [20.0]),
+        ],
+    )
+    def test_an_unusable_thermal_value_is_named(self, caplog, field, value):
+        """A stored thermal value that is not a finite number is named."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize({"version": 1, "thermal": {field: value}})
+
+        assert getattr(state.thermal, field) is None
+        assert any(
+            "thermal" in message and field in message for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    def test_an_unusable_preset_is_named(self, caplog):
+        """A stored preset temperature that is not a finite number is named."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize(
+                {"version": 1, "presets": {"eco": "warm", "comfort": 21.0}}
+            )
+
+        assert state.presets == {"comfort": 21.0}
+        assert any(
+            "presets" in message and "eco" in message for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    def test_a_null_thermal_value_is_not_reported(self, caplog):
+        """A null thermal value is a value not yet learned, not a lost one."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize(
+                {
+                    "version": 1,
+                    "thermal": {"heating_power": None, "heat_loss_rate": None},
+                }
+            )
+
+        assert _warnings(caplog) == []
+
+    @pytest.mark.parametrize(
         ("section", "entry", "field"),
         [
             ("mpc", {"gain_est": float("nan")}, "gain_est"),
