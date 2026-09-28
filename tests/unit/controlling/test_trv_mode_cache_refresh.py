@@ -393,3 +393,73 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         assert request.called is requested
+
+
+class TestALockedPressHeldDuringACycle:
+    """A press at a child-locked TRV that the cycle held off is turned back."""
+
+    @staticmethod
+    def _lock(thermostat):
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.advanced["child_lock"] = True
+        trv.report_unread = True
+        return trv
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(_reported_state("heat", setpoint=25.0), id="setpoint_up"),
+            pytest.param(_reported_state("heat", setpoint=16.0), id="setpoint_down"),
+            pytest.param(_reported_state("off"), id="mode"),
+        ],
+    )
+    async def test_a_locked_press_requests_a_cycle(
+        self, thermostat, reported_states, published
+    ):
+        """The next cycle drives the device back without waiting for a tick."""
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = published
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_called_once_with(thermostat)
+        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(_reported_state("heat", setpoint=19.0), id="its_own_write"),
+            pytest.param(_reported_state("heat", setpoint=19.2), id="within_a_step"),
+        ],
+    )
+    async def test_a_locked_device_holding_the_write_requests_none(
+        self, thermostat, reported_states, published
+    ):
+        """A locked device that reports what it was sent needs no cycle."""
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = published
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_lagging_report_of_a_pending_write_requests_none(
+        self, thermostat, reported_states
+    ):
+        """A report of the value before an unconfirmed write is not a press."""
+        trv = self._lock(thermostat)
+        trv.remember_setpoint_confirmed(19.0)
+        trv.last_temperature = 22.0
+        trv.target_temp_received = False
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_not_called()
