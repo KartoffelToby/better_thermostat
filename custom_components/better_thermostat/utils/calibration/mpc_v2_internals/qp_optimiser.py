@@ -12,8 +12,8 @@ where ``I_k`` is the predicted integrated tracking error. Hard constraints
 
 DAQP (dense active-set) is used when its native wheel is available.  Home
 Assistant's Alpine-based images cannot install that wheel on every supported
-architecture, so a small coordinate-descent solver using only NumPy provides
-the same objective and hard valve constraints everywhere else.
+architecture, so a small active-set solver using only NumPy finds the same
+optimum under the same hard valve constraints everywhere else.
 """
 
 from __future__ import annotations
@@ -157,8 +157,8 @@ class QpOptimiser:
 
         Builds the condensed prediction matrices from the linearised plant and
         assembles the Hessian and gradient. DAQP solves the small dense QP when
-        available; otherwise a NumPy coordinate-descent solver uses the same
-        objective, box bounds, and rate limits.
+        available; otherwise a NumPy active-set solver finds the same optimum
+        under the same box bounds and rate limits.
         """
         n = self.plant.state_dim
         N = self.N
@@ -269,7 +269,7 @@ class QpOptimiser:
                 # not disable heating when the portable solver can continue.
                 pass
 
-        x = self._solve_coordinate_descent(
+        x = self._solve_active_set(
             H_scaled,
             g_scaled,
             _SolverBounds(
@@ -280,15 +280,17 @@ class QpOptimiser:
         # caller doesn't propagate numpy types into JSON-bound state.
         return max(u_min, min(u_max, float(x[0])))
 
-    def _solve_coordinate_descent(
+    def _solve_active_set(
         self, hessian: FloatArray, gradient: FloatArray, bounds: _SolverBounds
     ) -> FloatArray:
-        """Solve the small convex QP with constrained coordinate descent.
+        """Solve the small convex QP exactly with a primal active-set method.
 
-        The horizon is only twelve values by default, so exact one-dimensional
-        updates are inexpensive. Each update minimises its coordinate's convex
-        quadratic while holding its neighbours fixed; the derived interval
-        enforces the valve box and both adjacent rate constraints exactly.
+        Minimises ``½·xᵀ·H·x + gᵀ·x`` under the valve box and the rate limits,
+        written as one-sided rows ``C·x ≤ d``. The iterate stays feasible from
+        a flat start; each step solves the equality-constrained problem on the
+        working set, stops at the first blocking constraint and drops the one
+        with the most negative multiplier once the step vanishes. ``H`` is
+        positive definite, so this ends in the unique optimum daqp finds.
         """
         n = self.N
         if n <= 0:
@@ -298,39 +300,69 @@ class QpOptimiser:
         u_max = bounds.u_max
         delta_u_max = bounds.delta_u_max
 
-        # Start with a feasible flat trajectory. The first intersection can
-        # only be empty for invalid caller configuration; retain the safely
-        # clamped command in that defensive case.
+        # A flat trajectory at the command closest to ``u_last`` is feasible.
+        # The interval is empty only for an invalid configuration; the safely
+        # clamped command is returned then.
         first_lo = max(u_min, u_last - delta_u_max)
         first_hi = min(u_max, u_last + delta_u_max)
         if first_lo > first_hi:
             return np.full(n, max(u_min, min(u_max, u_last)))
-        x = np.full(n, np.clip(u_last, first_lo, first_hi), dtype=float)
+        x = np.full(n, float(np.clip(u_last, first_lo, first_hi)))
+        # A non-finite objective has no optimum; the flat trajectory holds.
+        if not (np.all(np.isfinite(hessian)) and np.all(np.isfinite(gradient))):
+            return x
 
-        for _ in range(1000):
-            max_change = 0.0
-            for idx in range(n):
-                lo, hi = u_min, u_max
-                if idx == 0:
-                    lo = max(lo, u_last - delta_u_max)
-                    hi = min(hi, u_last + delta_u_max)
-                else:
-                    lo = max(lo, x[idx - 1] - delta_u_max)
-                    hi = min(hi, x[idx - 1] + delta_u_max)
-                if idx + 1 < n:
-                    lo = max(lo, x[idx + 1] - delta_u_max)
-                    hi = min(hi, x[idx + 1] + delta_u_max)
-
-                diagonal = float(hessian[idx, idx])
-                if diagonal <= 0.0 or not np.isfinite(diagonal):
-                    return x
-                partial_gradient = float(hessian[idx] @ x + gradient[idx])
-                unconstrained = x[idx] - partial_gradient / diagonal
-                updated = float(np.clip(unconstrained, lo, hi))
-                max_change = max(max_change, abs(updated - x[idx]))
-                x[idx] = updated
-            if max_change < 1e-8:
+        diff = np.eye(n) - np.eye(n, k=-1)
+        rate_offset = np.zeros(n)
+        rate_offset[0] = u_last
+        rows = np.vstack([np.eye(n), -np.eye(n), diff, -diff])
+        limits = np.concatenate(
+            [
+                np.full(n, u_max),
+                np.full(n, -u_min),
+                delta_u_max + rate_offset,
+                delta_u_max - rate_offset,
+            ]
+        )
+        # A step or multiplier this small is round-off of the KKT solve; the
+        # valve fraction it stands for is far below one percent.
+        tol = 1e-9
+        working: list[int] = []
+        for _ in range(10 * rows.shape[0]):
+            active = rows[working]
+            kkt = np.block(
+                [[hessian, active.T], [active, np.zeros((len(working), len(working)))]]
+            )
+            rhs = np.concatenate([-(hessian @ x + gradient), np.zeros(len(working))])
+            # Only a constraint the step moves towards joins the working set,
+            # so its rows stay independent and the KKT matrix regular. A
+            # singular one can only come from a degenerate Hessian; the
+            # feasible iterate reached so far is kept then.
+            try:
+                solution = np.linalg.solve(kkt, rhs)
+            except np.linalg.LinAlgError:
                 break
+            step = solution[:n]
+            if float(np.max(np.abs(step))) <= tol:
+                multipliers = solution[n:]
+                if not working or float(np.min(multipliers)) >= -tol:
+                    break
+                working.pop(int(np.argmin(multipliers)))
+                continue
+            growth = rows @ step
+            slack = limits - rows @ x
+            length = 1.0
+            blocking = -1
+            for idx in range(rows.shape[0]):
+                if idx in working or growth[idx] <= 1e-12:
+                    continue
+                ratio = max(0.0, float(slack[idx])) / float(growth[idx])
+                if ratio < length:
+                    length = ratio
+                    blocking = idx
+            x = x + length * step
+            if blocking >= 0:
+                working.append(blocking)
         return x
 
     def _steady_input_for(
