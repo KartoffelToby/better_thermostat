@@ -444,9 +444,10 @@ class TestControlCoolerSendCache:
     @pytest.mark.asyncio
     async def test_fahrenheit_reported_temp_matching_target_is_not_resent(self):
         """A cooler reporting the target in °F triggers no set_temperature."""
-        # 75.2 °F == 24.0 °C, the desired cooling setpoint.
+        # 24.0 °C is 75.2 °F; a °F cooler that publishes no step holds whole
+        # degrees, so 75 °F is the target as it holds it.
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=75.2, system_unit=UnitOfTemperature.FAHRENHEIT
+            cooler_temp_attr=75.0, system_unit=UnitOfTemperature.FAHRENHEIT
         )
 
         await control_cooler(mock_self)
@@ -1967,8 +1968,9 @@ class TestControlCoolerTargetRange:
 
         await control_cooler(mock_self)
 
+        # Without a published step the cooler holds whole degrees Fahrenheit.
         payload = self._set_temperature_payload(mock_hass)
-        assert payload["target_temp_high"] == 75.2  # 24.0 °C
+        assert payload["target_temp_high"] == 75.0  # 24.0 °C is 75.2 °F
         assert payload["target_temp_low"] == 68.0  # 20.0 °C
 
     @pytest.mark.asyncio

@@ -1168,21 +1168,26 @@ def _on_cooler_grid(
 
     The cooler publishes its step in the system unit, so a Fahrenheit value is
     rounded in Fahrenheit and brought back; the payload's conversion then
-    lands on that grid point again. A cooler that publishes no usable step is
-    rounded onto the step its reports are compared with.
+    lands on that grid point again. A cooler that publishes no usable step
+    holds whole degrees on a Fahrenheit system, Home Assistant's precision
+    for that unit, and on a Celsius system is rounded onto the step its
+    reports are compared with.
     """
     if value is None:
         return None
+    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
     step = convert_to_float(
         str(cooler_state.attributes.get("target_temp_step")),
         self.device_name,
         "control_cooler()",
     )
     if step is None or step <= 0:
-        return round_by_step(
-            value, device_setpoint_step(self, cooler_state, "control_cooler()")
-        )
-    if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
+        if not fahrenheit:
+            return round_by_step(
+                value, device_setpoint_step(self, cooler_state, "control_cooler()")
+            )
+        step = 1.0
+    if fahrenheit:
         on_grid = round_by_step(
             TemperatureConverter.convert(
                 value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
