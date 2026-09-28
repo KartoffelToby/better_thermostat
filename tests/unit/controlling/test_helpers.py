@@ -636,6 +636,52 @@ class TestCheckTargetTemperature:
         assert trv.target_temp_received is False
 
     @pytest.mark.asyncio
+    async def test_a_write_made_while_the_watchdog_waits_ends_that_wait(self):
+        """A newer write during the wait ends the older watchdog at its next poll.
+
+        The device keeps reporting 22.0, so the watchdog for 23.0 polls and
+        waits. During that wait the control loop writes 24.0. At the next
+        poll the watchdog for 23.0 ends, without waiting out the timeout,
+        without a warning and without releasing the channel.
+        """
+        trv = Trv.from_legacy_dict(
+            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+        )
+        watched = trv.remember_setpoint_written(23.0)
+
+        mock_hass = MagicMock()
+        mock_hass.states.get.return_value = State(
+            "climate.trv1", HVACMode.HEAT, {"temperature": 22.0}
+        )
+
+        mock_self = MagicMock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.hass = mock_hass
+        mock_self.real_trvs = {"climate.trv1": trv}
+        durations = []
+
+        async def _sleep(duration):
+            durations.append(duration)
+            if len(durations) == 1:
+                trv.remember_setpoint_written(24.0)
+
+        with (
+            patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)),
+            patch(f"{_CTRL}._LOGGER") as logger,
+        ):
+            result = await check_target_temperature(
+                mock_self, "climate.trv1", watched, 23.0
+            )
+
+        assert result is True
+        assert durations == [1]
+        assert mock_hass.states.get.call_count == 2
+        logger.warning.assert_not_called()
+        assert trv.confirmed_setpoint is None
+        assert trv.echo_setpoint_values() == [23.0, 24.0]
+        assert trv.target_temp_received is False
+
+    @pytest.mark.asyncio
     async def test_the_watchdog_of_the_newest_write_releases_the_channel(self):
         """The newest write's watchdog confirms it and opens the channel again."""
         trv = Trv.from_legacy_dict(
