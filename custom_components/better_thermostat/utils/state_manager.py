@@ -118,10 +118,16 @@ _LOGGER = logging.getLogger(__name__)
 CURRENT_VERSION = 1
 
 # Container version of the file an unreadable store is set aside in. The
-# payload is kept verbatim and never read back by this module, so this
+# payload is kept verbatim and only read back to confirm the copy, so this
 # version stays put when ``CURRENT_VERSION`` moves and no migration ever
 # rewrites a set-aside copy.
 QUARANTINE_VERSION = 1
+
+# How many distinct unreadable payloads one config entry keeps copies of.
+# The first copy holds the state from before anything went wrong and the
+# newest the latest learning; one more keeps the step between them. A
+# store that keeps turning unreadable does not fill the disk with copies.
+QUARANTINE_COPIES = 3
 
 # State dataclasses (only those NOT owned by a controller module)
 
@@ -869,14 +875,16 @@ def _store_key(entry_id: str) -> str:
     return f"{DOMAIN}_{entry_id}_state"
 
 
-def _quarantine_key(entry_id: str) -> str:
-    """Return the Store key an unreadable runtime state is set aside under.
+def _quarantine_key(entry_id: str, copy: int = 0) -> str:
+    """Return the Store key one copy of an unreadable runtime state is kept under.
 
     The suffix matches the one Home Assistant's own Store appends when it
     finds a storage file it cannot parse, so both kinds of damaged file sit
-    next to each other under recognizable names.
+    next to each other under recognizable names. The first copy has no
+    number, and each later one of the :data:`QUARANTINE_COPIES` is numbered.
     """
-    return f"{_store_key(entry_id)}.corrupt"
+    key = f"{_store_key(entry_id)}.corrupt"
+    return key if copy == 0 else f"{key}.{copy}"
 
 
 # Migration
@@ -943,7 +951,10 @@ class StateManager:
             Config entry identifier whose store file is removed.
         """
         await Store(hass, CURRENT_VERSION, _store_key(entry_id)).async_remove()
-        await Store(hass, QUARANTINE_VERSION, _quarantine_key(entry_id)).async_remove()
+        for copy in range(QUARANTINE_COPIES):
+            await Store(
+                hass, QUARANTINE_VERSION, _quarantine_key(entry_id, copy)
+            ).async_remove()
 
     # -- Public properties ---------------------------------------------------
 
@@ -1270,23 +1281,41 @@ class StateManager:
         a non-finite value reset. The defaults this entity falls back to
         are written over the live store on its next save, so without a copy
         the only record of what a user's installation had learned is gone.
-        The copy is taken once:
-        a second unreadable load must not overwrite the first copy, which is
-        the one still holding the accumulated state. The copy counts once it
-        loads back from disk; until then, the payload is held so that no save
-        overwrites the live store before a later attempt succeeds.
+
+        Every distinct payload gets a copy of its own: one read after an
+        earlier copy was taken holds what was learned since. A payload
+        already kept adds none. With all :data:`QUARANTINE_COPIES` taken,
+        the current payload replaces the newest copy, the one nearest to it
+        in time, and the older ones stay. The copy counts once it loads
+        back from disk as the payload; until then, the payload is held so
+        that no save overwrites the live store before a later attempt
+        succeeds.
 
         Parameters
         ----------
         raw : dict[str, Any]
             The store payload that could not be deserialized in full.
         """
-        key = _quarantine_key(self._entry_id)
-        quarantine: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
+        key = _quarantine_key(self._entry_id, QUARANTINE_COPIES - 1)
         try:
-            if await quarantine.async_load() is not None:
-                self._payload_awaiting_copy = None
-                return
+            free: str | None = None
+            for copy in range(QUARANTINE_COPIES):
+                copy_key = _quarantine_key(self._entry_id, copy)
+                kept: Store[dict[str, Any]] = Store(
+                    self._hass, QUARANTINE_VERSION, copy_key
+                )
+                stored = await kept.async_load()
+                if stored == raw:
+                    self._payload_awaiting_copy = None
+                    return
+                if stored is None and free is None:
+                    free = copy_key
+            key = free or key
+            # Written atomically: replacing the newest copy must not leave it
+            # half-written when the write fails.
+            quarantine: Store[dict[str, Any]] = Store(
+                self._hass, QUARANTINE_VERSION, key, atomic_writes=True
+            )
             await quarantine.async_save(raw)
             # ``async_save`` returns normally when the write fails, and while
             # Home Assistant stops it only queues the write for the final
@@ -1304,7 +1333,7 @@ class StateManager:
             )
             self._payload_awaiting_copy = raw
             return
-        if written is None:
+        if written != raw:
             _LOGGER.warning(
                 "better_thermostat [%s]: the unreadable state did not reach %s; "
                 "the stored state is kept unchanged until it does",

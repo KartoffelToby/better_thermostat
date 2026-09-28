@@ -1778,7 +1778,7 @@ def _stores_by_key():
     """
     stores: dict[str, AsyncMock] = {}
 
-    def _store_for(_hass, _version, key):
+    def _store_for(_hass, _version, key, **_options):
         if key not in stores:
             store = AsyncMock()
             store.async_load = AsyncMock(return_value=None)
@@ -2011,7 +2011,110 @@ class TestUnreadableStoreIsKeptForRecovery:
             await StateManager.async_remove_store(AsyncMock(), "test_entry")
 
         stores[_LIVE_STORE_KEY].async_remove.assert_awaited_once()
-        stores[_SET_ASIDE_KEY].async_remove.assert_awaited_once()
+        for key in _SET_ASIDE_KEYS:
+            stores[key].async_remove.assert_awaited_once()
+
+
+_SET_ASIDE_KEYS = (_SET_ASIDE_KEY, f"{_SET_ASIDE_KEY}.1", f"{_SET_ASIDE_KEY}.2")
+"""The keys the copies of one entry's unreadable payloads are kept under."""
+
+
+def _truncated_into(store: AsyncMock):
+    """Return a save side effect after which *store* loads a cut-off payload."""
+
+    def _save(_data):
+        store.async_load.return_value = {"version": 1}
+
+    return _save
+
+
+def _poisoned_payload(gain: float) -> dict:
+    """Return a stored payload that loads with one entry reset."""
+    return {"version": 1, "mpc": {"k1": {"gain_est": gain, "kalman_P": None}}}
+
+
+class TestEveryDistinctPayloadIsKept:
+    """Each distinct unreadable payload gets a copy before the store is written.
+
+    A payload read after an earlier copy was taken holds what was learned
+    since, and the next save replaces it as much as it replaced the first.
+    """
+
+    @staticmethod
+    async def _load_and_save(stores, payload: dict) -> StateManager:
+        mgr = StateManager(AsyncMock(), "test_entry")
+        stores[_LIVE_STORE_KEY].async_load.return_value = payload
+        await mgr.load()
+        mgr.mark_dirty()
+        await mgr.save()
+        return mgr
+
+    @staticmethod
+    def _stored(stores, key: str, payload: dict) -> None:
+        """Seed an existing copy under *key*."""
+        store = AsyncMock()
+        store.async_load = AsyncMock(return_value=payload)
+        store.async_save = AsyncMock(side_effect=_saved_into(store))
+        stores[key] = store
+
+    @pytest.mark.asyncio
+    async def test_a_newer_payload_is_kept_beside_the_first_copy(self):
+        """The first copy stays, and the newer payload gets one of its own."""
+        with _stores_by_key() as stores:
+            self._stored(stores, _SET_ASIDE_KEYS[0], _poisoned_payload(0.1))
+            await self._load_and_save(stores, _poisoned_payload(0.5))
+
+        stores[_SET_ASIDE_KEYS[0]].async_save.assert_not_awaited()
+        assert stores[_SET_ASIDE_KEYS[1]].async_load.return_value == (
+            _poisoned_payload(0.5)
+        )
+        stores[_LIVE_STORE_KEY].async_save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_payload_already_kept_gets_no_second_copy(self):
+        """Loading the same unreadable payload again adds no copy."""
+        with _stores_by_key() as stores:
+            self._stored(stores, _SET_ASIDE_KEYS[0], _poisoned_payload(0.1))
+            self._stored(stores, _SET_ASIDE_KEYS[1], _poisoned_payload(0.5))
+            await self._load_and_save(stores, _poisoned_payload(0.5))
+
+        for key in _SET_ASIDE_KEYS:
+            if key in stores:
+                stores[key].async_save.assert_not_awaited()
+        stores[_LIVE_STORE_KEY].async_save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_with_every_copy_taken_the_newest_is_replaced(self):
+        """The first copies stay; the current payload takes the newest one's place.
+
+        The first copy holds the state from before anything went wrong, and
+        the current payload the most recent learning.
+        """
+        with _stores_by_key() as stores:
+            for gain, key in zip((0.1, 0.2, 0.3), _SET_ASIDE_KEYS, strict=True):
+                self._stored(stores, key, _poisoned_payload(gain))
+            await self._load_and_save(stores, _poisoned_payload(0.5))
+
+        stores[_SET_ASIDE_KEYS[0]].async_save.assert_not_awaited()
+        stores[_SET_ASIDE_KEYS[1]].async_save.assert_not_awaited()
+        assert stores[_SET_ASIDE_KEYS[2]].async_load.return_value == (
+            _poisoned_payload(0.5)
+        )
+        stores[_LIVE_STORE_KEY].async_save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_copy_that_reads_back_different_keeps_the_live_store(self):
+        """Only a copy that reads back as the payload lets the save through."""
+        with _stores_by_key() as stores:
+            for key in _SET_ASIDE_KEYS:
+                copy = AsyncMock()
+                copy.async_load = AsyncMock(return_value=None)
+                copy.async_save = AsyncMock(side_effect=_truncated_into(copy))
+                stores[key] = copy
+            mgr = await self._load_and_save(stores, _poisoned_payload(0.5))
+
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+        assert mgr.dirty is True
 
 
 class TestTheCopyIsConfirmedOnTheHomeAssistantStore:
@@ -2088,3 +2191,21 @@ class TestTheCopyIsConfirmedOnTheHomeAssistantStore:
         assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
         assert hass_storage[self._LIVE_KEY]["data"] != self._PAYLOAD
         assert manager.dirty is False
+
+    async def test_an_older_copy_and_a_newer_payload_are_both_kept(
+        self, hass, hass_storage
+    ):
+        """A newer unreadable payload is set aside beside an older copy."""
+        older = {"version": 1, "mpc": {"k1": {"gain_est": 0.1, "kalman_P": None}}}
+        hass_storage[self._COPY_KEY] = {
+            "version": 1,
+            "minor_version": 1,
+            "key": self._COPY_KEY,
+            "data": older,
+        }
+        manager = await self._loaded_manager(hass, hass_storage)
+        await manager.save()
+
+        assert hass_storage[self._COPY_KEY]["data"] == older
+        assert hass_storage[f"{self._COPY_KEY}.1"]["data"] == self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] != self._PAYLOAD
