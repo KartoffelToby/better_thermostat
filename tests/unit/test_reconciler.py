@@ -24,6 +24,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
     reconcile_tick,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -750,6 +751,16 @@ class TestOffsetReconcileHandoff:
     written, with the same tolerance, so a queued cycle is not a no-op
     that leaves the tick re-queueing forever.
     """
+
+    @pytest.fixture(autouse=True)
+    def _offset_entity_registered_and_enabled(self):
+        """The registry holds the calibration number as an enabled entry."""
+        registry = make_entity_registry(make_registry_entry("number.offset"))
+        with patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get",
+            return_value=registry,
+        ):
+            yield
 
     def _diverged_offset_bt(self):
         bt = _control_bt()

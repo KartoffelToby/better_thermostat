@@ -18,6 +18,7 @@ import pytest
 from custom_components.better_thermostat.adapters import delegate
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -27,6 +28,17 @@ _RETRY = "custom_components.better_thermostat.utils.retry"
 
 # Attempts one write is worth: the first one plus the delegate's retries.
 ATTEMPTS = 6
+
+
+@pytest.fixture(autouse=True)
+def _helper_entities_registered_and_enabled():
+    """The registry holds the TRV's helper entities as enabled entries."""
+    registry = make_entity_registry(make_registry_entry(VALVE_ENTITY))
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
 
 
 def _thermostat(adapter, quirks=None):

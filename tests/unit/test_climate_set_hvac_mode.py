@@ -11,6 +11,7 @@ from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -76,3 +77,12 @@ async def test_maintenance_defers_control(bt):
         await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
     assert bt._control_needed_after_maintenance is True
     bt.control_queue_task.put_nowait.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_mode_change_is_stamped_as_a_user_change(bt):
+    """Switching the mode marks the moment as the user's change of the room."""
+    bt.clock = FakeClock(monotonic_value=123.0)
+    with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
+        await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
+    assert bt.last_user_change_monotonic == 123.0

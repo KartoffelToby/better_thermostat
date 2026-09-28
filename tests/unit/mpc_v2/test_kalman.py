@@ -53,16 +53,23 @@ def test_observer_reconstructs_T_rad_from_T_room_measurements() -> None:  # noqa
     assert abs(float(obs.x_hat[1]) - float(x_true[1])) < 1.0
 
 
-def test_innovation_matches_measurement_minus_predicted_y() -> None:
-    """The innovation equals the measurement minus the predicted output."""
+def test_room_correction_is_the_move_from_prediction_towards_measurement() -> None:
+    """``room_correction`` is how far ``update`` moved the room off its prediction.
+
+    The move points towards the measurement and stops short of it, since the
+    filter weighs the measurement against its own prediction.
+    """
     plant = PlantModelRC2(PlantParams(), dt_s=30.0)
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 30.0]))
+    predicted = plant.discrete_step(obs.x_hat, 0.3, 5.0)
     y_meas = 20.5
-    A, B, d = plant.linearised_AB(T_outdoor_C=5.0, T_rad_op_C=30.0)
-    x_pred = A @ obs.x_hat + B.flatten() * 0.3 + d
-    expected = y_meas - float(x_pred[0])
-    assert abs(obs.innovation(y_meas, u=0.3, T_outdoor_C=5.0) - expected) < 1e-12
+
+    x_hat = obs.update(y_meas, u=0.3, T_outdoor_C=5.0)
+
+    residual = y_meas - float(predicted[0])
+    assert obs.room_correction == pytest.approx(float(x_hat[0] - predicted[0]))
+    assert 0.0 < obs.room_correction / residual < 1.0
 
 
 def test_update_keeps_the_covariance_exactly_symmetric() -> None:
@@ -128,17 +135,25 @@ def test_restored_covariance_keeps_the_estimate_bounded() -> None:
 
 
 def test_observer_uses_actual_elapsed_time() -> None:
-    """A sparse HA event advances the model by its full interval, not 30 s."""
+    """A sparse HA event advances the model by its full interval, not 30 s.
+
+    Five minutes between readings predict what ten consecutive 30-second
+    plant steps under the held valve fraction reach, so a reading exactly
+    there needs no correction, while one 30-second step falls short of it.
+    """
     plant = PlantModelRC2(PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0)
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 35.0]))
-    y_meas = 20.2
-    A, B, d = plant.linearised_AB(5.0, 35.0, dt_s=300.0)
-    expected = y_meas - float((A @ obs.x_hat + B.flatten() * 0.2 + d)[0])
+    x = obs.x_hat.copy()
+    for _ in range(10):
+        x = plant.discrete_step(x, 0.2, 5.0)
+    one_step = plant.discrete_step(obs.x_hat, 0.2, 5.0)
+    assert float(x[0]) != pytest.approx(float(one_step[0]))
 
-    assert obs.innovation(y_meas, u=0.2, T_outdoor_C=5.0, dt_s=300.0) == pytest.approx(
-        expected
-    )
+    x_hat = obs.update(float(x[0]), u=0.2, T_outdoor_C=5.0, dt_s=300.0)
+
+    assert obs.room_correction == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(x_hat, x)
 
 
 @pytest.mark.parametrize(
@@ -223,18 +238,16 @@ def test_reseeding_the_estimate_discards_the_confidence_of_the_run() -> None:
     assert float(obs.P[1, 1]) > float(P_after_run[1, 1])
 
 
-def test_the_correction_acts_on_the_prediction_the_innovation_reported() -> None:
-    """Both entry points have to advance the model the same way, every cycle.
+def test_update_corrects_against_the_plants_own_prediction() -> None:
+    """``update`` predicts with the plant's propagation over the elapsed time.
 
-    A control cycle reads ``innovation`` for the disturbance observer and then
-    calls ``update`` for the same measurement, so the two must not disagree
-    about the predicted output — otherwise the observer folds in a residual
-    the filter never acted on. Feeding back exactly the value the filter just
-    predicted therefore has to leave the estimate on that prediction, at every
-    step of a run whose intervals keep changing. The bound is a rounding
-    bound: the fed-back value is one subtraction away from the prediction, and
-    the correction scales that difference down, so the estimate can only move
-    by a few units in the last place of the measurement scale.
+    The disturbance observer reads ``room_correction`` as the part of the
+    residual the filter acted on, so the filter's prediction has to be the
+    plant's own. Feeding back exactly what :meth:`PlantModelRC2.propagate`
+    predicts leaves the estimate on that prediction with no correction, at
+    every step of a run whose intervals and valve positions keep changing.
+    The bound is a rounding bound: the correction scales a difference of a
+    few units in the last place down, so the estimate moves by no more.
     """
     eps = float(np.finfo(float).eps)
     rounding_ulps = 64.0
@@ -242,19 +255,17 @@ def test_the_correction_acts_on_the_prediction_the_innovation_reported() -> None
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 45.0]))
     intervals_s = (30.0, 300.0, 1800.0, 90.0)
-    probe_C = 20.0
 
     estimates = []
     for k in range(200):
         dt_s = intervals_s[k % len(intervals_s)]
         u = 0.8 if (k // 7) % 2 == 0 else 0.1
-        predicted_C = probe_C - obs.innovation(
-            probe_C, u=u, T_outdoor_C=-5.0, dt_s=dt_s
-        )
+        predicted_C = float(plant.propagate(obs.x_hat, u, -5.0, dt_s)[0])
         x_hat = obs.update(predicted_C, u=u, T_outdoor_C=-5.0, dt_s=dt_s)
         assert abs(float(x_hat[0]) - predicted_C) <= rounding_ulps * eps * abs(
             predicted_C
         )
+        assert abs(obs.room_correction) <= rounding_ulps * eps * abs(predicted_C)
         estimates.append(float(x_hat[1]))
 
     # A radiator estimate that never left its seed would satisfy the above

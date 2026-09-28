@@ -301,11 +301,6 @@ class TestModeRemapTranslationOnAReportedSpelling:
                 ["off", "heat", "heat_cool"],
                 "heat_cool",
                 id="both_spellings_reporting_heat_cool",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a device offering heat and heat_cool keeps a reported "
-                    "heat_cool untranslated",
-                ),
             ),
             pytest.param(["off", "heat_cool"], "heat_cool", id="heat_cool_only"),
         ],
@@ -491,13 +486,13 @@ class TestModeRemapUnsupportedOutboundMode:
         assert mode_remap(mock_bt, "climate.test", "cool", inbound=True) == "cool"
         assert mode_remap(mock_bt, "climate.test", "dry", inbound=True) == "dry"
 
-    def test_an_unswapped_device_reporting_auto_reads_as_off(self, caplog):
-        """A reported AUTO without the swap option is read as OFF and explained.
+    def test_an_unswapped_device_reporting_auto_is_ignored(self, caplog):
+        """A reported AUTO without the swap option decodes to no mode and is explained.
 
-        The instance never publishes AUTO, so the only AUTO that reaches this
-        branch is one a device reports. Without the swap option AUTO is not a
-        heating mode this instance knows; the report is decoded as OFF, and
-        the error names the swap option as the likely missing setting.
+        Without the swap option AUTO may be the device's heating mode or its
+        own schedule, so the report names neither OFF nor HEAT. It decodes to
+        no mode at all, and the error names the swap option as the likely
+        missing setting.
         """
         mock_bt = MockThermostat()
         mock_bt.add_trv(
@@ -507,7 +502,7 @@ class TestModeRemapUnsupportedOutboundMode:
         with caplog.at_level(logging.ERROR, logger=HELPERS_LOGGER):
             result = mode_remap(mock_bt, "climate.test", "auto", inbound=True)
 
-        assert result == HVACMode.OFF
+        assert result is None
         assert len(_forgotten_swap_records(caplog)) == 1
 
     def test_unreported_mode_list_disables_the_clamp(self):
@@ -884,8 +879,33 @@ class TestModeRemapSwappedDeviceInACoolerRoom:
         assert adopted == HVACMode.HEAT
         assert get_hvac_bt_mode(mock_bt, adopted) == HVACMode.HEAT_COOL
 
+    @pytest.mark.parametrize(
+        "hvac_modes",
+        [
+            pytest.param(["off", "heat_cool"], id="heat_cool_only"),
+            pytest.param(["off", "heat", "heat_cool"], id="heat_and_heat_cool"),
+            pytest.param(["off", "heat", "cool", "heat_cool"], id="heat_cool_and_cool"),
+        ],
+    )
+    def test_inbound_heat_cool_becomes_heat_without_an_offered_auto(self, hvac_modes):
+        """A swapped device without auto reports its heating mode as HEAT.
+
+        Such a device receives HEAT or HEAT_COOL as its heating mode, so a
+        reported HEAT_COOL is the device heating, as it is on an unswapped
+        device, and switching it on at the panel reaches the instance.
+        """
+        mock_bt = MockThermostat()
+        mock_bt.add_trv("climate.test", heat_auto_swapped=True, hvac_modes=hvac_modes)
+
+        result = mode_remap(mock_bt, "climate.test", HVACMode.HEAT_COOL, inbound=True)
+        assert result == HVACMode.HEAT
+
     def test_inbound_heat_cool_is_not_translated_by_the_swap(self):
-        """A reported HEAT_COOL passes the swapped branch unchanged."""
+        """A swapped device offering AUTO does not heat in HEAT_COOL.
+
+        AUTO is that device's heating mode, so a reported HEAT_COOL is not
+        translated into HEAT.
+        """
         mock_bt = MockThermostat()
         mock_bt.add_trv(
             "climate.test",

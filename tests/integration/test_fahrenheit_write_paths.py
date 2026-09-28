@@ -14,6 +14,7 @@ on the way out, which is where a conversion that is only right for round
 numbers gives itself away.
 """
 
+import copy
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -26,6 +27,7 @@ from homeassistant.const import (
     EVENT_CALL_SERVICE,
     UnitOfTemperature,
 )
+from homeassistant.core import Context
 from homeassistant.util.unit_conversion import TemperatureConverter
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
@@ -63,6 +65,7 @@ from .conftest import (
 )
 from .device_profiles import (
     FAHRENHEIT_TRV,
+    GENERIC_HEAT_TRV,
     OFF_GRID_FAHRENHEIT_TRV,
     TRV_ID,
     DeviceProfile,
@@ -194,33 +197,12 @@ def _step_label(token: str) -> str:
 # -- setpoint -----------------------------------------------------------------
 
 
-_WHOLE_DEGREE_LOST_ROUNDING_DOWN = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the whole-degree step is rounded to 0.56 K and the target to two "
-        "decimals, so a whole degree Fahrenheit lies just below a point of the "
-        "grid it is rounded on, and rounding down for a room warmer than the "
-        "target writes one degree less"
-    ),
-)
-
-
 @pytest.mark.parametrize(
     ("fake_trv", "requested"),
     [
         pytest.param(FAHRENHEIT_TRV, 70.0, id="fahrenheit_trv-heating"),
-        pytest.param(
-            FAHRENHEIT_TRV,
-            63.0,
-            id="fahrenheit_trv-idle-63",
-            marks=_WHOLE_DEGREE_LOST_ROUNDING_DOWN,
-        ),
-        pytest.param(
-            FAHRENHEIT_TRV,
-            64.0,
-            id="fahrenheit_trv-idle-64",
-            marks=_WHOLE_DEGREE_LOST_ROUNDING_DOWN,
-        ),
+        pytest.param(FAHRENHEIT_TRV, 63.0, id="fahrenheit_trv-idle-63"),
+        pytest.param(FAHRENHEIT_TRV, 64.0, id="fahrenheit_trv-idle-64"),
         pytest.param(
             OFF_GRID_FAHRENHEIT_TRV, 70.0, id="off_grid_fahrenheit_trv-heating"
         ),
@@ -271,46 +253,12 @@ FAHRENHEIT_TRV_MIN_39 = replace(
     [
         pytest.param(FAHRENHEIT_TRV, "min_temp", id="fahrenheit_trv-min"),
         pytest.param(FAHRENHEIT_TRV, "max_temp", id="fahrenheit_trv-max"),
+        pytest.param(FAHRENHEIT_TRV_MIN_39, "min_temp", id="fahrenheit_trv_min_39-min"),
         pytest.param(
-            FAHRENHEIT_TRV_MIN_39,
-            "min_temp",
-            id="fahrenheit_trv_min_39-min",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the minimum is held in Celsius rounded to two decimals, "
-                    "3.89 above 3.8889, so the thermostat refuses a target at "
-                    "the 39 °F it publishes as its own minimum"
-                ),
-            ),
+            OFF_GRID_FAHRENHEIT_TRV, "min_temp", id="off_grid_fahrenheit_trv-min"
         ),
         pytest.param(
-            OFF_GRID_FAHRENHEIT_TRV,
-            "min_temp",
-            id="off_grid_fahrenheit_trv-min",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the minimum is read as the whole degree Home Assistant "
-                    "published, 39 °F, below the device's 4 °C; the thermostat "
-                    "refuses its own published minimum, and the 39 °F it would "
-                    "write is refused by Home Assistant at the device"
-                ),
-            ),
-        ),
-        pytest.param(
-            OFF_GRID_FAHRENHEIT_TRV,
-            "max_temp",
-            id="off_grid_fahrenheit_trv-max",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the maximum is read as the whole degree Home Assistant "
-                    "published, 87 °F, above the device's 30.5 °C, and written "
-                    "back as that degree, which Home Assistant refuses, so the "
-                    "device never receives it"
-                ),
-            ),
+            OFF_GRID_FAHRENHEIT_TRV, "max_temp", id="off_grid_fahrenheit_trv-max"
         ),
     ],
     indirect=["fake_trv"],
@@ -364,15 +312,6 @@ async def test_a_target_at_the_edge_of_the_range_reaches_the_device(
                 hvac_modes=(HVACMode.HEAT,),
             ),
             id="off_grid_fahrenheit_trv",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the minimum a device without an off mode is parked at is "
-                    "the whole degree Home Assistant published, 39 °F, below "
-                    "the device's 4 °C, so Home Assistant refuses it and the "
-                    "device keeps heating"
-                ),
-            ),
         ),
     ],
     indirect=True,
@@ -405,6 +344,106 @@ async def test_a_device_without_an_off_mode_is_parked_at_its_minimum(hass, fake_
     assert received == pytest.approx(profile.min_temp, abs=_published_degree(profile))
 
 
+FAHRENHEIT_TRV_WITHOUT_OFF = replace(
+    FAHRENHEIT_TRV, name="fahrenheit_trv_without_off", hvac_modes=(HVACMode.HEAT,)
+)
+"""The Fahrenheit device offering no off mode, with its whole-degree grid."""
+
+
+async def _start_without_off_mode(hass, profile: DeviceProfile):
+    """Start a thermostat that runs ``profile`` as a ``no_off_system_mode`` head."""
+    _publish_room_at_device_reading(hass, profile)
+    data = copy.deepcopy(dict(make_entry(profile).data))
+    data["thermostat"][0]["advanced"]["no_off_system_mode"] = True
+    entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert_profile_adopted(bt, profile)
+    return bt
+
+
+CELSIUS_TRV_WITHOUT_OFF_ON_FAHRENHEIT = replace(
+    GENERIC_HEAT_TRV,
+    name="celsius_trv_without_off_on_fahrenheit",
+    hvac_modes=(HVACMode.HEAT,),
+    system_unit=UnitOfTemperature.FAHRENHEIT,
+    configured_target_temp_step="0.0",
+)
+"""A Celsius head without an off mode, published in whole degrees Fahrenheit."""
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        pytest.param(FAHRENHEIT_TRV_WITHOUT_OFF, id="fahrenheit_trv"),
+        pytest.param(CELSIUS_TRV_WITHOUT_OFF_ON_FAHRENHEIT, id="celsius_trv"),
+    ],
+    indirect=True,
+)
+async def test_a_device_parked_at_its_minimum_keeps_the_room_off(hass, fake_trv):
+    """A head without an off mode, parked at the minimum, reads as off.
+
+    Switching the room off parks the head at the lowest setpoint the
+    thermostat writes. The head keeps reporting that setpoint, on the grid
+    of a reading, and every such report is the head sitting at its minimum,
+    not a user turning the room on.
+    """
+    bt = await _start_without_off_mode(hass, fake_trv.profile)
+    await _settle_device_at(hass, 68.0)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_hvac_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.OFF},
+        blocking=True,
+    )
+    assert await wait_for(hass, lambda: _device_setpoint(hass) < 68.0, timeout_s=2.0)
+    trv = bt.real_trvs[TRV_ID]
+    assert await wait_for(
+        hass, lambda: trv.target_temp_received and not bt.ignore_states
+    )
+
+    # The head's next routine report carries the parked setpoint again.
+    fake_trv._attr_current_temperature = fake_trv.current_temperature + 0.5
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+    for _ in range(20):
+        await hass.async_block_till_done()
+
+    assert bt.bt_hvac_mode == HVACMode.OFF
+    assert hass.states.get(BT_ENTITY).state == HVACMode.OFF
+
+
+@pytest.mark.parametrize(
+    "fake_trv", [FAHRENHEIT_TRV_WITHOUT_OFF], indirect=True, ids=["fahrenheit_trv"]
+)
+async def test_a_device_turned_down_to_its_own_minimum_switches_the_room_off(
+    hass, fake_trv
+):
+    """Turning a head without an off mode to its end stop switches the room off.
+
+    The head's own minimum, 41 °F, lies below the lowest setpoint the
+    thermostat writes to it, which sits inside the whole degree Home
+    Assistant may have rounded the bound to. A head turned down that far is
+    at its minimum all the same.
+    """
+    bt = await _start_without_off_mode(hass, fake_trv.profile)
+    await _settle_device_at(hass, 68.0)
+
+    trv = bt.real_trvs[TRV_ID]
+    assert await wait_for(
+        hass, lambda: trv.target_temp_received and not bt.ignore_states
+    )
+
+    # A turn at the device reaches Home Assistant as a state of its own,
+    # outside the context of the thermostat's last write.
+    fake_trv._attr_target_temperature = fake_trv.profile.min_temp
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+
+    assert await wait_for(hass, lambda: bt.bt_hvac_mode == HVACMode.OFF, timeout_s=2.0)
+
+
 # -- valve maintenance --------------------------------------------------------
 
 
@@ -412,29 +451,9 @@ async def test_a_device_without_an_off_mode_is_parked_at_its_minimum(hass, fake_
     "fake_trv",
     [
         pytest.param(
-            replace(FAHRENHEIT_TRV, valve_maintenance=True),
-            id="fahrenheit_trv",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the setpoint to restore is taken from the device attribute "
-                    "in Fahrenheit and written back as if it were Celsius, so "
-                    "the clamp leaves the device on its maximum"
-                ),
-            ),
+            replace(FAHRENHEIT_TRV, valve_maintenance=True), id="fahrenheit_trv"
         ),
-        pytest.param(
-            OFF_GRID_FAHRENHEIT_TRV,
-            id="off_grid_fahrenheit_trv",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the run writes the device's bounds as the whole degrees "
-                    "Home Assistant published, which lie outside its range, so "
-                    "Home Assistant refuses them and the valve is never exercised"
-                ),
-            ),
-        ),
+        pytest.param(OFF_GRID_FAHRENHEIT_TRV, id="off_grid_fahrenheit_trv"),
     ],
     indirect=True,
 )
@@ -561,18 +580,7 @@ async def test_a_stored_off_temperature_is_read_in_the_system_unit(
     ("unit_system", "suggested"),
     [
         pytest.param(METRIC_SYSTEM, 20, id="celsius"),
-        pytest.param(
-            US_CUSTOMARY_SYSTEM,
-            68,
-            id="fahrenheit",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "the flow suggests 20 on every system, and on a Fahrenheit "
-                    "system 20 is read as 20 °F"
-                ),
-            ),
-        ),
+        pytest.param(US_CUSTOMARY_SYSTEM, 68, id="fahrenheit"),
     ],
 )
 async def test_the_flow_suggests_an_off_temperature_of_20_celsius(
@@ -592,13 +600,6 @@ async def test_the_flow_suggests_an_off_temperature_of_20_celsius(
     assert form_default(result, CONF_OFF_TEMPERATURE) == suggested
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the suggested off temperature 20 is stored and read as 20 °F, so at "
-        "40 °F outside the thermostat stops calling for heat"
-    ),
-)
 async def test_accepting_the_suggested_off_temperature_keeps_a_cold_room_heating(hass):
     """An entry created with the suggested threshold heats in heating weather.
 
@@ -657,13 +658,6 @@ async def test_configured_bounds_are_read_in_the_unit_their_label_names(hass):
     assert state.attributes["max_temp"] == pytest.approx(_fahrenheit(24.0), abs=0.5)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the step picked as 0.5 °C is scaled by 5/9 as if it were a Fahrenheit "
-        "difference, so the device is written on a 0.28 °C grid"
-    ),
-)
 async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     """A step picked from a dropdown labelled in Celsius is a step in Celsius.
 
@@ -689,3 +683,99 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     bt = await wait_for_startup(hass, entry)
 
     assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(float(labelled_value))
+
+
+@pytest.mark.parametrize(
+    ("configured", "fake_trv", "published_step"),
+    [
+        pytest.param("step_0_5", FAHRENHEIT_TRV, 0.9, id="configured_0_5_celsius"),
+        pytest.param(None, FAHRENHEIT_TRV, 1.0, id="device_step_1_fahrenheit"),
+    ],
+    indirect=["fake_trv"],
+)
+async def test_the_thermostat_publishes_its_step_in_the_system_unit(
+    hass, configured, fake_trv, published_step
+):
+    """The step the thermostat publishes is a step in the unit its target is shown in.
+
+    Home Assistant converts the target it publishes into Fahrenheit and
+    publishes the step unconverted, and the frontend moves the target by
+    that step. A step of 0.5 °C is 0.9 °F; the device's own 1 °F grid stays
+    1 °F.
+    """
+    _publish_room_at_device_reading(hass, fake_trv.profile)
+    user_input = {"name": "BT Test", CONF_HEATER: [TRV_ID], CONF_SENSOR: SENSOR_ID}
+    if configured is not None:
+        user_input[CONF_TARGET_TEMP_STEP] = configured
+    entry = await _run_create_flow(hass, user_input)
+    await wait_for_startup(hass, entry)
+
+    state = hass.states.get(BT_ENTITY)
+    assert state.attributes["target_temp_step"] == pytest.approx(published_step)
+
+
+async def test_the_thermostat_publishes_its_range_in_tenths_inside_the_device_range(
+    hass,
+):
+    """The range the thermostat publishes lies inside the device's, in tenths.
+
+    The device publishes 39 and 87 °F for a range of 4 to 30.5 °C. The
+    thermostat reads each half a published degree inward and publishes that
+    as it holds it, 39.5 and 86.5 °F, not rounded back out to whole degrees.
+    """
+    (fake_trv,) = await build_devices(hass, OFF_GRID_FAHRENHEIT_TRV)
+    _publish_room_at_device_reading(hass, fake_trv.profile)
+    await _start(hass, fake_trv.profile)
+
+    state = hass.states.get(BT_ENTITY)
+    assert state.attributes["min_temp"] == 39.5
+    assert state.attributes["max_temp"] == 86.5
+    assert _fahrenheit(4.0) <= state.attributes["min_temp"]
+    assert state.attributes["max_temp"] <= _fahrenheit(30.5)
+
+
+async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(hass):
+    """A target set in Fahrenheit is held on the Celsius step the user configured.
+
+    The frontend steps the target by 0.9 °F, the configured 0.5 °C, counted
+    from 0 °F, so it offers 68.4 °F, which is 20.22 °C. The thermostat holds
+    the point of its own step that is closest, 20 °C, and publishes it as
+    68 °F.
+    """
+    (fake_trv,) = await build_devices(hass, FAHRENHEIT_TRV)
+    _publish_room_at_device_reading(hass, fake_trv.profile)
+    entry = await _run_create_flow(
+        hass,
+        {
+            "name": "BT Test",
+            CONF_HEATER: [TRV_ID],
+            CONF_SENSOR: SENSOR_ID,
+            CONF_TARGET_TEMP_STEP: "step_0_5",
+        },
+    )
+    bt = await wait_for_startup(hass, entry)
+
+    with patch(WRITE_BUDGET, 0.0):
+        await _set_target(hass, 68.4)
+
+    assert bt.bt_target_temp == pytest.approx(20.0)
+    assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 68.0
+
+
+async def test_a_preset_number_steps_in_the_system_unit(hass):
+    """A preset number steps by the configured step, shown in Fahrenheit.
+
+    Home Assistant converts the number's value and range into Fahrenheit but
+    publishes its step as the number gives it, so the number gives the step
+    the thermostat publishes: 0.5 °C as 0.9 °F.
+    """
+    profile = replace(FAHRENHEIT_TRV, configured_target_temp_step="0.5")
+    (fake_trv,) = await build_devices(hass, profile)
+    _publish_room_at_device_reading(hass, profile)
+    data = dict(make_entry(profile).data) | {"presets": ["eco"]}
+    entry = MockConfigEntry(domain=DOMAIN, version=18, data=data, title=data["name"])
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+
+    assert hass.states.get("number.bt_test_eco").attributes["step"] == 0.9
+    assert hass.states.get(BT_ENTITY).attributes["target_temp_step"] == 0.9
