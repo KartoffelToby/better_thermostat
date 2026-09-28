@@ -3892,7 +3892,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # can be preserved and restored when returning to PRESET_NONE.
             previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
-                self.bt_target_temp = self._onto_target_grid(new_temp)
+                # Rounded onto the step first and clamped second, as a target
+                # set directly is: a bound between two steps would otherwise
+                # round the preset past it.
+                self.bt_target_temp = min(
+                    self.max_temp, max(self.min_temp, self._onto_target_grid(new_temp))
+                )
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE

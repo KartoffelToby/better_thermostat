@@ -961,6 +961,28 @@ class TestAsyncSetPresetMode:
         assert mock_bt.preset_mgr.mode == PRESET_COMFORT
 
     @pytest.mark.asyncio
+    async def test_a_preset_rounded_onto_the_step_stays_inside_the_range(self, mock_bt):
+        """A preset at a bound between two steps is not rounded past the bound.
+
+        The range ends at 86.5 °F, 30.28 °C, and Comfort is stored there.
+        The configured 0.5 °C step rounds that to 30.5 °C, outside the range;
+        the applied target is the bound itself, as for a target set directly.
+        """
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 30.28
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.bt_max_temp = 30.28
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt._configured_target_temp_step = 0.5
+
+        await self._call(mock_bt, PRESET_COMFORT)
+
+        assert mock_bt.bt_target_temp == 30.28
+        assert mock_bt.preset_mgr.mode == PRESET_COMFORT
+
+    @pytest.mark.asyncio
     async def test_comfort_to_none_restores(self, mock_bt):
         """Comfort → NONE: bt_target_temp restored, _preset_temperature cleared."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
