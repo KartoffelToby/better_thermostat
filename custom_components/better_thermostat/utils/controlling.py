@@ -41,6 +41,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     SETPOINT_MATCH_TOLERANCE,
+    TRV_SETPOINT_KEYS,
     attr_to_celsius,
     convert_to_float,
     cooling_owns_dual_role_device,
@@ -49,8 +50,10 @@ from custom_components.better_thermostat.utils.helpers import (
     dual_role_entity_id,
     get_current_set_temperatures,
     matches_any_setpoint,
+    normalize_step,
     read_setpoint_celsius,
     round_by_step,
+    setpoint_echo_window,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -345,12 +348,47 @@ async def read_reports_held_during_cycle(self) -> None:
                 entity_id,
             )
             continue
-        if _held_report_control_inputs(self, trv) != acted_on_before:
+        if _held_report_control_inputs(
+            self, trv
+        ) != acted_on_before or _locked_device_moved(self, entity_id, trv, state):
             try:
                 self.control_queue_task.put_nowait(self)
             except asyncio.QueueFull:
                 # A cycle is already queued, and it reads the same state.
                 pass
+
+
+def _locked_device_moved(self, entity_id, trv, state) -> bool:
+    """Return whether a child-locked TRV holds a setpoint or mode it was not sent.
+
+    The lock keeps a press at the device from being adopted, so it moves no
+    control input, and the cycle that turns the device back has to be asked
+    for by what the device holds. A mode command still waiting for its
+    confirmation is left to its watchdog, since the report can lag it; a
+    setpoint report that lags a write shows a value the device was sent
+    before.
+    """
+    if not (trv.advanced or {}).get("child_lock"):
+        return False
+    if (
+        trv.system_mode_received
+        and trv.last_hvac_mode is not None
+        and state.state != trv.last_hvac_mode
+    ):
+        return True
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
+    )
+    known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
+    if entity_id == dual_role_entity_id(self):
+        known += [self.bt_target_cooltemp, self.last_sent_cooler_temp]
+    known_values = [float(value) for value in known if value is not None]
+    if reported is None or not known_values:
+        return False
+    window = setpoint_echo_window(
+        normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    )
+    return all(abs(reported - value) >= window for value in known_values)
 
 
 def _held_report_control_inputs(self, trv) -> tuple:
