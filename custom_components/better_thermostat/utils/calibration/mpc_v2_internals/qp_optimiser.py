@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import logging
+import math
 from typing import Any
 
 import numpy as np
@@ -60,6 +61,19 @@ _CONVERGENCE_TOL = 1e-11
 _FEASIBILITY_TOL = 1e-9
 
 
+def _bounded_command(
+    command: float, u_last: float, u_min: float, u_max: float
+) -> float:
+    """Return the first planned command inside the valve range.
+
+    A non-finite command, from a state the plan cannot handle, keeps the
+    valve at the last command rather than letting the clamps open it fully.
+    """
+    if not math.isfinite(command):
+        command = u_last if math.isfinite(u_last) else u_min
+    return max(u_min, min(u_max, command))
+
+
 def _step_to_boundary(values: FloatArray, change: FloatArray) -> float:
     """Return the largest step in ``(0, 1]`` that keeps ``values`` non-negative."""
     shrinking = change < 0.0
@@ -96,18 +110,18 @@ def _polish(
     gradient: FloatArray,
     rows: FloatArray,
     limits: FloatArray,
-    x: FloatArray,
     slack: FloatArray,
     dual: FloatArray,
-) -> FloatArray:
+) -> FloatArray | None:
     """Solve exactly on the constraints the interior point ends on.
 
     A constraint starts out active where its multiplier exceeds its slack,
     and a constraint the exact solution breaks joins the set, for as many
-    rounds as there are constraints. The exact solution replaces ``x`` once
-    it is feasible and every multiplier is non-negative; otherwise ``x``
-    stands.
+    rounds as there are constraints. The result is returned only once it is
+    feasible and every multiplier is non-negative, which makes it the
+    optimum; otherwise ``None``.
     """
+    size = hessian.shape[0]
     active = [int(i) for i in np.flatnonzero(dual > slack)]
     for _ in range(rows.shape[0]):
         count = len(active)
@@ -116,21 +130,21 @@ def _polish(
         try:
             solution = np.linalg.solve(kkt, np.concatenate([-gradient, limits[active]]))
         except np.linalg.LinAlgError:
-            return x
-        exact = solution[: x.size]
-        multipliers = solution[x.size :]
+            return None
+        exact = solution[:size]
+        multipliers = solution[size:]
         excess = rows @ exact - limits
         worst = int(np.argmax(excess))
         if excess[worst] > _FEASIBILITY_TOL:
             if worst in active:
-                return x
+                return None
             active.append(worst)
             continue
         largest = max(1.0, float(np.max(np.abs(multipliers)))) if count else 1.0
         if count and float(np.min(multipliers)) < -_FEASIBILITY_TOL * largest:
-            return x
+            return None
         return exact
-    return x
+    return None
 
 
 @dataclass
@@ -203,9 +217,11 @@ class QpOptimiser:
         self.N = params.horizon_steps
         self.e_integral_K_min: float = 0.0
         self._L_cumsum = np.tril(np.ones((self.N, self.N)))
-        # A daqp failure is reported once per optimiser at WARNING, later
-        # ones at DEBUG, so a solver that keeps failing does not flood the log.
+        # A daqp failure and a flat fallback of the NumPy solver are each
+        # reported once per optimiser at WARNING, later ones at DEBUG, so a
+        # solver that keeps failing does not flood the log.
         self._daqp_failure_reported = False
+        self._flat_fallback_reported = False
         if not DAQP_AVAILABLE:
             _LOGGER.info(
                 "MPC v2 plans with its NumPy solver; the daqp package is not "
@@ -358,7 +374,7 @@ class QpOptimiser:
                     H_scaled, g_scaled, A_con_dense, ub, lb, bsense
                 )
                 if exitflag == 1:
-                    return max(u_min, min(u_max, float(x[0])))
+                    return _bounded_command(float(x[0]), u_last, u_min, u_max)
                 self._report_daqp_failure(f"exit flag {exitflag}")
             except (ArithmeticError, RuntimeError, ValueError) as err:
                 # DAQP is an optional accelerator. A numerical failure must
@@ -374,7 +390,7 @@ class QpOptimiser:
         )
         # ``x[0]`` is a numpy scalar; convert once to a plain float so the
         # caller doesn't propagate numpy types into JSON-bound state.
-        return max(u_min, min(u_max, float(x[0])))
+        return _bounded_command(float(x[0]), u_last, u_min, u_max)
 
     def _report_daqp_failure(self, reason: str) -> None:
         """Log that daqp gave no plan and the NumPy solver computes it."""
@@ -407,8 +423,6 @@ class QpOptimiser:
         non-finite objective holds the last command.
         """
         n = self.N
-        if n <= 0:
-            return np.empty(0)
         u_last = bounds.u_last
         u_min = bounds.u_min
         u_max = bounds.u_max
@@ -443,8 +457,10 @@ class QpOptimiser:
         )
         plan = self._interior_point(hessian, gradient, rows, limits, flat)
         if plan is None or float(np.max(rows @ plan - limits)) > _FEASIBILITY_TOL:
-            _LOGGER.debug(
-                "MPC v2 NumPy solver found no feasible optimum; planning flat"
+            level = logging.DEBUG if self._flat_fallback_reported else logging.WARNING
+            self._flat_fallback_reported = True
+            _LOGGER.log(
+                level, "MPC v2 NumPy solver found no feasible optimum; planning flat"
             )
             return flat
         return plan
@@ -478,17 +494,22 @@ class QpOptimiser:
             dual_residual = h @ x + g + rows.T @ dual
             primal_residual = rows @ x + slack - limits
             gap = float(slack @ dual) / count
-            if (
-                float(np.max(np.abs(dual_residual))) < _CONVERGENCE_TOL * dual_scale
-                and float(np.max(np.abs(primal_residual))) < _CONVERGENCE_TOL
-                and gap < _CONVERGENCE_TOL
-            ):
-                return _polish(h, g, rows, limits, x, slack, dual)
+            residual = max(
+                float(np.max(np.abs(dual_residual))) / dual_scale,
+                float(np.max(np.abs(primal_residual))),
+                gap,
+            )
+            if residual < _CONVERGENCE_TOL:
+                exact = _polish(h, g, rows, limits, slack, dual)
+                return x if exact is None else exact
             weight = dual / slack
             try:
                 factor = np.linalg.cholesky(h + rows.T @ (weight[:, None] * rows))
             except np.linalg.LinAlgError:
-                return None
+                # Near the optimum the weights span many orders of magnitude
+                # and the Newton matrix can lose definiteness to round-off;
+                # the exact solve finishes the iterate when it can.
+                return _polish(h, g, rows, limits, slack, dual)
 
             residuals = (dual_residual, primal_residual)
             dx, d_slack, d_dual = _newton_direction(
