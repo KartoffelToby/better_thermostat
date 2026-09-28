@@ -2180,7 +2180,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         control cycles only once that is done, and a control cycle is
         requested right after so it is commanded without waiting for the
         next event.
+
+        Nothing is set up while valve maintenance runs: the initialisation
+        commands the TRV, and maintenance holds the valves for the exercise.
+        Maintenance looks again once it has ended.
         """
+        if getattr(self, "in_maintenance", False):
+            return
         for entity_id, trv in list(self.real_trvs.items()):
             if (
                 not trv.awaiting_initialization
@@ -2766,6 +2772,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # stuck sleeping forever and never consume queued control actions.
             self.ignore_states = False
             self.in_maintenance = False
+
+            # A TRV startup went ahead without that came back meanwhile was
+            # left alone, and it does not necessarily report again soon.
+            self._spawn_owned(
+                self._initialize_arrived_trvs(),
+                name=f"bt_initialize_arrived_trvs_{self.device_name}",
+            )
 
             # Trigger one control cycle after maintenance so BT immediately
             # resumes with the latest window/temp/target states.

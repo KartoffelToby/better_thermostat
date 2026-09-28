@@ -2588,6 +2588,36 @@ class TestATrvThatArrivesAfterStartup:
     """A TRV startup went ahead without is set up once it is back."""
 
     @pytest.mark.asyncio
+    async def test_it_is_left_alone_while_valve_maintenance_runs(self, bt):
+        """No TRV is set up, and so none written to, during valve maintenance.
+
+        Its initialisation commands the TRV, and maintenance holds the valves
+        for the exercise. The TRV stays marked and is set up afterwards.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt.in_maintenance = True
+
+        await BetterThermostat._initialize_arrived_trvs(bt)
+
+        bt._initialize_trvs.assert_not_awaited()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+        assert bt.control_queue_task.qsize() == 0
+
+    @pytest.mark.asyncio
+    async def test_a_report_during_valve_maintenance_sets_nothing_up(self, bt):
+        """A TRV that reports back during valve maintenance is not written to."""
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(
+            bt
+        )
+        bt._spawn_owned = MagicMock(side_effect=lambda coro, name: coro.close())
+
+        await _report_from(bt, TRV_ID_2, [], in_maintenance=True)
+
+        bt._initialize_trvs.assert_not_awaited()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+
+    @pytest.mark.asyncio
     async def test_it_is_initialised_and_joins_the_room(self, bt):
         """Once initialised it is part of the control cycles, and one is asked for."""
         _room_with_a_trv_left_behind(bt, available=True)
@@ -2761,9 +2791,9 @@ class TestATrvThatArrivesAfterStartup:
         assert order == ["ladder", "critical"]
 
 
-async def _report_from(bt, entity_id, order):
+async def _report_from(bt, entity_id, order, *, in_maintenance=False):
     """Deliver one state report of ``entity_id`` to the TRV trigger."""
-    bt.in_maintenance = False
+    bt.in_maintenance = in_maintenance
     bt._async_unsub_state_changed = MagicMock()
     event = MagicMock()
     event.data = {
@@ -2803,3 +2833,22 @@ async def test_a_trv_that_returned_before_its_listener_existed_is_looked_for():
     await _run_finalize_startup(bt)
 
     assert subscribed_when_looked == [True]
+
+
+@pytest.mark.asyncio
+async def test_startup_finishing_during_valve_maintenance_sets_no_trv_up():
+    """The look after the TRV subscription writes nothing during maintenance."""
+    bt = _make_finalize_bt()
+    bt.in_maintenance = True
+    bt._trvs_initializing = set()
+    bt.real_trvs = {TRV_ID: _trv_left_behind(TRV_ID)}
+    bt.hass.states.get.side_effect = lambda entity_id: _make_trv_state(
+        entity_id=entity_id
+    )
+    bt._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(bt)
+    bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(bt)
+
+    await _run_finalize_startup(bt)
+
+    bt._initialize_trvs.assert_not_awaited()
+    assert bt.real_trvs[TRV_ID].awaiting_initialization is True
