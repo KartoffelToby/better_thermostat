@@ -61,6 +61,7 @@ def thermostat(reported_states):
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
+    bt.map_on_hvac_mode = HVACMode.HEAT
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
@@ -121,23 +122,40 @@ def thermostat(reported_states):
     return bt
 
 
-async def _run_one_cycle(thermostat, reported_states, published_inside) -> None:
+async def _run_one_cycle(
+    thermostat, reported_states, published_inside, *, handled_inside=False
+) -> int:
     """Drive one control cycle, with the device publishing inside it.
 
     ``published_inside`` is the state the TRV publishes while the cycle holds
     it, which is the window in which an event from that TRV is dropped.
-    ``None`` stands for a device that publishes no state at all.
+    ``None`` stands for a device that publishes no state at all. With
+    ``handled_inside`` the publication reaches the inbound handler as the
+    event it is, the way Home Assistant delivers it during the cycle.
+
+    Returns the number of TRV cycles that ran, the one driven here and any
+    the end of that cycle requested.
     """
     queue = asyncio.Queue()
     thermostat.control_queue_task = queue
     await queue.put(thermostat)
+    cycles = 0
 
     async def _control_trv(*args, **kwargs) -> bool:
+        nonlocal cycles
         assert thermostat.ignore_states is True
+        cycles += 1
+        if cycles > 1:
+            return True
         if published_inside is None:
             reported_states.pop(ENTITY_ID)
         else:
+            old_state = reported_states[ENTITY_ID]
             reported_states[ENTITY_ID] = published_inside
+            if handled_inside:
+                await trigger_trv_change(
+                    thermostat, _device_event(old_state, published_inside)
+                )
         return True
 
     with patch(
@@ -147,12 +165,29 @@ async def _run_one_cycle(thermostat, reported_states, published_inside) -> None:
         cycle = asyncio.create_task(control_queue(thermostat))
         try:
             await asyncio.wait_for(queue.join(), timeout=5)
+            # The end of the cycle reads what the handler held off; let it
+            # finish before the worker is stopped.
+            for _ in range(20):
+                await asyncio.sleep(0)
         finally:
             cycle.cancel()
             try:
                 await cycle
             except asyncio.CancelledError:
                 pass
+    return cycles
+
+
+def _device_event(old_state: State, new_state: State):
+    """Build the event a change made at the device reaches the handler as."""
+    event = MagicMock()
+    event.data = {
+        "old_state": old_state,
+        "new_state": new_state,
+        "entity_id": ENTITY_ID,
+    }
+    event.context = MagicMock()  # differs from thermostat.context
+    return event
 
 
 def _press_setpoint(thermostat, reported_states, setpoint: float):
@@ -169,6 +204,16 @@ def _press_setpoint(thermostat, reported_states, setpoint: float):
     }
     event.context = MagicMock()  # differs from thermostat.context
     return event
+
+
+def _switch_room_off(thermostat, reported_states) -> None:
+    """Leave the room and its TRV switched off by Better Thermostat."""
+    thermostat.bt_hvac_mode = HVACMode.OFF
+    thermostat.hvac_mode = HVACMode.OFF
+    trv = thermostat.real_trvs[ENTITY_ID]
+    trv.hvac_mode = "off"
+    trv.last_hvac_mode = "off"
+    reported_states[ENTITY_ID] = _reported_state("off")
 
 
 class TestModeCacheAfterACycle:
@@ -207,18 +252,42 @@ class TestModeCacheAfterACycle:
         assert thermostat.bt_target_temp == 22.0
 
     @pytest.mark.asyncio
-    async def test_the_entity_keeps_the_mode_it_was_left_with(
+    async def test_a_mode_switched_during_the_cycle_is_read_on_the_next_report(
         self, thermostat, reported_states
     ):
-        """Switching a TRV off during a cycle leaves the room heating.
+        """A TRV switched off during a cycle switches the room off on its next report.
 
-        The cache follows the device, the entity does not: a mode reported
-        while the handler stood down was not adopted as user intent, and the
-        end of the cycle is too late to read it as one.
+        The end of the cycle does not read the mode into the entity: nobody
+        read that report. The cache keeps the mode Better Thermostat
+        commanded, so the device's next report reaches the handler as the
+        change it is, and the handler takes it as the user's.
         """
         await _run_one_cycle(thermostat, reported_states, _reported_state("off"))
 
+        assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "heat"
+        assert thermostat.bt_hvac_mode == HVACMode.HEAT
+
+        await trigger_trv_change(
+            thermostat,
+            _device_event(reported_states[ENTITY_ID], _reported_state("off")),
+        )
+
         assert thermostat.real_trvs[ENTITY_ID].hvac_mode == "off"
+        assert thermostat.bt_hvac_mode == HVACMode.OFF
+
+    @pytest.mark.asyncio
+    async def test_a_head_switched_on_during_a_cycle_switches_the_room_on(
+        self, thermostat, reported_states
+    ):
+        """A TRV switched on while the room is off turns the room on on its next report."""
+        _switch_room_off(thermostat, reported_states)
+
+        await _run_one_cycle(thermostat, reported_states, _reported_state("heat"))
+        await trigger_trv_change(
+            thermostat,
+            _device_event(reported_states[ENTITY_ID], _reported_state("heat")),
+        )
+
         assert thermostat.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio

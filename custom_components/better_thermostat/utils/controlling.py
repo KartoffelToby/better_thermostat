@@ -214,23 +214,27 @@ def advance_hvac_action(self) -> None:
 
 
 def refresh_cached_trv_modes(self) -> None:
-    """Re-read the mode every TRV reports into its own cache.
+    """Settle every TRV's mode cache on what the handler has yet to read.
 
     ``Trv.hvac_mode`` holds the raw state string a device publishes, and the
     inbound event handler is its only other writer. That handler stands down
     for the whole length of a control cycle, and a cycle runs for seconds
-    while the adapters wait for their writes to be confirmed. A device that
-    changes mode inside that window leaves behind a cache naming a mode it no
-    longer holds, which would turn away every setpoint the user presses on it
-    as coming from a device that is off. The caller runs this at the end of
-    the cycle, before it releases ``ignore_states``, so the cache is out of
-    step only for as long as the handler is standing down.
+    while the adapters wait for their writes to be confirmed. The caller runs
+    this at the end of the cycle, before it releases ``ignore_states``.
 
-    The observational cache is the only thing that moves here. The mode of
-    the Better Thermostat entity stays where it is: a device mode reported
-    while the handler was standing down was not adopted as user intent, and
-    taking it into the entity at the end of the cycle would decide the room's
-    mode from a report nobody read.
+    A device reporting the mode Better Thermostat last commanded it into is
+    cached as holding it. A device reporting any other mode was changed at
+    the device while nobody listened, or has not yet taken the command. The
+    handler tells the two apart, and it only looks at a report whose mode
+    differs from the cache, so the cache is set to the commanded mode: the
+    device's next report then reaches the handler as the change it is, and
+    the handler's guards decide whether the room follows it. Caching the
+    reported mode instead would make that report read as no change, and the
+    next cycle would drive the device back out of a mode the user chose.
+
+    The mode of the Better Thermostat entity does not move here: a mode
+    reported while the handler was standing down is read as user intent on
+    the device's next report, not from a report nobody read.
 
     A device that says nothing, one that is unavailable or unknown, and one
     under a child lock keep the cache they have, which is how the event
@@ -247,17 +251,21 @@ def refresh_cached_trv_modes(self) -> None:
             continue
         if (trv.advanced or {}).get("child_lock"):
             continue
-        if trv.hvac_mode == state.state:
+        _settled_mode = state.state
+        if trv.last_hvac_mode is not None and state.state != trv.last_hvac_mode:
+            _settled_mode = trv.last_hvac_mode
+        if trv.hvac_mode == _settled_mode:
             continue
         _LOGGER.debug(
             "better_thermostat %s: TRV %s reports %s while its cached mode is "
-            "%s, taking the reported one",
+            "%s, caching %s",
             self.device_name,
             entity_id,
             state.state,
             trv.hvac_mode,
+            _settled_mode,
         )
-        trv.hvac_mode = state.state
+        trv.hvac_mode = _settled_mode
 
 
 async def control_queue(self):
@@ -393,8 +401,9 @@ async def control_queue(self):
                     if not getattr(self, "in_maintenance", False):
                         # The inbound handler stood down for the whole
                         # cycle, so a mode a device reported meanwhile
-                        # never reached its cache. Read the reports back
-                        # before the window closes.
+                        # never reached it. Settle the caches before the
+                        # window closes, so the device's next report is
+                        # read as the change it carries.
                         refresh_cached_trv_modes(self)
                         self.ignore_states = False
     except asyncio.CancelledError:
