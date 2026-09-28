@@ -538,6 +538,41 @@ class TestMPCController:
 
         assert state.min_effective_percent == 16.0
 
+    @pytest.mark.parametrize("hold_time_s", [0.0, 300.0])
+    def test_a_valve_opened_after_the_trv_warmed_keeps_the_learned_minimum(
+        self, hold_time_s
+    ):
+        """Only an opening in force while the TRV warmed lowers the minimum.
+
+        The valve was closed over the interval the TRV warmed in, so the
+        warming answers no opening, whatever this cycle commands: an
+        opening that has not acted yet, or a closed valve the hold time
+        keeps.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_decay_pct=1.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+            min_percent_hold_time_s=hold_time_s,
+        )
+        state = MpcState(trv_profile="linear", min_effective_percent=16.0)
+        for cycle, raw_percent in enumerate((0.0, 20.0)):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=20.0,
+                trv_temp_C=24.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, raw_percent, None
+            )
+
+        assert state.min_effective_percent == 16.0
+
     def test_a_wall_clock_step_back_restarts_the_valve_average(self):
         """The valve totals start over with an integration stamp ahead of the clock.
 
