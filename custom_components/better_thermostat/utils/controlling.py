@@ -868,8 +868,10 @@ def _locked_device_moved(
 
     The lock keeps a press at the device from being adopted, so it moves no
     control input, and the cycle that turns the device back has to be asked
-    for by what the device holds. A command still waiting for its
-    confirmation is left to its watchdog, since the report can lag it.
+    for by what the device holds. A mode command still waiting for its
+    confirmation is left to its watchdog, since the report can lag it; a
+    setpoint report that lags a write shows a value the device was sent
+    before.
     """
     if not (trv.advanced or {}).get("child_lock"):
         return False
@@ -879,8 +881,6 @@ def _locked_device_moved(
         and state.state != trv.last_hvac_mode
     ):
         return True
-    if not trv.target_temp_received:
-        return False
     reported = read_setpoint_celsius(
         self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
     )

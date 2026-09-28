@@ -463,3 +463,18 @@ class TestALockedPressHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_lagging_report_of_a_pending_mode_requests_none(
+        self, thermostat, reported_states
+    ):
+        """A report of the mode before an unconfirmed mode command is not a press."""
+        trv = self._lock(thermostat)
+        trv.last_hvac_mode = "off"
+        trv.system_mode_received = False
+        reported_states[ENTITY_ID] = _reported_state("heat")
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_not_called()
