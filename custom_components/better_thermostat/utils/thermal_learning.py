@@ -301,7 +301,7 @@ class HeatingPowerTracker:
                 delta_env = max(target_temp - outdoor_temp, 0.1)
                 normalized_power = round((temp_diff / duration_min) / delta_env, 5)
 
-            heating_rate = round(temp_diff / duration_min, 4)
+            heating_rate = temp_diff / duration_min
 
             alpha = clamp(
                 _BASE_ALPHA * weight_factor * env_factor, _ALPHA_MIN, _ALPHA_MAX
@@ -327,7 +327,7 @@ class HeatingPowerTracker:
                     MAX_HEATING_POWER,
                 )
 
-            self.heating_power = round(new_power, 4)
+            self.heating_power = new_power
             self.normalized_power = normalized_power
             power_changed = self.heating_power != old_power
 
@@ -336,10 +336,10 @@ class HeatingPowerTracker:
                 {
                     "dT": round(temp_diff, 2),
                     "min": round(duration_min, 1),
-                    "rate": heating_rate,
+                    "rate": round(heating_rate, 4),
                     "alpha": round(alpha, 3),
                     "envf": round(env_factor, 3),
-                    "hp": self.heating_power,
+                    "hp": round(self.heating_power, 4),
                     "norm": normalized_power,
                 }
             )
@@ -359,7 +359,7 @@ class HeatingPowerTracker:
                     ),
                     "delta_t": round(temp_diff, 3),
                     "minutes": round(duration_min, 2),
-                    "rate_c_min": heating_rate,
+                    "rate_c_min": round(heating_rate, 4),
                     "target": target_temp,
                     "outdoor": outdoor_temp,
                     "norm_power": normalized_power,
@@ -466,7 +466,7 @@ class HeatLossTracker:
                 duration_min = 0.0
 
             if duration_min >= _MIN_CYCLE_DURATION and temp_drop > 0:
-                loss_rate = round(temp_drop / duration_min, 5)
+                loss_rate = temp_drop / duration_min
 
                 # Adaptive smoothing (alpha is always base for heat loss)
                 alpha = clamp(_BASE_ALPHA, _ALPHA_MIN, _ALPHA_MAX)
@@ -490,16 +490,16 @@ class HeatLossTracker:
                         MAX_HEAT_LOSS,
                     )
 
-                self.heat_loss_rate = round(new_loss, 5)
+                self.heat_loss_rate = new_loss
                 loss_changed = self.heat_loss_rate != old_loss
 
                 self.stats.append(
                     {
                         "dT": round(temp_drop, 2),
                         "min": round(duration_min, 1),
-                        "rate": loss_rate,
+                        "rate": round(loss_rate, 5),
                         "alpha": round(alpha, 3),
-                        "loss": self.heat_loss_rate,
+                        "loss": round(self.heat_loss_rate, 5),
                     }
                 )
 
@@ -517,7 +517,7 @@ class HeatLossTracker:
                             if self.end_temp is not None
                             else None
                         ),
-                        "rate": loss_rate,
+                        "rate": round(loss_rate, 5),
                     }
                 )
 

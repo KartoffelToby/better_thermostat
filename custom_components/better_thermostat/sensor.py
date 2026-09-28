@@ -817,6 +817,7 @@ class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
     _attr_icon = "mdi:thermometer-plus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _climate_attr = "heating_power"
+    _rounding = 4
     _unique_id_suffix = "heating_power"
 
 
@@ -829,6 +830,7 @@ class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
     _attr_icon = "mdi:thermometer-minus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _climate_attr = "heat_loss_rate"
+    _rounding = 5
     _unique_id_suffix = "heat_loss"
 
 

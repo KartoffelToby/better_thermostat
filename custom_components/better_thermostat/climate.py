@@ -3283,8 +3283,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
             CONF_TOLERANCE: self.tolerance,
             CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
-            ATTR_STATE_HEATING_POWER: self.heating_power,
-            ATTR_STATE_HEAT_LOSS: getattr(self, "heat_loss_rate", None),
+            # The learned rates carry full precision; they are rounded here,
+            # where they are published.
+            ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),
+            ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             "external_temp_ema": self.cur_temp_filtered,
