@@ -236,11 +236,11 @@ async def test_a_clean_cycle_before_the_retry_is_due_keeps_the_run():
 
 @pytest.mark.asyncio
 async def test_a_request_during_the_pause_is_served_at_once():
-    """The pause holds back the queue's own retry, never a new request.
+    """A request that arrives during the pause gets its cycle straight away.
 
-    A user who changes the target while a run of failures is pausing gets a
-    cycle straight away, and the entity listens to its devices again during
-    the pause.
+    A user who changes the target while a run of failures is pausing is not
+    made to wait for the retry, and the entity listens to its devices again
+    during the pause.
     """
     entity = _make_self()
     async with _Queue(entity, lambda _n: ServiceValidationError("x")) as queue:
