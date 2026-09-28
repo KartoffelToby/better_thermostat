@@ -154,6 +154,13 @@ asyncio_mode = "auto"
 filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
+    # A coroutine nobody awaits is work that silently never ran: a fixture
+    # that swapped a production object for a mock, or a call that lost its
+    # await.
+    "error:coroutine .* was never awaited:RuntimeWarning",
+    # Python reports that warning while it collects the coroutine, where
+    # nothing can raise it, and pytest passes it on in this wrapper.
+    "error::pytest.PytestUnraisableExceptionWarning",
 ]
 
 [tool.coverage.run]

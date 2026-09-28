@@ -9,7 +9,7 @@ import asyncio
 from datetime import timedelta
 import json
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
@@ -74,10 +74,19 @@ LOCAL_CALIBRATION = 3
 # ---------------------------------------------------------------------------
 
 
+def _discard_background_work(coro, *, name):
+    """Close a coroutine handed to ``_spawn_owned`` instead of running it."""
+    coro.close()
+    return DEFAULT
+
+
 @pytest.fixture
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = MagicMock(spec=BetterThermostat)
+    # The coroutine handed over was created by the caller; a mock that drops
+    # it leaves it unawaited.
+    mock._spawn_owned = MagicMock(side_effect=_discard_background_work)
     mock.clock = MagicMock()
     mock.kernel_state = KernelState()
     mock._degraded_grace_until = None

@@ -5,6 +5,7 @@ mode synchronisation, target-temperature adoption, control-queue triggering,
 and the convert_inbound_states / convert_outbound_states helpers.
 """
 
+import asyncio
 from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -2916,7 +2917,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.contact_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
