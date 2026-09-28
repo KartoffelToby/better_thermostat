@@ -14,6 +14,8 @@ from datetime import datetime
 from types import ModuleType
 from typing import Any
 
+from homeassistant.core import State
+
 # How many unconfirmed writes a device is remembered to possibly echo. Writes
 # since the last confirmation are few; the bound only guards against a device
 # that never confirms while the control loop keeps writing. The confirmed
@@ -117,6 +119,10 @@ class Trv:
     # inbound handler off. The end of the cycle reads the device's state then,
     # before a later cycle can write over a press nobody has read.
     report_unread: bool = False
+    # The state the first of those held reports replaced. The end of the cycle
+    # judges the device's state against it, so a device that came back from
+    # ``unavailable`` inside the cycle is read as a return, not as a press.
+    state_before_held_report: State | None = None
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually wrote after its
     # own clamp to the declared offset range; ``last_calibration_requested`` is
