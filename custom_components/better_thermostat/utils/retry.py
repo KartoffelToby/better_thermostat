@@ -9,6 +9,7 @@ import logging
 import random
 from typing import ParamSpec, TypeVar
 
+from homeassistant.exceptions import ServiceNotFound, ServiceValidationError
 import voluptuous as vol
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,7 +20,10 @@ R = TypeVar("R")
 # Failures that repeating the call cannot fix: they report a defect in this
 # integration or in the payload it hands to a service, not a device or a bus
 # that is momentarily out of reach. They surface on the first attempt instead
-# of being hidden behind the full backoff budget.
+# of being hidden behind the full backoff budget. ``ServiceValidationError``
+# is Home Assistant refusing the payload itself (a setpoint outside the
+# entity's range, a mode it does not offer), which the same payload meets
+# again on every attempt.
 UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     AttributeError,
     ImportError,
@@ -30,7 +34,13 @@ UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     TypeError,
     ZeroDivisionError,
     vol.Invalid,
+    ServiceValidationError,
 )
+
+# Unrecoverable by type, yet momentary: Home Assistant raises
+# ``ServiceNotFound`` for a service whose integration is still loading or
+# reloading, and the service is back a few seconds later.
+RETRYABLE_DESPITE_TYPE: tuple[type[Exception], ...] = (ServiceNotFound,)
 
 
 def async_retry(
@@ -45,7 +55,8 @@ def async_retry(
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
 
-    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS` are re-raised on the first
+    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
+    :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first
     attempt even when ``exceptions`` covers them, so a broken call fails fast
     with its own traceback rather than after the whole backoff budget.
 
@@ -96,7 +107,9 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
-                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS):
+                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS) and not isinstance(
+                        e, RETRYABLE_DESPITE_TYPE
+                    ):
                         log_message = (
                             f"{log_prefix}{func.__name__} hit an error that "
                             f"retrying cannot fix: {e}{entity_suffix}"
