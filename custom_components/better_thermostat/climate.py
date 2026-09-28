@@ -719,6 +719,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_call_for_heat = None
         self.weather_verdict_missing_since: float | None = None
         self.weather_fallback_active = False
+        self.weather_verdict_received = False
         self._available = False
         self.context = None
         self.attr_hvac_action = None

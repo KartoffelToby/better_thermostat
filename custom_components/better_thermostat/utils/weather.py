@@ -64,12 +64,15 @@ async def check_weather(self) -> bool:
                 )
             self.weather_verdict_missing_since = None
             self.weather_fallback_active = False
+            self.weather_verdict_received = True
             self.call_for_heat = _call_for_heat_weather
         elif self.outdoor_sensor is None:
             # None means the prediction has no opinion: the previous decision
             # stays for WEATHER_VERDICT_HOLD, then the room heats. With an
             # outdoor sensor configured its verdict decides below, so the
-            # hold only applies where the forecast is the only source.
+            # hold only applies where the forecast is the only source, and
+            # only to a verdict the forecast gave since startup: a decision
+            # restored from saved state is not held, the room heats.
             # Monotonic time keeps the hold its length across a DST change.
             _now = monotonic()
             if self.weather_verdict_missing_since is None:
@@ -87,7 +90,7 @@ async def check_weather(self) -> bool:
                     _silent_s / 3600.0,
                 )
                 self.weather_fallback_active = True
-            if self.weather_fallback_active:
+            if self.weather_fallback_active or not self.weather_verdict_received:
                 self.call_for_heat = True
 
     if self.outdoor_sensor is not None:

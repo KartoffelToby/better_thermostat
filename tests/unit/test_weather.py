@@ -72,6 +72,7 @@ def make_bt(hass, **kw):
         call_for_heat=True,
         weather_verdict_missing_since=None,
         weather_fallback_active=False,
+        weather_verdict_received=False,
     )
     for k, v in kw.items():
         setattr(bt, k, v)
@@ -644,6 +645,7 @@ class TestCheckWeather:
         """
         bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
         bt.call_for_heat = previous
+        bt.weather_verdict_received = True
         logbook = AsyncMock()
         with (
             patch(
@@ -777,6 +779,7 @@ class TestCheckWeather:
             hass.services.async_call = AsyncMock(return_value=None)
         bt = make_bt(hass, weather_entity=WEATHER_ID, outdoor_sensor=None)
         bt.call_for_heat = previous
+        bt.weather_verdict_received = True
         logbook = AsyncMock()
         with patch(LOGBOOK, logbook):
             changed = await check_weather(bt)
@@ -801,6 +804,7 @@ class TestCheckWeather:
         )
         bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=None)
         bt.call_for_heat = previous
+        bt.weather_verdict_received = True
         logbook = AsyncMock()
         with patch(LOGBOOK, logbook):
             changed = await check_weather(bt)
@@ -869,6 +873,18 @@ class TestForecastOutage:
 
         assert bt.call_for_heat is True
         assert len(_weather_records(caplog, logging.WARNING)) == 1
+
+    async def test_a_restored_summer_mode_is_not_held_after_a_restart(self):
+        """Summer mode restored from saved state is not a forecast verdict.
+
+        After a restart with a silent forecast the room heats on the first
+        check: the hold only keeps a verdict the forecast gave since startup.
+        """
+        bt = make_bt(make_hass(), weather_entity=WEATHER_ID, call_for_heat=False)
+
+        await _hourly_checks([None], bt)
+
+        assert bt.call_for_heat is True
 
     async def test_a_short_outage_keeps_summer_mode(self):
         """An outage within the hold leaves the room resting."""
