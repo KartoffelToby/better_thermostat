@@ -145,6 +145,7 @@ def bt():
     mock.preset_modes = ["none", "comfort", "eco"]
     mock.version = "1.0.0"
     mock.startup_running = True
+    mock.in_maintenance = False
     # The seed is the one collaborator whose effect on the instance the cooler
     # assertions read back, so it runs for real while staying observable, and so
     # do the two rules it delegates to.
@@ -3211,6 +3212,38 @@ class TestATrvThatArrivesAfterStartup:
     """A TRV startup went ahead without is set up once it is back."""
 
     @pytest.mark.asyncio
+    async def test_it_is_left_alone_while_valve_maintenance_runs(self, bt):
+        """No TRV is set up, and so none written to, during valve maintenance.
+
+        Its initialisation writes to the TRV's device, and maintenance holds
+        the devices for the exercise. The TRV stays marked and is set up
+        afterwards.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt.in_maintenance = True
+
+        with patch(f"{_CLIMATE}.request_control_cycle") as request:
+            await BetterThermostat._initialize_arrived_trvs(bt)
+
+        bt._initialize_trvs.assert_not_awaited()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_report_during_valve_maintenance_sets_nothing_up(self, bt):
+        """A TRV that reports back during valve maintenance is not written to."""
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(
+            bt
+        )
+
+        with patch(f"{_CLIMATE}.request_control_cycle"):
+            await _report_from(bt, TRV_ID_2, [], in_maintenance=True)
+
+        bt._initialize_trvs.assert_not_awaited()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+
+    @pytest.mark.asyncio
     async def test_it_is_initialised_and_joins_the_room(self, bt):
         """Once initialised it is part of the control cycles, and one is asked for."""
         _room_with_a_trv_left_behind(bt, available=True)
@@ -3469,9 +3502,9 @@ class TestATrvThatArrivesAfterStartup:
         assert order == ["ladder", "critical"]
 
 
-async def _report_from(bt, entity_id, order):
+async def _report_from(bt, entity_id, order, *, in_maintenance=False):
     """Deliver one state report of ``entity_id`` to the TRV trigger."""
-    bt.in_maintenance = False
+    bt.in_maintenance = in_maintenance
     bt._async_unsub_state_changed = MagicMock()
     event = MagicMock()
     event.data = {

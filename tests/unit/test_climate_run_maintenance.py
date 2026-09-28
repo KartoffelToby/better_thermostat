@@ -173,3 +173,37 @@ async def test_failing_control_kick_does_not_mask_the_run(bt):
         pytest.raises(ValueError, match="unreachable TRV"),
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True], ids=["completed", "raised"])
+async def test_a_trv_that_returned_during_maintenance_is_looked_for_after_it(bt, fails):
+    """Returned TRVs are looked for once maintenance has ended.
+
+    A TRV startup went ahead without that came back during maintenance was
+    left alone then, and it does not necessarily report again soon.
+    """
+    maintenance_when_looked = []
+
+    async def look():
+        maintenance_when_looked.append(
+            bt.kernel_state.maintenance.is_blocking(bt.clock.monotonic())
+        )
+
+    bt._initialize_arrived_trvs = look
+    spawned = []
+    bt._spawn_owned = lambda coro, name: spawned.append(coro)
+    exercise = AsyncMock(side_effect=RuntimeError("boom") if fails else None)
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", exercise),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        try:
+            await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+        except RuntimeError:
+            assert fails
+    for coro in spawned:
+        await coro
+
+    assert maintenance_when_looked == [False]
