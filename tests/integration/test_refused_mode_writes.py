@@ -78,10 +78,10 @@ async def test_a_refused_off_is_retried_and_the_room_stays_off(hass, fake_trv):
     assert bt.bt_hvac_mode == HVACMode.OFF
 
 
-async def test_a_mode_that_landed_despite_its_error_leaves_heat_its_retry(
+async def test_the_users_heat_survives_a_dropped_message_after_an_outage(
     hass, fake_trv
 ):
-    """The user's later HEAT survives one dropped message."""
+    """A mode channel marked by an earlier outage still gets HEAT through."""
     set_room_sensor(hass, 18.0)
     entry = make_entry()
     await setup_entry(hass, entry)
@@ -110,6 +110,9 @@ async def test_a_mode_that_landed_despite_its_error_leaves_heat_its_retry(
 
         device["drops"] = 1
         await _set_room_mode(hass, HVACMode.HEAT)
+        await wait_for(hass, lambda: not bt.ignore_states, timeout_s=5)
+        await _settle(hass)
+        set_room_sensor(hass, 18.2)
         assert await wait_for(hass, lambda: fake_trv.hvac_mode == HVACMode.HEAT)
         await _settle(hass)
 

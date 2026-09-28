@@ -9,15 +9,12 @@ import logging
 import time
 from typing import Any, Final
 
-from homeassistant.core import State
 from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.helpers import (
-    convert_to_float_celsius,
     round_by_step,
     sibling_disabled_at_write,
-    state_temperature_unit,
 )
 
 from ..utils.retry import async_retry
@@ -225,43 +222,12 @@ class WriteOutage:
     ----------
     since : datetime
         When the attempts were spent.
-    attempted : Any
-        The value that write carried.
     reported_at : float
         Monotonic time the outage was last named at WARNING.
     """
 
     since: datetime
-    attempted: Any
     reported_at: float
-
-
-def _outage_is_over(self, entity_id: str, channel: str, outage: WriteOutage) -> bool:
-    """Whether what the TRV reports shows the recorded outage has ended.
-
-    A TRV whose state changed after the failure is talking again: it came
-    back from being unavailable, or it took a command. A TRV that reports
-    the mode or setpoint whose write raised took that write, the error
-    notwithstanding.
-    """
-    state = self.hass.states.get(entity_id)
-    if not isinstance(state, State):
-        return False
-    if state.last_changed > outage.since:
-        return True
-    if channel == "hvac_mode":
-        return state.state == str(outage.attempted)
-    if channel == "temperature":
-        reported = convert_to_float_celsius(
-            state.attributes.get("temperature"),
-            getattr(self, "device_name", "unknown"),
-            "write outage",
-            state_temperature_unit(
-                state.attributes, self.hass.config.units.temperature_unit
-            ),
-        )
-        return reported is not None and abs(reported - outage.attempted) < 0.05
-    return False
 
 
 async def _write_on_channel(
@@ -280,10 +246,11 @@ async def _write_on_channel(
     message within the cycle. A channel whose last write spent that chain
     and still raised gets one attempt: the device is out of reach, the next
     cycle asks again anyway, and the chain would cost the room its backoff
-    on every cycle. The outage ends with a write that goes through, or once
-    the TRV's own reports show it is over (see :func:`_outage_is_over`).
-    It is named at WARNING when it begins, once an hour while it lasts,
-    and at INFO when it ends.
+    on every cycle. Only a write that goes through ends the outage. A TRV
+    that keeps dropping out and coming back, or that takes a write while
+    raising, keeps costing one attempt per write rather than a chain per
+    return. The outage is named at WARNING when it begins, once an hour
+    while it lasts, and at INFO when it ends.
 
     Parameters
     ----------
@@ -315,9 +282,6 @@ async def _write_on_channel(
     outages: dict[str, WriteOutage] = found if isinstance(found, dict) else {}
     device_name = getattr(self, "device_name", "unknown")
     outage = outages.get(channel)
-    if outage is not None and _outage_is_over(self, entity_id, channel, outage):
-        del outages[channel]
-        outage = None
 
     async def write_to_device(host, target, payload):
         return await write(host, target, payload)
@@ -334,9 +298,7 @@ async def _write_on_channel(
     except Exception:
         now = time.monotonic()
         if outage is None:
-            outages[channel] = WriteOutage(
-                since=dt_util.utcnow(), attempted=value, reported_at=now
-            )
+            outages[channel] = WriteOutage(since=dt_util.utcnow(), reported_at=now)
             _LOGGER.warning(
                 "better_thermostat %s: %s for %s could not be written; each "
                 "following cycle tries it once until a write goes through",

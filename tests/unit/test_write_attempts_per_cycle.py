@@ -326,7 +326,12 @@ def _ok(channel):
 
 
 class TestAMarkThatNoLongerHolds:
-    """An out-of-reach mark lasts only as long as the outage it records."""
+    """A TRV that shows its outage is over gets one attempt, not the chain.
+
+    Only a write that goes through proves the channel; until then a device
+    that keeps coming back, or keeps taking a write while raising, costs one
+    attempt per write.
+    """
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -334,44 +339,97 @@ class TestAMarkThatNoLongerHolds:
         [("hvac_mode", "heat", {}), ("temperature", "off", {"temperature": 21.0})],
         ids=["hvac_mode", "temperature"],
     )
-    async def test_a_write_that_landed_despite_its_error_restores_the_retry(
+    async def test_a_write_that_landed_despite_its_error_gets_one_attempt(
         self, channel, mode, attributes
     ):
-        """A device reporting the value whose write raised took that write."""
+        """A device that takes writes while raising is not worth a chain each."""
         stale = datetime(2026, 1, 1, tzinfo=UTC)
-        write = AsyncMock(
-            side_effect=[_unreachable()] * FULL_ATTEMPTS + [_unreachable(), None]
-        )
+        write = AsyncMock(side_effect=_unreachable())
         thermostat = _thermostat(_adapter(**{channel: write}))
         _reports(thermostat, State(ENTITY_ID, "off", last_changed=stale))
 
         with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
             await _write(channel, thermostat)
             _reports(thermostat, State(ENTITY_ID, mode, attributes, last_changed=stale))
-            second = await _write(channel, thermostat)
+            await _write(channel, thermostat)
 
-        assert write.await_count == FULL_ATTEMPTS + 2
-        assert not isinstance(second, Exception)
-        assert second is not False
+        assert write.await_count == FULL_ATTEMPTS + 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("channel", CHANNELS)
-    async def test_a_device_back_from_an_outage_restores_the_retry(self, channel):
-        """A TRV whose state changed after the failure is talking again."""
+    async def test_a_device_back_from_an_outage_gets_one_attempt(self, channel):
+        """A TRV that drops out and returns does not buy a chain per return."""
         before = datetime(2026, 1, 1, tzinfo=UTC)
-        write = AsyncMock(
-            side_effect=[_unreachable()] * FULL_ATTEMPTS
-            + [_unreachable(), _ok(channel)]
-        )
+        write = AsyncMock(side_effect=_unreachable())
         thermostat = _thermostat(_adapter(**{channel: write}))
         _reports(thermostat, State(ENTITY_ID, "unavailable", last_changed=before))
 
         with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
             await _write(channel, thermostat)
+            for _ in range(3):
+                _reports(thermostat, State(ENTITY_ID, "off", {"temperature": 5.0}))
+                await _write(channel, thermostat)
+
+        assert write.await_count == FULL_ATTEMPTS + 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_a_write_that_goes_through_ends_the_outage_once(
+        self, channel, caplog
+    ):
+        """The end of an outage is named once, and the chain is back."""
+        before = datetime(2026, 1, 1, tzinfo=UTC)
+        write = AsyncMock(
+            side_effect=[_unreachable()] * FULL_ATTEMPTS
+            + [_ok(channel), _ok(channel)]
+            + [_unreachable()] * FULL_ATTEMPTS
+        )
+        thermostat = _thermostat(_adapter(**{channel: write}))
+        _reports(thermostat, State(ENTITY_ID, "unavailable", last_changed=before))
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
+        ):
+            await _write(channel, thermostat)
             _reports(thermostat, State(ENTITY_ID, "off", {"temperature": 5.0}))
             await _write(channel, thermostat)
+            await _write(channel, thermostat)
+            before_miss = write.await_count
+            await _write(channel, thermostat)
 
-        assert write.await_count == FULL_ATTEMPTS + 2
+        ends = [
+            r
+            for r in caplog.records
+            if r.name == _DELEGATE and "back in reach" in r.getMessage()
+        ]
+        assert [r.levelno for r in ends] == [logging.INFO]
+        assert write.await_count - before_miss == FULL_ATTEMPTS
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel", CHANNELS)
+    async def test_a_return_that_fails_again_stays_quiet(self, channel, caplog):
+        """A flapping device is not named at every return."""
+        before = datetime(2026, 1, 1, tzinfo=UTC)
+        write = AsyncMock(side_effect=_unreachable())
+        thermostat = _thermostat(_adapter(**{channel: write}))
+        _reports(thermostat, State(ENTITY_ID, "unavailable", last_changed=before))
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
+        ):
+            await _write(channel, thermostat)
+            caplog.clear()
+            for _ in range(3):
+                _reports(thermostat, State(ENTITY_ID, "off", {"temperature": 5.0}))
+                await _write(channel, thermostat)
+
+        assert [
+            r
+            for r in caplog.records
+            if r.name in _LOGGERS and r.levelno >= logging.WARNING
+        ] == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("channel", CHANNELS)
@@ -451,7 +509,7 @@ class TestTheModeRestoredAfterAnOffset:
         thermostat = self._offset_thermostat(AsyncMock(return_value=None))
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.unreachable_write_channels["hvac_mode"] = delegate.WriteOutage(
-            since=datetime(2026, 1, 1, tzinfo=UTC), attempted="off", reported_at=0.0
+            since=datetime(2026, 1, 1, tzinfo=UTC), reported_at=0.0
         )
 
         with patch("asyncio.sleep", new=AsyncMock()):
