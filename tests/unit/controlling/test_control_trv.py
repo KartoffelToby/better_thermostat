@@ -40,10 +40,12 @@ from custom_components.better_thermostat.core.snapshot import (
 from custom_components.better_thermostat.model_fixes import TRVZB
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
     CalibrationMode,
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    HOMEMATICIP_MIN_WRITE_INTERVAL_S,
     MIN_WRITE_INTERVAL_S,
     check_calibration,
     check_target_temperature,
@@ -1761,6 +1763,70 @@ class TestBoostModeSafetyOverride:
         for coro, name in captured:
             if "budget_retry" not in (name or ""):
                 coro.close()
+
+    @pytest.mark.asyncio
+    async def test_failed_safety_reset_retries_at_the_normal_pace_on_homematicip(self):
+        """A failed 0% safety reset is retried after the normal spacing.
+
+        The reset bypasses the budget, so its retry must not wait out the
+        HomematicIP head's longer interval with the valve still open.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            window_open=True,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                        CONF_HOMEMATICIP: True,
+                    }
+                )
+            },
+        )
+        mock_self.last_user_change_monotonic = None
+
+        captured = []
+        mock_self.task_manager.create_task = Mock(
+            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
+        )
+
+        async def failing_set_valve(*args, **kwargs):
+            # The boost 100% write succeeds; the 0% safety reset fails.
+            return args[2] != 0
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], autospec=True, side_effect=failing_set_valve),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            await control_trv(mock_self, "climate.trv1")
+
+        delays = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, name in captured:
+            if "budget_retry" in (name or ""):
+                with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                    await coro
+            else:
+                coro.close()
+        assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S)]
 
     @pytest.mark.asyncio
     async def test_no_heat_call_resets_valve_during_boost(self):
@@ -3818,3 +3884,254 @@ class TestEchoSetpointBookkeeping:
         )
         assert trv.last_temperature == pytest.approx(20.5)
         assert trv.echo_setpoint_values() == [pytest.approx(20.7), pytest.approx(20.5)]
+
+
+# ---------------------------------------------------------------------------
+# HomematicIP write pacing
+# ---------------------------------------------------------------------------
+
+
+def _paced_trv(entity_id, *, homematicip):
+    """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
+    return Trv.from_legacy_dict(
+        entity_id,
+        {
+            "ignore_trv_states": False,
+            "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+            "min_temp": 5.0,
+            "max_temp": 30.0,
+            "temperature": 20.0,
+            "last_temperature": 20.0,
+            "last_hvac_mode": HVACMode.HEAT,
+            "hvac_mode": HVACMode.HEAT,
+            "advanced": {
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationType.TARGET_TEMP_BASED,
+                "no_off_system_mode": False,
+                CONF_HOMEMATICIP: homematicip,
+            },
+        },
+    )
+
+
+class TestHomematicIPWritePacing:
+    """A HomematicIP head is written at its own pace, the others at theirs."""
+
+    PLAIN = "climate.plain"
+    HMIP = "climate.hmip"
+    HMIP_PEER = "climate.hmip_peer"
+
+    @pytest.fixture(autouse=True)
+    def _close_unrun_retries(self):
+        """Close the budget retries a test leaves without running them."""
+        self._retries = []
+        yield
+        for coro, _name, _task in self._retries:
+            coro.close()
+
+    def _room(self, heads):
+        """Return a thermostat driving ``heads`` (entity id -> homematicip).
+
+        Only the budget retries the cycles queue are kept, for the test to
+        run, each with the task handle it was given; every other task a
+        cycle creates, such as a confirmation watchdog, is closed at once.
+        """
+        real_trvs = {
+            entity_id: _paced_trv(entity_id, homematicip=flag)
+            for entity_id, flag in heads.items()
+        }
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs=real_trvs,
+        )
+        created = self._retries
+
+        def _capture(coro, name=None, **kwargs):
+            task = Mock()
+            if (name or "").startswith("bt_budget_retry_"):
+                created.append((coro, name, task))
+            else:
+                coro.close()
+            return task
+
+        mock_self.task_manager = Mock(create_task=Mock(side_effect=_capture))
+        mock_self.last_user_change_monotonic = None
+        return mock_self, created
+
+    @staticmethod
+    async def _cycle(mock_self, entity_ids, target, written):
+        """Run one control cycle over ``entity_ids`` asking for ``target``."""
+
+        async def _record(_self, entity_id, value):
+            written.append((entity_id, value))
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True, side_effect=_record),
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": target,
+                "system_mode": HVACMode.HEAT,
+            }
+            for entity_id in entity_ids:
+                await control_trv(mock_self, entity_id)
+
+    @staticmethod
+    async def _retry_delays(created, entity_id):
+        """Run the budget retries queued for ``entity_id``; return their waits.
+
+        A retry whose task was cancelled never wakes, so it is not run.
+        """
+        delays = []
+
+        async def _sleep(seconds):
+            delays.append(seconds)
+
+        for coro, name, task in created:
+            if name == f"bt_budget_retry_{entity_id}" and not task.cancel.called:
+                with patch("asyncio.sleep", new=AsyncMock(side_effect=_sleep)):
+                    await coro
+            else:
+                coro.close()
+        created.clear()
+        return delays
+
+    @pytest.mark.asyncio
+    async def test_a_mixed_room_paces_only_the_homematicip_head(self):
+        """The plain head follows the normal pace, the HomematicIP head its own.
+
+        A new target half a minute after the last write reaches the plain
+        head at once. The HomematicIP head receives it only once its own
+        interval has passed: the write is deferred, not dropped, and the
+        retry queued for it wakes when the interval opens.
+        """
+        mock_self, created = self._room({self.PLAIN: False, self.HMIP: True})
+        heads = [self.PLAIN, self.HMIP]
+        written = []
+
+        await self._cycle(mock_self, heads, 22.0, written)
+        assert written == [(self.PLAIN, 22.0), (self.HMIP, 22.0)]
+        await self._retry_delays(created, self.HMIP)
+
+        mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
+        written.clear()
+        await self._cycle(mock_self, heads, 23.0, written)
+        assert written == [(self.PLAIN, 23.0)]
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [
+            pytest.approx(HOMEMATICIP_MIN_WRITE_INTERVAL_S - MIN_WRITE_INTERVAL_S - 1)
+        ]
+        mock_self.control_queue_task.put_nowait.assert_called()
+
+        mock_self.clock.advance(delays[0])
+        written.clear()
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        assert written == [(self.HMIP, 23.0)]
+
+    @pytest.mark.asyncio
+    async def test_an_all_homematicip_room_is_paced_per_head(self):
+        """Every HomematicIP head waits its own interval between writes."""
+        mock_self, created = self._room({self.HMIP: True, self.HMIP_PEER: True})
+        heads = [self.HMIP, self.HMIP_PEER]
+        written = []
+
+        await self._cycle(mock_self, heads, 22.0, written)
+        mock_self.clock.advance(HOMEMATICIP_MIN_WRITE_INTERVAL_S - 1)
+        await self._cycle(mock_self, heads, 23.0, written)
+        assert written == [(self.HMIP, 22.0), (self.HMIP_PEER, 22.0)]
+
+        mock_self.clock.advance(1)
+        await self._cycle(mock_self, heads, 23.0, written)
+        assert written[2:] == [(self.HMIP, 23.0), (self.HMIP_PEER, 23.0)]
+        await self._retry_delays(created, "")
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_reaches_the_homematicip_head_at_the_normal_pace(self):
+        """The user's own change is written within the normal interval.
+
+        A minute after the last write the user sets a new target, and the
+        HomematicIP head receives it at once. The controller's next
+        recomputation a minute later waits for the head's own interval again.
+        """
+        mock_self, created = self._room({self.HMIP: True})
+        written = []
+
+        await self._cycle(mock_self, [self.HMIP], 22.0, written)
+        mock_self.clock.advance(60.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        assert written == [(self.HMIP, 22.0), (self.HMIP, 23.0)]
+        await self._retry_delays(created, "")
+
+        mock_self.clock.advance(60.0)
+        await self._cycle(mock_self, [self.HMIP], 23.5, written)
+        assert written[2:] == []
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [pytest.approx(HOMEMATICIP_MIN_WRITE_INTERVAL_S - 60.0)]
+
+    @pytest.mark.asyncio
+    async def test_a_second_user_change_waits_for_the_normal_spacing(self):
+        """Two user changes ten seconds apart coalesce on the normal spacing.
+
+        The second change is deferred, not lost: it lands once the normal
+        interval after the first write has passed.
+        """
+        mock_self, created = self._room({self.HMIP: True})
+        written = []
+
+        await self._cycle(mock_self, [self.HMIP], 22.0, written)
+        mock_self.clock.advance(60.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        await self._retry_delays(created, "")
+
+        mock_self.clock.advance(10.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written == [(self.HMIP, 22.0), (self.HMIP, 23.0)]
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S - 10.0)]
+
+        mock_self.clock.advance(delays[0])
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written[2:] == [(self.HMIP, 24.0)]
+
+    @pytest.mark.asyncio
+    async def test_a_user_change_brings_a_pending_retry_forward(self):
+        """A retry queued at the HomematicIP pace yields to a user change.
+
+        Ten seconds after the last write the controller asks for a new
+        target and is deferred for the rest of the head's own interval.
+        Five seconds later the user sets a target; the retry must wake once
+        the normal spacing has passed, not when the controller's slot opens.
+        """
+        mock_self, created = self._room({self.HMIP: True})
+        written = []
+
+        await self._cycle(mock_self, [self.HMIP], 22.0, written)
+        await self._retry_delays(created, "")
+
+        mock_self.clock.advance(10.0)
+        await self._cycle(mock_self, [self.HMIP], 23.0, written)
+        mock_self.clock.advance(5.0)
+        mock_self.last_user_change_monotonic = mock_self.clock.monotonic()
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written == [(self.HMIP, 22.0)]
+        tasks = [task for _coro, name, task in created if name.endswith(self.HMIP)]
+        assert [task.cancel.called for task in tasks] == [True, False]
+
+        delays = await self._retry_delays(created, self.HMIP)
+        assert delays == [pytest.approx(MIN_WRITE_INTERVAL_S - 15.0)]
+
+        mock_self.clock.advance(delays[0])
+        await self._cycle(mock_self, [self.HMIP], 24.0, written)
+        assert written[1:] == [(self.HMIP, 24.0)]

@@ -24,6 +24,7 @@ from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import InboundSetpoint
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
@@ -1052,6 +1053,25 @@ class TestAsyncSetPresetMode:
         assert mock_bt.bt_target_temp == 30.0
 
     @pytest.mark.asyncio
+    async def test_a_preset_change_is_stamped_as_a_user_change(self, mock_bt):
+        """Choosing a preset marks the moment as the user's change of the target."""
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt.clock = FakeClock(monotonic_value=123.0)
+        await self._call(mock_bt, PRESET_COMFORT)
+        assert mock_bt.last_user_change_monotonic == 123.0
+
+    @pytest.mark.asyncio
+    async def test_an_unsupported_preset_is_not_stamped_as_a_user_change(self, mock_bt):
+        """A rejected preset changes nothing, so it is no user change either."""
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.last_user_change_monotonic = None
+        mock_bt.clock = FakeClock(monotonic_value=123.0)
+        await self._call(mock_bt, "nonexistent")
+        assert mock_bt.last_user_change_monotonic is None
+
+    @pytest.mark.asyncio
     async def test_control_queue_put_called(self, mock_bt):
         """control_queue_task.put is called after preset change."""
         mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
@@ -1079,6 +1099,15 @@ class TestAsyncSetTemperature:
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         assert mock_bt.bt_target_temp == 22.0
+
+    @pytest.mark.asyncio
+    async def test_a_new_target_is_stamped_as_a_user_change(self, mock_bt):
+        """Setting a target marks the moment as the user's change of the target."""
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.clock = FakeClock(monotonic_value=123.0)
+        await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
+        assert mock_bt.last_user_change_monotonic == 123.0
 
     @pytest.mark.asyncio
     async def test_hvac_mode_change_in_kwargs(self, mock_bt):
