@@ -1263,11 +1263,11 @@ class TestKnobOperatedMode:
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
-    async def test_a_room_with_a_cooler_follows_the_knob_as_heat_cool(self, mock_bt):
-        """The entity of a room with a cooler spells the adopted mode HEAT_COOL.
+    async def test_a_room_with_a_cooler_holds_the_knob_press_as_on(self, mock_bt):
+        """A knob press into heat holds the room on and publishes HEAT_COOL.
 
-        The device names the same demand heat; the instance publishes the mode
-        its own list carries.
+        The room holds its intent as HEAT whatever device or spelling set it;
+        the entity publishes it in the spelling its own list carries.
         """
         _bind_cooler_hvac_mode(mock_bt)
         mock_bt.cooler_entity_id = "climate.cooler"
@@ -1285,7 +1285,7 @@ class TestKnobOperatedMode:
         await self._report(mock_bt, "heat")
 
         assert trv.hvac_mode == "heat"
-        assert mock_bt.bt_hvac_mode == HVACMode.HEAT_COOL
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
         assert mock_bt.hvac_mode == HVACMode.HEAT_COOL
 
 
@@ -1966,16 +1966,16 @@ class TestTargetTempAdoption:
     async def test_a_routine_no_off_report_requests_no_cycle(self, mock_bt, room_mode):
         """A device without an off mode repeating its setpoint leaves a heating room as it is.
 
-        A room with a cooler heats in HEAT_COOL, one without in HEAT. A
-        routine report of the setpoint the device already holds names the
-        mode the room is in, so it moves nothing and requests no control
-        cycle.
+        A heating room holds HEAT, with a cooler (published as HEAT_COOL) or
+        without one. A routine report of the setpoint the device already holds
+        names the mode the room is in, so it moves nothing and requests no
+        control cycle.
         """
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
         mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
         mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
         mock_bt.map_on_hvac_mode = room_mode
-        mock_bt.bt_hvac_mode = room_mode
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.bt_target_temp = 20.0
         mock_bt.bt_target_cooltemp = 25.0
         routine = {"temperature": 20.0, "current_temperature": 18.0}
@@ -1994,7 +1994,7 @@ class TestTargetTempAdoption:
         ):
             await trigger_trv_change(mock_bt, event)
 
-        assert mock_bt.bt_hvac_mode == room_mode
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
         mock_bt.control_queue_task.put.assert_not_awaited()
 
 
@@ -2926,8 +2926,11 @@ class TestGroupedModeAdoption:
         below it and the residual tie-break has to separate the two targets.
         """
         trigger, other1, other2 = GRP_IDS
-        bt = _make_group_bt(GRP_IDS, bt_hvac_mode=HVACMode.HEAT_COOL)
+        bt = _make_group_bt(GRP_IDS, bt_hvac_mode=HVACMode.HEAT)
         bt.cooler_entity_id = "climate.ac"
+        # A heating room with a cooler publishes heat_cool.
+        bt.map_on_hvac_mode = HVACMode.HEAT_COOL
+        bt.hvac_mode = HVACMode.HEAT_COOL
         bt.bt_target_cooltemp = 5.0
         bt.bt_min_temp = 5.0
         bt.bt_target_temp_step = 0.5
@@ -3061,7 +3064,7 @@ class TestDualRoleEntityReports:
     def shared_bt(self, mock_bt):
         """Make the tracked thermostat the configured cooler as well."""
         mock_bt.cooler_entity_id = ENTITY_ID
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 20.0
         mock_bt.bt_target_cooltemp = 24.0

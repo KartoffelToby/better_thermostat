@@ -40,7 +40,6 @@ from custom_components.better_thermostat.utils.helpers import (
     device_offers_mode,
     dual_role_entity_id,
     get_device_model,
-    get_hvac_bt_mode,
     group_all_members_off,
     is_reasonable_temperature,
     mode_remap,
@@ -48,6 +47,7 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
+    room_mode_intent,
     setpoint_echo_window,
 )
 
@@ -344,12 +344,10 @@ async def trigger_trv_change(
                 and trv.last_hvac_mode != _org_trv_state.state
                 and (mapped_state != HVACMode.OFF or group_all_members_off(self))
             ):
-                # The decoded mode is the instance-level spelling of the
-                # device's demand; get_hvac_bt_mode() re-expresses it in the
-                # spelling this instance publishes, which is HEAT_COOL for a
-                # room with a cooler. The service path stores the mode the
-                # same way.
-                self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, mapped_state))
+                # The decoded mode is the room's intent, which the service
+                # paths store the same way; get_hvac_bt_mode() publishes it as
+                # HEAT_COOL in a room with a cooler.
+                self.bt_hvac_mode = room_mode_intent(HVACMode(mapped_state))
         elif (
             child_lock
             and new_state.state != old_state.state
@@ -563,11 +561,7 @@ async def trigger_trv_change(
                         )
                     self.bt_hvac_mode = HVACMode.OFF
             else:
-                # A room already heating keeps the spelling it holds: a room
-                # with a cooler stores its heating as HEAT or HEAT_COOL
-                # depending on the path that set it, and both name one mode.
-                if self.bt_hvac_mode not in (HVACMode.HEAT, HVACMode.HEAT_COOL):
-                    self.bt_hvac_mode = HVACMode.HEAT
+                self.bt_hvac_mode = HVACMode.HEAT
                 # A valve that was switched off at the knob reports its turn
                 # back up while bt_hvac_mode still reads OFF, so the tie-break
                 # in the setpoint block above was gated out for a heating

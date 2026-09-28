@@ -2387,7 +2387,7 @@ class TestControlTrvOnADualRoleEntity:
             trv_state=HVACMode.OFF,
             trv_attrs={"temperature": 21.0},
             real_trvs={cls.SHARED_ID: trv},
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cooler_entity_id=cls.SHARED_ID,
             bt_target_temp=21.0,
         )
@@ -2419,10 +2419,11 @@ class TestControlTrvOnADualRoleEntity:
 
     @pytest.mark.asyncio
     async def test_dual_role_entity_is_sent_heat_not_heat_cool(self):
-        """An air conditioner that advertises heat_cool receives heat.
+        """An air conditioner that advertises heat_cool receives heat in a heating cycle.
 
-        Its own thermostat would otherwise run the room against its own pair of
-        setpoints for the whole cycle the heating channel owns it.
+        The room is on, which a room with a cooler publishes as heat_cool. The
+        device's own thermostat would otherwise run the room against its own
+        pair of setpoints for the whole cycle the heating channel owns it.
         """
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
@@ -2453,15 +2454,19 @@ class TestControlTrvOnADualRoleEntity:
         )
 
     @pytest.mark.asyncio
-    async def test_a_distinct_trv_still_receives_the_raw_mode(self):
-        """A radiator that is not the cooler receives the mode BT holds."""
+    async def test_a_distinct_trv_offering_heat_cool_receives_heat(self):
+        """A radiator that is not the cooler is sent heat in a heat_cool room.
+
+        A radiator that offers heat_cool as well would run its own thermostat
+        in it, so it is driven in the mode it heats in.
+        """
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
         )
         mock_self.cooler_entity_id = "climate.split_unit"
 
         assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
-            HVACMode.HEAT_COOL
+            HVACMode.HEAT
         )
 
 
