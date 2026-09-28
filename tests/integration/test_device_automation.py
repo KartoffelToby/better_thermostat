@@ -23,6 +23,7 @@ from homeassistant.const import (
     CONF_DOMAIN,
     CONF_ENTITY_ID,
     CONF_TYPE,
+    STATE_UNAVAILABLE,
 )
 from homeassistant.core import State
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -542,3 +543,90 @@ async def test_a_trigger_that_names_the_registry_id_watches_the_entity(hass, fak
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
 
     assert await wait_for(hass, lambda: calls)
+
+
+async def _automation_on(hass, device_id, trigger_type, **extra):
+    """Arm an automation on the offered ``trigger_type`` and return its calls."""
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        trigger_type,
+    )
+    trigger.update(extra)
+    calls = async_mock_service(hass, "test", "automation")
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {
+                    "alias": trigger_type,
+                    "trigger": trigger,
+                    "action": {"service": "test.automation"},
+                }
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+    return calls
+
+
+@pytest.mark.parametrize(
+    ("current", "target", "fires"),
+    [(21.9, 22.0, False), (22.0, 22.0, True), (22.5, 22.0, True)],
+    ids=["below", "equal", "above"],
+)
+async def test_target_reached_fires_once_the_room_is_at_the_target(
+    hass, fake_trv, current, target, fires
+):
+    """``target_temp_reached`` fires when the room temperature is at or above target."""
+    _entry, device_id = await _entry_with_device(hass)
+    calls = await _automation_on(hass, device_id, "target_temp_reached")
+    _republish(hass, current_temperature=18.0, **{ATTR_TEMPERATURE: target})
+    await hass.async_block_till_done()
+
+    _republish(hass, current_temperature=current, **{ATTR_TEMPERATURE: target})
+    await hass.async_block_till_done()
+
+    assert bool(calls) is fires
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "before"),
+    [
+        ("window_closed", {"window_open": True}),
+        ("heating_stopped", {ATTR_HVAC_ACTION: "heating"}),
+        ("target_temp_reached", {"current_temperature": 18.0, ATTR_TEMPERATURE: 22.0}),
+    ],
+)
+async def test_a_thermostat_going_unavailable_fires_no_trigger(
+    hass, fake_trv, trigger_type, before
+):
+    """A thermostat that drops out has not closed a window or stopped heating."""
+    _entry, device_id = await _entry_with_device(hass)
+    calls = await _automation_on(hass, device_id, trigger_type)
+    _republish(hass, **before)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(BT_ENTITY, STATE_UNAVAILABLE, {})
+    await hass.async_block_till_done()
+
+    assert not calls
+
+
+async def test_a_mode_trigger_without_a_mode_is_refused_as_a_config_error(
+    hass, fake_trv, caplog
+):
+    """``hvac_mode_changed`` without ``to`` is reported as invalid configuration."""
+    _entry, device_id = await _entry_with_device(hass)
+
+    await _automation_on(hass, device_id, "hvac_mode_changed")
+
+    assert "KeyError" not in caplog.text
+    assert any(
+        "hvac_mode_changed" in record.getMessage()
+        and record.levelname == "ERROR"
+        and record.exc_info is None
+        for record in caplog.records
+    ), caplog.text
