@@ -30,6 +30,9 @@ def _bt_with_two_trvs(quirks):
     bt = MagicMock()
     bt.device_name = "Test BT"
     bt.cur_temp = ROOM_TEMPERATURE
+    # A MagicMock attribute would stand in for the filter lock and serialise
+    # nothing; the tick runs under the real one.
+    bt._temperature_filter_lock = None
     bt.real_trvs = {
         TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
         TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),

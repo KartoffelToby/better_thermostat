@@ -23,14 +23,16 @@ _HELPERS = "custom_components.better_thermostat.utils.helpers"
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
 
-# Every handler that guards on the critical entities, with the arguments it
-# takes beyond the entity itself. ``_trigger_window_change`` and
-# ``_trigger_door_change`` delegate to ``_trigger_contact_change``, which is
-# where the guard sits and which therefore stands in for both.
+# Every handler that runs the critical-entity check, with the arguments it
+# takes beyond the entity itself; an unavailable TRV no longer stops any of
+# them. ``_trigger_window_change`` and ``_trigger_door_change`` delegate to
+# ``_trigger_contact_change``, which runs the check and therefore stands in
+# for both. The room-sensor listener hands each reading to
+# ``_handle_temperature_reading``, which runs the check for it.
 HANDLERS = [
     ("_trigger_time", (None,)),
     ("_trigger_check_weather", (None,)),
-    ("_trigger_temperature_change", (MagicMock(),)),
+    ("_handle_temperature_reading", (MagicMock(),)),
     ("_trigger_humidity_change", (MagicMock(),)),
     ("_trigger_trv_change", (MagicMock(),)),
     ("_trigger_cooler_change", (MagicMock(),)),
@@ -64,6 +66,7 @@ def bt():
     mock.control_queue_task = MagicMock(put=AsyncMock())
     # The handlers hand their work on; this module checks only the annunciation.
     mock._spawn_owned = lambda coro, name=None: coro.close()
+    mock._temperature_filter_lock = None
     mock.hass = MagicMock()
     mock.hass.states.get.return_value = None
     return mock

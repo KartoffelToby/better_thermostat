@@ -8,6 +8,7 @@ propagated to the target devices.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 import math
@@ -75,10 +76,34 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
-async def _apply_temperature_update(self, new_temp):
-    """Apply the new external temperature and trigger updates."""
+def temperature_filter_lock(self) -> asyncio.Lock:
+    """Return the lock that serialises this entity's temperature filter.
+
+    The filter carries state from one reading to the next: the accumulated
+    delta, the pending plateau value and its timer. Home Assistant handles
+    every sensor update in its own task, and applying a reading suspends
+    while the value is written to the TRVs. Without the lock a reading that
+    arrives during such a write is decided against, and committed on top of,
+    a half-applied predecessor. The lock is created on first use and lives
+    on the entity, so each Better Thermostat only queues behind itself.
+
+    Everything that writes the room temperature to the TRVs takes this
+    lock: the sensor readings, the plateau timer and the keepalive tick.
+    """
+    lock = getattr(self, "_temperature_filter_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        self._temperature_filter_lock = lock
+    return lock
+
+
+async def _commit_temperature_update(self, new_temp):
+    """Apply the new external temperature and trigger updates.
+
+    Callers hold the filter lock.
+    """
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update called with %.2f",
+        "better_thermostat %s: _commit_temperature_update called with %.2f",
         self.device_name,
         new_temp,
     )
@@ -173,15 +198,31 @@ async def _apply_temperature_update(self, new_temp):
         if getattr(self, "in_maintenance", False):
             self._control_needed_after_maintenance = True
         else:
-            await self.control_queue_task.put(self)
+            # Waiting for room in the queue would hold the filter lock, and
+            # with it every later reading and the keepalive tick, until the
+            # control loop takes the next request. A request already queued
+            # runs on the temperature just applied, so it covers this one.
+            try:
+                self.control_queue_task.put_nowait(self)
+            except asyncio.QueueFull:
+                pass
     _LOGGER.debug(
-        "better_thermostat %s: _apply_temperature_update finished", self.device_name
+        "better_thermostat %s: _commit_temperature_update finished", self.device_name
     )
 
 
 @callback
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
+
+    Decides whether one external temperature reading is applied. Readings
+    are handled one at a time, so a reading that arrives while an earlier
+    one is still being applied waits its turn instead of being dropped and
+    is then judged against the state the earlier one left behind.
+
+    Callers hold the filter lock (see :func:`temperature_filter_lock`);
+    the decision reads and rewrites filter state that must not be shared
+    with a second reading.
 
     Parameters
     ----------
@@ -326,23 +367,32 @@ async def trigger_temperature_change(self, event):
         # Schedule timer if not already scheduled
         if not _plateau_ok and getattr(self, "plateau_timer_cancel", None) is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
+            _plateau_value = self.pending_temp
 
             async def _plateau_cb(_now):
                 self.plateau_timer_cancel = None
-                # Re-check debounce interval so HomematicIP 600s is respected
-                _cb_age = (
-                    (dt_util.now() - self.last_external_sensor_change).total_seconds()
-                    if self.last_external_sensor_change is not None
-                    else 999999
-                )
-                _cb_interval_ok = _cb_age > _time_diff
-                if self.pending_temp is not None and _cb_interval_ok:
+                # The pending value and the debounce are read once the turn
+                # is this timer's: a reading applied while it waited has
+                # replaced the value the timer was started for.
+                async with temperature_filter_lock(self):
+                    if self.pending_temp is None or self.pending_temp != _plateau_value:
+                        return
+                    # Re-check debounce interval so HomematicIP 600s is respected
+                    _cb_age = (
+                        (
+                            dt_util.now() - self.last_external_sensor_change
+                        ).total_seconds()
+                        if self.last_external_sensor_change is not None
+                        else 999999
+                    )
+                    if _cb_age <= _time_diff:
+                        return
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature plateau auto-accepted (value=%.2f)",
                         self.device_name,
                         self.pending_temp,
                     )
-                    await _apply_temperature_update(self, self.pending_temp)
+                    await _commit_temperature_update(self, self.pending_temp)
 
             self.plateau_timer_cancel = async_call_later(
                 self.hass, remaining, _plateau_cb
@@ -376,7 +426,7 @@ async def trigger_temperature_change(self, event):
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
-        await _apply_temperature_update(self, _incoming_temperature_q)
+        await _commit_temperature_update(self, _incoming_temperature_q)
     else:
         _LOGGER.debug(
             "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s "
