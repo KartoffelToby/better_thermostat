@@ -40,7 +40,8 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Type de calibrage",
           "calibration_mode": "Mode de calibrage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place",
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
@@ -94,7 +95,8 @@
           "calibration": "Le type de calibrage",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "cooler": "Le dispositif de refroidissement (optionnel)"
         },
         "data_description": {
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
@@ -110,7 +112,8 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Le type de calibrage que vous souhaitez utiliser",
           "calibration_mode": "Mode de calibrage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place",
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
