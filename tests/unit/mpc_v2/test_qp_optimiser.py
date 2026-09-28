@@ -177,7 +177,7 @@ _STATE_SPREADS = {
 def test_portable_solver_commands_the_valve_daqp_commands(
     monkeypatch, spread: str
 ) -> None:
-    """Without daqp the valve command equals daqp's to 0.01 percentage point.
+    """Without daqp the valve command equals daqp's to 0.0001 percentage point.
 
     Both solve the same convex QP, whose optimum is unique; the states cover
     tight and loose rate limits, a capped valve and every plant speed.
@@ -219,7 +219,7 @@ def test_portable_solver_commands_the_valve_daqp_commands(
         monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
         portable = opt.solve(*args)
         worst = max(worst, abs(with_daqp - portable))
-    assert worst <= 1e-4, f"{100 * worst:.3f} percentage points apart"
+    assert worst <= 1e-6, f"{100 * worst:.6f} percentage points apart"
 
 
 def test_missing_daqp_is_logged_once_per_optimiser(monkeypatch, caplog) -> None:
@@ -293,3 +293,259 @@ def test_portable_solver_holds_the_valve_on_a_non_finite_objective(monkeypatch) 
         np.array([float("nan"), 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.4
     )
     assert u == pytest.approx(0.4)
+
+
+@pytest.mark.parametrize("weights", ["default", "extreme"])
+def test_portable_solver_plans_feasibly_and_like_daqp_for_any_plant_and_weights(
+    monkeypatch, weights: str
+) -> None:
+    """Without daqp the whole plan stays feasible and its command equals daqp's.
+
+    Plants span every time constant, gain and supply temperature the model
+    admits, with the default cost weights or with weights far off them (no
+    smoothing, a heavy integral, no effort term), and states far beyond the
+    setpoint. The command must match daqp to 0.0001 percentage point wherever
+    daqp returns a feasible optimum, and every planned step has to respect
+    the valve box and the rate limit before any clamping on the way out.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
+        pytest.skip("the daqp solver is not installed")
+    plans: list[tuple[np.ndarray, float, float, float, float]] = []
+    real_portable = qp_optimiser.QpOptimiser._solve_portable
+
+    def _recording_portable(self, hessian, gradient, bounds):
+        plan = real_portable(self, hessian, gradient, bounds)
+        plans.append(
+            (
+                np.asarray(plan, dtype=float),
+                bounds.u_last,
+                bounds.u_min,
+                bounds.u_max,
+                bounds.delta_u_max,
+            )
+        )
+        return plan
+
+    monkeypatch.setattr(
+        qp_optimiser.QpOptimiser, "_solve_portable", _recording_portable
+    )
+    rng = np.random.default_rng(3)
+    worst_gap = 0.0
+    worst_violation = 0.0
+    compared = 0
+    for _ in range(800):
+        plant = PlantModelRC2(
+            PlantParams(
+                tau_room_min=float(rng.uniform(30.0, 3000.0)),
+                tau_rad_min=float(rng.uniform(2.0, 60.0)),
+                gain_heater=float(rng.uniform(0.2, 8.0)),
+                coupling_rad_room=float(rng.uniform(0.2, 3.0)),
+                T_water_C=float(rng.uniform(35.0, 80.0)),
+            ),
+            dt_s=300.0,
+        )
+        if weights == "default":
+            params = QpParams(step_s=float(rng.choice([90.0, 150.0, 300.0])))
+            integral = float(rng.choice([-60.0, 60.0, rng.uniform(-60.0, 60.0)]))
+            u_last = float(rng.choice([0.0, 1.0, rng.uniform(0.0, 1.0)]))
+            disturbance = float(rng.uniform(-1.0, 1.0))
+        else:
+            params = QpParams(
+                w_integral=float(rng.choice([0.0, 1e-4, 10.0, 1e3])),
+                w_smooth=float(rng.choice([0.0, 1e-3, 100.0])),
+                w_effort=float(rng.choice([0.0, 1e-6, 1.0])),
+            )
+            integral = float(rng.uniform(-200.0, 200.0))
+            u_last = float(rng.uniform(0.0, 1.0))
+            disturbance = float(rng.uniform(-0.2, 0.2))
+        opt = QpOptimiser(plant, params)
+        opt.e_integral_K_min = integral
+        args = (
+            np.array([rng.uniform(5.0, 30.0), rng.uniform(5.0, 70.0)]),
+            float(rng.uniform(5.0, 30.0)),
+            float(rng.uniform(-25.0, 25.0)),
+            u_last,
+            disturbance,
+        )
+        daqp_plans: list[tuple[np.ndarray, int]] = []
+        real_daqp_solve = qp_optimiser._daqp.solve
+
+        def _recording_daqp(*daqp_args, _real=real_daqp_solve, _out=daqp_plans):
+            result = _real(*daqp_args)
+            _out.append((np.asarray(result[0], dtype=float), int(result[2])))
+            return result
+
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", True)
+        monkeypatch.setattr(
+            qp_optimiser, "_daqp", SimpleNamespace(solve=_recording_daqp)
+        )
+        with_daqp = opt.solve(*args)
+        monkeypatch.setattr(
+            qp_optimiser, "_daqp", SimpleNamespace(solve=real_daqp_solve)
+        )
+        monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+        portable = opt.solve(*args)
+
+        plan, last, low, high, rate = plans[-1]
+        steps = np.diff(np.concatenate([[last], plan]))
+        violation = max(
+            float(np.max(plan - high)),
+            float(np.max(low - plan)),
+            float(np.max(np.abs(steps))) - rate,
+        )
+        worst_violation = max(worst_violation, violation)
+        daqp_plan, exit_flag = daqp_plans[-1]
+        daqp_steps = np.diff(np.concatenate([[last], daqp_plan]))
+        daqp_violation = max(
+            float(np.max(daqp_plan - high)),
+            float(np.max(low - daqp_plan)),
+            float(np.max(np.abs(daqp_steps))) - rate,
+        )
+        if exit_flag == 1 and daqp_violation <= 1e-7:
+            compared += 1
+            worst_gap = max(worst_gap, abs(with_daqp - portable))
+
+    assert worst_violation <= 1e-9
+    assert compared >= 700
+    assert worst_gap <= 1e-6, f"{100 * worst_gap:.6f} percentage points apart"
+
+
+def test_portable_solver_plans_flat_and_says_so_when_it_does_not_converge(
+    monkeypatch, caplog
+) -> None:
+    """An unconverged solve yields the best feasible flat plan, logged at DEBUG."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(qp_optimiser, "_INTERIOR_POINT_ITERATIONS", 1)
+    caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
+    plans: list[np.ndarray] = []
+    real_portable = qp_optimiser.QpOptimiser._solve_portable
+
+    def _recording(self, *args):
+        plan = real_portable(self, *args)
+        plans.append(np.asarray(plan, dtype=float))
+        return plan
+
+    monkeypatch.setattr(qp_optimiser.QpOptimiser, "_solve_portable", _recording)
+    opt = _make_optimiser(delta_u_max=0.2)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+
+    (plan,) = plans
+    assert np.all(plan == plan[0])
+    assert u == pytest.approx(0.5)
+    assert any(
+        r.levelname == "DEBUG" and "planning flat" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_portable_solver_is_exact_on_arbitrary_convex_plans() -> None:
+    """Any convex plan objective is solved feasibly and to daqp's optimum.
+
+    Horizons of 1 to 24 steps, Hessians from well conditioned to nearly
+    rank one, gradients over seven orders of magnitude, rate limits from
+    zero to wider than the valve and a last command outside the valve range.
+    The objective may exceed daqp's by a millionth of its size.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (
+        _SolverBounds,
+    )
+
+    if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
+        pytest.skip("the daqp solver is not installed")
+    rng = np.random.default_rng(1)
+    opt = QpOptimiser.__new__(QpOptimiser)
+    worst_gap = 0.0
+    worst_violation = 0.0
+    compared = 0
+    for _ in range(1500):
+        n = int(rng.integers(1, 25))
+        opt.N = n
+        m = rng.normal(size=(n, n)) * rng.choice([1e-4, 1.0, 1e3])
+        shape = rng.choice(["definite", "ill", "rank-one"])
+        if shape == "definite":
+            hessian = m @ m.T + np.eye(n) * rng.choice([1e-6, 1e-2, 1.0])
+        elif shape == "ill":
+            hessian = m @ m.T + np.eye(n) * 1e-10
+        else:
+            v = rng.normal(size=n)
+            hessian = np.outer(v, v) * 1e3 + np.eye(n) * 1e-8
+        gradient = rng.normal(size=n) * rng.choice([1e-3, 1.0, 1e4])
+        bounds = _SolverBounds(
+            u_last=float(rng.choice([0.0, 1.0, rng.uniform(-0.2, 1.2)])),
+            u_min=0.0,
+            u_max=1.0,
+            delta_u_max=float(rng.choice([0.0, 1e-9, 0.05, 0.3, 2.0])),
+        )
+        first_lo = max(bounds.u_min, bounds.u_last - bounds.delta_u_max)
+        first_hi = min(bounds.u_max, bounds.u_last + bounds.delta_u_max)
+        if first_lo > first_hi:
+            continue
+        plan = opt._solve_portable(hessian, gradient, bounds)
+
+        rise = np.eye(n) - np.eye(n, k=-1)
+        offset = np.zeros(n)
+        offset[0] = bounds.u_last
+        steps = rise @ plan - offset
+        worst_violation = max(
+            worst_violation,
+            float(np.max(plan - 1.0)),
+            float(np.max(-plan)),
+            float(np.max(np.abs(steps))) - bounds.delta_u_max,
+        )
+        reference, _, exit_flag, _ = qp_optimiser._daqp.solve(
+            hessian,
+            gradient,
+            np.vstack([np.eye(n), rise]),
+            np.concatenate([np.ones(n), bounds.delta_u_max + offset]),
+            np.concatenate([np.zeros(n), -bounds.delta_u_max + offset]),
+            np.zeros(2 * n, dtype=np.int32),
+        )
+        reference_steps = rise @ reference - offset
+        reference_violation = max(
+            float(np.max(reference - 1.0)),
+            float(np.max(-reference)),
+            float(np.max(np.abs(reference_steps))) - bounds.delta_u_max,
+        )
+        objective = 0.5 * plan @ hessian @ plan + gradient @ plan
+        optimum = 0.5 * reference @ hessian @ reference + gradient @ reference
+        # A rate limit within the feasibility tolerance admits only flat
+        # plans, up to steps of that tolerance; only feasibility counts there.
+        if exit_flag == 1 and reference_violation <= 1e-9 and bounds.delta_u_max > 1e-9:
+            compared += 1
+            worst_gap = max(worst_gap, (objective - optimum) / max(1.0, abs(optimum)))
+
+    assert worst_violation <= 1e-9
+    assert compared >= 450
+    assert worst_gap <= 1e-6
+
+
+def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -> None:
+    """A plan that breaks a limit is replaced by the best flat plan."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    monkeypatch.setattr(
+        qp_optimiser.QpOptimiser,
+        "_interior_point",
+        staticmethod(lambda hessian, *_args: np.full(len(hessian), 2.0)),
+    )
+    caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
+    opt = _make_optimiser(delta_u_max=0.2)
+
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+
+    assert u == pytest.approx(0.5)
+    assert any("planning flat" in r.getMessage() for r in caplog.records)

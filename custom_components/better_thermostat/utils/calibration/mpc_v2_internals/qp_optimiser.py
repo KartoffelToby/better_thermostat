@@ -12,8 +12,8 @@ where ``I_k`` is the predicted integrated tracking error. Hard constraints
 
 DAQP (dense active-set) is used when its native wheel is available.  Home
 Assistant's Alpine-based images cannot install that wheel on every supported
-architecture, so a small active-set solver using only NumPy finds the same
-optimum under the same hard valve constraints everywhere else.
+architecture, so a small interior-point solver using only NumPy finds the
+same optimum under the same hard valve constraints everywhere else.
 """
 
 from __future__ import annotations
@@ -49,6 +49,88 @@ def _try_import_daqp() -> Any | None:
 
 _daqp = _try_import_daqp()
 DAQP_AVAILABLE = _daqp is not None
+
+
+# Interior-point budget and tolerances on the scaled problem. The method
+# converges in 10 to 40 iterations on every plan the tests draw; the budget
+# only bounds a pathological case. A plan step beyond ``_FEASIBILITY_TOL``
+# of a limit counts as infeasible.
+_INTERIOR_POINT_ITERATIONS = 100
+_CONVERGENCE_TOL = 1e-11
+_FEASIBILITY_TOL = 1e-9
+
+
+def _step_to_boundary(values: FloatArray, change: FloatArray) -> float:
+    """Return the largest step in ``(0, 1]`` that keeps ``values`` non-negative."""
+    shrinking = change < 0.0
+    if not np.any(shrinking):
+        return 1.0
+    return min(1.0, float(np.min(-values[shrinking] / change[shrinking])))
+
+
+def _newton_direction(
+    factor: FloatArray,
+    rows: FloatArray,
+    slack: FloatArray,
+    dual: FloatArray,
+    residuals: tuple[FloatArray, FloatArray],
+    centring: FloatArray,
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Return the interior-point step in ``x``, the slacks and the multipliers.
+
+    ``factor`` is the Cholesky factor of the reduced Newton matrix
+    ``H + Cᵀ·diag(dual/slack)·C``; ``centring`` is the complementarity
+    target the step aims at.
+    """
+    dual_residual, primal_residual = residuals
+    weight = dual / slack
+    rhs = -dual_residual - rows.T @ (weight * primal_residual - centring / slack)
+    dx = np.linalg.solve(factor.T, np.linalg.solve(factor, rhs))
+    d_dual = weight * (rows @ dx + primal_residual) - centring / slack
+    d_slack = -(centring + slack * d_dual) / dual
+    return dx, d_slack, d_dual
+
+
+def _polish(
+    hessian: FloatArray,
+    gradient: FloatArray,
+    rows: FloatArray,
+    limits: FloatArray,
+    x: FloatArray,
+    slack: FloatArray,
+    dual: FloatArray,
+) -> FloatArray:
+    """Solve exactly on the constraints the interior point ends on.
+
+    A constraint starts out active where its multiplier exceeds its slack,
+    and a constraint the exact solution breaks joins the set, for as many
+    rounds as there are constraints. The exact solution replaces ``x`` once
+    it is feasible and every multiplier is non-negative; otherwise ``x``
+    stands.
+    """
+    active = [int(i) for i in np.flatnonzero(dual > slack)]
+    for _ in range(rows.shape[0]):
+        count = len(active)
+        normals = rows[active]
+        kkt = np.block([[hessian, normals.T], [normals, np.zeros((count, count))]])
+        try:
+            solution = np.linalg.solve(kkt, np.concatenate([-gradient, limits[active]]))
+        except np.linalg.LinAlgError:
+            return x
+        exact = solution[: x.size]
+        multipliers = solution[x.size :]
+        excess = rows @ exact - limits
+        worst = int(np.argmax(excess))
+        if excess[worst] > _FEASIBILITY_TOL:
+            if worst in active:
+                return x
+            active.append(worst)
+            continue
+        largest = max(1.0, float(np.max(np.abs(multipliers)))) if count else 1.0
+        if count and float(np.min(multipliers)) < -_FEASIBILITY_TOL * largest:
+            return x
+        return exact
+    return x
 
 
 @dataclass
@@ -168,8 +250,8 @@ class QpOptimiser:
 
         Builds the condensed prediction matrices from the linearised plant and
         assembles the Hessian and gradient. DAQP solves the small dense QP when
-        available; otherwise a NumPy active-set solver finds the same optimum
-        under the same box bounds and rate limits.
+        available; otherwise a NumPy interior-point solver finds the same
+        optimum under the same box bounds and rate limits.
         """
         n = self.plant.state_dim
         N = self.N
@@ -281,7 +363,7 @@ class QpOptimiser:
                 # not disable heating when the portable solver can continue.
                 self._report_daqp_failure(repr(err))
 
-        x = self._solve_active_set(
+        x = self._solve_portable(
             H_scaled,
             g_scaled,
             _SolverBounds(
@@ -302,17 +384,25 @@ class QpOptimiser:
             reason,
         )
 
-    def _solve_active_set(
+    def _solve_portable(
         self, hessian: FloatArray, gradient: FloatArray, bounds: _SolverBounds
     ) -> FloatArray:
-        """Solve the small convex QP exactly with a primal active-set method.
+        """Solve the small convex QP with a NumPy interior-point method.
 
         Minimises ``½·xᵀ·H·x + gᵀ·x`` under the valve box and the rate limits,
-        written as one-sided rows ``C·x ≤ d``. The iterate stays feasible from
-        a flat start; each step solves the equality-constrained problem on the
-        working set, stops at the first blocking constraint and drops the one
-        with the most negative multiplier once the step vanishes. ``H`` is
-        positive definite, so this ends in the unique optimum daqp finds.
+        written as one-sided rows ``C·x ≤ d`` in which the first step's box
+        and rate limit are merged into one interval. A Mehrotra
+        predictor-corrector iteration converges without the combinatorial
+        stalls an active-set search meets on ties; the constraints it ends
+        on then define an equality problem whose exact solution replaces the
+        iterate when it is feasible and its multipliers have the right sign.
+        Against daqp the first command agrees to 1e-4 percentage points in
+        the tests, over every plant and weight setting drawn there.
+
+        When the plan space collapses (no rate or box width), or the
+        iteration fails or ends infeasible, the best flat plan is returned
+        instead, which is always feasible; the failure is logged at DEBUG. A
+        non-finite objective holds the last command.
         """
         n = self.N
         if n <= 0:
@@ -322,70 +412,106 @@ class QpOptimiser:
         u_max = bounds.u_max
         delta_u_max = bounds.delta_u_max
 
-        # A flat trajectory at the command closest to ``u_last`` is feasible.
-        # The interval is empty only for an invalid configuration; the safely
-        # clamped command is returned then.
+        # The interval of the first command is empty only for an invalid
+        # configuration; the safely clamped command is returned then.
         first_lo = max(u_min, u_last - delta_u_max)
         first_hi = min(u_max, u_last + delta_u_max)
         if first_lo > first_hi:
             return np.full(n, max(u_min, min(u_max, u_last)))
-        x = np.full(n, float(np.clip(u_last, first_lo, first_hi)))
-        # A non-finite objective has no optimum; the flat trajectory holds.
+        # A non-finite objective has no optimum; the last command holds.
         if not (np.all(np.isfinite(hessian)) and np.all(np.isfinite(gradient))):
-            return x
+            return np.full(n, float(np.clip(u_last, first_lo, first_hi)))
+        # Every flat plan inside the first interval is feasible; the best of
+        # them is the fallback.
+        ones = np.ones(n)
+        curvature = float(ones @ hessian @ ones)
+        level = -float(ones @ gradient) / curvature if curvature > 0.0 else u_last
+        flat = np.full(n, float(np.clip(level, first_lo, first_hi)))
+        if delta_u_max <= 0.0 or u_max <= u_min:
+            return flat
 
-        diff = np.eye(n) - np.eye(n, k=-1)
-        rate_offset = np.zeros(n)
-        rate_offset[0] = u_last
-        rows = np.vstack([np.eye(n), -np.eye(n), diff, -diff])
+        rise = (np.eye(n) - np.eye(n, k=-1))[1:]
+        rows = np.vstack([np.eye(n), -np.eye(n), rise, -rise])
+        upper = np.full(n, u_max)
+        upper[0] = first_hi
+        lower = np.full(n, u_min)
+        lower[0] = first_lo
         limits = np.concatenate(
-            [
-                np.full(n, u_max),
-                np.full(n, -u_min),
-                delta_u_max + rate_offset,
-                delta_u_max - rate_offset,
-            ]
+            [upper, -lower, np.full(n - 1, delta_u_max), np.full(n - 1, delta_u_max)]
         )
-        # A step or multiplier this small is round-off of the KKT solve; the
-        # valve fraction it stands for is far below one percent.
-        tol = 1e-9
-        working: list[int] = []
-        for _ in range(10 * rows.shape[0]):
-            active = rows[working]
-            kkt = np.block(
-                [[hessian, active.T], [active, np.zeros((len(working), len(working)))]]
+        plan = self._interior_point(hessian, gradient, rows, limits, flat)
+        if plan is None or float(np.max(rows @ plan - limits)) > _FEASIBILITY_TOL:
+            _LOGGER.debug(
+                "MPC v2 NumPy solver found no feasible optimum; planning flat"
             )
-            rhs = np.concatenate([-(hessian @ x + gradient), np.zeros(len(working))])
-            # Only a constraint the step moves towards joins the working set,
-            # so its rows stay independent and the KKT matrix regular. A
-            # singular one can only come from a degenerate Hessian; the
-            # feasible iterate reached so far is kept then.
+            return flat
+        return plan
+
+    @staticmethod
+    def _interior_point(
+        hessian: FloatArray,
+        gradient: FloatArray,
+        rows: FloatArray,
+        limits: FloatArray,
+        start: FloatArray,
+    ) -> FloatArray | None:
+        """Return the optimum of ``½xᵀHx + gᵀx`` s.t. ``rows·x ≤ limits``, or None.
+
+        The objective is scaled to a unit Hessian entry first, so the
+        tolerances mean the same for every weight setting.
+        """
+        count = rows.shape[0]
+        scale = float(np.max(np.abs(hessian)))
+        if scale <= 0.0:
+            return None
+        h = hessian / scale
+        g = gradient / scale
+        # The multipliers grow with the gradient, so their residuals are
+        # judged relative to it.
+        dual_scale = 1.0 + float(np.max(np.abs(g)))
+        x = start.copy()
+        slack = np.maximum(limits - rows @ x, 1.0)
+        dual = np.ones(count)
+        for _ in range(_INTERIOR_POINT_ITERATIONS):
+            dual_residual = h @ x + g + rows.T @ dual
+            primal_residual = rows @ x + slack - limits
+            gap = float(slack @ dual) / count
+            if (
+                float(np.max(np.abs(dual_residual))) < _CONVERGENCE_TOL * dual_scale
+                and float(np.max(np.abs(primal_residual))) < _CONVERGENCE_TOL
+                and gap < _CONVERGENCE_TOL
+            ):
+                return _polish(h, g, rows, limits, x, slack, dual)
+            weight = dual / slack
             try:
-                solution = np.linalg.solve(kkt, rhs)
+                factor = np.linalg.cholesky(h + rows.T @ (weight[:, None] * rows))
             except np.linalg.LinAlgError:
-                break
-            step = solution[:n]
-            if float(np.max(np.abs(step))) <= tol:
-                multipliers = solution[n:]
-                if not working or float(np.min(multipliers)) >= -tol:
-                    break
-                working.pop(int(np.argmin(multipliers)))
-                continue
-            growth = rows @ step
-            slack = limits - rows @ x
-            length = 1.0
-            blocking = -1
-            for idx in range(rows.shape[0]):
-                if idx in working or growth[idx] <= 1e-12:
-                    continue
-                ratio = max(0.0, float(slack[idx])) / float(growth[idx])
-                if ratio < length:
-                    length = ratio
-                    blocking = idx
-            x = x + length * step
-            if blocking >= 0:
-                working.append(blocking)
-        return x
+                return None
+
+            residuals = (dual_residual, primal_residual)
+            dx, d_slack, d_dual = _newton_direction(
+                factor, rows, slack, dual, residuals, slack * dual
+            )
+            affine = min(
+                _step_to_boundary(slack, d_slack), _step_to_boundary(dual, d_dual)
+            )
+            affine_gap = float((slack + affine * d_slack) @ (dual + affine * d_dual))
+            sigma = (affine_gap / count / gap) ** 3 if gap > 0.0 else 0.0
+            dx, d_slack, d_dual = _newton_direction(
+                factor,
+                rows,
+                slack,
+                dual,
+                residuals,
+                slack * dual + d_slack * d_dual - sigma * gap,
+            )
+            step = 0.995 * min(
+                _step_to_boundary(slack, d_slack), _step_to_boundary(dual, d_dual)
+            )
+            x = x + step * dx
+            slack = slack + step * d_slack
+            dual = dual + step * d_dual
+        return None
 
     def _steady_input_for(
         self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
