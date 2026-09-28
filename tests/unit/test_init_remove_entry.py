@@ -48,6 +48,19 @@ def _make_hass():
     return hass
 
 
+@pytest.fixture(autouse=True)
+def _no_store_files():
+    """Keep the store-file removal away from the Home Assistant double.
+
+    The double cannot back a Store; deleting the files is covered against
+    real storage in the integration suite.
+    """
+    with patch(
+        "custom_components.better_thermostat.async_remove_stores", new=AsyncMock()
+    ):
+        yield
+
+
 @pytest.fixture
 def patched_delete_issue():
     """Patch ``ir.async_delete_issue`` and return the mock for assertions."""

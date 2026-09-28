@@ -487,6 +487,23 @@ def _quarantine_key(entry_id: str, copy: int = 0) -> str:
     return key if copy == 0 else f"{key}.{copy}"
 
 
+async def async_remove_stores(hass: HomeAssistant, entry_id: str) -> None:
+    """Delete a config entry's runtime state and every copy set aside from it.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The Home Assistant instance.
+    entry_id : str
+        Config entry identifier whose store files are removed.
+    """
+    await Store(hass, CURRENT_VERSION, _store_key(entry_id)).async_remove()
+    for copy in range(QUARANTINE_COPIES):
+        await Store(
+            hass, QUARANTINE_VERSION, _quarantine_key(entry_id, copy)
+        ).async_remove()
+
+
 # Migration
 
 
