@@ -4,6 +4,8 @@ State is threaded explicitly through a test-local state dict, mirroring how
 the StateManager owns controller state in production.
 """
 
+import pytest
+
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcParams,
@@ -515,6 +517,54 @@ class TestMPCController:
 
         assert state.trv_profile == "linear"
         assert state.min_effective_percent == 14.0
+
+    @pytest.mark.parametrize("profile", ["linear", "threshold"])
+    def test_a_closed_valve_does_not_lower_the_learned_minimum(self, profile):
+        """A TRV that warms behind a closed valve keeps the learned minimum.
+
+        After the valve closes, the radiator's stored heat still warms the
+        TRV for a while. That warming answers no opening, so it says
+        nothing about whether a small opening is past the dead zone.
+        """
+        params = MpcParams(
+            enable_min_effective_percent=True,
+            deadzone_temp_delta_K=0.05,
+            deadzone_time_s=60.0,
+            deadzone_decay_pct=1.0,
+            percent_hysteresis_pts=0.0,
+            min_update_interval_s=0.0,
+        )
+        state = MpcState(trv_profile=profile, min_effective_percent=16.0)
+        for cycle in range(3):
+            inp = MpcInput(
+                key="deadzone",
+                target_temp_C=22.0,
+                current_temp_C=22.5,
+                trv_temp_C=24.0 + 0.5 * cycle,
+                tolerance_K=0.0,
+            )
+            percent, _, _ = _post_process_percent(
+                inp, params, state, 1000.0 + 120.0 * cycle, 0.0, None
+            )
+            assert percent == 0
+
+        assert state.min_effective_percent == 16.0
+
+    def test_a_wall_clock_step_back_restarts_the_valve_average(self):
+        """The valve totals start over with an integration stamp ahead of the clock.
+
+        The totals are the valve use accumulated since that stamp. Once the
+        stamp is taken as absent, totals from before the clock step would
+        otherwise be averaged into the next learning interval.
+        """
+        state = MpcState(
+            u_integral=100.0 * 3600.0, time_integral=3600.0, last_integration_ts=5000.0
+        )
+
+        _forget_stamps_ahead_of_the_clock(state, 1000.0)
+
+        assert state.last_integration_ts == 0.0
+        assert (state.u_integral, state.time_integral) == (0.0, 0.0)
 
     def test_hysteresis(self):
         """Test hysteresis and minimum update interval."""
