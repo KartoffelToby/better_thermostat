@@ -3499,14 +3499,6 @@ class TestOutageReportThroughTheListener:
     front of the handler, because that is the way the report arrives.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "the listener's availability check fails on the head that reports "
-            "the outage and returns before the handler, so the head keeps its "
-            "last internal temperature and the next reading stays debounced"
-        ),
-    )
     @pytest.mark.parametrize(
         "with_peer", [True, False], ids=["one_of_two_heads", "the_only_head"]
     )
