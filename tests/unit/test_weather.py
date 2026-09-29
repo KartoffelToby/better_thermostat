@@ -13,6 +13,7 @@ The module has three public coroutines plus a helper class:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.weather import (
+    FORECAST_CALL_TIMEOUT,
     DailyHistory,
     check_ambient_air_temperature,
     check_weather,
@@ -77,6 +79,11 @@ def make_bt(hass, **kw):
     for k, v in kw.items():
         setattr(bt, k, v)
     return bt
+
+
+async def hanging_service_call(*_args, **_kwargs):
+    """Stand in for a service call whose handler never returns."""
+    await asyncio.Event().wait()
 
 
 def weather_state(
@@ -290,6 +297,29 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
         bt = make_bt(hass, weather_entity=WEATHER_ID)
         assert await check_weather_prediction(bt) is None
+
+    async def test_a_hanging_service_gives_no_opinion_after_the_timeout(self, caplog):
+        """A forecast service that stalls yields no verdict once the timeout ends.
+
+        A cloud weather integration can stall on its request while the
+        internet is down. The call is cut off after the forecast timeout and
+        reads as a missing forecast, with a warning naming the entity.
+        """
+        states = {WEATHER_ID: weather_state()}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(side_effect=hanging_service_call)
+        bt = make_bt(hass, weather_entity=WEATHER_ID)
+        with (
+            patch(f"{WEATHER_MOD}.FORECAST_CALL_TIMEOUT", timedelta(seconds=0.01)),
+            caplog.at_level(logging.WARNING, logger=WEATHER_MOD),
+        ):
+            result = await asyncio.wait_for(check_weather_prediction(bt), timeout=5)
+        assert result is None
+        assert _weather_records(caplog, logging.WARNING)
+
+    async def test_the_forecast_call_is_bounded_by_default(self):
+        """The shipped timeout is short enough not to hold up startup."""
+        assert timedelta(0) < FORECAST_CALL_TIMEOUT <= timedelta(seconds=30)
 
     async def test_service_not_supported_returns_none(self):
         """A ServiceNotSupported error resolves to None."""
@@ -776,6 +806,7 @@ class TestCheckWeather:
             "service_not_supported",
             "empty_forecast",
             "malformed_response",
+            "hanging_service",
         ],
     )
     async def test_transient_weather_failure_keeps_the_previous_decision(
@@ -805,11 +836,16 @@ class TestCheckWeather:
             )
         elif transient == "malformed_response":
             hass.services.async_call = AsyncMock(return_value=None)
+        elif transient == "hanging_service":
+            hass.services.async_call = AsyncMock(side_effect=hanging_service_call)
         bt = make_bt(hass, weather_entity=WEATHER_ID, outdoor_sensor=None)
         bt.call_for_heat = previous
         logbook = AsyncMock()
-        with patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook):
-            changed = await check_weather(bt)
+        with (
+            patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook),
+            patch(f"{WEATHER_MOD}.FORECAST_CALL_TIMEOUT", timedelta(seconds=0.01)),
+        ):
+            changed = await asyncio.wait_for(check_weather(bt), timeout=5)
         assert bt.call_for_heat is previous
         assert changed is False
         logbook.assert_not_awaited()
