@@ -1633,13 +1633,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: async_get_last_state returned", self.device_name
         )
         # A missing heating target falls back to the setpoints of the heads
-        # that are on. A head that is off holds its off or frost setpoint, not
-        # a room target, and the cooler's setpoint belongs to the cooling
-        # channel.
+        # that are on. A head that is off, including a no-off device parked at
+        # its minimum, holds its off or frost setpoint, not a room target, and
+        # the cooler's setpoint belongs to the cooling channel.
         head_states = [
             state
             for state in states
-            if state.entity_id in self.real_trvs and state.state != HVACMode.OFF
+            if state.entity_id in self.real_trvs
+            and not member_counts_as_off(self, state.entity_id, state)
         ]
         if old_state is not None:
             _LOGGER.debug("better_thermostat %s: restoring state...", self.device_name)

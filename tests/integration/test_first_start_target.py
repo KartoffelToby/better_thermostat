@@ -208,3 +208,28 @@ async def test_a_head_that_is_off_does_not_set_the_room_target(
     bt = await _start(hass, stored, *group, thermostat=trvs)
 
     assert bt.bt_target_temp == expected
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+async def test_a_no_off_head_parked_at_its_minimum_does_not_set_the_room_target(
+    hass, stored
+):
+    """A head that cannot switch off and sits at its minimum counts as off.
+
+    Such a device reports heat while it holds its minimum, which is its way of
+    being off, so only the two heads that heat carry the room target.
+    """
+    heads = ((HVACMode.HEAT, 5.0), (HVACMode.HEAT, 22.0), (HVACMode.HEAT, 20.0))
+    group = [
+        _Group(letter, mode, target)
+        for letter, (mode, target) in zip("abc", heads, strict=True)
+    ]
+    trvs = [{**_ENTRY_TRV, "trv": f"climate.group_trv_{letter}"} for letter in "abc"]
+    trvs[0] = {
+        **trvs[0],
+        "advanced": {**trvs[0]["advanced"], "no_off_system_mode": True},
+    }
+
+    bt = await _start(hass, stored, *group, thermostat=trvs)
+
+    assert bt.bt_target_temp == 21.0
