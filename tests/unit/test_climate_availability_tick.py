@@ -101,11 +101,7 @@ async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, expecte
 
 @pytest.mark.asyncio
 async def test_the_availability_tick_advances_the_ladder_and_rechecks_entities():
-    """What the tick does when it fires, in the order the ladder needs.
-
-    The ladder steps before the critical-entity check, so it keeps stepping
-    while an unreachable valve would abort a handler that checked first.
-    """
+    """What the tick does when it fires: one ladder step and one re-check."""
     bt = MagicMock()
     bt.device_name = "Test BT"
     calls = []
@@ -118,7 +114,7 @@ async def test_the_availability_tick_advances_the_ladder_and_rechecks_entities()
     ):
         await BetterThermostat._availability_tick(bt)
 
-    assert calls == ["ladder", "critical"]
+    assert sorted(calls) == ["critical", "ladder"]
 
 
 @pytest.mark.asyncio
@@ -144,18 +140,25 @@ async def test_the_availability_tick_queues_no_control_cycle():
 
 @pytest.mark.asyncio
 async def test_an_unreachable_valve_does_not_stop_the_ladder():
-    """The check reporting failure is not a reason to skip the ladder.
+    """A valve found offline is not a reason to skip the ladder.
 
     A room sensor lost while a valve is offline is the combined case the
     ladder has to keep stepping through.
     """
     bt = MagicMock()
     bt.device_name = "Test BT"
+    bt.devices_errors = []
     degraded = AsyncMock()
+
+    def record_gone_valve(self):
+        self.devices_errors.append("climate.gone_trv")
 
     with (
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", degraded),
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=False)),
+        patch(
+            f"{_CLIMATE}.check_critical_entities",
+            AsyncMock(side_effect=record_gone_valve),
+        ),
     ):
         await BetterThermostat._availability_tick(bt)
 

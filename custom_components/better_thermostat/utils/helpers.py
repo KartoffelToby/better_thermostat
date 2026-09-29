@@ -595,7 +595,9 @@ def mode_remap(
     str | None
             remapped mode according to device's quirks, or ``None`` for an
             outbound mode the device does not offer, meaning the device's
-            mode is left untouched.
+            mode is left untouched, and for a reported AUTO on a device
+            without the heat auto swapped option, meaning the report is
+            ignored.
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -628,8 +630,23 @@ def mode_remap(
         # and as HEAT everywhere else.
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
+        # A device without AUTO receives HEAT or HEAT_COOL as its heating
+        # mode, so a reported HEAT_COOL is it heating, as on an unswapped
+        # device. Where AUTO is offered, AUTO is the heating mode and a
+        # reported HEAT_COOL is some other mode of the device.
+        if (
+            inbound
+            and hvac_mode == HVACMode.HEAT_COOL
+            and not device_offers_mode(trv.hvac_modes or (), HVACMode.AUTO)
+        ):
+            return HVACMode.HEAT
         return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
+    # A reported HEAT_COOL is the device heating, whichever other modes it
+    # offers: HEAT is the instance-level spelling of that demand, and a device
+    # offering both spellings may still report the wider one.
+    if inbound and hvac_mode == HVACMode.HEAT_COOL:
+        return HVACMode.HEAT
     trv_modes = trv.hvac_modes
     if not trv_modes:
         return hvac_mode
@@ -641,8 +658,6 @@ def mode_remap(
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
-        if inbound and hvac_mode == HVACMode.HEAT_COOL:
-            return HVACMode.HEAT
     if not offers_heat_cool and offers_heat:
         # entity only supports HEAT, but not HEAT_COOL - need to translate.
         # Only the outbound direction needs it: HEAT is already the
@@ -666,6 +681,11 @@ def mode_remap(
                 entity_id,
                 hvac_mode,
             )
+        # A reported AUTO is ambiguous without the swap option, so it is not
+        # decoded at all: the instance keeps its mode and the next control
+        # cycle writes that mode back to the device.
+        if inbound:
+            return None
         return HVACMode.OFF
 
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)

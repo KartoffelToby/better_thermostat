@@ -798,7 +798,11 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     as the reconciler's, writes over the turn before anyone has read it. The
     caller runs this right after it releases ``ignore_states`` and before it
     takes the next cycle, so each TRV that reported meanwhile has its current
-    state read by the inbound handler as a report of its own.
+    state read by the inbound handler as a report of its own. That report
+    replaces the state the first held report replaced, so a device that came
+    back from ``unavailable`` inside the cycle is read as a return, the way
+    the handler reads it outside a cycle, and not as a setpoint turned at the
+    device.
 
     The mode such a state carries is read the same way, unless a mode
     command to the device is still unconfirmed. The handler declines a mode
@@ -810,9 +814,11 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     way the handler reads it.
 
     A control cycle is requested only when the report moved what the next
-    cycle acts on: the room's targets or mode, or the mode the device is
-    known to hold. A device answering inside every cycle with a report that
-    carries nothing new would otherwise keep one cycle following the next.
+    cycle acts on: the room's targets or mode, the mode the device is known
+    to hold, or the internal temperature it reported while the cycle ran,
+    which the handler takes as it arrives, as it does outside a cycle. A
+    device answering inside every cycle with a report that carries nothing
+    new would otherwise keep one cycle following the next.
 
     Parameters
     ----------
@@ -823,13 +829,17 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         if not trv.report_unread:
             continue
         trv.report_unread = False
+        previous = trv.state_before_held_report
+        trv.state_before_held_report = None
+        temperature_moved = trv.temperature_moved_while_held
+        trv.temperature_moved_while_held = False
         state = self.hass.states.get(entity_id)
         if trv_report_is_unreadable(self, entity_id, state):
             continue
         held_report = Event(
             EVENT_STATE_CHANGED,
             EventStateChangedData(
-                entity_id=entity_id, old_state=state, new_state=state
+                entity_id=entity_id, old_state=previous, new_state=state
             ),
             context=Context(),
         )
@@ -849,7 +859,10 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 entity_id,
             )
             continue
-        if _held_report_control_inputs(self, trv) != acted_on_before:
+        if (
+            temperature_moved
+            or _held_report_control_inputs(self, trv) != acted_on_before
+        ):
             request_control_cycle(self)
 
 
@@ -931,9 +944,20 @@ async def control_queue(self: BetterThermostat) -> None:
                             )
 
                         # Handle cooler logic once per cycle, on the same
-                        # observation the TRVs are controlled with.
+                        # observation the TRVs are controlled with. A cooler
+                        # that is also a TRV still awaiting its initialisation
+                        # joins the cycles only once that is done, like the
+                        # heating channel.
                         _cooler_pass_completed = False
-                        if self.cooler_entity_id is not None:
+                        _cooler_trv = (
+                            self.real_trvs.get(self.cooler_entity_id)
+                            if self.cooler_entity_id is not None
+                            else None
+                        )
+                        if self.cooler_entity_id is not None and not (
+                            _cooler_trv is not None
+                            and _cooler_trv.awaiting_initialization
+                        ):
                             try:
                                 await control_cooler(
                                     self, cycle[0] if cycle is not None else None

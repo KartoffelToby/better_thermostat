@@ -288,6 +288,27 @@ class TestCommitTemperatureUpdate:
             mock_bt, "climate.trv1", 21.0
         )
 
+    @pytest.mark.asyncio
+    async def test_a_trv_awaiting_its_initialization_gets_no_external_temp(
+        self, mock_bt
+    ):
+        """A reading reaches only the TRVs that are initialized."""
+        quirks = AsyncMock()
+        waiting = Trv.from_legacy_dict("climate.trv1", {"model_quirks": quirks})
+        waiting.awaiting_initialization = True
+        mock_bt.real_trvs = {
+            "climate.trv1": waiting,
+            "climate.trv2": Trv.from_legacy_dict(
+                "climate.trv2", {"model_quirks": quirks}
+            ),
+        }
+
+        await _apply_temperature_update(mock_bt, 21.0)
+
+        quirks.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv2", 21.0
+        )
+
     @pytest.mark.parametrize(
         "refusal",
         [

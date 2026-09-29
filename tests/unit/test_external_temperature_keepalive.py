@@ -72,6 +72,23 @@ async def test_the_tick_writes_the_room_temperature_to_every_trv():
 
 
 @pytest.mark.asyncio
+async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
+    """A TRV startup went on without is written to once it is initialized.
+
+    Until then its quirk state is not set up, so the tick leaves it out and
+    still reaches the other TRV.
+    """
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.real_trvs[TRV_ID].awaiting_initialization = True
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID_2, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
     bt = MagicMock()
