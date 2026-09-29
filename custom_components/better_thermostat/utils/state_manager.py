@@ -288,6 +288,16 @@ def deserialize_mpc_v2(
     snapshot = raw.get("snapshot")
     if isinstance(snapshot, Mapping):
         state.snapshot = dict(snapshot)
+    elif snapshot is not None:
+        # The snapshot holds the learned controller state, so one of any
+        # other shape is named and collected like every other dropped field.
+        if dropped is not None:
+            dropped.append(f"mpc_v2.{key}.snapshot")
+        _LOGGER.warning(
+            "better_thermostat: stored mpc_v2 state for %s has an unusable "
+            "snapshot, continuing without it",
+            key or "an unnamed state entry",
+        )
     return state
 
 

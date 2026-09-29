@@ -909,6 +909,12 @@ class TestDroppedStoredValuesAreReported:
             pytest.param(
                 deserialize_mpc_v2, {"created_ts": "later"}, "created_ts", id="mpc_v2"
             ),
+            pytest.param(
+                deserialize_mpc_v2,
+                {"snapshot": "garbage"},
+                "snapshot",
+                id="mpc_v2-snapshot",
+            ),
         ],
     )
     def test_an_unreadable_field_is_named_with_its_key(
@@ -1107,6 +1113,7 @@ class TestUnreadableStoreIsKeptForRecovery:
             {"version": 1, "thermal": "not_a_mapping"},
             {"version": 1, "thermal": {"heating_power": "NaN"}},
             {"version": 1, "presets": {"eco": "warm"}},
+            {"version": 1, "mpc_v2": {"k1": {"snapshot": "garbage"}}},
         ],
     )
     async def test_a_dropped_part_is_set_aside_before_it_is_lost(self, payload):
