@@ -10,7 +10,7 @@ text, so the comparison is textual.
 Every commit on the maintenance line that the development line does not
 contain is reduced to a set of *markers*, and each marker is looked up in the
 development line's **tree**. Comparing against the tree instead of the history
-is what makes the commit irrelevant: a line that reached `develop` under any
+is what finds the pair: a line that reached `develop` under any
 commit is in the tree. The share of a commit's markers found there is its hit
 rate.
 

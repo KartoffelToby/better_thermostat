@@ -35,8 +35,8 @@ two common shapes stay outside it by measurement: summaries opening "Test
 that …", which name the call rather than the obligation, and summaries built
 around "should", which state an expectation without saying whose. Together
 they outnumber the reported hits several times over, so matching either would
-bury the question this exists to ask, and both are left to the reader. A green run means the budget held, never
-that the tree is free of restatements.
+bury the question this exists to ask, and both are left to the reader. A
+green run means the budget held, never that the tree is free of restatements.
 
 **Symptom wording.** A test whose docstring repeats a phrase from a document
 that collects reported symptoms is pinning what a user complained about. The

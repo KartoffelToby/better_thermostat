@@ -138,8 +138,8 @@ Run the test suite with `uv run pytest tests/`.
 ### Which branch a pull request targets
 
 Open pull requests against `develop`, which is what ships as the next major
-version. A fix wanted on the maintenance line goes to `1.9` as well, as a second
-pull request; [The maintenance line](#the-maintenance-line) explains why a
+version. A fix the maintenance line needs too gets a second pull request
+against `1.9`; [The maintenance line](#the-maintenance-line) explains why a
 change for both lines is written twice. Never target `master`: it carries
 releases and only receives pull requests from `develop` and `1.9`. GitHub
 offers `master` as the default base, so change it when you open the pull
@@ -474,8 +474,8 @@ Three more checks run on every pull request:
   `[tool.pyrefly]` in `pyproject.toml` declares. The `sub-config` entries below
   it name the files that do not meet it yet and the rules each is exempt from.
   That list only shrinks: a new file is strict from the start, and
-  `tests/unit/test_type_strictness_exemptions.py` holds the list to a recorded
-  ceiling that only goes down.
+  `tests/unit/test_type_strictness_exemptions.py` holds it to a recorded
+  ceiling.
 - **hassfest:** Home Assistant's validator for the integration manifest and
   its metadata.
 - **HACS:** the HACS action validates the repository as a HACS integration.
@@ -531,7 +531,8 @@ says which module gave up coverage and by how much.
 version. A change wanted on both is written twice, one commit per line, because
 the lines have diverged far enough that a cherry-pick no longer applies. A
 change written only on `1.9` is a gap, and history does not show it: the two
-commits of a pair differ in their text, so they share no patch id, and
+commits of a pair are written separately, so their diffs differ and share no
+patch id, and
 `git cherry` reports every commit as missing and says nothing.
 
 `scripts/forward_port_gaps.py` compares the text instead. For every commit on
