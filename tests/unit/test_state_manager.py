@@ -1048,6 +1048,12 @@ class TestDroppedStoredValuesAreReported:
             pytest.param(
                 deserialize_mpc_v2, {"created_ts": "later"}, "created_ts", id="mpc_v2"
             ),
+            pytest.param(
+                deserialize_mpc_v2,
+                {"snapshot": "garbage"},
+                "snapshot",
+                id="mpc_v2-snapshot",
+            ),
         ],
     )
     def test_an_unreadable_field_is_named(self, caplog, deserialize, raw, field):
