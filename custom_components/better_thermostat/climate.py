@@ -4832,6 +4832,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._owned_tasks.clear()
         for owned_task in owned_tasks:
             owned_task.cancel()
+        # The write watchdogs and retries the control loop starts run on the
+        # task manager and wait for minutes; closing it also stops the workers
+        # below from starting new ones while they wind down.
+        if hasattr(self, "task_manager"):
+            owned_tasks.extend(self.task_manager.cancel_all())
         if self._control_task:
             self._control_task.cancel()
             try:

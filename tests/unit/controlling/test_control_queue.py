@@ -745,9 +745,9 @@ class TestControlQueueOnADualRoleEntity:
             what marks the cycle under test as finished. A cycle whose TRV
             controls all succeed marks the queued item done and puts nothing
             back, so ``Queue.join`` returns exactly when it completes and None
-            selects that wait. A cycle that re-queues itself for a retry keeps
-            the queue permanently unfinished, so those cases pass a predicate
-            over what the assertions read instead.
+            selects that wait. A cycle that fails schedules a retry that puts
+            the item back, so those cases pass a predicate over what the
+            assertions read instead.
 
         Returns
         -------
@@ -883,10 +883,9 @@ class TestControlQueueOnADualRoleEntity:
             ),
             caplog.at_level("ERROR"),
         ):
-            # The cycle fails its only dispatched control, then backs off and
-            # re-queues itself before it marks the taken item done, so the
-            # queue never drains and the first pass is what the assertions
-            # below are about.
+            # The cycle fails its only dispatched control and schedules its own
+            # retry, so the wait ends on the first failure report and the first
+            # pass is what the assertions below are about.
             await self._run_one_cycle(mock_self, until=lambda: bool(_errors()))
 
         errors = _errors()
