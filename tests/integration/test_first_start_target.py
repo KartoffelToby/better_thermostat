@@ -8,7 +8,11 @@ off or frost setpoint, not a room target, and a separate cooler is not a head
 of the room: neither setpoint says anything about the heating target.
 """
 
-from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN, HVACMode
+from homeassistant.components.climate import (
+    DOMAIN as CLIMATE_DOMAIN,
+    ClimateEntityFeature,
+    HVACMode,
+)
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.setup import async_setup_component
@@ -54,6 +58,24 @@ class _Head(FakeTrvEntity):
             self._attr_temperature_unit = unit
             self._attr_current_temperature = 67.1
             self._attr_target_temperature_step = 1.0
+
+
+class _RangeHead(FakeTrvEntity):
+    """A head that publishes a 21-25 °C band and no single setpoint."""
+
+    _attr_hvac_modes = [HVACMode.HEAT_COOL, HVACMode.OFF]
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.TURN_OFF
+        | ClimateEntityFeature.TURN_ON
+    )
+
+    def __init__(self):
+        super().__init__()
+        self._attr_hvac_mode = HVACMode.HEAT_COOL
+        self._attr_target_temperature = None
+        self._attr_target_temperature_low = 21.0
+        self._attr_target_temperature_high = 25.0
 
 
 class _Cooler(FakeTrvEntity):
@@ -137,6 +159,14 @@ async def test_an_adopted_setpoint_is_bounded_into_the_range(
     bt = await _start(hass, stored, _Head(target=head_setpoint, min_temp=7.0))
 
     assert bt.bt_target_temp == expected
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+async def test_a_range_head_hands_over_its_heating_setpoint(hass, stored):
+    """A head publishing a 21-25 °C band and no setpoint gives the room 21 °C."""
+    bt = await _start(hass, stored, _RangeHead())
+
+    assert bt.bt_target_temp == 21.0
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
