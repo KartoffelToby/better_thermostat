@@ -305,9 +305,13 @@ async def read_reports_held_during_cycle(self) -> None:
     way the handler reads it.
 
     A control cycle is requested only when the report moved what the next
-    cycle acts on: the room's targets or mode, or the mode the device is
-    known to hold. A device answering inside every cycle with a report that
-    carries nothing new would otherwise keep one cycle following the next.
+    cycle acts on: the room's targets or mode, the mode the device is known
+    to hold, or the internal temperature it reported while the cycle ran,
+    which the handler takes as it arrives, as it does outside a cycle. A
+    child-locked device holding a setpoint or mode it was not sent requests
+    one as well, since the cycle is what turns it back. A device answering
+    inside every cycle with a report that carries nothing new would otherwise
+    keep one cycle following the next.
 
     Parameters
     ----------
@@ -320,6 +324,8 @@ async def read_reports_held_during_cycle(self) -> None:
         trv.report_unread = False
         previous = trv.state_before_held_report
         trv.state_before_held_report = None
+        temperature_moved = trv.temperature_moved_while_held
+        trv.temperature_moved_while_held = False
         state = self.hass.states.get(entity_id)
         if (
             state is None
@@ -353,9 +359,11 @@ async def read_reports_held_during_cycle(self) -> None:
                 entity_id,
             )
             continue
-        if _held_report_control_inputs(
-            self, trv
-        ) != acted_on_before or _locked_device_moved(self, entity_id, trv, state):
+        if (
+            temperature_moved
+            or _held_report_control_inputs(self, trv) != acted_on_before
+            or _locked_device_moved(self, entity_id, trv, state)
+        ):
             try:
                 self.control_queue_task.put_nowait(self)
             except asyncio.QueueFull:
