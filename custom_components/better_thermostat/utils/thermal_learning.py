@@ -427,11 +427,17 @@ class HeatLossTracker:
         window_open: bool = False,
     ) -> HeatLossUpdate:
         """Process one temperature reading and return what changed."""
+        # The first reading without cooling is the cycle that switches the
+        # cooler off, so the settle window starts there.
+        if (
+            self._prev_action == HVACAction.COOLING
+            and current_action != HVACAction.COOLING
+        ):
+            self._settle_until = now + timedelta(minutes=_COOLER_SETTLE_MIN)
+
         # An open window or a running cooler drives the drop, so the stretch
         # it covers says nothing about passive heat loss: reset tracking.
         if window_open or current_action == HVACAction.COOLING:
-            if current_action == HVACAction.COOLING:
-                self._settle_until = now + timedelta(minutes=_COOLER_SETTLE_MIN)
             self.start_temp = None
             self.start_ts = None
             self.end_temp = None

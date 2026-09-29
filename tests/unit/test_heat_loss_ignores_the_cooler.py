@@ -127,3 +127,24 @@ class TestHeatLossWaitsOutTheCoolerTail:
 
         assert list(tracker.stats) == []
         assert tracker.heat_loss_rate == 0.01
+
+    @pytest.mark.parametrize("cycle_minutes", [5, 10, 12, 30])
+    def test_the_settle_window_starts_when_the_cooler_is_switched_off(
+        self, cycle_minutes
+    ):
+        """The measurement starts a full settle window after the cooler stops.
+
+        The first reading without cooling is the cycle that switches the
+        cooler off, so the fast tail follows that reading however long ago
+        the previous cooling reading was.
+        """
+        tracker = HeatLossTracker()
+        tracker.update(21.0, HVACAction.COOLING, _ts(0))
+        off = float(cycle_minutes)
+        tracker.update(21.0, HVACAction.IDLE, _ts(off))
+        tracker.update(20.2, HVACAction.IDLE, _ts(off + 5))
+        tracker.update(20.0, HVACAction.IDLE, _ts(off + 10))
+        tracker.update(19.8, HVACAction.IDLE, _ts(off + 50))
+        tracker.update(19.8, HVACAction.HEATING, _ts(off + 51))
+
+        assert tracker.stats[-1]["rate"] == pytest.approx(0.005, abs=1e-9)
