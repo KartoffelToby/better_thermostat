@@ -6,6 +6,7 @@ from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta
 import logging
+from time import monotonic
 
 from homeassistant.components.recorder import history
 from homeassistant.components.weather import (
@@ -17,6 +18,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 # get_instance location can differ between HA versions; prefer helpers API.
 from homeassistant.helpers.recorder import get_instance
 import homeassistant.util.dt as dt_util
+from sqlalchemy.exc import SQLAlchemyError
 
 # from datetime import datetime, timedelta
 # import homeassistant.util.dt as dt_util
@@ -24,6 +26,12 @@ import homeassistant.util.dt as dt_util
 from .helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long check_ambient_air_temperature reuses the two-day outdoor mean it
+# read from the recorder. The check runs on every outdoor sensor update, and a
+# quarter of an hour of new readings barely moves a mean of per-day means, so
+# the verdict lags a fresh read by at most this interval.
+OUTDOOR_HISTORY_REFRESH = timedelta(minutes=15)
 
 
 async def check_weather(self) -> bool:
@@ -237,6 +245,10 @@ async def check_weather_prediction(self) -> bool | None:
 async def check_ambient_air_temperature(self):
     """Get the history for two days and evaluates the necessary for heating.
 
+    The two-day mean from the recorder is reused for
+    ``OUTDOOR_HISTORY_REFRESH`` before it is read again. When the recorder
+    holds no usable history, the current reading decides instead.
+
     Returns
     -------
     bool
@@ -274,60 +286,38 @@ async def check_ambient_air_temperature(self):
         unit_of_measurement=outdoor_state.attributes.get("unit_of_measurement"),
     )
     if "recorder" in self.hass.config.components:
-        _temp_history = DailyHistory(2)
-        start_date = dt_util.utcnow() - timedelta(days=2)
-        entity_id = self.outdoor_sensor
-        if entity_id is None:
-            _LOGGER.debug(
-                "Not reading the history from the database as "
-                "there is no outdoor sensor configured"
-            )
-            return
-        _LOGGER.debug(
-            "Initializing values for %s from the database", self.outdoor_sensor
-        )
-        lower_entity_id = entity_id.lower()
-        history_list = await get_instance(self.hass).async_add_executor_job(
-            history.state_changes_during_period,
-            self.hass,
-            start_date,
-            dt_util.utcnow(),
-            lower_entity_id,
-        )
-        items = []
-        try:
-            items = history_list.get(lower_entity_id) or []
-        except AttributeError, KeyError, TypeError:
-            items = []
-        for item in items:
-            # filter out all None, NaN, "unknown" and "unavailable" states.
-            # only keep real values
-            with suppress(ValueError):
-                if item.state not in ("unknown", "unavailable"):
-                    _temp_history.add_measurement(
-                        convert_to_float_celsius(
-                            item.state,
-                            self.device_name,
-                            "check_ambient_air_temperature()",
-                            unit_of_measurement=(
-                                getattr(item, "attributes", {}).get(
-                                    "unit_of_measurement"
-                                )
-                                or outdoor_state.attributes.get("unit_of_measurement")
-                            ),
-                        ),
-                        datetime.fromtimestamp(item.last_updated.timestamp()),
-                    )
+        _now = monotonic()
+        if (
+            self.outdoor_history_read_at is None
+            or _now - self.outdoor_history_read_at
+            >= OUTDOOR_HISTORY_REFRESH.total_seconds()
+        ):
+            self.outdoor_history_read_at = _now
+            try:
+                self.outdoor_history_mean = await _read_outdoor_history_mean(
+                    self, outdoor_state
+                )
+            except SQLAlchemyError, RuntimeError, HomeAssistantError, OSError:
+                # The recorder logs the traceback itself. Warn once per run of
+                # failures; repeats go to the debug log.
+                _LOGGER.log(
+                    logging.DEBUG if self.outdoor_history_failing else logging.WARNING,
+                    "better_thermostat %s: reading the history of %s from the "
+                    "recorder failed, keeping the last known outdoor mean",
+                    self.device_name,
+                    self.outdoor_sensor,
+                )
+                self.outdoor_history_failing = True
+            else:
+                self.outdoor_history_failing = False
 
-        avg_temp = _temp_history.min
+        avg_temp = self.outdoor_history_mean
         if avg_temp is None:
             # No usable recorder history (e.g. a freshly created helper or a
             # sensor the recorder does not retain). Fall back to the current
             # reading so the outdoor threshold still applies instead of
             # defaulting to "heat".
             avg_temp = self.last_avg_outdoor_temp
-
-        _LOGGER.debug("Initializing from database completed")
     else:
         avg_temp = self.last_avg_outdoor_temp
 
@@ -344,6 +334,60 @@ async def check_ambient_air_temperature(self):
         self.call_for_heat = True
 
     self.last_avg_outdoor_temp = avg_temp
+
+
+async def _read_outdoor_history_mean(self, outdoor_state) -> float | None:
+    """Return the two-day mean of the outdoor sensor's recorder history.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    outdoor_state :
+            current state of the outdoor sensor, whose unit applies to history
+            items that carry none
+
+    Returns
+    -------
+    float or None
+            mean of the per-day means, None if the history holds no usable
+            reading
+    """
+    _temp_history = DailyHistory(2)
+    start_date = dt_util.utcnow() - timedelta(days=2)
+    _LOGGER.debug("Initializing values for %s from the database", self.outdoor_sensor)
+    lower_entity_id = self.outdoor_sensor.lower()
+    history_list = await get_instance(self.hass).async_add_executor_job(
+        history.state_changes_during_period,
+        self.hass,
+        start_date,
+        dt_util.utcnow(),
+        lower_entity_id,
+    )
+    items = []
+    try:
+        items = history_list.get(lower_entity_id) or []
+    except AttributeError, KeyError, TypeError:
+        items = []
+    for item in items:
+        # filter out all None, NaN, "unknown" and "unavailable" states.
+        # only keep real values
+        with suppress(ValueError):
+            if item.state not in ("unknown", "unavailable"):
+                _temp_history.add_measurement(
+                    convert_to_float_celsius(
+                        item.state,
+                        self.device_name,
+                        "check_ambient_air_temperature()",
+                        unit_of_measurement=(
+                            getattr(item, "attributes", {}).get("unit_of_measurement")
+                            or outdoor_state.attributes.get("unit_of_measurement")
+                        ),
+                    ),
+                    datetime.fromtimestamp(item.last_updated.timestamp()),
+                )
+    _LOGGER.debug("Initializing from database completed")
+    return _temp_history.min
 
 
 class DailyHistory:
