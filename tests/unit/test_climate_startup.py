@@ -676,8 +676,14 @@ class TestCheckEntitiesReady:
 
     @pytest.mark.parametrize(
         "sensor",
-        [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
-        ids=["absent", "unavailable", "unknown"],
+        [
+            None,
+            State(SENSOR_ID, STATE_UNAVAILABLE),
+            State(SENSOR_ID, STATE_UNKNOWN),
+            State(SENSOR_ID, "not a number", {"unit_of_measurement": "°C"}),
+            State(SENSOR_ID, "126.5", {"unit_of_measurement": "°C"}),
+        ],
+        ids=["absent", "unavailable", "unknown", "non_numeric", "implausible"],
     )
     def test_a_missing_room_sensor_is_waited_for_inside_the_grace_window(
         self, bt, sensor

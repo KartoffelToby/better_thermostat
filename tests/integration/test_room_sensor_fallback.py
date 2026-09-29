@@ -167,7 +167,7 @@ def _degraded_issue_sensors(hass, bt) -> str | None:
 
 
 async def _started_without_room_sensor(hass, sensor_state):
-    """Start BT with a room sensor that is missing past the grace window.
+    """Start BT with a room sensor that gives no usable reading past the grace window.
 
     Both grace windows are over before the first check, so the room starts
     as soon as startup sees that the sensor is still missing, and the
@@ -273,13 +273,11 @@ async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
 async def test_a_room_that_starts_on_the_trv_follows_it(hass, fake_trv):
     """A room sensor with an implausible reading at boot hands the room to the TRV.
 
-    Startup takes the TRV temperature in its place, and the room follows
-    the TRV from then on until the sensor reports a usable value.
+    Once the grace window has closed, startup takes the TRV temperature in
+    its place, and the room follows the TRV from then on until the sensor
+    reports a usable value.
     """
-    _room_sensor(hass, "126.5")
-    entry = make_entry()
-    await setup_entry(hass, entry)
-    bt = await wait_for_startup(hass, entry)
+    bt = await _started_without_room_sensor(hass, "126.5")
     assert bt.cur_temp == 19.5
 
     await _trv_reports(hass, bt, fake_trv, 24.0)
