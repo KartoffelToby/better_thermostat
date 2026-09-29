@@ -4,6 +4,7 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
+import asyncio
 from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
@@ -969,6 +970,120 @@ class TestCheckAndUpdateDegradedMode:
         mock_bt_instance.unavailable_sensors = list(self.WATCHED_SENSORS)
 
         assert await self._run(mock_bt_instance) == 0
+
+
+class TestRungChangeRequestsControl:
+    """A committed ladder rung drives the devices from the new source at once.
+
+    A calibration mode that does not recompute on its own gives the room no
+    other reason to run a control cycle, so the room temperature the new rung
+    selects would otherwise wait for the next unrelated trigger.
+    """
+
+    ROOM_SENSOR = "sensor.room_temp"
+
+    @staticmethod
+    def _prepare(mock_bt_instance, *, room_sensor_available):
+        """Report every entity, the room sensor as given, and idle the queue."""
+
+        def states_get(entity_id):
+            if (
+                entity_id == TestRungChangeRequestsControl.ROOM_SENSOR
+                and not room_sensor_available
+            ):
+                return State(entity_id, "unavailable")
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = states_get
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+        mock_bt_instance.in_maintenance = False
+        mock_bt_instance.control_queue_task = asyncio.Queue(maxsize=1)
+
+    @staticmethod
+    async def _pass(mock_bt_instance):
+        """Run one degraded-mode pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+    @pytest.mark.asyncio
+    async def test_a_committed_downgrade_requests_a_control_cycle(
+        self, mock_bt_instance
+    ):
+        """Falling back to the TRV temperatures is acted on when it commits."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=False)
+
+        await self._pass(mock_bt_instance)
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert mock_bt_instance.control_queue_task.empty()
+
+        mock_bt_instance.clock.advance(121.0)
+        await self._pass(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_committed_recovery_requests_a_control_cycle(
+        self, mock_bt_instance
+    ):
+        """Returning to the room sensor is acted on when it commits."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+            ControlModeState,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=True)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK),
+        )
+
+        await self._pass(mock_bt_instance)
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.empty()
+
+        mock_bt_instance.clock.advance(301.0)
+        await self._pass(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_rung_change_during_valve_maintenance_requests_nothing(
+        self, mock_bt_instance
+    ):
+        """Valve maintenance keeps control of the valves until it ends."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=False)
+        mock_bt_instance.in_maintenance = True
+
+        await self._pass(mock_bt_instance)
+        mock_bt_instance.clock.advance(121.0)
+        await self._pass(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.empty()
 
 
 class TestRoomSensorOutageWarning:

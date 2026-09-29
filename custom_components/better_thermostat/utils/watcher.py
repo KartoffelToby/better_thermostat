@@ -28,6 +28,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 from .const import DOMAIN
 
@@ -582,6 +583,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     # The control-mode region is the typed record; the entity's
     # degraded_mode property derives from it.
     old_degraded = self.kernel_state.control_mode.degraded
+    old_rung = self.kernel_state.control_mode.mode
     self.kernel_state = replace(
         self.kernel_state,
         control_mode=control_mode_step(
@@ -605,6 +607,16 @@ async def check_and_update_degraded_mode(self) -> bool:
         ),
     )
     self.unavailable_sensors = unavailable
+    # A committed rung changes the room temperature the control law reads,
+    # so the devices are driven from the new source now rather than on the
+    # next unrelated trigger. Valve maintenance requests its own cycle when
+    # it ends.
+    if (
+        self.kernel_state.control_mode.mode != old_rung
+        and not getattr(self, "in_maintenance", False)
+        and getattr(self, "control_queue_task", None) is not None
+    ):
+        request_control_cycle(self)
     degraded = self.kernel_state.control_mode.degraded
 
     in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())
