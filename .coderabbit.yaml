@@ -80,6 +80,14 @@ reviews:
         Home Assistant custom integration. Comments must describe the current
         (IS) state only — no change history or PR references. Public functions,
         classes and methods need docstrings.
+        Docstrings follow the NumPy convention that ruff's pydocstyle rules
+        enforce; ruff decides which sections are required. Private helpers
+        (a leading underscore) and property getters may be documented in
+        prose alone, as most of them are: do not ask for `Parameters` or
+        `Returns` sections to be added there. Where a docstring does carry
+        sections, their order is still worth a finding: the extended summary
+        comes before `Parameters`, and a function returning a value
+        documents it under `Returns` rather than in the parameter list.
     - path: "**/*.py"
       instructions: >-
         This project targets Python 3.14+ (`requires-python = ">=3.14.2"`) and

@@ -111,9 +111,17 @@ DOOR: Final = ContactRole(
 )
 
 
+CONTACT_ROLES: Final = (WINDOW, DOOR)
+
+
+def contact_issue_id(role: ContactRole, device_name: str) -> str:
+    """Return the repair issue id of one contact kind of one thermostat."""
+    return f"{role.issue_translation_key}_{device_name}"
+
+
 def _issue_id(self: BetterThermostat, role: ContactRole) -> str:
     """Return the repair issue id for this contact of this thermostat."""
-    return f"{role.issue_translation_key}_{self.device_name}"
+    return contact_issue_id(role, self.device_name)
 
 
 def _contact_params(self: BetterThermostat, role: ContactRole) -> WindowParams:

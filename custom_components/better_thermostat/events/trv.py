@@ -96,6 +96,34 @@ def accepts_user_setpoint(
     )
 
 
+def _hold_report(
+    self, trv: Trv, old_state: State | None, new_state: State | None
+) -> None:
+    """Park a report that arrives while a control cycle holds the handler off.
+
+    The end of the cycle reads the device's state against the state kept
+    here, which answers the one question the handler asks of a previous
+    state: whether the device was publishing a setpoint. A report whose
+    previous state carries none is the device coming back, and the state it
+    came back from becomes the reference. A later report that moves the
+    setpoint the device came back with makes the state before that move the
+    reference, so a knob turned after the return is still read as a press.
+    """
+    previous_setpoint = _held_setpoint(self, old_state)
+    returned = previous_setpoint is None
+    moved_after_return = _held_setpoint(
+        self, trv.state_before_held_report
+    ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    if not trv.report_unread or returned or moved_after_return:
+        trv.state_before_held_report = old_state
+    trv.report_unread = True
+
+
+def _held_setpoint(self, state: State | None) -> float | None:
+    """Return the setpoint a held report's state carries, or None."""
+    return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
+
+
 async def trigger_trv_change(
     self, event, *, mode_settled: bool = False, request_cycle: bool = True
 ):
@@ -208,6 +236,10 @@ async def trigger_trv_change(
     _new_current_temp = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
+    # Only a report that carries no readable internal temperature invalidates
+    # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
+    # below and leaves the stored reading in place.
+    _reports_no_temp = _new_current_temp is None
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -227,7 +259,24 @@ async def trigger_trv_change(
     # not hold back the internal temperature of the other valves in the room.
     _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
-    if (
+    if _reports_no_temp:
+        # A report without an internal temperature leaves no live value to
+        # keep: the stored one would otherwise feed SENSOR_FALLBACK and the
+        # ladder for as long as the device keeps reporting without it.
+        if trv.current_temperature is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s reports no internal "
+                "temperature; invalidating %s",
+                self.device_name,
+                entity_id,
+                trv.current_temperature,
+            )
+            trv.current_temperature = None
+            # The next valid reading is the first live data after the gap
+            # and must not be dropped by the debounce below.
+            trv.accept_next_internal_temp = True
+            _main_change = True
+    elif (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
         and (
@@ -274,7 +323,9 @@ async def trigger_trv_change(
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
-        trv.report_unread = True
+        _hold_report(self, trv, old_state, new_state)
+        if _main_change:
+            trv.temperature_moved_while_held = True
         return
 
     # The offered mode list changes at runtime on devices whose
@@ -415,10 +466,19 @@ async def trigger_trv_change(
         log_source="trigger_trv_change()",
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
+    # An AUTO the mode decoding ignores says nothing about the room, so the
+    # setpoint it carries, typically the device's own schedule, is not adopted
+    # either. A swapped device decodes AUTO as HEAT and never matches. The
+    # setpoint comes from the event's own state, so that state decides, not
+    # the registry state, which may already hold a later report.
+    _ignored_auto_report = new_state.state == HVACMode.AUTO and mode_remap(
+        self, entity_id, str(new_state.state), True
+    ) not in (HVACMode.OFF, HVACMode.HEAT)
     if (
         _setpoint is not None
         and _old_heating_setpoint is not None
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
+        and not _ignored_auto_report
     ):
         _LOGGER.debug(
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",
