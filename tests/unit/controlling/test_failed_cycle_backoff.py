@@ -405,3 +405,47 @@ async def test_a_cycle_that_skips_the_failing_trv_keeps_the_run():
         await queue.until_calls(3)
 
     assert queue.sleep.waits[:2] == [2.0, 4.0]
+
+
+@pytest.mark.asyncio
+async def test_a_trv_still_away_since_it_failed_keeps_the_run():
+    """A TRV that failed earlier in the run and has not been back keeps it going.
+
+    The other TRV's clean write says nothing about the one that has been
+    unavailable since it failed.
+    """
+    other = "climate.trv2"
+    entity = _make_self()
+    entity.real_trvs[other] = Trv.from_legacy_dict(other, {})
+    states = {_TRV: State(_TRV, "heat"), other: State(other, "heat")}
+    entity.hass.states.get.side_effect = states.get
+    rounds = []
+    # Per round: which TRVs fail and whether the other one is away.
+    script = [({_TRV, other}, False), ({_TRV}, True), (set(), True), ({other}, False)]
+
+    async def control_trv(_entity, entity_id, cycle=None):
+        rounds.append(entity_id)
+        failing, away = script[min((len(rounds) - 1) // 2, len(script) - 1)]
+        states[other] = State(other, STATE_UNAVAILABLE if away else "heat")
+        if entity_id == other and away:
+            return True
+        if entity_id in failing:
+            raise HomeAssistantError(f"no answer from {entity_id}")
+        return True
+
+    queue = _Queue(entity, None)
+    queue._control_trv = control_trv
+    async with queue:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 5
+        while len(rounds) < 6 and loop.time() < deadline:
+            await _REAL_SLEEP(0)
+        for _ in range(5):
+            await _REAL_SLEEP(0)
+        queue.request()
+        while len(rounds) < 8 and loop.time() < deadline:
+            await _REAL_SLEEP(0)
+        for _ in range(5):
+            await _REAL_SLEEP(0)
+
+    assert queue.sleep.waits[:3] == [2.0, 4.0, 8.0]
