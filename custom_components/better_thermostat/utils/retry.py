@@ -80,7 +80,11 @@ def async_retry(
                         f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
                     )
 
-                    _LOGGER.log(log_level, log_message, exc_info=True)
+                    _LOGGER.log(
+                        log_level,
+                        log_message,
+                        exc_info=_LOGGER.isEnabledFor(logging.DEBUG),
+                    )
 
                     await asyncio.sleep(actual_delay)
                     attempt += 1

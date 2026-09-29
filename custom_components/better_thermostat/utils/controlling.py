@@ -380,15 +380,24 @@ def _locked_device_moved(self, entity_id, trv, state) -> bool:
     confirmation is left to its watchdog, since the report can lag it; a
     setpoint report that lags a write shows a value the device was sent
     before.
+
+    The mode is held against the command of the channel that drives the
+    device: while the cooling channel owns a device that carries both roles,
+    that is the mode the cooler last sent, not the heating channel's. A device
+    reporting ``unknown`` names no mode, which is how a model that reads
+    ``unknown`` as operating reports, so only its setpoint is compared.
     """
     if not (trv.advanced or {}).get("child_lock"):
         return False
-    if (
-        trv.system_mode_received
-        and trv.last_hvac_mode is not None
-        and state.state != trv.last_hvac_mode
-    ):
-        return True
+    if state.state != STATE_UNKNOWN:
+        if cooling_owns_dual_role_device(self, entity_id):
+            commanded_mode = self.last_sent_cooler_hvac_mode
+        elif trv.system_mode_received:
+            commanded_mode = trv.last_hvac_mode
+        else:
+            commanded_mode = None
+        if commanded_mode is not None and state.state != commanded_mode:
+            return True
     reported = read_setpoint_celsius(
         self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
     )

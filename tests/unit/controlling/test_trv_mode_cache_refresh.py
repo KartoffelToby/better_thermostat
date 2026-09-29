@@ -806,3 +806,60 @@ class TestALockedPressHeldDuringACycle:
             moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
 
         assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("held_mode", "requested"),
+        [
+            pytest.param("cool", False, id="the_cooling_command"),
+            pytest.param("heat", True, id="the_idle_heating_command"),
+        ],
+    )
+    async def test_a_cooled_dual_role_device_is_held_to_the_cooling_command(
+        self, thermostat, reported_states, held_mode, requested
+    ):
+        """A locked reversible unit the cooling channel drives holds its mode.
+
+        The cooling channel owns the device and last sent it cool, while the
+        heating channel's own mode command is still heat. A device holding
+        cool holds what it was sent and needs no cycle; one holding heat was
+        turned away from the cooling command and is turned back.
+        """
+        trv = self._lock(thermostat)
+        trv.last_hvac_mode = "heat"
+        trv.last_temperature = 19.0
+        thermostat.cooler_entity_id = ENTITY_ID
+        thermostat.last_cooler_mode_decided = HVACMode.COOL
+        thermostat.last_sent_cooler_hvac_mode = HVACMode.COOL
+        thermostat.last_sent_cooler_temp = 25.0
+        state = _reported_state(held_mode, setpoint=25.0)
+
+        moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("setpoint", "requested"),
+        [
+            pytest.param(19.0, False, id="holding_the_write"),
+            pytest.param(25.0, True, id="setpoint_pressed"),
+        ],
+    )
+    async def test_an_operating_unknown_report_is_read_for_its_setpoint_only(
+        self, thermostat, reported_states, setpoint, requested
+    ):
+        """A model that reports an operating device as unknown names no mode.
+
+        The report is read, since the model says the device operates, but
+        unknown is not a mode the device was turned to; only a setpoint it
+        was not sent asks for the cycle that turns it back.
+        """
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = _reported_state(STATE_UNKNOWN, setpoint=setpoint)
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        with patch(f"{_CTRL}.trv_state_unknown_as_available", return_value=True):
+            await read_reports_held_during_cycle(thermostat)
+
+        assert (thermostat.control_queue_task.qsize() == 1) is requested
