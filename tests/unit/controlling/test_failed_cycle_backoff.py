@@ -11,8 +11,8 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
-from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
@@ -449,3 +449,40 @@ async def test_a_trv_still_away_since_it_failed_keeps_the_run():
             await _REAL_SLEEP(0)
 
     assert queue.sleep.waits[:3] == [2.0, 4.0, 8.0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "unknown_as_available", "boost", "next_wait"),
+    [
+        # A device whose quirk runs it while its entity reports unknown is
+        # written to in that state, so a clean cycle there ends the run.
+        (STATE_UNKNOWN, True, False, FAILED_CYCLE_BACKOFF_S),
+        # Without that quirk an unknown device is skipped and keeps the run.
+        (STATE_UNKNOWN, False, False, 8.0),
+        # A boost that is heating writes to an unavailable device as well.
+        (STATE_UNAVAILABLE, False, True, FAILED_CYCLE_BACKOFF_S),
+    ],
+)
+async def test_a_clean_cycle_ends_the_run_where_the_cycle_writes_to_the_trv(
+    state, unknown_as_available, boost, next_wait
+):
+    """Whether a clean cycle controlled the TRV follows control_trv's own rule.
+
+    The cycle writes to a TRV it does not skip as unavailable, so a clean
+    retry on such a TRV has tried the refused write again and ends the run.
+    """
+    entity = _make_self()
+    entity.hass.states.get.return_value = State(_TRV, state)
+    entity.cur_temp = 18.0
+    entity.preset_mode = PRESET_BOOST if boost else None
+    script = {0: False, 1: False, 2: True}
+    with patch(
+        f"{_CTRL}.trv_state_unknown_as_available", return_value=unknown_as_available
+    ):
+        async with _Queue(entity, lambda n: script.get(n, False)) as queue:
+            await queue.until_calls(3)
+            queue.request()
+            await queue.until_calls(4)
+
+    assert queue.sleep.waits[:3] == [2.0, 4.0, next_wait]

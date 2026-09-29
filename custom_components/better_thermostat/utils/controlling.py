@@ -272,10 +272,23 @@ def _controlled_cleanly(self, entity_id, dispatched) -> bool:
     """
     if entity_id not in dispatched:
         return False
-    state = self.hass.states.get(entity_id)
-    return state is not None and state.state not in (
-        UNAVAILABLE_STATES + UNKNOWN_STATES
-    )
+    return not _skips_unavailable_trv(self, entity_id, self.hass.states.get(entity_id))
+
+
+def _skips_unavailable_trv(self, entity_id, trv_state) -> bool:
+    """Return whether a control cycle leaves this TRV alone as unavailable.
+
+    A TRV whose quirk runs it while its entity reports unknown is written to
+    in that state, and a boost that is heating writes even to an unavailable
+    one.
+    """
+    if trv_state is None:
+        return True
+    unknown_as_available = trv_state_unknown_as_available(self, entity_id)
+    return (
+        trv_state.state == STATE_UNAVAILABLE
+        or (not unknown_as_available and trv_state.state == STATE_UNKNOWN)
+    ) and not _is_boost_heating_active(self)
 
 
 def _pace_failed_cycle(self, run, failures, dispatched):
@@ -1083,19 +1096,8 @@ async def control_trv(self, heater_entity_id=None):
         try:
             advance_hvac_action(self)
             _trv = self.hass.states.get(heater_entity_id)
-            state_unknown_as_available = trv_state_unknown_as_available(
-                self, heater_entity_id
-            )
             # Check if TRV is available before attempting to control it
-            if _trv is None or (
-                (
-                    _trv.state == STATE_UNAVAILABLE
-                    or (
-                        (not state_unknown_as_available) and _trv.state == STATE_UNKNOWN
-                    )
-                )
-                and not _is_boost_heating_active(self)
-            ):
+            if _skips_unavailable_trv(self, heater_entity_id, _trv):
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s is unavailable, skipping control. "
                     "Control will resume when TRV becomes available.",
