@@ -132,7 +132,6 @@ def bt():
     mock.contact_open = None
     mock.last_main_hvac_mode = None
     mock.call_for_heat = None
-    mock._saved_temperature = None
     mock.heating_power = 0.01
     mock.heat_loss_rate = 0.01
     from custom_components.better_thermostat.utils.preset_manager import PresetManager
