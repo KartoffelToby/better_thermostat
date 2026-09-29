@@ -61,9 +61,9 @@ Four nets with distinct failure modes they catch:
    benchmark output before and after.
 4. **Golden replays** (`tests/fixtures/replay_corpus/`) — committed
    decision tuples for startup, maintenance, mode OFF, an open window,
-   no call for heat, heating, the SENSOR_FALLBACK and HOLD rungs, and an
-   unreachable TRV, pinned byte-stable. Door suppression has no golden
-   of its own. An intentional kernel change regenerates them
+   an open door, no call for heat, heating, the SENSOR_FALLBACK and HOLD
+   rungs, and an unreachable TRV, pinned byte-stable. An intentional
+   kernel change regenerates them
    (`BT_REGEN_GOLDENS=1`) and the diff shows exactly which decisions
    changed.
 
