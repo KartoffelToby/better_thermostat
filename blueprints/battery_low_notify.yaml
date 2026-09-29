@@ -46,10 +46,11 @@ trigger:
       minutes: 5
 
 condition:
-  # Throttle: only fire once every 24 hours per device
+  # Throttle: only fire once every 24 hours per device. `this` is the state
+  # object of this automation, so its last_triggered is the previous run.
   - condition: template
     value_template: >
-      {% set last = state_attr('automation.' ~ this.entity_id | regex_replace('[^a-z0-9_]', '_'), 'last_triggered') %}
+      {% set last = this.attributes.last_triggered %}
       {{ last is none or (now() - last).total_seconds() > 86400 }}
 
 action:
