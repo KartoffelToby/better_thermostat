@@ -129,7 +129,6 @@ from .utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
-    ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_COOLER,
@@ -970,7 +969,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_external_sensor_change = self.clock.now() - timedelta(hours=2)
         self._temp_lock = asyncio.Lock()
         self.bt_update_lock = False
-        self._saved_temperature = None
         if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
         else:
@@ -2189,12 +2187,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # call_for_heat and humidity are observations, not UI state:
             # they are rebuilt from live data within the first cycles, so
             # they are deliberately not restored from entity attributes.
-            if old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None) is not None:
-                self._saved_temperature = convert_to_float(
-                    str(old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)),
-                    self.device_name,
-                    "startup()",
-                )
             if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
                 self.last_main_hvac_mode = str(
                     old_state.attributes[ATTR_STATE_MAIN_MODE]
@@ -3420,7 +3412,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
-            ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             ATTR_STATE_PRESET_COOL_TEMPERATURE: self._preset_cool_temperature,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
