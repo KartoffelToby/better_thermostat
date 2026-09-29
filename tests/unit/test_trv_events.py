@@ -291,6 +291,42 @@ class TestRoomSensorFallbackHandover:
         assert mock_bt.control_queue_task.qsize() == 0
 
 
+class TestDueFallbackStart:
+    """The report that starts a due fallback gets a control cycle."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cycle_running", [True, False])
+    async def test_start_on_an_offset_confirmation_still_controls(
+        self, mock_bt, cycle_running
+    ):
+        """Starting the fallback happens once, so the confirmation does not hold it back."""
+        mock_bt.room_sensor_fallback_due = True
+        mock_bt.ignore_states = cycle_running
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = None
+        trv.calibration_received = False
+        report = _make_state(attributes={"current_temperature": 21.0})
+        mock_bt.hass.states.get.return_value = report
+
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.get_current_offset",
+                new=AsyncMock(return_value=0.0),
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.convert_inbound_states",
+                return_value=HVACMode.HEAT,
+            ),
+        ):
+            await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=report))
+
+        assert mock_bt.room_sensor_fallback is True
+        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.control_queue_task.qsize() == 1
+
+
 class TestTriggerTrvChangeGuards:
     """Guard-clause tests for trigger_trv_change()."""
 

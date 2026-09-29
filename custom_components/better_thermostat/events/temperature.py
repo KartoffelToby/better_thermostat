@@ -141,13 +141,12 @@ def trv_room_temperature(self) -> float | None:
     """Return the TRV-internal temperature that stands in for the room.
 
     The first available TRV with a plausible internal temperature speaks for
-    the room, the same choice the startup fallback makes. The value is the
-    one stored for the TRV, which the calibration compares the room with;
-    it counts only while the TRV's live state still reports a usable
-    temperature. The stored value outlives an outage whose state change
-    arrived while the TRV handler was not listening, a report the handler
-    could not convert, and the placeholder startup stores for a TRV that
-    reports none.
+    the room, the same choice the startup fallback makes. The value is read
+    from the TRV's live state rather than from the value stored for it: the
+    stored one lags behind while the TRV handler debounces reports, and it
+    outlives an outage whose state change arrived while the handler was not
+    listening, a report the handler could not convert, and the placeholder
+    startup stores for a TRV that reports none.
 
     Parameters
     ----------
@@ -159,12 +158,10 @@ def trv_room_temperature(self) -> float | None:
     float | None
             The TRV temperature in °C, or None when no TRV reports one.
     """
-    for trv_id, trv in self.real_trvs.items():
-        if trv_reported_temperature(self, trv_id) is None:
-            continue
-        value = trv.current_temperature
-        if isinstance(value, (int, float)) and is_reasonable_temperature(value):
-            return round(float(value), 2)
+    for trv_id in self.real_trvs:
+        value = trv_reported_temperature(self, trv_id)
+        if value is not None:
+            return round(value, 2)
     return None
 
 
