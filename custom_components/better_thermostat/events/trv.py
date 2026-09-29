@@ -20,6 +20,9 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.events.temperature import (
+    refresh_room_temperature_from_trvs,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
     trv_state_unknown_as_available,
@@ -145,6 +148,8 @@ async def trigger_trv_change(self, event):
             # The next valid reading is the first live data after the
             # outage and must not be dropped by the debounce below.
             trv.accept_next_internal_temp = True
+            if refresh_room_temperature_from_trvs(self):
+                self.async_write_ha_state()
         return
 
     advanced = trv.advanced or {}
@@ -229,6 +234,8 @@ async def trigger_trv_change(self, event):
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
 
         # async def in controlling? (left as note)
         if trv.calibration_received is False:

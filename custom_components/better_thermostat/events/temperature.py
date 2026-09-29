@@ -20,7 +20,11 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
+from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
+    DOMAIN,
+    ROOM_SENSOR_FALLBACK_DELAY_S,
+)
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
@@ -73,6 +77,106 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     # Expose a generic name so consumers don't need to know EMA vs SMA
     self.cur_temp_filtered = round(float(ema), 2)
     return float(ema)
+
+
+def trv_room_temperature(self) -> float | None:
+    """Return the TRV-internal temperature that stands in for the room.
+
+    The first TRV with a plausible internal temperature speaks for the room,
+    the same choice the startup fallback makes.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    float | None
+            The TRV temperature in °C, or None when no TRV reports one.
+    """
+    for trv in self.real_trvs.values():
+        value = trv.current_temperature
+        if isinstance(value, (int, float)) and is_reasonable_temperature(value):
+            return round(float(value), 2)
+    return None
+
+
+def refresh_room_temperature_from_trvs(self) -> bool:
+    """Take the room temperature from the TRVs while the room sensor is lost.
+
+    Outside the fallback, or when no TRV reports a temperature, the room
+    temperature stays as it is.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    bool
+            True if the room temperature changed.
+    """
+    if not self.room_sensor_fallback:
+        return False
+    temperature = trv_room_temperature(self)
+    if temperature is None or temperature == self.cur_temp:
+        return False
+    _LOGGER.debug(
+        "better_thermostat %s: room temperature from TRV fallback %s -> %.2f",
+        self.device_name,
+        self.cur_temp,
+        temperature,
+    )
+    self.cur_temp = temperature
+    return True
+
+
+def _cancel_room_sensor_fallback_timer(self) -> None:
+    """Cancel a pending switch to the TRV fallback."""
+    if self.room_sensor_fallback_cancel is not None:
+        self.room_sensor_fallback_cancel()
+        self.room_sensor_fallback_cancel = None
+
+
+def _schedule_room_sensor_fallback(self) -> None:
+    """Switch to the TRV temperature once the room sensor stays lost.
+
+    The first unavailable or unknown state starts the delay; later ones
+    while it runs, or while the fallback is active, change nothing.
+    """
+    if self.room_sensor_fallback or self.room_sensor_fallback_cancel is not None:
+        return
+
+    async def _enter_fallback(_now):
+        self.room_sensor_fallback_cancel = None
+        sensor_state = self.hass.states.get(self.sensor_entity_id)
+        if sensor_state is not None and sensor_state.state not in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        ):
+            return
+        _LOGGER.warning(
+            "better_thermostat %s: room temperature sensor %s unavailable for "
+            "%ss; controlling on the TRV internal temperature",
+            self.device_name,
+            self.sensor_entity_id,
+            ROOM_SENSOR_FALLBACK_DELAY_S,
+        )
+        self.room_sensor_fallback = True
+        if not refresh_room_temperature_from_trvs(self):
+            return
+        self.async_write_ha_state()
+        if self.control_queue_task is not None:
+            if getattr(self, "in_maintenance", False):
+                self._control_needed_after_maintenance = True
+            else:
+                await self.control_queue_task.put(self)
+
+    self.room_sensor_fallback_cancel = async_call_later(
+        self.hass, ROOM_SENSOR_FALLBACK_DELAY_S, _enter_fallback
+    )
 
 
 async def _apply_temperature_update(self, new_temp):
@@ -198,7 +302,10 @@ async def trigger_temperature_change(self, event):
         return
 
     new_state = event.data.get("new_state")
-    if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+    if new_state is None:
+        return
+    if new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+        _schedule_room_sensor_fallback(self)
         return
 
     _incoming_temperature = convert_to_float_celsius(
@@ -257,6 +364,20 @@ async def trigger_temperature_change(self, event):
                 "value": str(new_state.state),
             },
         )
+        return
+
+    _cancel_room_sensor_fallback_timer(self)
+    if self.room_sensor_fallback:
+        # The TRV value only stood in for the sensor; its first valid
+        # reading takes over without waiting for the debounce below.
+        self.room_sensor_fallback = False
+        _LOGGER.info(
+            "better_thermostat %s: room temperature sensor %s is back; "
+            "controlling on it again",
+            self.device_name,
+            self.sensor_entity_id,
+        )
+        await _apply_temperature_update(self, _incoming_temperature_q)
         return
 
     _now = dt_util.now()

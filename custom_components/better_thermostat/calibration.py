@@ -94,6 +94,29 @@ def _compute_zero_open_offset(
     return _offset
 
 
+def _filtered_room_temp(self) -> float | None:
+    """Return the filtered room temperature a controller may use.
+
+    The filter runs on the room sensor's readings, so while the TRV
+    temperature stands in for a lost sensor it still holds that sensor's
+    last value; the controllers then work on the unfiltered room
+    temperature.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    float | None
+            The filtered room temperature, or None during the TRV fallback.
+    """
+    if self.room_sensor_fallback:
+        return None
+    return self.cur_temp_filtered
+
+
 def _get_current_outdoor_temp(self) -> float | None:
     """Get current outdoor temperature from outdoor sensor or weather entity."""
     if self.outdoor_sensor is not None:
@@ -285,9 +308,10 @@ def _compute_mpc_balance(self, entity_id: str):
     params = MpcParams()
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
-    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed
+    # separately, except while the TRV temperature stands in for the room sensor.
     mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = self.cur_temp_filtered
+    mpc_filtered_temp = _filtered_room_temp(self)
 
     _is_day = True
     if self.hass:
@@ -680,7 +704,7 @@ def _compute_pid_balance(self, entity_id: str):
             trv_state.current_temperature,
             self.temp_slope,
             key,
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=_filtered_room_temp(self),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
         )

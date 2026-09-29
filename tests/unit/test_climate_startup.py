@@ -158,6 +158,8 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_cancel = None
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
     trv.model_quirks = MagicMock()
@@ -288,6 +290,7 @@ class TestStartupUnloadBailout:
         bt._window_task = None
         bt._door_task = None
         bt.plateau_timer_cancel = None
+        bt.room_sensor_fallback_cancel = None
         bt.startup_running = True
 
         await BetterThermostat.async_will_remove_from_hass(bt)

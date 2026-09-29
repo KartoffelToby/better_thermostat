@@ -22,7 +22,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
 
-from .const import DOMAIN
+from .const import DOMAIN, ROOM_SENSOR_FALLBACK_DELAY_S
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -524,10 +524,12 @@ async def check_and_update_degraded_mode(self) -> bool:
     if not sensor_available:
         unavailable.append(self.sensor_entity_id)
         _LOGGER.warning(
-            "better_thermostat %s: Room temperature sensor %s unavailable, "
-            "falling back to TRV internal temperature",
+            "better_thermostat %s: Room temperature sensor %s unavailable; "
+            "the TRV internal temperature stands in for it once it has been "
+            "unavailable for %ss",
             self.device_name,
             self.sensor_entity_id,
+            ROOM_SENSOR_FALLBACK_DELAY_S,
         )
     else:
         schedule_battery_refresh(
