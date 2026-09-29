@@ -153,9 +153,12 @@ def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
     """Read an available entity's battery, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    an entity state write. A battery value is only ever new on the first pass
-    after startup, while it is still unpopulated, or when the entity has just
-    come back from an outage, so those are the passes that read it.
+    an entity state write, so a pass reads only when it can learn something:
+    on the first pass after startup, while the reading is still unpopulated,
+    when the entity has just come back from an outage, or when the battery
+    entity now reports a level other than the stored one. A battery drains,
+    is swapped or recalibrates while its device stays reachable, so without
+    that last case the stored level would wait for the next outage.
 
     An unpopulated reading can also mean that the battery entity itself had
     nothing to report, which would otherwise put a read on every pass, so
@@ -189,7 +192,10 @@ def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
             if self.clock.monotonic() < retry_at:
                 return
         elif info.get("battery") is not None:
-            return
+            battery_state = self.hass.states.get(info["battery_id"])
+            level = None if battery_state is None else battery_state.state
+            if level == info["battery"]:
+                return
 
     get_battery_status(self, entity)
 
