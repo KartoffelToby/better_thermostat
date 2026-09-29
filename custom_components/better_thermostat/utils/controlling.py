@@ -2125,31 +2125,37 @@ async def control_trv(
                         )
                         trv.last_temperature = _temperature
                         trv.remember_setpoint_written(_temperature)
-                        _tvr_has_quirk = await override_set_temperature(
-                            self, entity_id, _temperature
-                        )
-                        if _tvr_has_quirk is False:
-                            await set_temperature(self, entity_id, _temperature)
-                        # The delegate records the value it sent after its own
-                        # rounding and clamping, which is the one the device
-                        # can echo. Only writes of this path are remembered:
-                        # maintenance drives the device through the delegate
-                        # and nothing confirms those writes.
-                        trv.remember_setpoint_written(trv.last_temperature)
-                        # Every write is watched on its own: a watchdog still
-                        # waiting on an earlier write steps aside for this one
-                        # rather than holding the channel for a command the
-                        # device may never report.
-                        trv.target_temp_received = False
-                        self.task_manager.create_task(
-                            check_target_temperature(
-                                self,
-                                entity_id,
-                                trv.last_setpoint_write_id,
-                                trv.last_temperature,
-                            ),
-                            name=f"bt_check_target_temp_{entity_id}",
-                        )
+                        try:
+                            _tvr_has_quirk = await override_set_temperature(
+                                self, entity_id, _temperature
+                            )
+                            if _tvr_has_quirk is False:
+                                await set_temperature(self, entity_id, _temperature)
+                        finally:
+                            # The delegate records the value it sent after its
+                            # own rounding and clamping, which is the one the
+                            # device can echo, and records it before the call
+                            # goes out. Only writes of this path are
+                            # remembered: maintenance drives the device through
+                            # the delegate and nothing confirms those writes.
+                            trv.remember_setpoint_written(trv.last_temperature)
+                            # Every write is watched on its own: a watchdog
+                            # still waiting on an earlier write steps aside for
+                            # this one rather than holding the channel for a
+                            # command the device may never report. A call that
+                            # raises may still have reached the device, and the
+                            # earlier watchdog has already stepped aside, so
+                            # this write is watched either way.
+                            trv.target_temp_received = False
+                            self.task_manager.create_task(
+                                check_target_temperature(
+                                    self,
+                                    entity_id,
+                                    trv.last_setpoint_write_id,
+                                    trv.last_temperature,
+                                ),
+                                name=f"bt_check_target_temp_{entity_id}",
+                            )
                     else:
                         # A deferred setpoint re-derives on the catch-up cycle
                         # once the slot is free again. Falling through to the
