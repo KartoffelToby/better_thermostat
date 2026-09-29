@@ -110,6 +110,36 @@ def is_trv_available(self, entity_id: str) -> bool:
     )
 
 
+def reachable_trv_temperature(self, entity_id: str) -> float | None:
+    """Return a TRV's stored internal temperature while the TRV is reachable.
+
+    A stored reading only counts while its TRV is available: a value kept
+    from before an outage describes a device that no longer reports.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to read
+
+    Returns
+    -------
+    float | None
+        The internal temperature in °C, or None when the TRV is not tracked,
+        not available, or holds no finite reading
+    """
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return None
+    value = trv.current_temperature
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    if not is_trv_available(self, entity_id):
+        return None
+    return float(value)
+
+
 def get_battery_status(self, entity) -> None:
     """Read a battery entity for a device and update internal state.
 
@@ -561,10 +591,8 @@ async def check_and_update_degraded_mode(self) -> bool:
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
     trv_temp_ok = any(
-        isinstance(trv.current_temperature, (int, float))
-        and math.isfinite(float(trv.current_temperature))
-        and is_trv_available(self, entity_id)
-        for entity_id, trv in self.real_trvs.items()
+        reachable_trv_temperature(self, entity_id) is not None
+        for entity_id in self.real_trvs
     )
     self.kernel_state = replace(
         self.kernel_state,
