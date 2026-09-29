@@ -17,7 +17,7 @@ Start here if you are unsure:
 | --- | --- |
 | Setting up for the first time | AI Time Based (default) |
 | Room heats too slowly | Aggressive |
-| Temperature often overshoots | MPC Predictive |
+| Temperature often overshoots | TPI Controller |
 | You want fine control and know PID tuning | PID Controller |
 | You want something simple | External Sensor Offset Only or TPI Controller |
 | Your TRV supports direct valve control and you want to try an experimental controller | MPC v2 |
@@ -68,9 +68,9 @@ MPC (Model Predictive Control) predicts how your room temperature will change ov
 
 From that prediction it picks the correction that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves. With direct valve control that correction is a valve opening; without it, the correction reaches the valve through the setpoint the TRV sees.
 
-It aims at arriving at the target rather than at arriving quickly, which is the whole point of predicting ahead. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it about a day of operation before judging it.
+It aims at arriving at the target rather than at arriving quickly. It is the most complex of the modes and it reacts deliberately rather than fast, which can read as sluggish at first. Give it several heating cycles before judging it.
 
-Pick it when you overshoot regularly, when a steady arrival matters more to you than reaction speed, and when your heating system itself is reasonably stable. In the project's benchmark it moves the valve more often than PID or TPI, and with several radiators in one room it can over-react.
+MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it moves the valve more often than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
 
 ---
 
@@ -104,16 +104,16 @@ Pick it when your heating power varies, when outside influences keep moving the 
 
 Auto-tuning is on by default.
 
-**Timeline:**
+**How tuning proceeds:**
 
-- **Initial period (Days 1-3):** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
+- **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
 
-- **Learning phase (Days 4-7):** The algorithm makes adjustments every 5 minutes (minimum) based on:
+- **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only after it has seen one of these:
   - **Overshoot detection:** If temperature overshoots target, it decreases Kp (makes it less aggressive), increases Kd (improves damping) and decreases Ki
   - **Sluggish response:** If heating is too slow, it increases Ki (improves steady-state accuracy) and Kp
   - **Steady-state drift:** If temperature drifts near target, it decreases Ki (prevents accumulation)
 
-- **Settled phase (Week 2+):** After about 1-2 weeks, the parameters should stabilize and provide smooth temperature control with minimal overshooting.
+- **Settled:** Once the room stops overshooting, rising slowly or drifting, the gains stop changing. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
@@ -155,7 +155,7 @@ The device also has *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (De
 
 **Getting the best out of PID:**
 
-- Give auto-tuning one to two weeks to settle
+- Give auto-tuning time: it only changes the gains after an overshoot, a slow rise or a drift, so it needs a number of ordinary heating cycles
 - Keep target temperatures consistent; auto-tuning reads a moving target as a disturbance
 - Avoid changing the target often during the learning phase
 - Place the external sensor away from heat sources and draughts
@@ -186,7 +186,7 @@ Pick it when your heating system is consistent and you want predictable behaviou
 | **Response Speed** | Medium | Fast | Medium | Measured | Fast | Medium |
 | **Writes the valve directly** | No | No | Yes | Yes | Yes | Yes |
 | **Status** | Stable | Stable | Stable | Beta | Beta | Stable |
-| **Best For** | Simple setups | Fast heating | Most users | Steady arrival | Variable systems | Simple control |
+| **Best For** | Simple setups | Fast heating | Most users | Testing (beta) | Variable systems | Less overshoot, little valve wear |
 
 **Notes:**
 
@@ -277,10 +277,7 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 
 ## Getting good results
 
-1. **Give it time:** Algorithms with learning need time to learn your room:
-   - **MPC Predictive**: 1 day for fine-tuned performance
-   - **AI Time Based**: 2-3 days for optimal performance
-   - **PID Controller**: 1-2 weeks for auto-tuning to settle
+1. **Give it time:** AI Time Based, MPC Predictive and PID Controller learn from the heating cycles they observe. Judge them after several days of ordinary use, not after the first heat-up; how long they need depends on the room and how often it heats.
 
 2. **Stable placement:** Keep your external temperature sensor in a consistent location away from heat sources, drafts, and direct sunlight.
 
@@ -290,14 +287,14 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 
 5. **Consider your heating system:**
    - Fast-responding systems (electric radiators): PID or TPI work well
-   - Slow-responding systems (water radiators, underfloor): MPC Predictive works well
+   - Slow-responding systems (water radiators, underfloor): PID Controller works well
    - Inconsistent heating power: PID Controller handles this best
 
 ## Troubleshooting
 
 **Temperature overshoots:**
 
-- Try: MPC Predictive, or enable overheating protection (it acts in AI Time Based and Aggressive)
+- Try: TPI Controller, or enable overheating protection (it acts in AI Time Based and Aggressive)
 
 **Too slow to reach temperature:**
 
@@ -309,9 +306,7 @@ If you're purchasing new TRVs and want the best performance from Better Thermost
 
 **Algorithm isn't working well:**
 
-- **MPC Predictive**: Wait at least 1 day for learning
-- **AI Time Based**: Wait 2-3 days for learning
-- **PID Controller**: Wait 1-2 weeks for auto-tuning to settle
+- Give AI Time Based, MPC Predictive and PID Controller several days of ordinary use before judging them
 - Check sensor placement and accuracy
 - Verify TRV is working correctly
 - Try a different algorithm

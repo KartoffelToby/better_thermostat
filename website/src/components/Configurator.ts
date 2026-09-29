@@ -567,8 +567,8 @@ export class BtConfigurator extends LitElement {
       algo = 'PID Controller';
       algoDesc = 'Responsive control with auto-tuning, suited to strong disturbances like drafts or ovens.';
     } else if (this.answers.insulation === 'good' || this.answers.roomSize === 'small') {
-      algo = 'MPC Predictive (Beta)';
-      algoDesc = 'Predicts how the room will heat up and aims at arriving at the target without overshooting, which suits well-insulated or small rooms that heat up quickly.';
+      algo = 'TPI Controller';
+      algoDesc = 'Opens the valve in proportion to the remaining temperature gap, with little overshoot and little valve wear, which suits well-insulated or small rooms that heat up quickly.';
     }
 
     if (this.answers.roomType === 'living' && this.answers.heatingType !== 'underfloor') {

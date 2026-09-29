@@ -15,7 +15,7 @@ Use this profile as your starting point for each room.
 
 ## When to change it
 
-Switch to Aggressive if the room heats very slowly, to MPC Predictive if it overshoots the target regularly, and to PID if it faces strong disturbances such as sun, draughts or an often-opened door.
+Switch to Aggressive if the room heats very slowly, to TPI Controller if it overshoots the target regularly, and to PID if it faces strong disturbances such as sun, draughts or an often-opened door.
 
 ## Sensor placement
 

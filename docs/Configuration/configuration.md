@@ -108,7 +108,7 @@ Better Thermostat offers several algorithms to control your heating:
 
 - ***(AI) Time Based (Default)***: **[Recommended]** Learns your room's heating patterns and adapts automatically
 - ***External Sensor Offset Only***: Simple and reliable - uses your external sensor to correct the TRV's internal sensor
-- ***MPC Predictive (Beta)***: Predicts how the room temperature will change and aims at arriving at the target without overshooting
+- ***MPC Predictive (Beta)***: Predicts how the room temperature will change and sets its correction ahead of time. Still in testing
 - ***(AI) MPC v2 (QP + Kalman, experimental)***: Experimental predictive controller written for TRVs with direct valve control
 - ***Aggressive***: Pushes the TRV harder for faster heating (good for slow-heating rooms)
 - ***TPI Controller***: Simple duty-cycle based control for consistent heating
@@ -121,7 +121,7 @@ Better Thermostat offers several algorithms to control your heating:
 
 - Start with AI Time Based, the default
 - Switch to Aggressive if the room heats slowly
-- Switch to MPC Predictive if the temperature overshoots
+- Switch to TPI Controller if the temperature overshoots
 - Switch to PID Controller if you want fine control
 - On HomeMatic IP/CCU, offset-based calibration handles SELECT entities automatically
 
@@ -129,7 +129,7 @@ Better Thermostat offers several algorithms to control your heating:
 
 **Overheating protection?** Enabled by default. Some TRVs don't close the valve completely when the temperature is reached, or the radiator holds a lot of residual heat. While the thermostat is idle, this option adds a correction that holds the TRV further closed. It only acts in the AI Time Based and Aggressive modes; the other modes ignore it.
 
-**If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead** If your TRV model doesn't have an off mode, BT sends the minimum target temperature of this device instead of switching it off. This option is only needed if you have problems, known models that don't have an off mode are auto-detected by BT.
+**If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead** If your TRV model doesn't have an off mode, BT sends the minimum target temperature of this device instead of switching it off. This option is only needed if you have problems, known models that don't have an off mode are auto-detected by BT.
 
 **If 'auto' means 'heat' for your TRV and you want to swap it** Some climates in HA use the mode auto for default heating, and a boost when mode is heat. This isn't what we want, so if this is the case for you, check this option.
 

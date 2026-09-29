@@ -28,7 +28,7 @@ Choose offset-based where available; use target-based for broad compatibility.
 
 Start with **AI Time Based**. It is the best default for most homes.
 
-If you want tighter overshoot control and have stable sensors, try **MPC Predictive (Beta)**. Expect more valve movement than with PID or TPI.
+If the temperature overshoots, try **TPI Controller**. In the project's benchmark it overshoots less than PID or MPC and moves the valve far less. MPC Predictive is still in testing.
 
 ## Why does my TRV pick up a change with a delay?
 

@@ -87,7 +87,7 @@ This is the "brain" of Better Thermostat. How should it calculate the heating?
 
 - **(AI) Time Based (Default)**: **Recommended for most users.** A smart algorithm that learns and adjusts to keep the temperature stable.
 - **External Sensor Offset Only**: Basic mode. It just syncs the temperature from your room sensor to the radiator.
-- **MPC Predictive (Beta)**: Predicts how your room heats up and aims at reaching the target without overshooting.
+- **MPC Predictive (Beta)**: Predicts how your room heats up and sets its correction ahead of time. Still in testing.
 - **(AI) MPC v2 (QP + Kalman, experimental)**: An experimental predictive controller for devices with direct valve control.
 - **Aggressive**: Heats up faster by pushing the radiator harder while heating, but might overshoot your target temperature.
 - **TPI Controller**: Turns the temperature error into a duty cycle and holds the valve open by that share.
@@ -101,7 +101,7 @@ Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision h
 ### Other important toggles
 
 - **Overheating protection?**: On by default. Helps if your room keeps getting too hot even after reaching the target temperature (often happens if radiators stay hot for a long time). It only acts in the AI Time Based and Aggressive modes.
-- **If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead**: Some devices don't have a proper "Off" switch. This sends them their lowest supported target temperature instead to keep them off safely.
+- **If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead**: Some devices don't have a proper "Off" switch. This sends them their lowest supported target temperature instead to keep them off safely.
 - **If 'auto' means 'heat' for your TRV and you want to swap it**: Fixes a quirk with some specific thermostat brands where the modes are mixed up in Home Assistant.
 - **If your thermostat has no own maintenance mode, you can use this one**: Adds a maintenance mode (like opening the valve fully to prevent it from getting stuck in summer) if your device lacks one.
 - **Ignore all inputs on the TRV like a child lock**: Acts like a child lock. Changes made directly on the physical radiator valve will be ignored.
