@@ -3514,6 +3514,7 @@ class TestATrvThatArrivesAfterStartup:
         _room_with_a_trv_left_behind(bt, available=True)
         order = []
         bt._initialize_arrived_trvs = AsyncMock()
+        bt._hand_over_room_sensor_state = AsyncMock()
         bt._spawn_owned = MagicMock(
             side_effect=lambda coro, name: (order.append("read"), coro.close())
         )

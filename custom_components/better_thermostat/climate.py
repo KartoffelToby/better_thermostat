@@ -38,6 +38,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
+    EVENT_STATE_CHANGED,
     PRECISION_TENTHS,
     PRECISION_WHOLE,
     STATE_UNAVAILABLE,
@@ -45,7 +46,7 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import Context, State, callback
+from homeassistant.core import Context, Event, EventStateChangedData, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import (
     device_registry as dr,
@@ -2956,6 +2957,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.hass, [self.sensor_entity_id], self._trigger_temperature_change
             )
         )
+        await self._hand_over_room_sensor_state()
         if self.humidity_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -3088,6 +3090,36 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
         self.async_write_ha_state()
         await self.async_update_ha_state(force_refresh=True)
+
+    async def _hand_over_room_sensor_state(self) -> None:
+        """Hand the room sensor's current reading to the temperature filter.
+
+        The sensor's changes reach the room through its listener, and a
+        change the sensor published before the listener existed never does.
+        Startup may have taken the TRV temperature because the sensor had no
+        reading when it was read, and a sensor that reports once and then
+        stays settled may not publish again for a long time. A usable reading
+        the room is not on yet is therefore handed over the way the listener
+        hands one over, behind any reading the listener has already queued.
+        """
+        sensor_entity_id = self.sensor_entity_id
+        if sensor_entity_id is None:
+            return
+        sensor_state = self.hass.states.get(sensor_entity_id)
+        reading = room_sensor_reading(self, sensor_state)
+        if sensor_state is None or reading is None:
+            return
+        if self.cur_temp is not None and round(reading, 2) == round(self.cur_temp, 2):
+            return
+        await self._trigger_temperature_change(
+            Event(
+                EVENT_STATE_CHANGED,
+                EventStateChangedData(
+                    entity_id=sensor_entity_id, old_state=None, new_state=sensor_state
+                ),
+                context=sensor_state.context,
+            )
+        )
 
     async def _reconcile_tick(self, now=None):
         """Periodic reconciliation tick (see controlling.reconcile_tick)."""
