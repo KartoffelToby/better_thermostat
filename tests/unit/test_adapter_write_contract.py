@@ -24,7 +24,7 @@ already decides it, once, for every ecosystem.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
@@ -87,6 +87,7 @@ def _thermostat(
     valve_writable=True,
     valve_bounds=(0.0, 100.0, 1.0),
     unit=UnitOfTemperature.CELSIUS,
+    head_attributes=None,
 ):
     """Build a thermostat whose service calls are recorded, not executed.
 
@@ -103,6 +104,9 @@ def _thermostat(
         The ``min``, ``max`` and ``step`` the number entity publishes.
     unit : UnitOfTemperature
         The system's configured temperature unit.
+    head_attributes : dict or None
+        The attributes the TRV's climate state publishes; ``None`` publishes
+        none.
 
     Returns
     -------
@@ -120,7 +124,7 @@ def _thermostat(
         VALVE_ENTITY: State(
             VALVE_ENTITY, "0", {"min": minimum, "max": maximum, "step": step}
         ),
-        ENTITY_ID: State(ENTITY_ID, "heat", {}),
+        ENTITY_ID: State(ENTITY_ID, "heat", head_attributes or {}),
     }
     # Anything else is an entity the state machine does not know, which is
     # what a stale discovery result looks like from in here.
@@ -382,6 +386,109 @@ class TestTheSetpointPayloadIsTheSameEverywhere:
 
         (_domain, _service, payload) = _calls(thermostat)[0]
         assert payload["temperature"] == 68.0
+
+
+RANGE_ONLY = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
+BOTH_SETPOINT_FORMS = int(
+    ClimateEntityFeature.TARGET_TEMPERATURE
+    | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+)
+
+
+class TestARangeOnlyHeadTakesTheSetpointAsItsLowerBound:
+    """A head without a single setpoint is written through its range.
+
+    Home Assistant refuses ``temperature`` for an entity that does not
+    advertise TARGET_TEMPERATURE, so a head that advertises only the range
+    gets the setpoint as ``target_temp_low`` next to the upper bound it holds.
+    """
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    @pytest.mark.asyncio
+    async def test_the_upper_bound_the_head_holds_travels_along(self, name):
+        """The band's top is sent back unchanged when it sits above the setpoint."""
+        thermostat = _thermostat(
+            head_attributes={
+                "supported_features": RANGE_ONLY,
+                "target_temp_low": 18.0,
+                "target_temp_high": 25.0,
+            }
+        )
+
+        await ADAPTERS[name].set_temperature(thermostat, ENTITY_ID, 21.5)
+
+        assert _calls(thermostat) == [
+            (
+                "climate",
+                "set_temperature",
+                {
+                    "entity_id": ENTITY_ID,
+                    "target_temp_low": 21.5,
+                    "target_temp_high": 25.0,
+                },
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "high",
+        [20.0, None, "unknown"],
+        ids=["below_the_setpoint", "missing", "unreadable"],
+    )
+    @pytest.mark.asyncio
+    async def test_an_upper_bound_that_cannot_stay_becomes_the_setpoint(self, high):
+        """A top below the setpoint, or none to read, is sent as the setpoint."""
+        attributes = {"supported_features": RANGE_ONLY, "target_temp_low": 18.0}
+        if high is not None:
+            attributes["target_temp_high"] = high
+        thermostat = _thermostat(head_attributes=attributes)
+
+        await generic.set_temperature(thermostat, ENTITY_ID, 21.5)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        assert payload == {
+            "entity_id": ENTITY_ID,
+            "target_temp_low": 21.5,
+            "target_temp_high": 21.5,
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_bounds_reach_the_wire_in_the_system_unit(self):
+        """Both bounds are in the unit the head publishes them in."""
+        thermostat = _thermostat(
+            unit=UnitOfTemperature.FAHRENHEIT,
+            head_attributes={
+                "supported_features": RANGE_ONLY,
+                "target_temp_low": 64.0,
+                "target_temp_high": 77.0,
+            },
+        )
+
+        await generic.set_temperature(thermostat, ENTITY_ID, 20.0)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        assert payload["target_temp_low"] == 68.0
+        assert payload["target_temp_high"] == 77.0
+
+    @pytest.mark.parametrize(
+        "features", [BOTH_SETPOINT_FORMS, 0], ids=["both_forms", "neither_form"]
+    )
+    @pytest.mark.asyncio
+    async def test_a_head_that_is_not_range_only_keeps_the_single_setpoint(
+        self, features
+    ):
+        """Only a head without TARGET_TEMPERATURE is written through its range."""
+        thermostat = _thermostat(
+            head_attributes={
+                "supported_features": features,
+                "target_temp_low": 18.0,
+                "target_temp_high": 25.0,
+            }
+        )
+
+        await generic.set_temperature(thermostat, ENTITY_ID, 21.5)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        assert payload == {"entity_id": ENTITY_ID, "temperature": 21.5}
 
 
 class TestTheModePayloadIsTheSameEverywhere:
