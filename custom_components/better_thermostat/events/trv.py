@@ -108,6 +108,7 @@ async def trigger_trv_change(self, event):
     if self.bt_update_lock:
         return
     _main_change = False
+    _room_temperature_changed = False
     resolved_event = resolve_state_change_event(self, event, "TRV")
     if resolved_event is None:
         return
@@ -149,11 +150,6 @@ async def trigger_trv_change(self, event):
             # The next valid reading is the first live data after the
             # outage and must not be dropped by the debounce below.
             trv.accept_next_internal_temp = True
-            # During the room sensor fallback another TRV now speaks for
-            # the room, and the room is controlled on its temperature.
-            if refresh_room_temperature_from_trvs(self):
-                self.async_write_ha_state()
-                queue_control_cycle(self)
         return
 
     advanced = trv.advanced or {}
@@ -238,7 +234,8 @@ async def trigger_trv_change(self, event):
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
-        if refresh_room_temperature_from_trvs(self):
+        _room_temperature_changed = refresh_room_temperature_from_trvs(self)
+        if _room_temperature_changed:
             self.async_write_ha_state()
 
         # async def in controlling? (left as note)
@@ -254,6 +251,12 @@ async def trigger_trv_change(self, event):
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
+        # A control cycle is running and the rest of the report is not
+        # read. A room temperature it changed during the room sensor
+        # fallback still needs a cycle of its own; the confirmation of an
+        # offset write, which cleared _main_change, does not.
+        if _room_temperature_changed and _main_change:
+            queue_control_cycle(self)
         return
 
     # The offered HVAC modes change at runtime on devices whose heating /

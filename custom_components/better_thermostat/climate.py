@@ -794,6 +794,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.plateau_timer_cancel = None
         # TRV-internal temperature standing in for a lost room sensor
         self.room_sensor_fallback = False
+        # The sensor stayed lost past the delay, but no TRV had a usable
+        # temperature to take over with yet
+        self.room_sensor_fallback_due = False
         self.room_sensor_fallback_cancel = None
         self.last_change_direction = 0
         self.prev_stable_temp = None

@@ -160,6 +160,7 @@ def plateau_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.room_sensor_fallback = False
     bt.room_sensor_fallback_cancel = None
+    bt.room_sensor_fallback_due = False
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
     trv.model_quirks = MagicMock()

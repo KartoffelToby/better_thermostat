@@ -30,6 +30,7 @@ from custom_components.better_thermostat.utils.const import (
     ROOM_SENSOR_FALLBACK_DELAY_S,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    attr_to_celsius,
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
@@ -107,27 +108,46 @@ def trv_ready(self, trv_id: str) -> bool:
     )
 
 
-def _trv_reports_room_temperature(self, trv_id: str) -> bool:
-    """Return whether a TRV's stored internal temperature is a live reading.
+def trv_reported_temperature(self, trv_id: str) -> float | None:
+    """Return the internal temperature a ready TRV reports right now.
 
-    The stored value outlives an outage whose state change arrived while the
-    TRV handler was not listening, and a TRV that reports no temperature at
-    all carries a startup placeholder; the live state rules out both.
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    trv_id : str
+            Entity id of the TRV.
+
+    Returns
+    -------
+    float | None
+            The reported temperature in °C, or None when the TRV is not
+            ready or reports no convertible, plausible temperature.
     """
     if not trv_ready(self, trv_id):
-        return False
+        return None
     trv_state = self.hass.states.get(trv_id)
-    return (
-        trv_state is not None
-        and trv_state.attributes.get("current_temperature") is not None
+    if trv_state is None or trv_state.attributes.get("current_temperature") is None:
+        return None
+    value = attr_to_celsius(
+        self, trv_state, "current_temperature", None, "TRV room temperature"
     )
+    if value is None or not is_reasonable_temperature(value):
+        return None
+    return value
 
 
 def trv_room_temperature(self) -> float | None:
     """Return the TRV-internal temperature that stands in for the room.
 
     The first available TRV with a plausible internal temperature speaks for
-    the room, the same choice the startup fallback makes.
+    the room, the same choice the startup fallback makes. The value is the
+    one stored for the TRV, which the calibration compares the room with;
+    it counts only while the TRV's live state still reports a usable
+    temperature. The stored value outlives an outage whose state change
+    arrived while the TRV handler was not listening, a report the handler
+    could not convert, and the placeholder startup stores for a TRV that
+    reports none.
 
     Parameters
     ----------
@@ -140,7 +160,7 @@ def trv_room_temperature(self) -> float | None:
             The TRV temperature in °C, or None when no TRV reports one.
     """
     for trv_id, trv in self.real_trvs.items():
-        if not _trv_reports_room_temperature(self, trv_id):
+        if trv_reported_temperature(self, trv_id) is None:
             continue
         value = trv.current_temperature
         if isinstance(value, (int, float)) and is_reasonable_temperature(value):
@@ -148,11 +168,29 @@ def trv_room_temperature(self) -> float | None:
     return None
 
 
+def _hand_room_to_trvs(self) -> bool:
+    """Switch the room onto the TRV temperature if a TRV reports one.
+
+    Returns
+    -------
+    bool
+            True if a TRV temperature now stands in for the room sensor.
+    """
+    temperature = trv_room_temperature(self)
+    if temperature is None:
+        return False
+    self.room_sensor_fallback = True
+    self.room_sensor_fallback_due = False
+    self.cur_temp = temperature
+    return True
+
+
 def refresh_room_temperature_from_trvs(self) -> bool:
     """Take the room temperature from the TRVs while the room sensor is lost.
 
     Outside the fallback, or when no TRV reports a temperature, the room
-    temperature stays as it is.
+    temperature stays as it is. A fallback that came due while no TRV had
+    a usable temperature starts with the first TRV that reports one.
 
     Parameters
     ----------
@@ -162,8 +200,18 @@ def refresh_room_temperature_from_trvs(self) -> bool:
     Returns
     -------
     bool
-            True if the room temperature changed.
+            True if the room temperature, or the source it is taken from,
+            changed.
     """
+    if self.room_sensor_fallback_due:
+        if not _hand_room_to_trvs(self):
+            return False
+        _LOGGER.warning(
+            "better_thermostat %s: a TRV reports a temperature again; "
+            "controlling on the TRV internal temperature",
+            self.device_name,
+        )
+        return True
     if not self.room_sensor_fallback:
         return False
     temperature = trv_room_temperature(self)
@@ -204,6 +252,7 @@ def queue_control_cycle(self) -> None:
 
 def _cancel_room_sensor_fallback_timer(self) -> None:
     """Cancel a pending switch to the TRV fallback."""
+    self.room_sensor_fallback_due = False
     if self.room_sensor_fallback_cancel is not None:
         self.room_sensor_fallback_cancel()
         self.room_sensor_fallback_cancel = None
@@ -214,9 +263,18 @@ def _schedule_room_sensor_fallback(self) -> None:
 
     The first unavailable or unknown state, or the removal of the sensor
     entity, starts the delay; later ones while it runs, or while the
-    fallback is active, change nothing.
+    fallback is active or due, change nothing.
+
+    A fallback that comes due while no TRV reports a usable temperature
+    does not start: controlling on the TRV side would still control on the
+    sensor's last reading. The room keeps that reading, and the lost sensor
+    stays reported as degraded, until a TRV reports.
     """
-    if self.room_sensor_fallback or self.room_sensor_fallback_cancel is not None:
+    if (
+        self.room_sensor_fallback
+        or self.room_sensor_fallback_due
+        or self.room_sensor_fallback_cancel is not None
+    ):
         return
 
     async def _enter_fallback(_now):
@@ -229,6 +287,17 @@ def _schedule_room_sensor_fallback(self) -> None:
             STATE_UNKNOWN,
         ):
             return
+        if not _hand_room_to_trvs(self):
+            self.room_sensor_fallback_due = True
+            _LOGGER.warning(
+                "better_thermostat %s: room temperature sensor %s unavailable "
+                "for %ss and no TRV reports a temperature; keeping the last "
+                "reading until one does",
+                self.device_name,
+                self.sensor_entity_id,
+                ROOM_SENSOR_FALLBACK_DELAY_S,
+            )
+            return
         _LOGGER.warning(
             "better_thermostat %s: room temperature sensor %s unavailable for "
             "%ss; controlling on the TRV internal temperature",
@@ -236,8 +305,6 @@ def _schedule_room_sensor_fallback(self) -> None:
             self.sensor_entity_id,
             ROOM_SENSOR_FALLBACK_DELAY_S,
         )
-        self.room_sensor_fallback = True
-        refresh_room_temperature_from_trvs(self)
         self.async_write_ha_state()
         # The controllers stop reading the room sensor's filtered value, so
         # the room is controlled anew even when the TRV reports the
