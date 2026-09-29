@@ -194,3 +194,23 @@ async def test_a_sensor_lost_while_startup_runs_is_caught_up_on(hass, fake_trv):
 
     assert bt.room_sensor_fallback is True
     assert bt.cur_temp == 26.0
+
+
+async def test_a_sensor_reading_taken_while_startup_runs_reaches_the_room(
+    hass, fake_trv
+):
+    """A new reading published before the sensor's changes are handled still counts."""
+    initialize_trvs = BetterThermostat._initialize_trvs
+
+    async def _sensor_moves_meanwhile(bt):
+        _room_sensor(hass, "21.0")
+        await initialize_trvs(bt)
+
+    with patch.object(BetterThermostat, "_initialize_trvs", _sensor_moves_meanwhile):
+        _room_sensor(hass, "18.0")
+        entry = make_entry()
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+
+    assert await wait_for(hass, lambda: bt.cur_temp == 21.0)
+    assert bt.room_sensor_fallback is False

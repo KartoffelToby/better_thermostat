@@ -14,8 +14,8 @@ import logging
 import math
 from time import monotonic
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import State, callback
+from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, EventStateChangedData, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
@@ -364,26 +364,40 @@ async def _resume_room_sensor(self, temperature: float) -> None:
 
 
 async def reconcile_room_sensor(self) -> None:
-    """Bring the fallback in line with the room sensor's current state.
+    """Bring the room in line with the room sensor's current state.
 
     The sensor's state changes are only handled once startup has finished,
-    so a sensor that returned or dropped out while startup was still
-    running is caught up on here.
+    so a sensor that changed while startup was still running is caught up
+    on here. A usable reading the room is not on yet goes through the same
+    path a live reading takes; a state without one starts the delayed
+    fallback.
 
     Parameters
     ----------
     self :
             self instance of better_thermostat
     """
-    reading = room_sensor_reading(
-        self.device_name, self.hass.states.get(self.sensor_entity_id)
-    )
-    if reading is None:
+    sensor_state = self.hass.states.get(self.sensor_entity_id)
+    reading = room_sensor_reading(self.device_name, sensor_state)
+    if sensor_state is None or reading is None:
         _schedule_room_sensor_fallback(self)
-    elif self.room_sensor_fallback:
-        await _resume_room_sensor(self, reading)
-    else:
+        return
+    if (
+        not self.room_sensor_fallback
+        and self.cur_temp is not None
+        and round(reading, 2) == round(self.cur_temp, 2)
+    ):
         _cancel_room_sensor_fallback_timer(self)
+        return
+    await trigger_temperature_change(
+        self,
+        Event(
+            EVENT_STATE_CHANGED,
+            EventStateChangedData(
+                entity_id=self.sensor_entity_id, old_state=None, new_state=sensor_state
+            ),
+        ),
+    )
 
 
 async def _apply_temperature_update(self, new_temp):
