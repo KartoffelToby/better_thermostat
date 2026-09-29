@@ -163,12 +163,14 @@ async def test_a_refused_setpoint_logs_its_traceback_once(hass, refusing_room):
 async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
     hass, refusing_room
 ):
-    """A long run of refusals does not keep a new target from the device."""
+    """A long run of refusals does not keep a new target from the device.
+
+    Once the device holds the new target, the run is over: no cycle fails
+    and no refused setpoint goes out again, however long the loop runs on.
+    """
     bt, trv, log = refusing_room
     await _set_target(hass, _REFUSED_TARGET)
     assert await wait_for(hass, lambda: len(log.rounds) >= 8, timeout_s=20.0)
-
-    refused_rounds = len(log.rounds)
 
     await _set_target(hass, _TAKEN_TARGET)
 
@@ -178,4 +180,17 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
         timeout_s=20.0,
     ), trv.set_temperature_calls[-5:]
     assert bt.bt_target_temp == _TAKEN_TARGET
-    assert len(log.rounds) == refused_rounds
+
+    # A retry that was already due may still run a refused cycle while the
+    # new target is on its way, so the count is taken once the device holds
+    # it. Every pause returns within a millisecond, so the window below spans
+    # many retries at the longest pause.
+    settled_rounds = len(log.rounds)
+    settled_writes = len(trv.set_temperature_calls)
+    assert not await wait_for(
+        hass, lambda: len(log.rounds) > settled_rounds, timeout_s=0.5
+    ), [record.getMessage() for _, record in log.rounds[settled_rounds:]]
+    assert all(
+        temperature <= _DEVICE_TAKES_UP_TO
+        for temperature in trv.set_temperature_calls[settled_writes:]
+    ), trv.set_temperature_calls[settled_writes:]

@@ -1058,8 +1058,14 @@ async def control_trv(self, heater_entity_id=None):
     Returns
     -------
     bool
-        True if control succeeded or TRV was skipped (unavailable)
-        False if TRV not found in real_trvs or state conversion failed
+        True if control succeeded or the TRV was skipped (unavailable, or no
+        current calibration offset could be read).
+        False if heater_entity_id is missing or not in real_trvs, if
+        convert_outbound_states did not return a dict, or if a valve write
+        (the regular valve position or the boost safety reset to 0 %) spent
+        its attempts. The remaining writes of the cycle still go out in that
+        last case. control_queue counts a False result, like a raised
+        exception, as a failed cycle and retries it after its backoff.
     """
     # Guard against missing or invalid heater_entity_id
     if not heater_entity_id or heater_entity_id not in self.real_trvs:
