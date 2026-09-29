@@ -61,6 +61,7 @@ def mock_bt():
     bt.plateau_timer_cancel = None
     bt.room_sensor_fallback = False
     bt.room_sensor_fallback_cancel = None
+    bt.room_sensor_fallback_due = False
 
     # Anti-flicker state
     bt.flicker_candidate = None

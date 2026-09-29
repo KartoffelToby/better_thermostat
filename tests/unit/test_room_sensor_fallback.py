@@ -15,6 +15,7 @@ import pytest
 
 from custom_components.better_thermostat.events.temperature import (
     _schedule_room_sensor_fallback,
+    refresh_room_temperature_from_trvs,
     trv_room_temperature,
 )
 from custom_components.better_thermostat.trv import Trv
@@ -44,6 +45,7 @@ def _bt(states: dict[str, State], trvs: dict[str, Trv]) -> Any:
     bt.cur_temp = 18.0
     bt.room_sensor_fallback = False
     bt.room_sensor_fallback_cancel = None
+    bt.room_sensor_fallback_due = False
     bt.is_removed = False
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
@@ -52,8 +54,8 @@ def _bt(states: dict[str, State], trvs: dict[str, Trv]) -> Any:
     return bt
 
 
-def _heating(entity_id: str, current_temperature: float | None) -> State:
-    attributes = {"temperature": 22.0}
+def _heating(entity_id: str, current_temperature: float | str | None) -> State:
+    attributes: dict[str, Any] = {"temperature": 22.0}
     if current_temperature is not None:
         attributes["current_temperature"] = current_temperature
     return State(entity_id, "heat", attributes)
@@ -82,6 +84,18 @@ class TestTrvRoomTemperature:
                 SECOND_TRV: _heating(SECOND_TRV, 20.0),
             },
             {FIRST_TRV: _trv(FIRST_TRV, 5.0), SECOND_TRV: _trv(SECOND_TRV, 20.0)},
+        )
+
+        assert trv_room_temperature(bt) == 20.0
+
+    def test_a_trv_whose_reported_temperature_is_unusable_does_not_speak(self):
+        """A reading the TRV handler could not convert leaves the stored one stale."""
+        bt = _bt(
+            {
+                FIRST_TRV: _heating(FIRST_TRV, "unknown"),
+                SECOND_TRV: _heating(SECOND_TRV, 20.0),
+            },
+            {FIRST_TRV: _trv(FIRST_TRV, 25.0), SECOND_TRV: _trv(SECOND_TRV, 20.0)},
         )
 
         assert trv_room_temperature(bt) == 20.0
@@ -151,3 +165,27 @@ class TestEnterFallback:
         assert bt.room_sensor_fallback is False
         assert bt.cur_temp == 18.0
         assert bt.control_queue_task.qsize() == 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_waits_for_a_trv_temperature(self):
+        """Without a TRV temperature the room keeps its reading and does not hand over."""
+        states = {
+            SENSOR_ID: State(SENSOR_ID, STATE_UNAVAILABLE),
+            FIRST_TRV: State(FIRST_TRV, STATE_UNAVAILABLE),
+        }
+        bt = _bt(states, {FIRST_TRV: _trv(FIRST_TRV, None)})
+
+        await _fire_fallback_timer(bt)
+
+        assert bt.room_sensor_fallback is False
+        assert bt.cur_temp == 18.0
+        assert bt.control_queue_task.qsize() == 0
+
+        # The first TRV that reports completes the handover, even with the
+        # temperature the sensor last sent.
+        states[FIRST_TRV] = _heating(FIRST_TRV, 18.0)
+        bt.real_trvs[FIRST_TRV].current_temperature = 18.0
+
+        assert refresh_room_temperature_from_trvs(bt) is True
+        assert bt.room_sensor_fallback is True
+        assert bt.cur_temp == 18.0

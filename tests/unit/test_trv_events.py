@@ -64,6 +64,8 @@ def mock_bt():
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_due = False
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
     bt._enforce_cool_above_heat = lambda **kwargs: (
@@ -249,25 +251,44 @@ class TestRoomSensorFallbackHandover:
     """During the room sensor fallback the room follows the TRV readings."""
 
     @pytest.mark.asyncio
-    async def test_unavailable_trv_hands_the_room_to_the_next_and_controls(
-        self, mock_bt
-    ):
-        """The next TRV's temperature becomes the room's and a cycle is queued."""
-        _add_homematicip_peer(mock_bt)
-        mock_bt.real_trvs[PEER_ID].current_temperature = 20.0
+    async def test_report_during_a_control_cycle_still_controls_the_room(self, mock_bt):
+        """A room temperature taken while a cycle runs gets a cycle of its own."""
         mock_bt.room_sensor_fallback = True
+        mock_bt.ignore_states = True
         mock_bt.in_maintenance = False
         mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
-        unavailable = State(ENTITY_ID, "unavailable")
-        peer_state = mock_bt.hass.states.get(PEER_ID)
-        mock_bt.hass.states.get.side_effect = lambda entity_id: (
-            peer_state if entity_id == PEER_ID else unavailable
-        )
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = None
+        report = _make_state(attributes={"current_temperature": 21.0})
+        mock_bt.hass.states.get.return_value = report
 
-        await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=unavailable))
+        await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=report))
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.cur_temp == 21.0
         assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_offset_confirmation_during_a_control_cycle_does_not_control(
+        self, mock_bt
+    ):
+        """The TRV confirming an offset write starts no cycle, fallback or not."""
+        mock_bt.room_sensor_fallback = True
+        mock_bt.ignore_states = True
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = None
+        trv.calibration_received = False
+        report = _make_state(attributes={"current_temperature": 21.0})
+        mock_bt.hass.states.get.return_value = report
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.get_current_offset",
+            new=AsyncMock(return_value=0.0),
+        ):
+            await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=report))
+
+        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.control_queue_task.qsize() == 0
 
 
 class TestTriggerTrvChangeGuards:
