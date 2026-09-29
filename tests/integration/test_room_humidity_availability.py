@@ -80,3 +80,21 @@ async def test_a_removed_sensor_clears_the_published_humidity(hass, fake_trv):
 
     _set_humidity(hass, 47.0)
     assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)
+
+
+async def test_the_humidity_follows_its_sensor_while_a_head_is_unavailable(
+    hass, fake_trv
+):
+    """With the head off the air, the humidity still clears and updates."""
+    _set_humidity(hass, 42.5)
+    await _start(hass)
+    assert _published_humidity(hass) == 42.5
+
+    fake_trv._attr_available = False
+    fake_trv.async_write_ha_state()
+    await hass.async_block_till_done()
+    hass.states.async_remove(HUMIDITY_ID)
+    assert await wait_for(hass, lambda: _published_humidity(hass) is None)
+
+    _set_humidity(hass, 47.0)
+    assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)
