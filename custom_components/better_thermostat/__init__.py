@@ -118,8 +118,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """
     # Runtime import: config_flow and the three device-automation modules
     # execute this package for DOMAIN alone, on installs that may have no
-    # entry set up. A module-level import would put the state store, and the
-    # calibration models and numpy behind it, on those paths.
+    # entry set up. A module-level import would put the state store and the
+    # contact handling, and the control kernel, calibration models and numpy
+    # behind them, on those paths.
+    from .events.contact import CONTACT_ROLES, contact_issue_id  # noqa: PLC0415
     from .utils.state_manager import StateManager  # noqa: PLC0415
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
@@ -137,7 +139,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     for issue_id in (
         f"invalid_external_temperature_{device_name}",
-        f"invalid_window_state_{device_name}",
+        *(contact_issue_id(role, device_name) for role in CONTACT_ROLES),
         f"degraded_mode_{device_name}",
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)

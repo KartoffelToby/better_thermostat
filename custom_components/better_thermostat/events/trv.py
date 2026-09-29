@@ -95,6 +95,34 @@ def accepts_user_setpoint(
     )
 
 
+def _hold_report(
+    self, trv: Trv, old_state: State | None, new_state: State | None
+) -> None:
+    """Park a report that arrives while a control cycle holds the handler off.
+
+    The end of the cycle reads the device's state against the state kept
+    here, which answers the one question the handler asks of a previous
+    state: whether the device was publishing a setpoint. A report whose
+    previous state carries none is the device coming back, and the state it
+    came back from becomes the reference. A later report that moves the
+    setpoint the device came back with makes the state before that move the
+    reference, so a knob turned after the return is still read as a press.
+    """
+    previous_setpoint = _held_setpoint(self, old_state)
+    returned = previous_setpoint is None
+    moved_after_return = _held_setpoint(
+        self, trv.state_before_held_report
+    ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    if not trv.report_unread or returned or moved_after_return:
+        trv.state_before_held_report = old_state
+    trv.report_unread = True
+
+
+def _held_setpoint(self, state: State | None) -> float | None:
+    """Return the setpoint a held report's state carries, or None."""
+    return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
+
+
 async def trigger_trv_change(
     self, event, *, mode_settled: bool = False, request_cycle: bool = True
 ):
@@ -273,7 +301,9 @@ async def trigger_trv_change(
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
     if self.ignore_states:
-        trv.report_unread = True
+        _hold_report(self, trv, old_state, new_state)
+        if _main_change:
+            trv.temperature_moved_while_held = True
         return
 
     # The offered mode list changes at runtime on devices whose
@@ -408,10 +438,19 @@ async def trigger_trv_change(
         log_source="trigger_trv_change()",
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
+    # An AUTO the mode decoding ignores says nothing about the room, so the
+    # setpoint it carries, typically the device's own schedule, is not adopted
+    # either. A swapped device decodes AUTO as HEAT and never matches. The
+    # setpoint comes from the event's own state, so that state decides, not
+    # the registry state, which may already hold a later report.
+    _ignored_auto_report = new_state.state == HVACMode.AUTO and mode_remap(
+        self, entity_id, str(new_state.state), True
+    ) not in (HVACMode.OFF, HVACMode.HEAT)
     if (
         _setpoint is not None
         and _old_heating_setpoint is not None
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
+        and not _ignored_auto_report
     ):
         _LOGGER.debug(
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",

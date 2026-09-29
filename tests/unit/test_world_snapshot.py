@@ -196,6 +196,18 @@ class TestTrvReportedBuilding:
         snapshot = build_snapshot(bt)
         assert snapshot.trvs["climate.trv"].available is True
 
+    def test_a_trv_awaiting_initialization_is_not_part_of_the_room(self):
+        """A TRV startup went ahead without is not addressed before it is set up.
+
+        Its capabilities, bounds and setpoint have not been read yet, and boost
+        addresses a TRV whatever its availability, so an entry reading
+        ``available=False`` would still let a boost write reach it.
+        """
+        bt = _make_bt()
+        bt.real_trvs["climate.trv"].awaiting_initialization = True
+        snapshot = build_snapshot(bt)
+        assert "climate.trv" not in snapshot.trvs
+
     def test_unparseable_values_become_none(self):
         """Garbage in the real_trvs entry degrades to None, not a crash."""
         bt = _make_bt()

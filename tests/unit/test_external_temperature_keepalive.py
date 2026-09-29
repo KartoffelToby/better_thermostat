@@ -8,7 +8,8 @@ so the periodic re-send is what holds such a device on the external
 value while the room is settled.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
@@ -71,6 +72,23 @@ async def test_the_tick_writes_the_room_temperature_to_every_trv():
 
 
 @pytest.mark.asyncio
+async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
+    """A TRV startup went on without is written to once it is initialized.
+
+    Until then its quirk state is not set up, so the tick leaves it out and
+    still reaches the other TRV.
+    """
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.real_trvs[TRV_ID].awaiting_initialization = True
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID_2, ROOM_TEMPERATURE)]
+
+
+@pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
     bt = MagicMock()
@@ -115,3 +133,34 @@ async def test_a_trv_that_refuses_the_write_does_not_cost_the_others_their_tick(
         (TRV_ID, ROOM_TEMPERATURE),
         (TRV_ID_2, ROOM_TEMPERATURE),
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_trv_that_never_answers_does_not_hold_the_tick():
+    """A write that does not return in time is given up, and the next TRV is served.
+
+    The tick holds the filter lock while it writes, so an unbounded wait on
+    one device would also hold back every later room reading.
+    """
+    written = []
+
+    async def _write(_bt, entity_id, value):
+        if entity_id == TRV_ID:
+            await asyncio.Event().wait()
+        written.append((entity_id, value))
+        return True
+
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = _write
+    bt = _bt_with_two_trvs(quirks)
+    bt._temperature_filter_lock = None
+
+    with patch(
+        "custom_components.better_thermostat.climate.EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S",
+        0.01,
+    ):
+        await asyncio.wait_for(
+            BetterThermostat._external_temperature_keepalive(bt), timeout=5
+        )
+
+    assert written == [(TRV_ID_2, ROOM_TEMPERATURE)]
