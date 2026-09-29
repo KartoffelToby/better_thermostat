@@ -268,3 +268,24 @@ async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
 
     assert bt.room_sensor_fallback is True
     assert bt.cur_temp == 26.0
+
+
+async def test_a_room_that_starts_on_the_trv_follows_it(hass, fake_trv):
+    """A room sensor with an implausible reading at boot hands the room to the TRV.
+
+    Startup takes the TRV temperature in its place, and the room follows
+    the TRV from then on until the sensor reports a usable value.
+    """
+    _room_sensor(hass, "126.5")
+    entry = make_entry()
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    assert bt.cur_temp == 19.5
+
+    await _trv_reports(hass, bt, fake_trv, 24.0)
+    assert await wait_for(hass, lambda: bt.cur_temp == 24.0)
+
+    _room_sensor(hass, "21.0")
+    await hass.async_block_till_done()
+    assert await wait_for(hass, lambda: bt.cur_temp == 21.0)
+    assert bt.room_sensor_fallback is False

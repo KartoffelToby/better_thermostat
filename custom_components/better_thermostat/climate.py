@@ -1374,10 +1374,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             states = self._collect_trv_states()
             self._resolve_temperature_range(states)
             self._initialize_sensors(sensor_state)
-            # The sensor has been missing for the whole grace window, which
-            # already outlasts the runtime fallback delay, so the room
-            # controls on the TRV temperature from the start.
-            self.room_sensor_fallback = _room_sensor_missing(sensor_state)
             await check_and_update_degraded_mode(self)
             await self._restore_state(states)
             # The awaits above yield to the event loop, so the entity may have
@@ -1562,6 +1558,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 room_candidate = None
 
+        # A room that starts on a TRV temperature keeps following the TRV
+        # until the room sensor reports a usable value. A sensor that is
+        # missing here has been missing for the whole grace window, which
+        # already outlasts the runtime fallback delay.
+        self.room_sensor_fallback = False
         if room_candidate is not None:
             self.cur_temp = room_candidate
         else:
@@ -1569,6 +1570,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_reading = self._first_plausible_trv_temperature()
             if trv_reading is not None:
                 trv_id, self.cur_temp = trv_reading
+                self.room_sensor_fallback = True
                 _LOGGER.info(
                     "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
                     self.device_name,

@@ -949,6 +949,7 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.cur_temp == 19.5
+        assert bt.room_sensor_fallback is True
 
     def test_implausible_trv_value_falls_back_to_default(self, bt):
         """If both sensor and TRV are implausible, the default fallback is used."""
