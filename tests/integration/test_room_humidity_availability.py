@@ -58,3 +58,17 @@ async def test_a_sensor_falling_silent_clears_the_published_humidity(
 
     set_room_humidity(hass, 47.0)
     assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)
+
+
+async def test_a_removed_sensor_clears_the_published_humidity(hass, fake_trv):
+    """A sensor removed at runtime clears the humidity; a reading restores it."""
+    set_room_sensor(hass, 19.0)
+    set_room_humidity(hass, 42.5)
+    await _start(hass)
+    assert _published_humidity(hass) == 42.5
+
+    hass.states.async_remove(HUMIDITY_ID)
+    assert await wait_for(hass, lambda: _published_humidity(hass) is None)
+
+    set_room_humidity(hass, 47.0)
+    assert await wait_for(hass, lambda: _published_humidity(hass) == 47.0)
