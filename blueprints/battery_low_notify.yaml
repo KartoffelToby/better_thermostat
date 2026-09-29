@@ -57,9 +57,10 @@ action:
     data:
       title: "Better Thermostat – Battery low"
       message: >
-        🪫 {{ device_attr(trigger.device_id, 'name') }}: one or more TRV
+        🪫 {{ device_attr(thermostat_device, 'name') }}: one or more TRV
         batteries are below {{ battery_threshold }}%.
         Please replace the batteries soon.
 
 variables:
+  thermostat_device: !input thermostat_device
   battery_threshold: !input battery_threshold
