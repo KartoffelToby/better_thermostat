@@ -235,6 +235,10 @@ async def trigger_trv_change(
     _new_current_temp = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
+    # Only a report that carries no readable internal temperature invalidates
+    # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
+    # below and leaves the stored reading in place.
+    _reports_no_temp = _new_current_temp is None
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -254,7 +258,24 @@ async def trigger_trv_change(
     # not hold back the internal temperature of the other valves in the room.
     _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
-    if (
+    if _reports_no_temp:
+        # A report without an internal temperature leaves no live value to
+        # keep: the stored one would otherwise feed SENSOR_FALLBACK and the
+        # ladder for as long as the device keeps reporting without it.
+        if trv.current_temperature is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s reports no internal "
+                "temperature; invalidating %s",
+                self.device_name,
+                entity_id,
+                trv.current_temperature,
+            )
+            trv.current_temperature = None
+            # The next valid reading is the first live data after the gap
+            # and must not be dropped by the debounce below.
+            trv.accept_next_internal_temp = True
+            _main_change = True
+    elif (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
         and (
