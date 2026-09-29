@@ -64,9 +64,15 @@ A cycle runs on:
   kicks replace a pending request),
 - **user actions** on the entity — target temperature, preset, HVAC
   mode (the service path requests the cycle directly),
-- **the five-minute ticks** — the calibration tick (controller modes)
-  and the [reconciler](/internals/writes-and-reconciliation/),
-- **the follow-up** a budget-deferred write schedules for itself.
+- **the five-minute ticks** — the periodic tick and the
+  [reconciler](/internals/writes-and-reconciliation/). The periodic tick
+  requests a cycle when a TRV runs a balance mode or the Default, MPC,
+  MPC v2, TPI or PID calibration mode; in every other configuration it
+  is an availability tick that advances the fail-soft ladder without
+  requesting a cycle,
+- **the follow-ups** the shell schedules for itself: a budget-deferred
+  write queues a cycle for the moment the budget reopens, and a skipped
+  offline TRV queues one on the reachability region's retry backoff.
 
 Only one cycle runs at a time. The worst-case latency from event to
 decision is the remainder of the cycle currently running: a few seconds,
@@ -86,19 +92,25 @@ flowchart TD
     C -->|yes| C1[OFF intent, suppression = window or door]
     C -->|no| D{Call for heat?}
     D -->|no| D1[OFF intent, suppression = no_call_for_heat]
-    D -->|yes| E[Heating intent: mode + setpoint]
-    E --> F{HOLD rung?}
-    F -->|yes| F1[Mode kept, setpoint = raw user target, calibration withheld]
-    F -->|no| F2[Setpoint = room target, calibration in the shell]
+    D -->|yes| E[Heating intent: mode + setpoint = room target]
 ```
+
+The cascade does not branch on the fail-soft ladder: every rung gets the
+same heating intent, with the user's target as the setpoint. The shell
+reads the rung when it applies that intent. On OPTIMAL and
+SENSOR_FALLBACK it runs calibration on top of the setpoint; on HOLD it
+sends the setpoint uncalibrated and writes no offset and no valve
+percentage.
 
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
 remap of the user's OFF mode, without reading the kernel's internals.
 Reachability is an address filter rather than a cascade tier: an
-unreachable TRV is dropped from the commanded set and receives no intent
-at all, and its native thermostat keeps controlling at the last
-commanded state. Intents are strictly per TRV, so one dead TRV never
+unreachable TRV is dropped from the commanded set and receives no
+intent, and its native thermostat keeps controlling at the last
+commanded state. Boost is the exception: while boost heating is active,
+unreachable TRVs stay addressed so they catch up the moment they
+return. Intents are strictly per TRV, so one dead TRV never
 drags the others down.
 
 ## Where things live

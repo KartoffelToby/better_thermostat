@@ -17,7 +17,7 @@ user inputs Home Assistant restores on its own sit outside that line.
 | Live operating values (temperatures, computed setpoints, flags) | rebuilt per observation | `BtRuntime` + the regions |
 | Controller state (PID/MPC/TPI), thermal stats, filters | learned, persists | `StateManager` (HA Store) |
 | Climate target and HVAC mode | persists | `RestoreEntity` (HA-owned) |
-| User inputs on helper entities (presets) | persists | `RestoreEntity` (HA-owned) |
+| User inputs on helper entities (preset temperatures, PID parameters, valve max opening, PID auto-tune and child-lock switches) | persists | `RestoreEntity` (HA-owned) |
 
 The discrete mode flags (window open, startup, maintenance, degraded)
 live in the kernel's regions and are exposed as derived read-only
@@ -36,10 +36,11 @@ values into the store through one seam before every debounced save,
 and hydrates from it at startup.
 
 `RestoreEntity` remains only for data Home Assistant owns itself:
-the climate entity's target/mode and the helper number entities' user
-inputs. The legacy attribute fallback in the restore path stays as a
-migration window for installations that predate the store; it reads
-old entity attributes only when the store has nothing.
+the climate entity's target/mode and the user inputs on the helper
+number and switch entities. The legacy attribute fallback in the
+restore path stays as a migration window for installations that predate
+the store; it reads old entity attributes only when the store has
+nothing.
 
 ## Poison resistance
 
@@ -53,6 +54,12 @@ layers:
    unexpected shape, the store starts fresh with a warning instead of
    killing the startup task, since relearning replaces anything a
    poisoned store could offer.
+
+   In both cases the stored payload is copied aside before the defaults
+   can overwrite it on the next save, into a `.corrupt` store next to
+   the live one (up to `QUARANTINE_COPIES`, three copies per config
+   entry, one per distinct payload). Until that copy reads back from
+   disk, the entity does not save, so the live store keeps the payload.
 3. **Per cycle at compute:** the sanitize step heals whatever still
    reaches a controller (non-finite state, runaway gains, wound-up
    integrators) and annunciates the verdict as

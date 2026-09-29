@@ -32,7 +32,7 @@ adjustment hook that serves both channels through a `ChannelAdjustment`
 | Mode | Controller | Tolerance band | Post-adjustments |
 |---|---|---|---|
 | Default | — | — | — |
-| MPC / TPI / PID | ✓ | ✓ | — |
+| MPC / MPC v2 / TPI / PID | ✓ | ✓ | — |
 | Aggressive | — | ✓ | boost hook, no tolerance delay |
 | Heating power | — | ✓ | learned-power hook (decides its own skip) |
 | No calibration | — | ✓ | plain cascade |
@@ -44,14 +44,20 @@ a stale one.
 
 ## The controllers
 
-MPC, TPI, and PID are deterministic, state-threading helpers in
-`utils/calibration/`: `compute_*(input, params, state) -> (output,
-state')`, and standby paths such as `observe_standby()` update the
-passed state in place. Each strategy owns its state; the `StateManager`
-is the only persistence authority.
-The strategy layer (`BalanceStrategy`) wraps each computation behind
-the core `Calibrator` contract (observe / actuate / capability /
-health) for the eventual move into the core.
+MPC, MPC v2, TPI, and PID are deterministic, state-threading helpers in
+`utils/calibration/` (`compute_mpc`, `compute_mpc_v2`, `compute_tpi`,
+`compute_pid`). Each takes the measurements, its parameters and the
+caller-owned controller state, and returns its output together with
+that state; PID also returns a debug record, as
+`(percent, PIDDebugInfo, PIDState)`. The returned state is the object
+passed in, mutated in place, and standby paths such as PID's
+`observe_standby()` update it the same way. Each strategy owns its
+state; the `StateManager` is the only persistence authority.
+
+`BalanceStrategy` pairs a mode's computation with its result accessor.
+`BalanceCalibrator` adapts a strategy to the core `Calibrator` protocol
+(`observe` / `is_ready` / `actuate`) and also reports `capability` and
+`health`, the two methods of the `AnnunciatingCalibrator` extension.
 
 ## The standby contract
 

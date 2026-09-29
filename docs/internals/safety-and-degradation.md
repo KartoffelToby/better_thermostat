@@ -29,10 +29,17 @@ throttled.
 ```mermaid
 stateDiagram-v2
     OPTIMAL --> SENSOR_FALLBACK: room sensor lost (~2 min debounce)
-    SENSOR_FALLBACK --> HOLD: no TRV temperature usable either
+    SENSOR_FALLBACK --> HOLD: no TRV temperature usable either (~2 min)
+    OPTIMAL --> HOLD: room sensor and TRV temperatures lost together (~2 min)
     HOLD --> SENSOR_FALLBACK: TRV temperatures back (~5 min stability)
     SENSOR_FALLBACK --> OPTIMAL: room sensor back (~5 min stability)
+    HOLD --> OPTIMAL: room sensor back (~5 min stability)
 ```
+
+The ladder does not have to pass through SENSOR_FALLBACK. It commits to
+the rung the observation supports for the whole window, so losing the
+room sensor and every TRV temperature at once goes straight to HOLD, and
+a returning room sensor lifts HOLD straight to OPTIMAL.
 
 - **OPTIMAL** — the external room sensor delivers; the control law
   works as configured.
@@ -44,13 +51,14 @@ stateDiagram-v2
   counts while its TRV is actually reachable, and going unavailable
   invalidates it, so pre-outage values cannot pass as live.
 - **HOLD** — neither the room sensor nor any TRV temperature is usable
-  (for example during a Zigbee outage). The kernel keeps the mode and
-  passes the raw user target through as the setpoint, while calibration
-  is withheld (no offsets, no valve percentages): the controller stops
-  adjusting, each device stays locked on the last known target (re-sent
-  if the device loses it), and the frost floor stays enforced on every
-  write. Nothing downstream of the HOLD decision may re-introduce an
-  adjustment, boost included.
+  (for example during a Zigbee outage). The kernel emits the same
+  heating intent as on every rung, with the user's target as the
+  setpoint; the shell reads the rung and withholds calibration (no
+  offsets, no valve percentages), so the setpoint reaches the device
+  uncalibrated: the controller stops adjusting, each device stays
+  locked on the last known target (re-sent if the device loses it), and
+  the frost floor stays enforced on every write. Nothing downstream of
+  the HOLD decision may re-introduce an adjustment, boost included.
 
 Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
 does not flip behavior; upgrades require sustained recovery
@@ -59,10 +67,10 @@ attribute, along with `degraded_for_s` and `unavailable_sensors`;
 entering degraded mode raises a repair issue that clears itself on
 recovery.
 
-Per-TRV, the bulkhead is the cascade itself: a dead TRV receives no
-intent and its native thermostat keeps controlling at the last
-commanded state, effectively in passthrough mode, while the other TRVs
-stay fully controlled.
+Per-TRV, the bulkhead is the kernel's address filter: a dead TRV
+receives no intent (unless boost heating is active) and its native
+thermostat keeps controlling at the last commanded state, effectively
+in passthrough mode, while the other TRVs stay fully controlled.
 
 ## The watchdog
 
@@ -97,5 +105,6 @@ other's annunciations.
 Persisted state is hardened at three layers: deserialization skips a
 wrong-typed field individually while a non-finite value resets the
 whole stored entry to its defaults, an unreadable store yields
-defaults instead of killing startup, and the sanitize step heals
-whatever still reaches a controller.
+defaults instead of killing startup (in both cases the stored payload
+is first copied aside, see [Persistence](/internals/persistence/)),
+and the sanitize step heals whatever still reaches a controller.
