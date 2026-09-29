@@ -1953,15 +1953,35 @@ async def control_trv(
                     _reported_hvac_mode,
                     _new_hvac_mode,
                 )
+                _commanded_before = self.real_trvs[entity_id].last_hvac_mode
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
                 self.real_trvs[entity_id].withdrawn_hvac_mode_until = None
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, entity_id, _new_hvac_mode
                 )
+                _mode_refused = False
                 if _tvr_has_quirk is False:
-                    await set_hvac_mode(self, entity_id, _new_hvac_mode)
-                if self.real_trvs[entity_id].system_mode_received is True:
+                    _mode_refused = (
+                        await set_hvac_mode(self, entity_id, _new_hvac_mode) is False
+                    )
+                # A refused mode is written again by the next cycle, which
+                # still finds the device in its old mode; there is nothing to
+                # wait for until then. Until it goes through, the device holds
+                # the mode it reports, and that is the mode last commanded as
+                # far as the mode cache and the inbound handler are concerned:
+                # the refused one would read the device's next plain report
+                # as a press back to its old mode.
+                if _mode_refused:
+                    self.real_trvs[entity_id].last_hvac_mode = (
+                        _commanded_before
+                        if _reported_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                        else _reported_hvac_mode
+                    )
+                if (
+                    not _mode_refused
+                    and self.real_trvs[entity_id].system_mode_received is True
+                ):
                     self.real_trvs[entity_id].system_mode_received = False
                     self.task_manager.create_task(
                         check_system_mode(self, entity_id),
