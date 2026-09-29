@@ -2262,9 +2262,9 @@ class TestAFailedCopyThatRecovers:
         """Schedule a runtime save and let it run."""
         manager.mark_dirty()
         manager.schedule_delay_save(delay_s=1.0)
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
 
     async def test_a_runtime_save_after_recovery_lands(self, hass, hass_storage):
         """The first runtime save once the retry is due writes copy and state."""
@@ -2300,7 +2300,7 @@ class TestAFailedCopyThatRecovers:
                 done = disk["attempts"]
                 manager.mark_dirty()
                 manager.schedule_delay_save(delay_s=1.0)
-                await hass.async_block_till_done()
+                await hass.async_block_till_done(wait_background_tasks=True)
                 if disk["attempts"] > done:
                     attempts.append(clock["now"] - start)
 
@@ -2326,7 +2326,7 @@ class TestAFailedCopyThatRecovers:
                 clock["now"] += 3600
                 manager.mark_dirty()
                 manager.schedule_delay_save(delay_s=1.0)
-                await hass.async_block_till_done()
+                await hass.async_block_till_done(wait_background_tasks=True)
 
         assert disk["attempts"] == 21
 
