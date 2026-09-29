@@ -223,8 +223,9 @@ class _FailedCycleRun:
     """Consecutive control cycles that failed while the user's targets stood.
 
     ``intent`` is the room targets the user had set at the time and the whole
-    of what tells one run from the next. ``reported`` holds the failures
-    already logged with their traceback, as the TRV and the kind of error,
+    of what tells one run from the next. ``failing`` holds the TRVs that
+    failed during the run and ``reported`` the failures already logged with
+    their traceback, as the TRV and the kind of error,
     ``wait_s`` the pause the run has reached, ``started_at`` when its first
     failure happened, ``warned_at`` when a failure at the ceiling was last
     reported as a warning and ``retry`` the pending re-queue.
@@ -236,6 +237,7 @@ class _FailedCycleRun:
     """
 
     intent: tuple[Any, ...]
+    failing: frozenset[str]
     reported: frozenset[tuple[str, str]]
     count: int
     wait_s: float
@@ -261,7 +263,22 @@ async def _requeue_failed_cycle(self, delay_s: float) -> None:
         )
 
 
-def _pace_failed_cycle(self, run, failures):
+def _controlled_cleanly(self, entity_id, dispatched) -> bool:
+    """Return whether a clean cycle controlled this TRV rather than skipping it.
+
+    A cycle leaves out a TRV the cooling channel drives and skips one that is
+    unavailable, and either way reports nothing wrong without having written
+    to it.
+    """
+    if entity_id not in dispatched:
+        return False
+    state = self.hass.states.get(entity_id)
+    return state is not None and state.state not in (
+        UNAVAILABLE_STATES + UNKNOWN_STATES
+    )
+
+
+def _pace_failed_cycle(self, run, failures, dispatched):
     """Report a cycle's failures and schedule its retry; return the run.
 
     A cycle that fails while the user's targets stand continues the run and
@@ -274,17 +291,21 @@ def _pace_failed_cycle(self, run, failures):
     once. Each TRV and kind of error is logged with its traceback the first
     time it fails in a run, and in a single line after that.
 
-    A clean cycle ends the run once the retry has fired or the user has set
-    new targets. A clean cycle before that never tried the refused write
-    again and keeps the run.
+    A clean cycle ends the run once the retry has fired and it controlled
+    every TRV that failed in the run, or once the user has set new targets.
+    A clean cycle before the retry fired never tried the refused write again
+    and keeps the run, and so does one that skipped a failing TRV as
+    unavailable or left it to the cooling channel.
     """
     if not failures:
         if run is None:
             return None
-        if (
-            run.retry is not None
-            and not run.retry.done()
-            and run.intent == _user_intent(self)
+        if run.intent == _user_intent(self) and (
+            (run.retry is not None and not run.retry.done())
+            or not all(
+                _controlled_cleanly(self, entity_id, dispatched)
+                for entity_id in run.failing
+            )
         ):
             return run
         if run.retry is not None:
@@ -297,12 +318,14 @@ def _pace_failed_cycle(self, run, failures):
         count = run.count + 1
         wait_s = min(run.wait_s * 2, FAILED_CYCLE_BACKOFF_MAX_S)
         reported = run.reported
+        failing = run.failing | {entity_id for entity_id, _ in failures}
         started_at = run.started_at
         warned_at = run.warned_at
     else:
         count = 1
         wait_s = FAILED_CYCLE_BACKOFF_S
         reported = frozenset()
+        failing = frozenset(entity_id for entity_id, _ in failures)
         started_at = now
         warned_at = None
     # At the ceiling the run is reported hourly; below it every failure is.
@@ -355,7 +378,7 @@ def _pace_failed_cycle(self, run, failures):
         name=f"bt_failed_cycle_retry_{self.device_name}",
     )
     return _FailedCycleRun(
-        intent, reported, count, wait_s, started_at, warned_at, retry
+        intent, failing, reported, count, wait_s, started_at, warned_at, retry
     )
 
 
@@ -554,7 +577,9 @@ async def control_queue(self):
                         # here rather than in the failing worker: a worker holds
                         # the TRV lock and would stall the rest of the cycle with
                         # it.
-                        failed_run = _pace_failed_cycle(self, failed_run, failures)
+                        failed_run = _pace_failed_cycle(
+                            self, failed_run, failures, controlled_trvs
+                        )
 
                         if not getattr(self, "in_maintenance", False):
                             # The inbound handler stood down for the whole

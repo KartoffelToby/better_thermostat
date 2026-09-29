@@ -12,6 +12,8 @@ import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
@@ -67,7 +69,8 @@ def _make_self() -> Mock:
     entity.bt_target_temp = 21.0
     entity.bt_target_cooltemp = None
     entity.bt_hvac_mode = HVACMode.HEAT
-    entity.hass.states.get.return_value = None
+    # The TRV is present, so a cycle that reports it clean did control it.
+    entity.hass.states.get.return_value = State(_TRV, "heat")
     entity.control_queue_task = asyncio.Queue(maxsize=1)
     return entity
 
@@ -375,3 +378,30 @@ async def test_a_run_at_its_longest_pause_warns_once_an_hour(caplog):
     assert 3 <= len(at_cap) <= 4
     assert all("min" in r.getMessage() for r in at_cap)
     assert len(lines) >= 45
+
+
+@pytest.mark.asyncio
+async def test_a_cycle_that_skips_the_failing_trv_keeps_the_run():
+    """A cycle that finds the failing TRV unavailable does not end the run.
+
+    The cycle leaves such a device out and reports nothing wrong, but it never
+    tried the refused write, so it says nothing about whether the device
+    takes it now; the next failure continues the run.
+    """
+    entity = _make_self()
+    present = State(_TRV, "heat")
+    gone = State(_TRV, STATE_UNAVAILABLE)
+    script = {0: "refused", 1: "skipped", 2: "refused"}
+
+    def outcome(n):
+        step = script.get(n, "refused")
+        entity.hass.states.get.return_value = gone if step == "skipped" else present
+        return True if step == "skipped" else HomeAssistantError("no answer")
+
+    async with _Queue(entity, outcome) as queue:
+        await queue.until_calls(2)
+        # The device comes back, and its report asks for a cycle.
+        queue.request()
+        await queue.until_calls(3)
+
+    assert queue.sleep.waits[:2] == [2.0, 4.0]
