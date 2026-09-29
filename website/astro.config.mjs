@@ -37,6 +37,13 @@ export default defineConfig({
           autogenerate: { directory: "setup" },
         },
         {
+          label: "Configuration",
+          items: [
+            { label: "Configuration", link: "/configuration/" },
+            { label: "Calibration algorithms", link: "/calibration_algorithms/" },
+          ],
+        },
+        {
           label: "FAQ",
           autogenerate: { directory: "faq" },
         },
