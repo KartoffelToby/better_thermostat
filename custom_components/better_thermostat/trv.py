@@ -123,6 +123,10 @@ class Trv:
     # judges the device's state against it, so a device that came back from
     # ``unavailable`` inside the cycle is read as a return, not as a press.
     state_before_held_report: State | None = None
+    # A held report whose internal temperature was taken while the cycle ran.
+    # The value is applied as it arrives, so reading the report again at the
+    # end of the cycle finds nothing new; this is what still asks for a cycle.
+    temperature_moved_while_held: bool = False
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually wrote after its
     # own clamp to the declared offset range; ``last_calibration_requested`` is
