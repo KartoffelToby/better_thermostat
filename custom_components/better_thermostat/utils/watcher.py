@@ -17,6 +17,7 @@ import logging
 import math
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -27,7 +28,11 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
-from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
+from custom_components.better_thermostat.utils.helpers import (
+    async_fire_logbook_entry,
+    convert_to_float_celsius,
+    is_reasonable_temperature,
+)
 
 from .const import DOMAIN
 
@@ -108,6 +113,39 @@ def is_trv_available(self, entity_id: str) -> bool:
     return is_entity_available(
         self.hass, entity_id, trv_state_unknown_as_available(self, entity_id)
     )
+
+
+def room_sensor_reading(self, state: State | None) -> float | None:
+    """Return the room temperature a room sensor state carries.
+
+    An available sensor whose state is no number, or a number outside the
+    plausible range, carries no room temperature any more than a missing
+    one does: the room cannot be controlled on it.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    state : State | None
+        The state the room sensor publishes
+
+    Returns
+    -------
+    float | None
+        The room temperature in Celsius, or ``None`` when the state carries
+        no plausible one
+    """
+    if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        return None
+    value = convert_to_float_celsius(
+        str(state.state),
+        self.device_name,
+        "room_sensor_reading()",
+        unit_of_measurement=state.attributes.get("unit_of_measurement"),
+    )
+    if not is_reasonable_temperature(value):
+        return None
+    return value
 
 
 def get_battery_status(self, entity) -> None:
@@ -549,6 +587,14 @@ async def check_and_update_degraded_mode(self) -> bool:
             recovered=self.sensor_entity_id in previously_unavailable,
         )
 
+    # The ladder asks more of the room sensor than availability: a sensor
+    # that stays available while reporting implausible values leaves the
+    # room without a temperature to control on, the same as a lost one.
+    room_sensor_ok = sensor_available and (
+        room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
+        is not None
+    )
+
     # The control-mode region is the typed record; the entity's
     # degraded_mode property derives from it.
     old_degraded = self.kernel_state.control_mode.degraded
@@ -570,7 +616,7 @@ async def check_and_update_degraded_mode(self) -> bool:
         self.kernel_state,
         control_mode=control_mode_step_ladder(
             self.kernel_state.control_mode,
-            room_sensor_ok=bool(sensor_available),
+            room_sensor_ok=room_sensor_ok,
             trv_temp_ok=trv_temp_ok,
             now=self.clock.monotonic(),
             params=LadderParams(),

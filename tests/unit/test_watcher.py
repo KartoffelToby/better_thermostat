@@ -844,6 +844,44 @@ class TestCheckAndUpdateDegradedMode:
         assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["126.5", "-60.0", "not a number"])
+    async def test_ladder_falls_back_when_the_room_sensor_reports_nonsense(
+        self, mock_bt_instance, reading
+    ):
+        """An available room sensor without a plausible reading steps the ladder down.
+
+        The room has no temperature to control on either way, so the TRV
+        temperature takes over as it does for a lost sensor. The sensor is
+        still reachable, so it is not reported as unavailable.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            value = reading if entity_id == "sensor.room_temp" else "20.0"
+            return State(entity_id, value)
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert "sensor.room_temp" not in mock_bt_instance.unavailable_sensors
+
+    @pytest.mark.asyncio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
         """Test that degraded_mode is False when all sensors are available."""
         from custom_components.better_thermostat.utils.watcher import (

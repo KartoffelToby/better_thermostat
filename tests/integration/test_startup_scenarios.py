@@ -16,6 +16,7 @@ from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
+from homeassistant.core import Context
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
@@ -471,3 +472,46 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     assert effective_room_temp(bt) == 17.0
     assert await wait_for(hass, lambda: degraded_issue_sensors(hass, bt) is None)
     assert bt.unavailable_sensors == []
+
+
+async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_to_the_trv(
+    hass, fake_trv
+):
+    """A room sensor that reports nonsense at boot is no room temperature.
+
+    Startup takes the TRV temperature in its place, and the room keeps
+    following the TRV rather than the one value it started with: a sensor
+    that stays available with an implausible reading gives the ladder no
+    more reason to climb back than a missing one does.
+    """
+    trv_temperature = fake_trv.profile.current_temperature
+    set_room_sensor(hass, 126.5)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert bt.cur_temp == trv_temperature
+    assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+
+    # The ladder has been stepped on the real clock since startup, so the
+    # controlled one continues from where that one stands.
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    stability_s = LadderParams().up_stability_s
+    # The sensor keeps reporting nonsense for longer than the ladder takes
+    # to trust a recovered sensor again.
+    set_room_sensor(hass, 126.4)
+    await hass.async_block_till_done()
+    clock.advance(stability_s + 60)
+    async_fire_time_changed(
+        hass, dt_util.utcnow() + timedelta(seconds=stability_s + 61)
+    )
+    await hass.async_block_till_done()
+    assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+
+    fake_trv._attr_current_temperature = trv_temperature + 2.0
+    fake_trv.async_set_context(Context())
+    fake_trv.async_write_ha_state()
+    assert await wait_for(
+        hass, lambda: effective_room_temp(bt) == trv_temperature + 2.0
+    )
