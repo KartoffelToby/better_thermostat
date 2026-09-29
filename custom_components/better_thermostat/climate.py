@@ -75,7 +75,7 @@ from .device_binding import async_bind_trv_device
 from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
-from .events.temperature import trigger_temperature_change
+from .events.temperature import reconcile_room_sensor, trigger_temperature_change
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import (
@@ -2535,6 +2535,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 timedelta(minutes=1),
             )
         )
+        # The room sensor's changes were not handled while startup ran.
+        await reconcile_room_sensor(self)
         _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
         self.async_write_ha_state()
         await self.async_update_ha_state(force_refresh=True)

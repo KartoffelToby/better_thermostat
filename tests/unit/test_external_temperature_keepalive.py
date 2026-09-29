@@ -75,6 +75,7 @@ async def _registered_intervals(bt):
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(f"{_CLIMATE}.reconcile_room_sensor", AsyncMock()),
         patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
         patch(f"{_CLIMATE}.async_track_time_interval") as track_interval,
         patch(f"{_CLIMATE}.async_track_state_change_event"),

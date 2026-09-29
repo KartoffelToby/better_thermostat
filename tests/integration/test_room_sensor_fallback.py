@@ -8,12 +8,14 @@ maximum.
 """
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import ROOM_SENSOR_FALLBACK_DELAY_S
 
 from .conftest import (
@@ -150,6 +152,43 @@ async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
 
     hass.states.async_remove(SENSOR_ID)
     await hass.async_block_till_done()
+    await _advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S + 1)
+    await _trv_reports(hass, bt, fake_trv, 26.0)
+
+    assert bt.room_sensor_fallback is True
+    assert bt.cur_temp == 26.0
+
+
+async def test_implausible_sensor_readings_hand_the_room_to_the_trv(hass, fake_trv):
+    """A sensor that keeps sending unusable values is as lost as an unavailable one."""
+    bt = await _started_at_target(hass, fake_trv, 22.0)
+
+    _room_sensor(hass, "126.5")
+    await hass.async_block_till_done()
+    await _advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S + 1)
+    await _trv_reports(hass, bt, fake_trv, 26.0)
+
+    assert bt.room_sensor_fallback is True
+    assert bt.cur_temp == 26.0
+
+
+async def test_a_sensor_lost_while_startup_runs_is_caught_up_on(hass, fake_trv):
+    """A sensor that drops out before its changes are handled still hands over."""
+    initialize_trvs = BetterThermostat._initialize_trvs
+
+    async def _sensor_drops_out_meanwhile(bt):
+        _room_sensor(hass, STATE_UNAVAILABLE)
+        await initialize_trvs(bt)
+
+    with patch.object(
+        BetterThermostat, "_initialize_trvs", _sensor_drops_out_meanwhile
+    ):
+        _room_sensor(hass, "18.0")
+        entry = make_entry()
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
+    assert bt.cur_temp == 18.0
+
     await _advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S + 1)
     await _trv_reports(hass, bt, fake_trv, 26.0)
 
