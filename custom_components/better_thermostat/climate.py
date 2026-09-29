@@ -75,7 +75,11 @@ from .device_binding import async_bind_trv_device
 from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
-from .events.temperature import trigger_temperature_change, trv_ready
+from .events.temperature import (
+    trigger_temperature_change,
+    trv_ready,
+    trv_reported_temperature,
+)
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import initial_tweak, load_model_quirks
@@ -1446,26 +1450,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ``None`` when no available TRV reports a plausible one.
         """
         for trv_id in self.real_trvs:
-            if not trv_ready(self, trv_id):
-                continue
-            trv_state = self.hass.states.get(trv_id)
-            if trv_state is None:
-                continue
-            if trv_state.attributes.get("current_temperature") is None:
-                continue
-            candidate = attr_to_celsius(
-                self, trv_state, "current_temperature", None, "startup() TRV fallback"
-            )
-            if candidate is None or not is_reasonable_temperature(candidate):
-                _LOGGER.debug(
-                    "better_thermostat %s: TRV '%s' reports implausible "
-                    "current_temperature %s; trying next TRV.",
-                    self.device_name,
-                    trv_id,
-                    candidate,
-                )
-                continue
-            return trv_id, candidate
+            candidate = trv_reported_temperature(self, trv_id)
+            if candidate is not None:
+                return trv_id, candidate
         return None
 
     def _collect_trv_states(self) -> list[State]:
