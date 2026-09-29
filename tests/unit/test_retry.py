@@ -371,3 +371,29 @@ class TestWhatTheLogCarries:
             logging.WARNING,
         ]
         assert all(r.exc_info for r in records)
+
+    @pytest.mark.asyncio
+    async def test_a_louder_retry_level_carries_no_traceback_without_debug(
+        self, caplog
+    ):
+        """A caller's louder retry level does not bring the traceback back.
+
+        The retried attempts are logged at the caller's level, but the
+        traceback goes with them only while debug logging is on, the same
+        rule the warning that ends the attempts follows.
+        """
+        attempts = []
+
+        @async_retry(retries=2, log_level=logging.WARNING)
+        async def write(self, entity_id):
+            attempts.append(entity_id)
+            raise HomeAssistantError("no answer")
+
+        with caplog.at_level(logging.INFO, logger=_RETRY):
+            with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+                with pytest.raises(HomeAssistantError):
+                    await write(object(), "climate.trv")
+        records = [r for r in caplog.records if r.name == _RETRY]
+
+        assert [r.levelno for r in records] == [logging.WARNING] * 3
+        assert not any(r.exc_info for r in records)
