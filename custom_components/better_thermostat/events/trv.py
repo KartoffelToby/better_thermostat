@@ -234,6 +234,7 @@ async def trigger_trv_change(self, event):
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
+        _fallback_was_due = self.room_sensor_fallback_due
         _room_temperature_changed = refresh_room_temperature_from_trvs(self)
         if _room_temperature_changed:
             self.async_write_ha_state()
@@ -249,6 +250,12 @@ async def trigger_trv_change(self, event):
             _main_change = False
             if trv.calibration == 0:
                 trv.last_calibration = await get_current_offset(self, entity_id)
+
+        # The report that starts a due room sensor fallback moves the room
+        # onto the TRV temperature. That happens once, so it gets a cycle
+        # even when the report also confirms an offset write.
+        if _fallback_was_due and self.room_sensor_fallback:
+            _main_change = True
 
     if self.ignore_states:
         # A control cycle is running and the rest of the report is not

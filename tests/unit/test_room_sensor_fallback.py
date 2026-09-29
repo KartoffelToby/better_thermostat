@@ -100,6 +100,14 @@ class TestTrvRoomTemperature:
 
         assert trv_room_temperature(bt) == 20.0
 
+    def test_the_reported_temperature_speaks_rather_than_the_stored_one(self):
+        """A stored value the TRV handler has not caught up on yet is not used."""
+        bt = _bt(
+            {FIRST_TRV: _heating(FIRST_TRV, 21.0)}, {FIRST_TRV: _trv(FIRST_TRV, 25.0)}
+        )
+
+        assert trv_room_temperature(bt) == 21.0
+
 
 async def _fire_fallback_timer(bt: Any) -> None:
     """Schedule the fallback and run its timer callback to completion."""
