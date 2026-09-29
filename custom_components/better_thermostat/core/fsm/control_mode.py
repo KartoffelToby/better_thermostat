@@ -20,7 +20,10 @@ restored for ``up_stability_s`` (hysteresis against flapping sensors).
 The region is not persisted across restarts: the ladder starts at
 OPTIMAL and re-derives its rung from live observations within one
 debounce window. A persisted rung could only pin stale degradation —
-the observations it was derived from are gone after a restart.
+the observations it was derived from are gone after a restart. The one
+exception is a room sensor that is still missing when the startup grace
+window closes: startup puts the ladder on SENSOR_FALLBACK directly,
+because the outage has already lasted longer than the debounce.
 """
 
 from __future__ import annotations
@@ -198,6 +201,16 @@ def _advance_window(
             return committed
         return _pend_toward(committed, deeper, now, target)
     return _pend_toward(state, deeper, since, commit_rung)
+
+
+def start_on_rung(state: ControlModeState, mode: ControlMode) -> ControlModeState:
+    """Put the ladder on ``mode`` without running a debounce window.
+
+    For an observation that outlasted the window before the ladder was
+    evaluated for the first time. Any pending window is dropped, and the
+    annunciation half is kept as it is.
+    """
+    return _with_mode(state, mode)
 
 
 def _with_mode(state: ControlModeState, mode: ControlMode) -> ControlModeState:
