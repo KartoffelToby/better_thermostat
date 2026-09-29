@@ -303,7 +303,7 @@ class TestCommitTemperatureUpdate:
             ),
         }
 
-        await _apply_temperature_update(mock_bt, 21.0)
+        await _commit_temperature_update(mock_bt, 21.0)
 
         quirks.maybe_set_external_temperature.assert_awaited_once_with(
             mock_bt, "climate.trv2", 21.0
