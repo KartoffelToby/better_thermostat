@@ -856,3 +856,47 @@ class TestControlQueueOnADualRoleEntity:
         mock_self._commit_hvac_action.assert_called_once_with(
             mock_self._compute_hvac_action_pure.return_value
         )
+
+
+@pytest.mark.asyncio
+async def test_a_cycle_cancelled_during_its_backoff_is_still_acknowledged():
+    """Cancelling the loop in the failed-cycle pause leaves no unfinished item.
+
+    The entity cancels the loop when it is removed, and whatever waits on the
+    queue with ``join()`` afterwards would otherwise wait for good.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.calculate_heat_loss = AsyncMock()
+    mock_self.cooler_entity_id = None
+    mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
+    mock_self.control_queue_task = asyncio.Queue()
+    await mock_self.control_queue_task.put(mock_self)
+    failed = asyncio.Event()
+
+    async def _control_trv(_self, _entity_id):
+        failed.set()
+        return False
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            side_effect=_control_trv,
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
+            60,
+        ),
+    ):
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        await asyncio.wait_for(failed.wait(), timeout=5)
+        await asyncio.sleep(0)
+        queue_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queue_task
+
+    await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=1)
