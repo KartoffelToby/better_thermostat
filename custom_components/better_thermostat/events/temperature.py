@@ -384,6 +384,10 @@ async def trigger_temperature_change(self, event):
         if not _plateau_ok and getattr(self, "plateau_timer_cancel", None) is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
             _plateau_value = self.pending_temp
+            # A value that left and came back starts a new plateau with a
+            # timer of its own; this one only applies the episode it was
+            # started for.
+            _plateau_since = self.pending_since
 
             async def _plateau_cb(_now):
                 self.plateau_timer_cancel = None
@@ -396,7 +400,11 @@ async def trigger_temperature_change(self, event):
                     # entity was removed writes nothing.
                     if self.is_removed:
                         return
-                    if self.pending_temp is None or self.pending_temp != _plateau_value:
+                    if (
+                        self.pending_temp is None
+                        or self.pending_temp != _plateau_value
+                        or self.pending_since != _plateau_since
+                    ):
                         return
                     # Re-check debounce interval so HomematicIP 600s is respected
                     _cb_age = (

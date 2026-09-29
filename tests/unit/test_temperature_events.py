@@ -1352,6 +1352,55 @@ class TestPlateauTimerTurn:
         assert len(timers) == 2
 
     @pytest.mark.asyncio
+    async def test_a_plateau_value_that_left_and_returned_waits_its_own_window(
+        self, mock_bt
+    ):
+        """Leave a value that came back pending for the window it started anew.
+
+        While the old timer waits for its turn, the pending value moves away
+        and back to the value the timer was armed for. The value matches, but
+        its plateau restarted with the second reading, which armed a timer of
+        its own; the old timer does not apply it early.
+        """
+        quirks = _RecordingQuirks()
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+        timers = []
+
+        def _capture_timer(_hass, _delay, callback):
+            timers.append(callback)
+            return MagicMock()
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            _capture_timer,
+        ):
+            async with temperature_filter_lock(mock_bt):
+                await trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "20.05"))
+                )
+            assert len(timers) == 1
+
+            async with temperature_filter_lock(mock_bt):
+                timer = asyncio.create_task(timers[0](dt_util.now()))
+                await asyncio.sleep(0)
+                await trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "19.97"))
+                )
+                await trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "20.05"))
+                )
+            await timer
+
+        assert quirks.writes == []
+        assert (mock_bt.cur_temp, mock_bt.pending_temp, len(timers)) == (20.0, 20.05, 3)
+
+    @pytest.mark.asyncio
     async def test_a_timer_that_gets_its_turn_after_removal_writes_nothing(
         self, mock_bt
     ):
