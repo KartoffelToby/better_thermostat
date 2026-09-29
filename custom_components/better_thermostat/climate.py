@@ -75,14 +75,10 @@ from .device_binding import async_bind_trv_device
 from .events.contact import OPEN_WORDS
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
-from .events.temperature import trigger_temperature_change
+from .events.temperature import trigger_temperature_change, trv_ready
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import (
-    initial_tweak,
-    load_model_quirks,
-    trv_state_unknown_as_available,
-)
+from .model_fixes.model_quirks import initial_tweak, load_model_quirks
 from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
@@ -1420,7 +1416,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return False
 
         for trv_id in self.real_trvs.keys():
-            if not self._trv_ready(trv_id):
+            if not trv_ready(self, trv_id):
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
@@ -1437,15 +1433,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         return True
 
-    def _trv_ready(self, trv_id: str) -> bool:
-        """Return whether a TRV is in a state it can be driven in."""
-        trv_state = self.hass.states.get(trv_id)
-        if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, None):
-            return False
-        return trv_state.state != STATE_UNKNOWN or trv_state_unknown_as_available(
-            self, trv_id
-        )
-
     def _first_plausible_trv_temperature(self) -> tuple[str, float] | None:
         """Return the first available TRV with a plausible internal temperature.
 
@@ -1456,7 +1443,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ``None`` when no available TRV reports a plausible one.
         """
         for trv_id in self.real_trvs:
-            if not self._trv_ready(trv_id):
+            if not trv_ready(self, trv_id):
                 continue
             trv_state = self.hass.states.get(trv_id)
             if trv_state is None:

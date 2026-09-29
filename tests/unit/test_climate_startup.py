@@ -130,7 +130,6 @@ def bt():
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
-    mock._trv_ready = lambda trv_id: BetterThermostat._trv_ready(mock, trv_id)
     mock._first_plausible_trv_temperature = lambda: (
         BetterThermostat._first_plausible_trv_temperature(mock)
     )
