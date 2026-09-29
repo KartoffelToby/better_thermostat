@@ -1234,10 +1234,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _check is False:
             return
         self.async_set_context(event.context)
-        if (event.data.get("new_state")) is None:
-            return
-        # A sensor that stops reporting leaves the humidity unknown, as it
-        # does at startup.
+        # A sensor that stops reporting or is removed leaves the humidity
+        # unknown, as it does at startup.
         if is_entity_available(self.hass, self.humidity_sensor_entity_id):
             humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
             if humidity_state is not None:
