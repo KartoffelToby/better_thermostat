@@ -1233,6 +1233,38 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 5.0
 
     @pytest.mark.asyncio
+    async def test_echo_above_range_logs_the_reported_setpoint(self, mock_bt, caplog):
+        """The debug log names what the TRV reported, not BT's clamped view.
+
+        A calibration setpoint above ``bt_max_temp`` comes back verbatim from
+        the TRV. Logging only the clamped value would read as if BT had capped
+        the setpoint it sent at its own maximum.
+        """
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 33.5, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 33.5
+        caplog.set_level(logging.DEBUG)
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 19.0
+        assert "setpoint change 19.0 -> 33.5 (clamped to 30.0) NOT adopted" in (
+            caplog.text
+        )
+        assert "_new_heating_setpoint: 33.5 (clamped to 30.0)" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_setpoint_clamped_to_max(self, mock_bt):
         """Setpoint above max should be clamped."""
         old_state = _make_state(
