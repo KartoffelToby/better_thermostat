@@ -12,6 +12,8 @@ Local calibration support depends on adapter support and TRV capabilities. Curre
 - Tado
 - Zigbee2MQTT
 - deCONZ
+- Z-Wave JS, when the TRV exposes a calibration entity
+- Any other integration whose TRV exposes a calibration entity (a `number` or `select`) that Better Thermostat can find
 
 For device-level details, see [Working devices](/working-devices/compatibility/).
 
@@ -26,7 +28,7 @@ Choose offset-based where available; use target-based for broad compatibility.
 
 Start with **AI Time Based**. It is the best default for most homes.
 
-If you want tighter overshoot control and have stable sensors, try **MPC Predictive**.
+If you want tighter overshoot control and have stable sensors, try **MPC Predictive (Beta)**. Expect more valve movement than with PID or TPI.
 
 ## Why does my TRV pick up a change with a delay?
 
@@ -36,7 +38,12 @@ and radio-constrained devices; bursts of writes drain batteries and
 congest the radio network.
 
 A change that arrives inside that window is sent automatically as soon
-as the slot is free, at most 30 seconds later. Safety-relevant writes
+as the slot is free, at most 30 seconds later.
+
+With the HomematicIP option enabled, the spacing is ten minutes, because
+HomematicIP devices share a tight radio duty cycle. The first setpoint
+write after you change the target or mode still goes out at the normal
+30-second pace. Safety-relevant writes
 (frost protection, turning off, closing the valve) are sent immediately.
 
 If a write gets lost on the radio anyway, the periodic reconciliation

@@ -19,6 +19,7 @@ export default defineConfig({
     "/qanda/missing_entity": "/faq/missing-entity",
     "/qanda/degraded_mode": "/faq/degraded-mode",
     "/qanda/window_sensor": "/faq/window-sensor",
+    "/hydraulic": "/deep-explanations/hydraulic-balance",
   },
 
   integrations: [

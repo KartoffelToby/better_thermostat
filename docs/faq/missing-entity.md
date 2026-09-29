@@ -5,9 +5,9 @@ slug: faq/missing-entity
 ---
 
 Better Thermostat raises a **missing entity** repair issue when one of
-the entities it was configured with — a TRV, the room temperature
-sensor, a window sensor, or another configured device — is not available
-in Home Assistant.
+the TRVs it was configured with is not available in Home Assistant.
+Unavailable sensors, such as the room temperature sensor or a window
+sensor, raise a [degraded mode](/faq/degraded-mode) issue instead.
 
 ## Common causes
 
