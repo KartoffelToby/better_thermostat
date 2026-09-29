@@ -14,7 +14,10 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.core import State
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.better_thermostat.utils.const import DEFAULT_TARGET_TEMP
 
@@ -162,3 +165,31 @@ async def test_a_head_that_is_off_does_not_set_the_room_target(
     bt = await _start(hass, group, stored, *group.profiles)
 
     assert bt.bt_target_temp == expected
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+async def test_a_no_off_head_parked_at_its_minimum_does_not_set_the_room_target(
+    hass, stored
+):
+    """A head that cannot switch off and sits at its minimum counts as off.
+
+    Such a device reports heat while it holds its minimum, which is its way of
+    being off, so only the two heads that heat carry the room target.
+    """
+    group = _group((HVACMode.HEAT, 5.0), (HVACMode.HEAT, 22.0), (HVACMode.HEAT, 20.0))
+    if stored is not None:
+        mock_restore_cache(hass, (stored,))
+    await build_devices(hass, *group.profiles)
+    set_room_sensor(hass, 19.0)
+    base = make_entry(group)
+    data = dict(base.data)
+    heads = [dict(head, advanced=dict(head["advanced"])) for head in data["thermostat"]]
+    heads[0]["advanced"]["no_off_system_mode"] = True
+    data["thermostat"] = heads
+    entry = MockConfigEntry(
+        domain=base.domain, version=base.version, data=data, title=base.title
+    )
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    assert bt.bt_target_temp == 21.0
