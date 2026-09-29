@@ -115,6 +115,23 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         assert "missing_entity_climate.trv_two" in called_ids
 
     @pytest.mark.asyncio
+    async def test_an_entry_whose_heater_is_a_bare_string_is_removed(
+        self, patched_delete_issue
+    ):
+        """An entry migration refused, holding one entity id as a string, still goes.
+
+        The removal reads the thermostats the same way the migration does, so
+        the string is the one entity id, not a sequence of characters.
+        """
+        hass = _make_hass()
+        entry = _make_entry(**{CONF_HEATER: "climate.trv_one"})
+
+        await async_remove_entry(hass, entry)
+
+        called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
+        assert "missing_entity_climate.trv_one" in called_ids
+
+    @pytest.mark.asyncio
     async def test_deletes_missing_entity_for_optional_sensors(
         self, patched_delete_issue
     ):

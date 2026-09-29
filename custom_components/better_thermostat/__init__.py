@@ -283,11 +283,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 
-    entity_ids: list[str] = []
-    for trv in entry.data.get(CONF_HEATER) or []:
-        trv_entity_id = trv.get("trv")
-        if trv_entity_id:
-            entity_ids.append(trv_entity_id)
+    entity_ids: list[str] = trv_entity_ids(entry)
     for conf_key in (
         CONF_SENSOR,
         CONF_HUMIDITY,
