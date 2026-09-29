@@ -394,6 +394,40 @@ class TestReportsHeldDuringACycle:
 
         assert request.called is requested
 
+    @pytest.mark.asyncio
+    async def test_an_internal_temperature_reported_during_a_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A TRV's new internal temperature reported inside a cycle is acted on.
+
+        Outside a cycle the new reading requests one. Inside a cycle it is
+        taken as it arrives, so the report read again at the end of the cycle
+        carries nothing new, and the reading would wait for some other event.
+        """
+        old_state = reported_states[ENTITY_ID]
+        warmer = State(
+            ENTITY_ID,
+            old_state.state,
+            attributes={**old_state.attributes, "current_temperature": 19.5},
+        )
+        reported_states[ENTITY_ID] = warmer
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": warmer,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        thermostat.ignore_states = False
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.real_trvs[ENTITY_ID].current_temperature == 19.5
+        assert request.called
+
 
 class TestHeldReportAgainstThePreviousState:
     """A report read at cycle end is judged against the state it replaced."""

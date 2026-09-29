@@ -302,6 +302,8 @@ async def trigger_trv_change(
 
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)
+        if _main_change:
+            trv.temperature_moved_while_held = True
         return
 
     # The offered mode list changes at runtime on devices whose
