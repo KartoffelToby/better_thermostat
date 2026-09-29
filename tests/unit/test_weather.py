@@ -318,8 +318,8 @@ class TestCheckWeatherPrediction:
         assert _weather_records(caplog, logging.WARNING)
 
     async def test_the_forecast_call_is_bounded_by_default(self):
-        """The shipped timeout is short enough not to hold up startup."""
-        assert timedelta(0) < FORECAST_CALL_TIMEOUT <= timedelta(seconds=30)
+        """The shipped timeout holds startup up for at most ten seconds."""
+        assert FORECAST_CALL_TIMEOUT == timedelta(seconds=10)
 
     async def test_service_not_supported_returns_none(self):
         """A ServiceNotSupported error resolves to None."""
