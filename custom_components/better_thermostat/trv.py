@@ -115,6 +115,17 @@ class Trv:
     local_calibration_max: float = 7
     local_calibration_step: float = 0.5
 
+    # -- Lifecycle ---------------------------------------------------------
+    # Set for a TRV the thermostat started without because it was unavailable
+    # once the startup grace window had closed. Such a TRV has not been read
+    # or set up by startup, so it stays out of every control cycle until it
+    # reports again and its initialisation has completed.
+    awaiting_initialization: bool = False
+    # Attempts at initialising such a TRV in which a step failed. The count
+    # bounds how long it is kept out before it is driven on defaults the way
+    # startup drives a TRV whose step failed.
+    failed_initialization_attempts: int = 0
+
     # -- Write tracking ----------------------------------------------------
     ignore_trv_states: bool = False
     calibration_received: bool = True

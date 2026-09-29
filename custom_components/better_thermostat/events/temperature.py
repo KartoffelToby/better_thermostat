@@ -181,6 +181,9 @@ async def _commit_temperature_update(self, new_temp):
     for entity_id in entity_ids:
         try:
             _trv = self.real_trvs.get(entity_id)
+            if _trv is not None and _trv.awaiting_initialization:
+                # Its first write goes out with its initialization.
+                continue
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                 await quirks.maybe_set_external_temperature(

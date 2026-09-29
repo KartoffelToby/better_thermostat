@@ -75,6 +75,7 @@ def _startup_bt(**overrides):
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()
     mock._startup_control_trvs = AsyncMock()
+    mock._initialize_arrived_trvs = AsyncMock()
     mock.async_update_ha_state = AsyncMock()
     mock.hass = MagicMock()
     for name, value in config.items():
@@ -375,3 +376,23 @@ async def test_an_existing_trv_subscription_is_not_registered_a_second_time():
     assert registered.state_changes == Counter(
         {((SENSOR_ID,), bt._trigger_temperature_change): 1}
     )
+
+
+@pytest.mark.asyncio
+async def test_a_trv_that_returned_before_its_listener_existed_is_looked_for():
+    """The TRV subscription is followed by one look for returned TRVs.
+
+    A TRV startup went ahead without can come back while the rest of
+    startup runs, before anything listens to it, and a TRV that is back
+    does not necessarily report again soon. Looking before the
+    subscription exists would miss one that returns in between.
+    """
+    bt = _startup_bt()
+    subscribed_when_looked = []
+    bt._initialize_arrived_trvs.side_effect = lambda: subscribed_when_looked.append(
+        bt._async_unsub_state_changed is not None
+    )
+
+    await _run_finalize_startup(bt)
+
+    assert subscribed_when_looked == [True]
