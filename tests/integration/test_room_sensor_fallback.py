@@ -253,3 +253,18 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     await _trv_reports(hass, bt, fake_trv, 25.0)
     assert bt.cur_temp == 21.0
     assert await wait_for(hass, lambda: _degraded_issue_sensors(hass, bt) is None)
+
+
+async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
+    hass, fake_trv
+):
+    """A sensor entity that disappears is as lost as an unavailable one."""
+    bt = await _started_at_target(hass, fake_trv, 22.0)
+
+    hass.states.async_remove(SENSOR_ID)
+    await hass.async_block_till_done()
+    await _advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S + 1)
+    await _trv_reports(hass, bt, fake_trv, 26.0)
+
+    assert bt.room_sensor_fallback is True
+    assert bt.cur_temp == 26.0

@@ -1144,8 +1144,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _check is False:
             return
         self.async_set_context(event.context)
-        if (event.data.get("new_state")) is None:
-            return
         self._spawn_owned(
             trigger_temperature_change(self, event),
             name=f"bt_trigger_temp_change_{self.device_name}",
