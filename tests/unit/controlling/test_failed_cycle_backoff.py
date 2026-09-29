@@ -11,13 +11,14 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
-from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     FAILED_CYCLE_BACKOFF_MAX_S,
@@ -25,8 +26,12 @@ from custom_components.better_thermostat.utils.controlling import (
     MIN_WRITE_INTERVAL_S,
     control_queue,
 )
+from custom_components.better_thermostat.utils.snapshot import _build_trv_reported
+from tests.factories import make_snapshot, make_state
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
+_QUIRKS = "custom_components.better_thermostat.model_fixes.model_quirks"
+_SNAPSHOT = "custom_components.better_thermostat.utils.snapshot"
 _TRV = "climate.trv1"
 
 _REAL_SLEEP = asyncio.sleep
@@ -85,9 +90,10 @@ def _refused(*_args, **_kwargs):
 class _Queue:
     """Run the control queue of one entity against a scripted control_trv."""
 
-    def __init__(self, entity: Mock, outcomes) -> None:
+    def __init__(self, entity: Mock, outcomes, cycle=None) -> None:
         self.entity = entity
         self.outcomes = outcomes
+        self.cycle = cycle
         self.calls = 0
         self.sleep = _VirtualSleep()
         self._task: asyncio.Task | None = None
@@ -100,10 +106,13 @@ class _Queue:
             raise outcome
         return outcome
 
+    def _compute_cycle(self, entity, *_args, **_kwargs):
+        return None if self.cycle is None else self.cycle(entity)
+
     async def __aenter__(self):
         self._patches = [
             patch(f"{_CTRL}.control_trv", new=self._control_trv),
-            patch(f"{_CTRL}.compute_control_cycle", return_value=None),
+            patch(f"{_CTRL}.compute_control_cycle", side_effect=self._compute_cycle),
             patch("asyncio.sleep", new=self.sleep),
         ]
         for p in self._patches:
@@ -466,3 +475,60 @@ async def test_a_trv_still_away_since_it_failed_keeps_the_run():
             await _REAL_SLEEP(0)
 
     assert queue.sleep.waits[:3] == [2.0, 4.0, 8.0]
+
+
+def _decided_cycle(entity):
+    """Observe the TRV as the snapshot does and run the kernel's decision on it."""
+    snapshot = make_snapshot(
+        target_temp=entity.bt_target_temp,
+        room_temp=18.0,
+        preset_mode=entity.preset_mode,
+        trvs={_TRV: _build_trv_reported(entity, _TRV, entity.real_trvs[_TRV])},
+    )
+    desired, _ = decide(snapshot, make_state())
+    return snapshot, desired
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "unknown_as_available", "boost", "cycle", "next_wait"),
+    [
+        # A device whose quirk runs it while its entity reports unknown is
+        # addressed in that state, so a clean cycle there ends the run.
+        (STATE_UNKNOWN, True, False, _decided_cycle, FAILED_CYCLE_BACKOFF_S),
+        # Without that quirk an unknown device is not addressed and keeps it.
+        (STATE_UNKNOWN, False, False, _decided_cycle, 8.0),
+        # A boost that is heating addresses an unavailable device as well.
+        (STATE_UNAVAILABLE, False, True, _decided_cycle, FAILED_CYCLE_BACKOFF_S),
+        # Without a shared decision the quirk still reads unknown as present.
+        (STATE_UNKNOWN, True, False, None, FAILED_CYCLE_BACKOFF_S),
+    ],
+)
+async def test_a_clean_cycle_ends_the_run_where_its_decision_addressed_the_trv(
+    state, unknown_as_available, boost, cycle, next_wait
+):
+    """Whether a clean cycle controlled the TRV follows the cycle's own decision.
+
+    The cycle writes to every TRV its decision addresses, so a clean retry on
+    such a TRV has tried the refused write again and ends the run.
+    """
+    entity = _make_self()
+    entity.hass.states.get.return_value = State(_TRV, state)
+    entity.preset_mode = PRESET_BOOST if boost else None
+    script = {0: False, 1: False, 2: True}
+    with (
+        patch(
+            f"{_SNAPSHOT}.trv_state_unknown_as_available",
+            return_value=unknown_as_available,
+        ),
+        patch(
+            f"{_QUIRKS}.trv_state_unknown_as_available",
+            return_value=unknown_as_available,
+        ),
+    ):
+        async with _Queue(entity, lambda n: script.get(n, False), cycle) as queue:
+            await queue.until_calls(3)
+            queue.request()
+            await queue.until_calls(4)
+
+    assert queue.sleep.waits[:3] == [2.0, 4.0, next_wait]

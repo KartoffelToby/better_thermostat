@@ -776,20 +776,29 @@ async def _requeue_failed_cycle(self: BetterThermostat, delay_s: float) -> None:
 
 
 def _controlled_cleanly(
-    self: BetterThermostat, entity_id: str, dispatched: list[str]
+    self: BetterThermostat,
+    entity_id: str,
+    dispatched: list[str],
+    desired: DesiredState | None,
 ) -> bool:
     """Return whether a clean cycle controlled this TRV rather than skipping it.
 
-    A cycle leaves out a TRV the cooling channel drives and skips one that is
-    unavailable, and either way reports nothing wrong without having written
-    to it.
+    A cycle leaves out a TRV the cooling channel drives and skips one its
+    decision did not address, and either way reports nothing wrong without
+    having written to it. The decision addresses a TRV the snapshot reads as
+    available, which includes one whose quirk runs it while it reports
+    unknown, and during a heating boost every TRV. Without a shared decision
+    each TRV decided on a snapshot of its own, and the TRV counts as
+    controlled when its state reads as available.
     """
     if entity_id not in dispatched:
         return False
     state = self.hass.states.get(entity_id)
-    return state is not None and state.state not in (
-        UNAVAILABLE_STATES + UNKNOWN_STATES
-    )
+    if state is None:
+        return False
+    if desired is not None:
+        return entity_id in desired.trvs
+    return not trv_report_is_unreadable(self, entity_id, state)
 
 
 def _pace_failed_cycle(
@@ -797,6 +806,7 @@ def _pace_failed_cycle(
     run: _FailedCycleRun | None,
     failures: list[tuple[str, BaseException | bool]],
     dispatched: list[str],
+    desired: DesiredState | None,
 ) -> _FailedCycleRun | None:
     """Report a cycle's failures and schedule its retry; return the run.
 
@@ -814,8 +824,9 @@ def _pace_failed_cycle(
     every TRV that failed in the run, or once the user has set new targets.
     A clean cycle before the retry fired, one the write budget deferred for
     instance, never tried the refused write again and keeps the run, and so
-    does one that skipped a failing TRV as unavailable or left it to the
-    cooling channel.
+    does one whose decision left a failing TRV unaddressed or left it to the
+    cooling channel. ``desired`` is the decision the cycle ran on, None when
+    the cycle had no shared one.
     """
     if not failures:
         if run is None:
@@ -823,7 +834,7 @@ def _pace_failed_cycle(
         if run.intent == _user_intent(self) and (
             (run.retry is not None and not run.retry.done())
             or not all(
-                _controlled_cleanly(self, entity_id, dispatched)
+                _controlled_cleanly(self, entity_id, dispatched, desired)
                 for entity_id in run.failing
             )
         ):
@@ -1206,7 +1217,11 @@ async def control_queue(self: BetterThermostat) -> None:
                         # a worker holds the TRV lock and would stall the rest
                         # of the cycle with it.
                         failed_run = _pace_failed_cycle(
-                            self, failed_run, failures, controlled_trvs
+                            self,
+                            failed_run,
+                            failures,
+                            controlled_trvs,
+                            cycle[1] if cycle is not None else None,
                         )
 
                         if not getattr(self, "in_maintenance", False):
