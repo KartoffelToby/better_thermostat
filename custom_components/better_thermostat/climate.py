@@ -4518,9 +4518,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
-                    cool_temp = self._preset_cool_temperatures[preset_mode]
-                    self.bt_target_cooltemp = min(
-                        self.max_temp, max(self.min_temp, cool_temp)
+                    self.bt_target_cooltemp = self._preset_target(
+                        self._preset_cool_temperatures[preset_mode]
                     )
                     _LOGGER.debug(
                         "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
