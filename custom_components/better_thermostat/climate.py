@@ -77,6 +77,7 @@ from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
     reconcile_room_sensor,
+    room_sensor_reading,
     trigger_temperature_change,
     trv_ready,
     trv_reported_temperature,
@@ -367,28 +368,6 @@ def _room_sensor_missing(sensor_state: State | None) -> bool:
         STATE_UNKNOWN,
         None,
     )
-
-
-def _room_sensor_reading(device_name: str, sensor_state: State | None) -> float | None:
-    """Return the room sensor's reading in Celsius if it is usable.
-
-    Returns
-    -------
-    float | None
-        The reading, or None when the sensor is missing or reports a value
-        that is not a number or not a plausible temperature.
-    """
-    if sensor_state is None or _room_sensor_missing(sensor_state):
-        return None
-    reading = convert_to_float_celsius(
-        str(sensor_state.state),
-        device_name,
-        "startup()",
-        unit_of_measurement=sensor_state.attributes.get("unit_of_measurement"),
-    )
-    if reading is None or not is_reasonable_temperature(reading):
-        return None
-    return reading
 
 
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
@@ -1430,7 +1409,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         grace_until = getattr(self, "_critical_grace_until", None)
         in_grace = grace_until is not None and dt_util.now() < grace_until
-        sensor_missing = _room_sensor_reading(self.device_name, sensor_state) is None
+        sensor_missing = room_sensor_reading(self.device_name, sensor_state) is None
         if sensor_missing and (
             in_grace or self._first_plausible_trv_temperature() is None
         ):
@@ -1563,7 +1542,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.all_entities.append(self.sensor_entity_id)
 
         # Handle room temperature sensor with TRV fallback
-        room_candidate = _room_sensor_reading(self.device_name, sensor_state)
+        room_candidate = room_sensor_reading(self.device_name, sensor_state)
         if (
             room_candidate is None
             and sensor_state is not None
