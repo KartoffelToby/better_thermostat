@@ -5,6 +5,7 @@ mode synchronisation, target-temperature adoption, control-queue triggering,
 and the convert_inbound_states / convert_outbound_states helpers.
 """
 
+import asyncio
 from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
@@ -242,6 +243,31 @@ class TestUnavailableInvalidation:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.0
+
+
+class TestRoomSensorFallbackHandover:
+    """During the room sensor fallback the room follows the TRV readings."""
+
+    @pytest.mark.asyncio
+    async def test_unavailable_trv_hands_the_room_to_the_next_and_controls(
+        self, mock_bt
+    ):
+        """The next TRV's temperature becomes the room's and a cycle is queued."""
+        _add_homematicip_peer(mock_bt)
+        mock_bt.real_trvs[PEER_ID].current_temperature = 20.0
+        mock_bt.room_sensor_fallback = True
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        unavailable = State(ENTITY_ID, "unavailable")
+        peer_state = mock_bt.hass.states.get(PEER_ID)
+        mock_bt.hass.states.get.side_effect = lambda entity_id: (
+            peer_state if entity_id == PEER_ID else unavailable
+        )
+
+        await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=unavailable))
+
+        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.control_queue_task.qsize() == 1
 
 
 class TestTriggerTrvChangeGuards:

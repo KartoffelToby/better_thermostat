@@ -8,6 +8,7 @@ propagated to the target devices.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 import logging
 import math
@@ -20,6 +21,9 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
+from custom_components.better_thermostat.model_fixes.model_quirks import (
+    trv_state_unknown_as_available,
+)
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     DOMAIN,
@@ -79,11 +83,51 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
+def trv_ready(self, trv_id: str) -> bool:
+    """Return whether a TRV is in a state it can be driven in.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    trv_id : str
+            Entity id of the TRV.
+
+    Returns
+    -------
+    bool
+            False when the TRV is missing or unavailable, or unknown on a
+            model that does not operate in that state.
+    """
+    trv_state = self.hass.states.get(trv_id)
+    if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, None):
+        return False
+    return trv_state.state != STATE_UNKNOWN or trv_state_unknown_as_available(
+        self, trv_id
+    )
+
+
+def _trv_reports_room_temperature(self, trv_id: str) -> bool:
+    """Return whether a TRV's stored internal temperature is a live reading.
+
+    The stored value outlives an outage whose state change arrived while the
+    TRV handler was not listening, and a TRV that reports no temperature at
+    all carries a startup placeholder; the live state rules out both.
+    """
+    if not trv_ready(self, trv_id):
+        return False
+    trv_state = self.hass.states.get(trv_id)
+    return (
+        trv_state is not None
+        and trv_state.attributes.get("current_temperature") is not None
+    )
+
+
 def trv_room_temperature(self) -> float | None:
     """Return the TRV-internal temperature that stands in for the room.
 
-    The first TRV with a plausible internal temperature speaks for the room,
-    the same choice the startup fallback makes.
+    The first available TRV with a plausible internal temperature speaks for
+    the room, the same choice the startup fallback makes.
 
     Parameters
     ----------
@@ -95,7 +139,9 @@ def trv_room_temperature(self) -> float | None:
     float | None
             The TRV temperature in °C, or None when no TRV reports one.
     """
-    for trv in self.real_trvs.values():
+    for trv_id, trv in self.real_trvs.items():
+        if not _trv_reports_room_temperature(self, trv_id):
+            continue
         value = trv.current_temperature
         if isinstance(value, (int, float)) and is_reasonable_temperature(value):
             return round(float(value), 2)
@@ -133,6 +179,29 @@ def refresh_room_temperature_from_trvs(self) -> bool:
     return True
 
 
+def queue_control_cycle(self) -> None:
+    """Ask the control worker for a cycle without waiting on the queue.
+
+    A full queue already holds a pending cycle, which reads the room state
+    when it runs. During valve maintenance the request is kept for the end
+    of the maintenance run.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    """
+    if self.control_queue_task is None:
+        return
+    if getattr(self, "in_maintenance", False):
+        self._control_needed_after_maintenance = True
+        return
+    try:
+        self.control_queue_task.put_nowait(self)
+    except asyncio.QueueFull:
+        pass
+
+
 def _cancel_room_sensor_fallback_timer(self) -> None:
     """Cancel a pending switch to the TRV fallback."""
     if self.room_sensor_fallback_cancel is not None:
@@ -143,14 +212,17 @@ def _cancel_room_sensor_fallback_timer(self) -> None:
 def _schedule_room_sensor_fallback(self) -> None:
     """Switch to the TRV temperature once the room sensor stays lost.
 
-    The first unavailable or unknown state starts the delay; later ones
-    while it runs, or while the fallback is active, change nothing.
+    The first unavailable or unknown state, or the removal of the sensor
+    entity, starts the delay; later ones while it runs, or while the
+    fallback is active, change nothing.
     """
     if self.room_sensor_fallback or self.room_sensor_fallback_cancel is not None:
         return
 
     async def _enter_fallback(_now):
         self.room_sensor_fallback_cancel = None
+        if self.is_removed:
+            return
         sensor_state = self.hass.states.get(self.sensor_entity_id)
         if sensor_state is not None and sensor_state.state not in (
             STATE_UNAVAILABLE,
@@ -165,14 +237,12 @@ def _schedule_room_sensor_fallback(self) -> None:
             ROOM_SENSOR_FALLBACK_DELAY_S,
         )
         self.room_sensor_fallback = True
-        if not refresh_room_temperature_from_trvs(self):
-            return
+        refresh_room_temperature_from_trvs(self)
         self.async_write_ha_state()
-        if self.control_queue_task is not None:
-            if getattr(self, "in_maintenance", False):
-                self._control_needed_after_maintenance = True
-            else:
-                await self.control_queue_task.put(self)
+        # The controllers stop reading the room sensor's filtered value, so
+        # the room is controlled anew even when the TRV reports the
+        # temperature the sensor last sent.
+        queue_control_cycle(self)
 
     self.room_sensor_fallback_cancel = async_call_later(
         self.hass, ROOM_SENSOR_FALLBACK_DELAY_S, _enter_fallback
@@ -302,9 +372,8 @@ async def trigger_temperature_change(self, event):
         return
 
     new_state = event.data.get("new_state")
-    if new_state is None:
-        return
-    if new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
+    # A removed sensor entity reports no new state at all.
+    if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
         _schedule_room_sensor_fallback(self)
         return
 

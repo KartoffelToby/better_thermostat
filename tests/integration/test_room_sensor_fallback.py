@@ -140,3 +140,18 @@ async def test_outage_shorter_than_the_debounce_keeps_the_last_reading(hass, fak
     await _advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S - 10)
     await _trv_reports(hass, bt, fake_trv, 26.0)
     assert bt.cur_temp == 18.0
+
+
+async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
+    hass, fake_trv
+):
+    """A sensor entity that disappears is as lost as an unavailable one."""
+    bt = await _started_at_target(hass, fake_trv, 22.0)
+
+    hass.states.async_remove(SENSOR_ID)
+    await hass.async_block_till_done()
+    await _advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S + 1)
+    await _trv_reports(hass, bt, fake_trv, 26.0)
+
+    assert bt.room_sensor_fallback is True
+    assert bt.cur_temp == 26.0
