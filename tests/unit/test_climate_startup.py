@@ -720,16 +720,23 @@ class TestCheckEntitiesReady:
 
     @pytest.mark.parametrize(
         "sensor",
-        [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
-        ids=["absent", "unavailable", "unknown"],
+        [
+            None,
+            State(SENSOR_ID, STATE_UNAVAILABLE),
+            State(SENSOR_ID, STATE_UNKNOWN),
+            State(SENSOR_ID, "not a number", {"unit_of_measurement": "°C"}),
+            State(SENSOR_ID, "126.5", {"unit_of_measurement": "°C"}),
+        ],
+        ids=["absent", "unavailable", "unknown", "non-numeric", "implausible"],
     )
     def test_a_missing_room_sensor_is_waited_for_inside_the_grace_window(
         self, bt, sensor
     ):
-        """A sensor integration that is still loading is not replaced.
+        """A sensor without a usable reading is not replaced inside the window.
 
         A slow sensor looks exactly like a dead one at boot, and one that
-        turns up in time is the one the room should start on.
+        turns up in time, or settles on a plausible value, is the one the
+        room should start on.
         """
         _arm_grace(bt, remaining=timedelta(seconds=30))
         bt.hass.states.get.return_value = _make_trv_state()

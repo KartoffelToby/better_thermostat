@@ -479,16 +479,18 @@ async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_
 ):
     """A room sensor that reports nonsense at boot is no room temperature.
 
-    Startup takes the TRV temperature in its place, and the room keeps
-    following the TRV rather than the one value it started with: a sensor
-    that stays available with an implausible reading gives the ladder no
-    more reason to climb back than a missing one does.
+    Once the grace window has closed, startup takes the TRV temperature in
+    its place, and the room keeps following the TRV rather than the one
+    value it started with: a sensor that stays available with an implausible
+    reading gives the ladder no more reason to climb back than a missing one
+    does.
     """
     trv_temperature = fake_trv.profile.current_temperature
     set_room_sensor(hass, 126.5)
     entry = make_entry(fake_trv.profile)
-    await setup_entry(hass, entry)
-    bt = await wait_for_startup(hass, entry)
+    with patch(CRITICAL_GRACE, NO_GRACE), patch(DEGRADED_GRACE, NO_GRACE):
+        await setup_entry(hass, entry)
+        bt = await wait_for_startup(hass, entry)
 
     assert bt.cur_temp == trv_temperature
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK

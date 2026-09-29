@@ -1731,7 +1731,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         grace_until = getattr(self, "_critical_grace_until", None)
         in_grace = grace_until is not None and self.clock.now() < grace_until
 
-        if _room_sensor_missing(sensor_state):
+        if room_sensor_reading(self, sensor_state) is None:
             if in_grace or self._first_plausible_trv_temperature() is None:
                 _LOGGER.info(
                     "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
@@ -1740,9 +1740,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 return False
             _LOGGER.warning(
-                "better_thermostat %s: room temperature sensor '%s' is still "
-                "unavailable after the startup grace window; starting on the "
-                "TRV internal temperature until it reports again",
+                "better_thermostat %s: room temperature sensor '%s' still gives "
+                "no usable reading after the startup grace window; starting on "
+                "the TRV internal temperature until it reports one",
                 self.device_name,
                 self.sensor_entity_id,
             )
