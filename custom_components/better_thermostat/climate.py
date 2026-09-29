@@ -1868,13 +1868,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.last_main_hvac_mode = str(
                     old_state.attributes[ATTR_STATE_MAIN_MODE]
                 )
-            if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
+            # The StateManager, hydrated before the restore, is the
+            # persistence authority and keeps the rates at full precision.
+            # The restored attributes, rounded for display, only fill in when
+            # the store carries nothing — a migration fallback for upgrades
+            # from versions that persisted via RestoreEntity.
+            _stored_power, _stored_loss = (
+                self.state_mgr.clamped_thermal()
+                if self.state_mgr is not None
+                else (None, None)
+            )
+            if (
+                _stored_power is None
+                and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
+            ):
                 self.heating_power = clamp_heating_power(
                     old_state.attributes.get(ATTR_STATE_HEATING_POWER), self.device_name
                 )
 
-            # Restore heat loss if available
-            if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
+            if (
+                _stored_loss is None
+                and old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None
+            ):
                 _restored_loss = clamp_heat_loss(
                     old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
                 )
