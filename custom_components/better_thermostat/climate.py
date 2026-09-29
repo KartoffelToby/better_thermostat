@@ -359,6 +359,15 @@ def _target_temp_step_celsius(
     )
 
 
+def _room_sensor_missing(sensor_state: State | None) -> bool:
+    """Return whether the room sensor's state carries no reading at all."""
+    return sensor_state is None or sensor_state.state in (
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+        None,
+    )
+
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
@@ -1364,6 +1373,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             states = self._collect_trv_states()
             self._resolve_temperature_range(states)
             self._initialize_sensors(sensor_state)
+            # The sensor has been missing for the whole grace window, which
+            # already outlasts the runtime fallback delay, so the room
+            # controls on the TRV temperature from the start.
+            self.room_sensor_fallback = _room_sensor_missing(sensor_state)
             await check_and_update_degraded_mode(self)
             await self._restore_state(states)
             # The awaits above yield to the event loop, so the entity may have
@@ -1382,14 +1395,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             break
 
     def _check_entities_ready(self, sensor_state: State | None) -> bool:
-        """Check whether sensor and all TRVs are available.
+        """Check whether the room sensor and all TRVs are available.
 
-        Returns True when every entity is ready, False otherwise.
+        Every TRV has to be available. The room sensor has to be available
+        while the startup grace window is open, so a sensor whose integration
+        is still loading is the one the room starts on. Once the window has
+        closed, a room sensor that is still missing is replaced by the
+        internal temperature of a TRV, the same fallback the room runs on
+        when its sensor drops out later, and it takes over again as soon as
+        it reports. Without its room sensor, a room keeps waiting until a
+        TRV reports a plausible temperature to control on.
+
+        Returns True when startup can go ahead, False otherwise.
         """
-        if sensor_state is None or sensor_state.state in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-            None,
+        grace_until = getattr(self, "_critical_grace_until", None)
+        in_grace = grace_until is not None and dt_util.now() < grace_until
+        sensor_missing = _room_sensor_missing(sensor_state)
+        if sensor_missing and (
+            in_grace or self._first_plausible_trv_temperature() is None
         ):
             _LOGGER.info(
                 "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
@@ -1399,23 +1422,63 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return False
 
         for trv_id in self.real_trvs.keys():
-            trv_state = self.hass.states.get(trv_id)
-            state_unknown_as_available = trv_state_unknown_as_available(self, trv_id)
-            if (
-                trv_state is None
-                or trv_state.state in (STATE_UNAVAILABLE, None)
-                or (
-                    (not state_unknown_as_available)
-                    and trv_state.state == STATE_UNKNOWN
-                )
-            ):
+            if not self._trv_ready(trv_id):
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
                     trv_id,
                 )
                 return False
+        if sensor_missing:
+            _LOGGER.warning(
+                "better_thermostat %s: room temperature sensor '%s' is still "
+                "unavailable after the startup grace window; starting on the "
+                "TRV internal temperature until it reports again",
+                self.device_name,
+                self.sensor_entity_id,
+            )
         return True
+
+    def _trv_ready(self, trv_id: str) -> bool:
+        """Return whether a TRV is in a state it can be driven in."""
+        trv_state = self.hass.states.get(trv_id)
+        if trv_state is None or trv_state.state in (STATE_UNAVAILABLE, None):
+            return False
+        return trv_state.state != STATE_UNKNOWN or trv_state_unknown_as_available(
+            self, trv_id
+        )
+
+    def _first_plausible_trv_temperature(self) -> tuple[str, float] | None:
+        """Return the first available TRV with a plausible internal temperature.
+
+        Returns
+        -------
+        tuple[str, float] | None
+            The TRV's entity id and its internal temperature in Celsius, or
+            ``None`` when no available TRV reports a plausible one.
+        """
+        for trv_id in self.real_trvs:
+            if not self._trv_ready(trv_id):
+                continue
+            trv_state = self.hass.states.get(trv_id)
+            if trv_state is None:
+                continue
+            if trv_state.attributes.get("current_temperature") is None:
+                continue
+            candidate = attr_to_celsius(
+                self, trv_state, "current_temperature", None, "startup() TRV fallback"
+            )
+            if candidate is None or not is_reasonable_temperature(candidate):
+                _LOGGER.debug(
+                    "better_thermostat %s: TRV '%s' reports implausible "
+                    "current_temperature %s; trying next TRV.",
+                    self.device_name,
+                    trv_id,
+                    candidate,
+                )
+                continue
+            return trv_id, candidate
+        return None
 
     def _collect_trv_states(self) -> list[State]:
         """Collect current State objects for all TRVs and optional cooler."""
@@ -1507,11 +1570,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Handle room temperature sensor with TRV fallback
         room_candidate: float | None = None
-        if sensor_state is not None and sensor_state.state not in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-            None,
-        ):
+        if sensor_state is not None and not _room_sensor_missing(sensor_state):
             room_candidate = convert_to_float_celsius(
                 str(sensor_state.state),
                 self.device_name,
@@ -1531,49 +1590,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if room_candidate is not None:
             self.cur_temp = room_candidate
         else:
-            if sensor_state is None or sensor_state.state in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
-            ):
-                _LOGGER.warning(
-                    "better_thermostat %s: Room temperature sensor '%s' unavailable. "
-                    "Falling back to TRV internal temperature.",
-                    self.device_name,
-                    self.sensor_entity_id,
-                )
             self.cur_temp = None
-            for trv_id in self.real_trvs:
-                trv_state = self.hass.states.get(trv_id)
-                if trv_state is None:
-                    continue
-                trv_temp = trv_state.attributes.get("current_temperature")
-                if trv_temp is None:
-                    continue
-                candidate = attr_to_celsius(
-                    self,
-                    trv_state,
-                    "current_temperature",
-                    None,
-                    "startup() TRV fallback",
-                )
-                if not is_reasonable_temperature(candidate):
-                    _LOGGER.warning(
-                        "better_thermostat %s: TRV '%s' reports implausible "
-                        "current_temperature %s; trying next TRV.",
-                        self.device_name,
-                        trv_id,
-                        candidate,
-                    )
-                    continue
-                self.cur_temp = candidate
+            trv_reading = self._first_plausible_trv_temperature()
+            if trv_reading is not None:
+                trv_id, self.cur_temp = trv_reading
                 _LOGGER.info(
                     "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
                     self.device_name,
                     trv_id,
-                    candidate,
+                    self.cur_temp,
                 )
-                break
             if self.cur_temp is None:
                 self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
                 _LOGGER.warning(
