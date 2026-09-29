@@ -1187,6 +1187,47 @@ class TestConcurrentReadings:
             1,
         )
 
+    @pytest.mark.asyncio
+    async def test_a_plateau_value_that_left_and_returned_waits_its_own_window(
+        self, mock_bt
+    ):
+        """Leave a value that came back pending for the window it started anew.
+
+        While the old timer waits for its turn, the pending value moves away
+        and back to the value the timer was armed for. The value matches, but
+        its plateau restarted with the second reading, which armed a timer of
+        its own; the old timer does not apply it early.
+        """
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+
+        rearmed = []
+        lock = temperature_filter_lock(mock_bt)
+        await lock.acquire()
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            side_effect=lambda _hass, _delay, callback: rearmed.append(callback),
+        ):
+            away = asyncio.create_task(
+                self._take_turn_and_read(mock_bt, State(SENSOR_ID, "19.97"))
+            )
+            await asyncio.sleep(0)
+            back = asyncio.create_task(
+                self._take_turn_and_read(mock_bt, State(SENSOR_ID, "20.05"))
+            )
+            await asyncio.sleep(0)
+            timer = asyncio.create_task(plateau_timer(dt_util.now()))
+            await asyncio.sleep(0)
+            lock.release()
+            await asyncio.gather(away, back, timer)
+
+        assert quirks.writes == []
+        assert (mock_bt.cur_temp, mock_bt.pending_temp, len(rearmed)) == (
+            20.0,
+            20.05,
+            2,
+        )
+
 
 async def _suspending_translations(*args, **kwargs):
     """Stand in for a translation lookup that has to read its files.
