@@ -15,7 +15,7 @@ import math
 from time import monotonic
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import callback
+from homeassistant.core import State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
@@ -82,6 +82,39 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     # Expose a generic name so consumers don't need to know EMA vs SMA
     self.cur_temp_filtered = round(float(ema), 2)
     return float(ema)
+
+
+def room_sensor_reading(device_name: str, sensor_state: State | None) -> float | None:
+    """Return the room sensor's reading in Celsius if it is usable.
+
+    Parameters
+    ----------
+    device_name : str
+            Name of the better_thermostat device, for logging.
+    sensor_state : State | None
+            The room sensor's state.
+
+    Returns
+    -------
+    float | None
+            The reading, or None when the sensor is missing or reports a
+            value that is not a number or not a plausible temperature.
+    """
+    if sensor_state is None or sensor_state.state in (
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+        None,
+    ):
+        return None
+    reading = convert_to_float_celsius(
+        str(sensor_state.state),
+        device_name,
+        "room sensor reading",
+        unit_of_measurement=sensor_state.attributes.get("unit_of_measurement"),
+    )
+    if reading is None or not is_reasonable_temperature(reading):
+        return None
+    return reading
 
 
 def trv_ready(self, trv_id: str) -> bool:
@@ -258,14 +291,16 @@ def _cancel_room_sensor_fallback_timer(self) -> None:
 def _schedule_room_sensor_fallback(self) -> None:
     """Switch to the TRV temperature once the room sensor stays lost.
 
-    The first unavailable or unknown state, or the removal of the sensor
+    The first state without a usable reading (unavailable, unknown, not a
+    number or not a plausible temperature), or the removal of the sensor
     entity, starts the delay; later ones while it runs, or while the
     fallback is active or due, change nothing.
 
     A fallback that comes due while no TRV reports a usable temperature
     does not start: controlling on the TRV side would still control on the
-    sensor's last reading. The room keeps that reading, and the lost sensor
-    stays reported as degraded, until a TRV reports.
+    sensor's last reading. The room keeps that reading, and the sensor
+    stays reported as degraded or as giving an invalid reading, until a
+    TRV reports.
     """
     if (
         self.room_sensor_fallback
@@ -279,25 +314,22 @@ def _schedule_room_sensor_fallback(self) -> None:
         if self.is_removed:
             return
         sensor_state = self.hass.states.get(self.sensor_entity_id)
-        if sensor_state is not None and sensor_state.state not in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-        ):
+        if room_sensor_reading(self.device_name, sensor_state) is not None:
             return
         if not _hand_room_to_trvs(self):
             self.room_sensor_fallback_due = True
             _LOGGER.warning(
-                "better_thermostat %s: room temperature sensor %s unavailable "
-                "for %ss and no TRV reports a temperature; keeping the last "
-                "reading until one does",
+                "better_thermostat %s: room temperature sensor %s has given no "
+                "usable reading for %ss and no TRV reports a temperature; "
+                "keeping the last reading until one does",
                 self.device_name,
                 self.sensor_entity_id,
                 ROOM_SENSOR_FALLBACK_DELAY_S,
             )
             return
         _LOGGER.warning(
-            "better_thermostat %s: room temperature sensor %s unavailable for "
-            "%ss; controlling on the TRV internal temperature",
+            "better_thermostat %s: room temperature sensor %s has given no "
+            "usable reading for %ss; controlling on the TRV internal temperature",
             self.device_name,
             self.sensor_entity_id,
             ROOM_SENSOR_FALLBACK_DELAY_S,
@@ -311,6 +343,47 @@ def _schedule_room_sensor_fallback(self) -> None:
     self.room_sensor_fallback_cancel = async_call_later(
         self.hass, ROOM_SENSOR_FALLBACK_DELAY_S, _enter_fallback
     )
+
+
+async def _resume_room_sensor(self, temperature: float) -> None:
+    """Hand the room back to its sensor, which reports a usable reading again.
+
+    The TRV value only stood in for the sensor, so the reading takes over
+    without waiting for the debounce the sensor's readings otherwise go
+    through.
+    """
+    _cancel_room_sensor_fallback_timer(self)
+    self.room_sensor_fallback = False
+    _LOGGER.info(
+        "better_thermostat %s: room temperature sensor %s is back; "
+        "controlling on it again",
+        self.device_name,
+        self.sensor_entity_id,
+    )
+    await _apply_temperature_update(self, round(temperature, 2))
+
+
+async def reconcile_room_sensor(self) -> None:
+    """Bring the fallback in line with the room sensor's current state.
+
+    The sensor's state changes are only handled once startup has finished,
+    so a sensor that returned or dropped out while startup was still
+    running is caught up on here.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    """
+    reading = room_sensor_reading(
+        self.device_name, self.hass.states.get(self.sensor_entity_id)
+    )
+    if reading is None:
+        _schedule_room_sensor_fallback(self)
+    elif self.room_sensor_fallback:
+        await _resume_room_sensor(self, reading)
+    else:
+        _cancel_room_sensor_fallback_timer(self)
 
 
 async def _apply_temperature_update(self, new_temp):
@@ -497,20 +570,14 @@ async def trigger_temperature_change(self, event):
                 "value": str(new_state.state),
             },
         )
+        # A sensor that keeps sending unusable values is as lost as an
+        # unavailable one.
+        _schedule_room_sensor_fallback(self)
         return
 
     _cancel_room_sensor_fallback_timer(self)
-    if self.room_sensor_fallback:
-        # The TRV value only stood in for the sensor; its first valid
-        # reading takes over without waiting for the debounce below.
-        self.room_sensor_fallback = False
-        _LOGGER.info(
-            "better_thermostat %s: room temperature sensor %s is back; "
-            "controlling on it again",
-            self.device_name,
-            self.sensor_entity_id,
-        )
-        await _apply_temperature_update(self, _incoming_temperature_q)
+    if self.room_sensor_fallback and _incoming_temperature_q is not None:
+        await _resume_room_sensor(self, _incoming_temperature_q)
         return
 
     _now = dt_util.now()
