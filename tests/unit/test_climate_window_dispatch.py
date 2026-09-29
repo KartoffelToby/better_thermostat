@@ -46,7 +46,7 @@ def _patch_checks():
     """Patch the watcher helpers and the window handler coroutine."""
     return patch.multiple(
         CLIMATE_MOD,
-        check_critical_entities=AsyncMock(return_value=True),
+        check_critical_entities=AsyncMock(),
         check_and_update_degraded_mode=AsyncMock(),
         trigger_window_change=MagicMock(return_value=MagicMock()),
     )

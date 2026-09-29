@@ -92,7 +92,7 @@ async def test_already_in_maintenance_returns(bt):
     """A tick during an in-flight maintenance run does nothing."""
     bt.in_maintenance = True
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
@@ -104,7 +104,7 @@ async def test_not_due_yet_returns(bt):
     """When the next run is still in the future, the tick is a no-op."""
     bt.next_valve_maintenance = _NOW + timedelta(hours=2)
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
@@ -117,7 +117,7 @@ async def test_window_open_postpones_one_hour(bt):
     bt.window_open = True
     bt.contact_open = True
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
@@ -131,7 +131,7 @@ async def test_hvac_off_still_runs_maintenance(bt, mode_attr):
     """HVAC OFF does not postpone: a valve left shut over summer is the one that seizes."""
     setattr(bt, mode_attr, HVACMode.OFF)
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(
             f"{_CLIMATE}.collect_maintenance_trvs",
@@ -148,7 +148,7 @@ async def test_window_open_still_postpones_while_off(bt):
     bt.bt_hvac_mode = HVACMode.OFF
     bt.contact_open = True
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
     ):
         await BetterThermostat._maintenance_tick(bt)
@@ -160,7 +160,7 @@ async def test_window_open_still_postpones_while_off(bt):
 async def test_no_enabled_trvs_schedules_far_future(bt):
     """With no TRV enabled for maintenance, the next run is pushed out a week."""
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(f"{_CLIMATE}.collect_maintenance_trvs", MagicMock(return_value=[])),
     ):
@@ -190,7 +190,7 @@ async def test_schedule_resync_keeps_running_since(bt):
     )
     bt.next_valve_maintenance = _NOW
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(
             f"{_CLIMATE}.collect_maintenance_trvs",
@@ -207,7 +207,7 @@ async def test_schedule_resync_keeps_running_since(bt):
 async def test_due_and_enabled_dispatches_maintenance(bt):
     """When due, heating, window closed and TRVs enabled, maintenance is dispatched."""
     with (
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(
             f"{_CLIMATE}.collect_maintenance_trvs",
@@ -257,7 +257,7 @@ async def _run_finalize_startup(bt):
     """Run _finalize_startup with all external hooks patched."""
     with (
         patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),

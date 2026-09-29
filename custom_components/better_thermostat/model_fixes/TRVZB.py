@@ -17,6 +17,7 @@ from custom_components.better_thermostat.model_fixes.types import (
     ModelFixHost,
     ModelFixTrv,
 )
+from custom_components.better_thermostat.utils.helpers import is_sibling_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,6 +137,97 @@ _TK_OPENING = frozenset(
 _TK_CLOSING = frozenset({"valve_closing_degree"})
 
 
+def _valve_number_candidates(
+    self: ModelFixHost, entity_id: str
+) -> tuple[list[str], list[str], list[str]] | None:
+    """Collect the enabled valve number entities on the TRV's device.
+
+    Returns the opening, closing and generic candidates, in registry order,
+    or ``None`` when the TRV is no Sonoff model or has no registry entry.
+    """
+    model = str(self.real_trvs[entity_id].model or "")
+    # Only attempt for Sonoff TRVZB
+    if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve lookup skipped (model=%s)",
+            self.device_name,
+            model,
+        )
+        return None
+    entity_registry = er.async_get(self.hass)
+    reg_entity = entity_registry.async_get(entity_id)
+    if reg_entity is None:
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve lookup: no registry entity for %s",
+            self.device_name,
+            entity_id,
+        )
+        return None
+    device_id = reg_entity.device_id
+    opening_candidates: list[str] = []
+    closing_candidates: list[str] = []
+    generic_candidates: list[str] = []
+
+    for ent in entity_registry.entities.values():
+        if not is_sibling_entry(ent, device_id) or ent.domain != "number":
+            continue
+        # Prefer translation_key (stable, language-independent)
+        tk = getattr(ent, "translation_key", None)
+        if tk:
+            if tk in _TK_CLOSING:
+                closing_candidates.append(ent.entity_id)
+                continue
+            if tk in _TK_OPENING:
+                opening_candidates.append(ent.entity_id)
+                continue
+        # Fallback: string matching on entity_id / unique_id / original_name
+        en = (ent.entity_id or "").lower()
+        uid = (ent.unique_id or "").lower()
+        name = (getattr(ent, "original_name", None) or "").lower()
+        if (
+            "valve_opening_degree" in en
+            or "valve_opening_degree" in uid
+            or "valve opening degree" in name
+        ):
+            opening_candidates.append(ent.entity_id)
+            continue
+        if (
+            "valve_closing_degree" in en
+            or "valve_closing_degree" in uid
+            or "valve closing degree" in name
+        ):
+            closing_candidates.append(ent.entity_id)
+            continue
+        # Generic fallbacks
+        if (
+            "valve" in en
+            or "position" in en
+            or "opening" in en
+            or "degree" in en
+            or "valve" in uid
+            or "position" in uid
+            or "opening" in uid
+            or "degree" in uid
+            or "valve" in name
+            or "position" in name
+            or "opening" in name
+            or "degree" in name
+        ):
+            generic_candidates.append(ent.entity_id)
+    return opening_candidates, closing_candidates, generic_candidates
+
+
+def has_valve_channel(self: ModelFixHost, entity_id: str) -> bool:
+    """Whether the TRV's device carries an enabled number to write the valve to.
+
+    Without one, ``override_set_valve`` declines every position, and that
+    lasts until the user enables or adds such an entity, so the valve is
+    not pursued through this quirk meanwhile.
+    """
+    candidates = _valve_number_candidates(self, entity_id)
+    return candidates is not None and any(candidates)
+
+
 async def maybe_set_sonoff_valve_percent(
     self: ModelFixHost, entity_id: str, percent: int
 ) -> bool:
@@ -163,77 +255,10 @@ async def maybe_set_sonoff_valve_percent(
             number entity matched or the device refused one of the writes
     """
     try:
-        model = str(self.real_trvs[entity_id].model or "")
-        # Only attempt for Sonoff TRVZB
-        if not (
-            "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
-        ):
-            _LOGGER.debug(
-                "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent skipped (model=%s)",
-                self.device_name,
-                model,
-            )
+        candidates = _valve_number_candidates(self, entity_id)
+        if candidates is None:
             return False
-        entity_registry = er.async_get(self.hass)
-        reg_entity = entity_registry.async_get(entity_id)
-        if reg_entity is None:
-            _LOGGER.debug(
-                "better_thermostat %s: TRVZB maybe_set_sonoff_valve_percent: no registry entity for %s",
-                self.device_name,
-                entity_id,
-            )
-            return False
-        device_id = reg_entity.device_id
-        opening_candidates: list[str] = []
-        closing_candidates: list[str] = []
-        generic_candidates: list[str] = []
-
-        for ent in entity_registry.entities.values():
-            if ent.device_id != device_id or ent.domain != "number":
-                continue
-            # Prefer translation_key (stable, language-independent)
-            tk = getattr(ent, "translation_key", None)
-            if tk:
-                if tk in _TK_CLOSING:
-                    closing_candidates.append(ent.entity_id)
-                    continue
-                if tk in _TK_OPENING:
-                    opening_candidates.append(ent.entity_id)
-                    continue
-            # Fallback: string matching on entity_id / unique_id / original_name
-            en = (ent.entity_id or "").lower()
-            uid = (ent.unique_id or "").lower()
-            name = (getattr(ent, "original_name", None) or "").lower()
-            if (
-                "valve_opening_degree" in en
-                or "valve_opening_degree" in uid
-                or "valve opening degree" in name
-            ):
-                opening_candidates.append(ent.entity_id)
-                continue
-            if (
-                "valve_closing_degree" in en
-                or "valve_closing_degree" in uid
-                or "valve closing degree" in name
-            ):
-                closing_candidates.append(ent.entity_id)
-                continue
-            # Generic fallbacks
-            if (
-                "valve" in en
-                or "position" in en
-                or "opening" in en
-                or "degree" in en
-                or "valve" in uid
-                or "position" in uid
-                or "opening" in uid
-                or "degree" in uid
-                or "valve" in name
-                or "position" in name
-                or "opening" in name
-                or "degree" in name
-            ):
-                generic_candidates.append(ent.entity_id)
+        opening_candidates, closing_candidates, generic_candidates = candidates
 
         pct = max(0, min(100, int(percent)))
         _LOGGER.debug(
@@ -453,7 +478,7 @@ def _find_device_entity(
     device_id : str | None
         The device the sibling has to belong to. ``None`` is no device and
         matches nothing: every entity that belongs to no device would
-        otherwise be a candidate.
+        otherwise be a candidate. A disabled entry is no sibling either.
     domain : str
         The entity domain to search, ``number`` or ``select`` here.
     translation_keys : frozenset[str]
@@ -469,12 +494,10 @@ def _find_device_entity(
         first id fragment match when no sibling carries one of the keys, or
         ``None`` when the device has no such entity.
     """
-    if device_id is None:
-        return None
     siblings = [
         ent
         for ent in entity_registry.entities.values()
-        if ent.device_id == device_id and ent.domain == domain
+        if is_sibling_entry(ent, device_id) and ent.domain == domain
     ]
     for ent in siblings:
         if getattr(ent, "translation_key", None) in translation_keys:

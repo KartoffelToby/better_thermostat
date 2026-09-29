@@ -293,22 +293,23 @@ class TestCheckCriticalEntities:
     """Tests for check_critical_entities function."""
 
     @pytest.mark.asyncio
-    async def test_returns_true_when_all_trvs_available(self, mock_bt_instance):
-        """Test that True is returned when all TRVs are available."""
+    async def test_available_trvs_hold_no_error(self, mock_bt_instance):
+        """TRVs that answer are listed nowhere and raise no repair issue."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
 
-        with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_critical_entities(mock_bt_instance)
+        with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
+        assert mock_bt_instance.devices_errors == []
+        assert not mock_ir.async_create_issue.called
 
     @pytest.mark.asyncio
-    async def test_returns_false_when_trv_unavailable(self, mock_bt_instance):
-        """Test that False is returned when a TRV is unavailable."""
+    async def test_an_unavailable_trv_is_recorded_as_an_error(self, mock_bt_instance):
+        """An unavailable TRV lands in the error list."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
@@ -316,13 +317,14 @@ class TestCheckCriticalEntities:
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
 
     @pytest.mark.asyncio
-    async def test_returns_false_when_a_trv_reports_unknown(self, mock_bt_instance):
+    async def test_a_trv_reporting_unknown_is_recorded_as_an_error(
+        self, mock_bt_instance
+    ):
         """An entity saying nothing leaves its device unaccounted for."""
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
@@ -331,9 +333,11 @@ class TestCheckCriticalEntities:
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
+        assert sorted(mock_bt_instance.devices_errors) == sorted(
+            mock_bt_instance.real_trvs
+        )
 
     @pytest.mark.asyncio
     async def test_a_model_that_reports_unknown_while_driven_stays_available(
@@ -357,9 +361,8 @@ class TestCheckCriticalEntities:
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
         assert mock_bt_instance.devices_errors == []
         assert not mock_ir.async_create_issue.called
 
@@ -378,11 +381,12 @@ class TestCheckCriticalEntities:
         )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         assert len(mock_bt_instance.devices_errors) == 0
         assert not mock_ir.async_create_issue.called
+        # The TRVs still count as gone: no issue of theirs is cleared.
+        assert not mock_ir.async_delete_issue.called
 
     @pytest.mark.asyncio
     async def test_issue_after_grace_expires(self, mock_bt_instance):
@@ -400,9 +404,8 @@ class TestCheckCriticalEntities:
         )
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         assert len(mock_bt_instance.devices_errors) > 0
         assert mock_ir.async_create_issue.called
 
@@ -455,9 +458,8 @@ class TestCheckCriticalEntities:
         mock_bt_instance.devices_errors = ["climate.trv_1", "climate.trv_2"]
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
         assert len(mock_bt_instance.devices_errors) == 0
         # Issue must be deleted for each recovered TRV
         assert mock_ir.async_delete_issue.call_count == 2
@@ -475,9 +477,8 @@ class TestCheckCriticalEntities:
         mock_bt_instance.devices_errors = []
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
         # delete is called idempotently for every available entity
         assert mock_ir.async_delete_issue.call_count == 2
 
@@ -501,9 +502,8 @@ class TestCheckCriticalEntities:
         mock_bt_instance.devices_errors = ["climate.trv_2"]
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is False
         # trv_1 (unavailable) added to errors and issue created
         assert "climate.trv_1" in mock_bt_instance.devices_errors
         # trv_2 (available) recovered — removed from errors and issue deleted
@@ -624,6 +624,24 @@ class TestGetBatteryStatus:
         get_battery_status(bt, self.TRV)
 
         assert bt.devices_states[self.TRV]["battery"] is None
+
+    @pytest.mark.parametrize(
+        "devices_states",
+        [{}, {TRV: {"battery": None}}],
+        ids=["device_not_mapped", "no_battery_entity"],
+    )
+    def test_a_device_without_a_battery_entity_reads_nothing(
+        self, mock_bt_instance, devices_states
+    ):
+        """A device with no battery entity mapped to it has nothing to read."""
+        from custom_components.better_thermostat.utils.watcher import get_battery_status
+
+        mock_bt_instance.devices_states = devices_states
+
+        get_battery_status(mock_bt_instance, self.TRV)
+
+        mock_bt_instance.hass.states.get.assert_not_called()
+        mock_bt_instance.async_write_ha_state.assert_not_called()
 
     def test_a_battery_entity_without_a_level_yet_leaves_the_reading_unset(
         self, mock_bt_instance
@@ -1295,7 +1313,7 @@ class TestCoolerDegradedMode:
         """The cooler stays out of the repair path that reports lost control.
 
         ``check_critical_entities`` reads the TRVs only; a dead cooler
-        neither fails that check nor raises a ``missing_entity`` repair.
+        raises no ``missing_entity`` repair.
         """
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
@@ -1308,9 +1326,9 @@ class TestCoolerDegradedMode:
         assert self.COOLER not in get_critical_entities(mock_bt_instance)
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:
-            result = await check_critical_entities(mock_bt_instance)
+            await check_critical_entities(mock_bt_instance)
 
-        assert result is True
+        assert mock_bt_instance.devices_errors == []
         assert not mock_ir.async_create_issue.called
 
 
@@ -1931,9 +1949,8 @@ class TestBatteryStatusCalls:
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
             ) as read_battery:
-                result = await check_critical_entities(mock_bt_instance)
+                await check_critical_entities(mock_bt_instance)
 
-                assert result is True
                 # Should be called for each available TRV (2 TRVs in fixture)
                 assert read_battery.call_count == 2
 
@@ -1952,8 +1969,7 @@ class TestBatteryStatusCalls:
             with patch(
                 "custom_components.better_thermostat.utils.watcher.get_battery_status"
             ) as read_battery:
-                result = await check_critical_entities(mock_bt_instance)
+                await check_critical_entities(mock_bt_instance)
 
-                assert result is False
                 # Should not be called for unavailable TRVs
                 read_battery.assert_not_called()

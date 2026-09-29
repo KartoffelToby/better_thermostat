@@ -9,6 +9,7 @@ instances of this class, accessed via typed attributes.
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -152,9 +154,10 @@ class Trv:
     # confirms is read as an echo as well; that is the price of telling a
     # held write from a press.
     pending_setpoints: list[PendingSetpoint] = field(default_factory=list)
-    # The id the last setpoint write went out under. A watchdog records it at
-    # the start of its wait so the confirmation retires that command and the
-    # ones before it, never a write made while the wait ran.
+    # The id the last setpoint write went out under. Each write's watchdog
+    # holds the id of its own write, so the confirmation retires that command
+    # and the ones before it, never a write made while the wait ran, and a
+    # watchdog whose id is no longer the last one has been superseded.
     last_setpoint_write_id: int = 0
     # The highest write id a confirmation has already covered. Handing a
     # shared device over releases the heating channel's pending confirmation
@@ -163,6 +166,27 @@ class Trv:
     confirmed_write_id: int = 0
     last_valve_position: float | None = None
     last_hvac_mode: str | None = None
+    # A mode command still on the wire that the room took back before the
+    # device confirmed it. The device already held the mode the room wanted
+    # again, so no newer command went out to replace it, and a slow device
+    # may still apply it. Its report is Better Thermostat's own command
+    # landing late, not a press at the device, until the monotonic deadline
+    # beside it: a device gets as long to apply it as the mode watchdog gives
+    # any command, and a report after that is the user's again.
+    withdrawn_hvac_mode: str | None = None
+    withdrawn_hvac_mode_until: float | None = None
+    # Whether the device reported something while a control cycle held the
+    # inbound handler off. The end of the cycle reads the device's state then,
+    # before a later cycle can write over a press nobody has read.
+    report_unread: bool = False
+    # The state the first of those held reports replaced. The end of the cycle
+    # judges the device's state against it, so a device that came back from
+    # ``unavailable`` inside the cycle is read as a return, not as a press.
+    state_before_held_report: State | None = None
+    # A held report whose internal temperature was taken while the cycle ran.
+    # The value is applied as it arrives, so reading the report again at the
+    # end of the cycle finds nothing new; this is what still asks for a cycle.
+    temperature_moved_while_held: bool = False
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
@@ -182,15 +206,23 @@ class Trv:
     last_write_monotonic: float | None = None
     last_offset_write_monotonic: float | None = None
     last_valve_write_monotonic: float | None = None
-    # Whether a follow-up control cycle is already scheduled for a
-    # budget-deferred setpoint write.
-    budget_retry_pending: bool = False
+    # Monotonic time the follow-up control cycle for a budget-deferred
+    # write is due at, and the task sleeping until then; None when no
+    # retry is scheduled.
+    budget_retry_due_at: float | None = None
+    budget_retry_task: asyncio.Task[None] | None = field(
+        default=None, repr=False, compare=False
+    )
     # Whether a follow-up control cycle is already scheduled for this
     # TRV's next reachability-retry window.
     reachability_retry_pending: bool = False
     # Outbound HVAC modes already annunciated as not offered by this
     # device, so the error is logged once per mode instead of per cycle.
     unsupported_modes_logged: set[str] = field(default_factory=set)
+    # Helper entities (calibration, valve) already annunciated as disabled
+    # in Home Assistant, so the warning is logged once per entity while it
+    # stays disabled instead of per lookup or write.
+    disabled_siblings_logged: set[str] = field(default_factory=set)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
@@ -211,6 +243,11 @@ class Trv:
     # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
     # bump sequencing) without widening the typed surface.
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def budget_retry_pending(self) -> bool:
+        """Whether a follow-up control cycle is scheduled for a deferred write."""
+        return self.budget_retry_due_at is not None
 
     def consume_accept_next_internal_temp(self) -> bool:
         """Return and clear the one-shot accept-next-internal-temp flag.
@@ -275,11 +312,10 @@ class Trv:
         The device holds ``value`` now, so the writes through
         ``through_write_id`` cannot come back. The caller passes the command
         it waited on rather than the current ``last_temperature``, which
-        another task may have moved on to. Only one write is watched at a
-        time, so a write made while the wait ran carries a higher id and is
-        still on the wire; it stays. Matching on the id rather than the value
-        keeps a command that was sent again after the awaited one from
-        retiring the writes between them.
+        another task may have moved on to. A write made while the wait ran
+        carries a higher id and is still on the wire; it stays. Matching on
+        the id rather than the value keeps a command that was sent again
+        after the awaited one from retiring the writes between them.
 
         Parameters
         ----------

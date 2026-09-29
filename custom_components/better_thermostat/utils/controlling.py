@@ -11,16 +11,29 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
-from homeassistant.core import HomeAssistant, State
+from homeassistant.const import (
+    EVENT_STATE_CHANGED,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    UnitOfTemperature,
+)
+from homeassistant.core import (
+    Context,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+)
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
+    calibration_entity_disabled,
     get_current_offset,
     set_hvac_mode,
     set_offset,
     set_temperature,
     set_valve,
+    valve_channel_available,
 )
 from custom_components.better_thermostat.core.decide import decide, is_boost_heating
 from custom_components.better_thermostat.core.desired import DesiredState, TrvDesired
@@ -31,13 +44,18 @@ from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
 )
-from custom_components.better_thermostat.events.trv import convert_outbound_states
+from custom_components.better_thermostat.events.trv import (
+    convert_outbound_states,
+    trigger_trv_change,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     override_set_hvac_mode,
     override_set_temperature,
+    trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationType,
@@ -78,6 +96,11 @@ _LOGGER = logging.getLogger(__name__)
 # TRVs are battery- and radio-constrained; bursts of writes are a real
 # failure cause. Safety-relevant writes (frost floor, OFF) bypass this.
 MIN_WRITE_INTERVAL_S = 30.0
+# A HomematicIP head shares its access point's 1 % radio duty cycle (36 s of
+# airtime an hour) with every other HomematicIP device in the home, so it is
+# written at most once per ten minutes per channel, the interval its own
+# internal temperature is read at.
+HOMEMATICIP_MIN_WRITE_INTERVAL_S = 600.0
 # Device tolerance when comparing commanded vs reported setpoints.
 RECONCILE_TOLERANCE_K = 0.05
 # Floor for the commanded-vs-reported offset comparison. One declared offset
@@ -151,9 +174,32 @@ FAILED_CYCLE_BACKOFF_S = 2.0
 WRITE_CONFIRM_TIMEOUT_S = 360
 
 
-def _budget_open(last_write: float | None, now_monotonic: float) -> bool:
+def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
+    """Minimum spacing between non-safety writes to this TRV on ``channel``.
+
+    The first setpoint write after the user changed the room's target or
+    mode goes out at the normal pace on a HomematicIP head too: the user
+    expects the head to follow within the normal interval, and a flurry of
+    changes still coalesces on it. That write consumes the exemption.
+    """
+    if not (trv.advanced or {}).get(CONF_HOMEMATICIP):
+        return MIN_WRITE_INTERVAL_S
+    user_change = self.last_user_change_monotonic
+    last_write = trv.last_write_monotonic
+    if (
+        channel == "setpoint"
+        and user_change is not None
+        and (last_write is None or last_write < user_change)
+    ):
+        return MIN_WRITE_INTERVAL_S
+    return HOMEMATICIP_MIN_WRITE_INTERVAL_S
+
+
+def _budget_open(
+    last_write: float | None, now_monotonic: float, interval_s: float
+) -> bool:
     """Whether a channel's write-budget slot is free again."""
-    return last_write is None or now_monotonic - last_write >= MIN_WRITE_INTERVAL_S
+    return last_write is None or now_monotonic - last_write >= interval_s
 
 
 # Per-channel write-budget stamp fields on the Trv.
@@ -177,7 +223,9 @@ def _consume_budget(
     stamp_attr = _BUDGET_STAMPS[channel]
     now = self.clock.monotonic()
     last = getattr(trv, stamp_attr)
-    if not bypass and not _budget_open(last, now):
+    if not bypass and not _budget_open(
+        last, now, _write_interval_s(self, trv, channel)
+    ):
         _LOGGER.debug(
             "better_thermostat %s: write budget defers %s write to %s "
             "(%.0fs since last write)",
@@ -200,7 +248,7 @@ def _budget_remaining(self: BetterThermostat, entity_id: str, channel: str) -> f
         # Subtracting a monotonic clock from zero would yield a large
         # negative interval instead.
         return 0.0
-    return MIN_WRITE_INTERVAL_S - (self.clock.monotonic() - last)
+    return _write_interval_s(self, trv, channel) - (self.clock.monotonic() - last)
 
 
 def _no_off_system_mode(trv: Trv) -> bool:
@@ -222,20 +270,33 @@ def _schedule_budget_retry(
     compares the device against the last value actually written — which
     the device still matches — and configurations without a calibration
     tick have no other periodic trigger.
+
+    A retry already due no later than this one covers it. A retry due
+    later, such as one waiting out a HomematicIP head's interval when a
+    user change has since shortened it, is cancelled and replaced.
     """
     trv = self.real_trvs[entity_id]
-    if trv.budget_retry_pending:
+    delay = max(retry_in_s, 0.0)
+    due_at = self.clock.monotonic() + delay
+    if trv.budget_retry_due_at is not None and trv.budget_retry_due_at <= due_at:
         return
-    trv.budget_retry_pending = True
+    if trv.budget_retry_task is not None:
+        trv.budget_retry_task.cancel()
+    trv.budget_retry_due_at = due_at
 
     async def _retry() -> None:
         try:
-            await asyncio.sleep(max(retry_in_s, 0.0))
+            await asyncio.sleep(delay)
         finally:
-            trv.budget_retry_pending = False
+            # A replacement retry owns the bookkeeping from here on.
+            if trv.budget_retry_due_at == due_at:
+                trv.budget_retry_due_at = None
+                trv.budget_retry_task = None
         request_control_cycle(self)
 
-    self.task_manager.create_task(_retry(), name=f"bt_budget_retry_{entity_id}")
+    trv.budget_retry_task = self.task_manager.create_task(
+        _retry(), name=f"bt_budget_retry_{entity_id}"
+    )
 
 
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
@@ -675,23 +736,27 @@ def advance_hvac_action(self: BetterThermostat) -> None:
 
 
 def refresh_cached_trv_modes(self: BetterThermostat) -> None:
-    """Re-read the mode every TRV reports into its own cache.
+    """Settle every TRV's mode cache on what the handler has yet to read.
 
     ``Trv.hvac_mode`` holds the raw state string a device publishes, and the
     inbound event handler is its only other writer. That handler stands down
     for the whole length of a control cycle, and a cycle runs for seconds
-    while the adapters wait for their writes to be confirmed. A device that
-    changes mode inside that window leaves behind a cache naming a mode it no
-    longer holds, which would turn away every setpoint the user presses on it
-    as coming from a device that is off. The caller runs this at the end of
-    the cycle, before it releases ``ignore_states``, so the cache is out of
-    step only for as long as the handler is standing down.
+    while the adapters wait for their writes to be confirmed. The caller runs
+    this at the end of the cycle, before it releases ``ignore_states``.
 
-    The observational cache is the only thing that moves here. The mode of
-    the Better Thermostat entity stays where it is: a device mode reported
-    while the handler was standing down was not adopted as user intent, and
-    taking it into the entity at the end of the cycle would decide the room's
-    mode from a report nobody read.
+    A device reporting the mode Better Thermostat last commanded it into is
+    cached as holding it. A device reporting any other mode was changed at
+    the device while nobody listened, or has not yet taken the command. The
+    handler tells the two apart, and it only looks at a report whose mode
+    differs from the cache, so the cache is set to the commanded mode: the
+    device's next report then reaches the handler as the change it is, and
+    the handler's guards decide whether the room follows it. Caching the
+    reported mode instead would make that report read as no change, and the
+    next cycle would drive the device back out of a mode the user chose.
+
+    The mode of the Better Thermostat entity does not move here: a mode
+    reported while the handler was standing down is read as user intent on
+    the device's next report, not from a report nobody read.
 
     A device that says nothing, one that is unavailable or unknown, and one
     under a child lock keep the cache they have, which is how the event
@@ -708,17 +773,107 @@ def refresh_cached_trv_modes(self: BetterThermostat) -> None:
             continue
         if (trv.advanced or {}).get("child_lock"):
             continue
-        if trv.hvac_mode == state.state:
+        _settled_mode = state.state
+        if trv.last_hvac_mode is not None and state.state != trv.last_hvac_mode:
+            _settled_mode = trv.last_hvac_mode
+        if trv.hvac_mode == _settled_mode:
             continue
         _LOGGER.debug(
             "better_thermostat %s: TRV %s reports %s while its cached mode is "
-            "%s, taking the reported one",
+            "%s, caching %s",
             self.device_name,
             entity_id,
             state.state,
             trv.hvac_mode,
+            _settled_mode,
         )
-        trv.hvac_mode = state.state
+        trv.hvac_mode = _settled_mode
+
+
+async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
+    """Read what every TRV reported while the cycle held the handler off.
+
+    A setpoint turned at the device inside a cycle is otherwise read on the
+    device's next report, and a cycle that starts before that report, such
+    as the reconciler's, writes over the turn before anyone has read it. The
+    caller runs this right after it releases ``ignore_states`` and before it
+    takes the next cycle, so each TRV that reported meanwhile has its current
+    state read by the inbound handler as a report of its own. That report
+    replaces the state the first held report replaced, so a device that came
+    back from ``unavailable`` inside the cycle is read as a return, the way
+    the handler reads it outside a cycle, and not as a setpoint turned at the
+    device.
+
+    The mode such a state carries is read the same way, unless a mode
+    command to the device is still unconfirmed. The handler declines a mode
+    then, and reading it would take it into the cache and let the report
+    that could adopt it once the command is settled pass as no change; it is
+    left to the device's next report, the way ``refresh_cached_trv_modes``
+    settled it. A device that is unavailable has nothing to read, and so has
+    one reporting ``unknown`` unless its model reads that as operating, the
+    way the handler reads it.
+
+    A control cycle is requested only when the report moved what the next
+    cycle acts on: the room's targets or mode, the mode the device is known
+    to hold, or the internal temperature it reported while the cycle ran,
+    which the handler takes as it arrives, as it does outside a cycle. A
+    device answering inside every cycle with a report that carries nothing
+    new would otherwise keep one cycle following the next.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    """
+    for entity_id, trv in list(self.real_trvs.items()):
+        if not trv.report_unread:
+            continue
+        trv.report_unread = False
+        previous = trv.state_before_held_report
+        trv.state_before_held_report = None
+        temperature_moved = trv.temperature_moved_while_held
+        trv.temperature_moved_while_held = False
+        state = self.hass.states.get(entity_id)
+        if trv_report_is_unreadable(self, entity_id, state):
+            continue
+        held_report = Event(
+            EVENT_STATE_CHANGED,
+            EventStateChangedData(
+                entity_id=entity_id, old_state=previous, new_state=state
+            ),
+            context=Context(),
+        )
+        acted_on_before = _held_report_control_inputs(self, trv)
+        try:
+            await trigger_trv_change(
+                self,
+                held_report,
+                mode_settled=trv.system_mode_received is False,
+                request_cycle=False,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "better_thermostat %s: reading the report TRV %s sent during the "
+                "cycle failed",
+                self.device_name,
+                entity_id,
+            )
+            continue
+        if (
+            temperature_moved
+            or _held_report_control_inputs(self, trv) != acted_on_before
+        ):
+            request_control_cycle(self)
+
+
+def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, ...]:
+    """Return what a report read at cycle end can move that a cycle acts on."""
+    return (
+        self.bt_target_temp,
+        self.bt_target_cooltemp,
+        self.bt_hvac_mode,
+        trv.hvac_mode,
+    )
 
 
 async def control_queue(self: BetterThermostat) -> None:
@@ -882,10 +1037,12 @@ async def control_queue(self: BetterThermostat) -> None:
                         if not getattr(self, "in_maintenance", False):
                             # The inbound handler stood down for the whole
                             # cycle, so a mode a device reported meanwhile
-                            # never reached its cache. Read the reports back
-                            # before the window closes.
+                            # never reached it. Settle the caches before the
+                            # window closes, so the device's next report is
+                            # read as the change it carries.
                             refresh_cached_trv_modes(self)
                             self.ignore_states = False
+                            await read_reports_held_during_cycle(self)
 
                 finally:
                     # One acknowledgement per item taken, including an item that
@@ -1617,6 +1774,12 @@ async def control_trv(
                     valve_settings, _source = _get_valve_control(
                         self, snapshot, entity_id, _calibration_mode, _calibration_type
                     )
+                # A valve with no channel to write through is not pursued,
+                # and no retry is scheduled for it, until one appears.
+                if valve_settings is not None and not valve_channel_available(
+                    self, entity_id
+                ):
+                    valve_settings = None
                 if valve_settings is not None:
                     target_pct = int(round(valve_settings.get("valve_percent", 0)))
                     target_pct = int(
@@ -1728,12 +1891,11 @@ async def control_trv(
                             _reset_pct,
                             entity_id,
                         )
-                        # The budget slot is stamped but the valve never moved;
-                        # re-derive on the catch-up cycle so the reset is not
-                        # dropped permanently.
-                        _schedule_budget_retry(
-                            self, entity_id, _budget_remaining(self, entity_id, "valve")
-                        )
+                        # The valve never moved; re-derive on a catch-up cycle
+                        # so the reset is not dropped permanently. The reset
+                        # bypasses the budget, so the retry keeps the normal
+                        # spacing instead of a HomematicIP head's interval.
+                        _schedule_budget_retry(self, entity_id, MIN_WRITE_INTERVAL_S)
 
             # Manage TRVs with no HVACMode.OFF
             _trv_has_no_off = _no_off_system_mode(self.real_trvs[entity_id])
@@ -1758,6 +1920,24 @@ async def control_trv(
             ):
                 _live_trv = _trv
             _reported_hvac_mode = _live_trv.state
+            _mode_trv = self.real_trvs[entity_id]
+            if (
+                _new_hvac_mode is not None
+                and _new_hvac_mode == _reported_hvac_mode
+                and _mode_trv.last_hvac_mode != _new_hvac_mode
+            ):
+                # The device already holds the mode the room wants, so an
+                # earlier command for another mode is no longer the one to
+                # wait for: the mode watchdog ends on the mode the device
+                # holds instead of holding the channel until its timeout.
+                # An unconfirmed command stays on the wire, and a slow device
+                # may still apply it, so it is remembered as withdrawn.
+                if _mode_trv.system_mode_received is False:
+                    _mode_trv.withdrawn_hvac_mode = _mode_trv.last_hvac_mode
+                    _mode_trv.withdrawn_hvac_mode_until = (
+                        self.clock.monotonic() + WRITE_CONFIRM_TIMEOUT_S
+                    )
+                _mode_trv.last_hvac_mode = _new_hvac_mode
             if (
                 _new_hvac_mode is not None
                 and _new_hvac_mode != _reported_hvac_mode
@@ -1774,6 +1954,8 @@ async def control_trv(
                     _new_hvac_mode,
                 )
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
+                self.real_trvs[entity_id].withdrawn_hvac_mode = None
+                self.real_trvs[entity_id].withdrawn_hvac_mode_until = None
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, entity_id, _new_hvac_mode
                 )
@@ -1791,6 +1973,9 @@ async def control_trv(
                 _calibration is not None
                 and _new_hvac_mode != HVACMode.OFF
                 and _calibration_mode != CalibrationMode.NO_CALIBRATION
+                # A disabled calibration entity is no offset channel: the
+                # offset is not pursued until it is enabled again.
+                and not calibration_entity_disabled(self, entity_id)
             ):
                 _current_calibration_s = await get_current_offset(self, entity_id)
 
@@ -1951,12 +2136,20 @@ async def control_trv(
                         # maintenance drives the device through the delegate
                         # and nothing confirms those writes.
                         trv.remember_setpoint_written(trv.last_temperature)
-                        if trv.target_temp_received is True:
-                            trv.target_temp_received = False
-                            self.task_manager.create_task(
-                                check_target_temperature(self, entity_id),
-                                name=f"bt_check_target_temp_{entity_id}",
-                            )
+                        # Every write is watched on its own: a watchdog still
+                        # waiting on an earlier write steps aside for this one
+                        # rather than holding the channel for a command the
+                        # device may never report.
+                        trv.target_temp_received = False
+                        self.task_manager.create_task(
+                            check_target_temperature(
+                                self,
+                                entity_id,
+                                trv.last_setpoint_write_id,
+                                trv.last_temperature,
+                            ),
+                            name=f"bt_check_target_temp_{entity_id}",
+                        )
                     else:
                         # A deferred setpoint re-derives on the catch-up cycle
                         # once the slot is free again. Falling through to the
@@ -2045,19 +2238,28 @@ async def check_system_mode(self: BetterThermostat, entity_id: str) -> bool:
     return True
 
 
-async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bool:
+async def check_target_temperature(
+    self: BetterThermostat, entity_id: str, write_id: int, setpoint: float | None
+) -> bool:
     """Wait for TRV to confirm target temperature change, timeout after 6 minutes.
 
     Polls the TRV's temperature (and target_temp_low, when range mode is
     supported) attribute every second until either matches the awaited
     command within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
-    target_temp_received flag when complete. The command is read once at
-    entry: valve maintenance writes through the same delegate and moves
-    ``last_temperature`` on without going through the control path, so a
-    maintenance value must not be able to confirm a control write. The id
-    that command went out under is read with it, so the confirmation retires
-    that write and the ones before it and leaves anything written while the
-    wait ran. An unreadable setpoint ends the wait without confirming one.
+    target_temp_received flag when complete. The command is fixed when the
+    watchdog is started: valve maintenance writes through the same delegate
+    and moves ``last_temperature`` on without going through the control
+    path, so a maintenance value must not be able to confirm a control
+    write. The id that command went out under is fixed with it, so the
+    confirmation retires that write and the ones before it and leaves
+    anything written while the wait ran. An unreadable setpoint ends the
+    wait without confirming one.
+
+    Each control write starts a watchdog of its own. Once a newer write has
+    gone out, this one no longer speaks for the channel: it still records a
+    report of its own command as confirmed, but otherwise ends without
+    waiting for the timeout, and only the watchdog of the newest write
+    releases ``target_temp_received``.
 
     Parameters
     ----------
@@ -2065,6 +2267,10 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
         The Better Thermostat climate entity instance
     entity_id : str
         Entity ID of the TRV to check
+    write_id : int
+        Id of the write this watchdog was started for
+    setpoint : float | None
+        The value that write sent, in °C
 
     Returns
     -------
@@ -2073,8 +2279,8 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
     """
     _timeout = 0
     trv = self.real_trvs[entity_id]
-    _awaited_setpoint = trv.last_temperature
-    _awaited_write_id = trv.last_setpoint_write_id
+    _awaited_setpoint = setpoint
+    _awaited_write_id = write_id
     state_unknown_as_available = trv_state_unknown_as_available(self, entity_id)
     while True:
         _trv_state = self.hass.states.get(entity_id)
@@ -2114,6 +2320,14 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
             trv.remember_setpoint_confirmed(_awaited_setpoint, _awaited_write_id)
             _timeout = 0
             break
+        if trv.last_setpoint_write_id != _awaited_write_id:
+            _LOGGER.debug(
+                "better_thermostat %s: a newer setpoint write superseded the one "
+                "%s was being watched for, leaving the channel to its watchdog",
+                self.device_name,
+                entity_id,
+            )
+            return True
         if _timeout > WRITE_CONFIRM_TIMEOUT_S:
             _LOGGER.warning(
                 "better_thermostat %s: TRV %s did not confirm the target temperature "
@@ -2130,7 +2344,8 @@ async def check_target_temperature(self: BetterThermostat, entity_id: str) -> bo
         _timeout += 1
     await asyncio.sleep(2)
 
-    trv.target_temp_received = True
+    if trv.last_setpoint_write_id == _awaited_write_id:
+        trv.target_temp_received = True
     return True
 
 
