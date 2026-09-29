@@ -208,10 +208,12 @@ class MpcV2Controller:
             self._next_mpc_t_s = t_s
             self._initialised = True
 
+        self._forget_stamps_ahead_of_the_clock(t_s)
         dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
         if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
-            # Forward-only: a non-positive dt_s (backward time jump) or a step
-            # below the minimum reuses the previous state and must NOT advance
+            # Stamps a second or more ahead of the clock are gone by now, so
+            # this sees only a repeat less than 1 s before or after the last
+            # cycle. It reuses the previous state and must NOT advance
             # _last_t_s, otherwise a stale timestamp would reach dob.update.
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
@@ -268,6 +270,27 @@ class MpcV2Controller:
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    def _forget_stamps_ahead_of_the_clock(self, t_s: float) -> None:
+        """Drop the stored stamps when the last cycle lies ahead of the clock.
+
+        A stamp less than ``MIN_STEP_DT_S`` ahead counts as a repeat of the
+        last cycle and stays.
+
+        The stamps are read from the wall clock, which can step back (a time
+        sync, a host with a wrong clock at boot). A stamp from before the step
+        lies in the future of every cycle after it, so the interval since it
+        comes out negative and the cycle would repeat the last command until
+        the clock catches up. The stamps then count as absent and the next
+        cycle runs as a first cycle does: the observer advances by one plant
+        step, the plan is due now and starts without a preceding control
+        interval. The stamp of the last plan needs no reset: the interval
+        measured from it is floored at zero and the plan replaces it. The
+        estimates, the error integral and the command history are kept.
+        """
+        if self._last_t_s - t_s >= MIN_STEP_DT_S:
+            self._last_t_s = 0.0
+            self._next_mpc_t_s = -1.0
 
     def export_snapshot(self) -> ControllerSnapshot:
         """Return a typed snapshot of the controller state for persistence."""

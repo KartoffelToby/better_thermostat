@@ -39,7 +39,8 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Type de calibrage",
           "calibration_mode": "Mode de calibrage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place",
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
@@ -63,7 +64,9 @@
     },
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
-      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant"
+      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant",
+      "already_configured": "Un Better Thermostat portant ce nom contrôle déjà ces thermostats.",
+      "trv_in_use": "{trv} est déjà contrôlé par le Better Thermostat {entry}. Un thermostat ne peut appartenir qu’à un seul Better Thermostat ; retirez-le d’abord de celui-ci."
     }
   },
   "options": {
@@ -93,7 +96,8 @@
           "calibration": "Le type de calibrage",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "cooler": "Le dispositif de refroidissement (optionnel)"
         },
         "data_description": {
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
@@ -109,7 +113,8 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Le type de calibrage que vous souhaitez utiliser",
           "calibration_mode": "Mode de calibrage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place",
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
@@ -120,7 +125,9 @@
     },
     "error": {
       "no_heater": "Veuillez sélectionner au moins un vrai thermostat.",
-      "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale."
+      "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale.",
+      "no_sensor": "Veuillez sélectionner un capteur de température ambiante.",
+      "trv_in_use": "{trv} est déjà contrôlé par le Better Thermostat {entry}. Un thermostat ne peut appartenir qu’à un seul Better Thermostat."
     }
   },
   "issues": {
@@ -150,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - température extérieure invalide",
       "description": "Le capteur de température extérieure pour Better Thermostat {name} a signalé une valeur invraisemblable : {value}.\n\nLa lecture était en dehors de la plage plausible et a été ignorée. Veuillez vérifier la configuration de votre capteur de température."
+    },
+    "shared_trv": {
+      "title": "BT : {trv} est contrôlé par plusieurs Better Thermostat",
+      "description": "Le thermostat {trv} appartient à ces Better Thermostat : {entries}. Ils lui envoient des consignes et des modes concurrents. Retirez-le de tous sauf un dans leurs paramètres ; ce problème disparaît ensuite de lui-même."
     }
   },
   "services": {
@@ -438,6 +449,7 @@
           "window_close": "chauffage repris car une fenêtre a été fermée",
           "summer_mode_on": "éteint car la température extérieure est trop élevée",
           "summer_mode_off": "chauffage repris car la température extérieure a baissé",
+          "weather_forecast_missing": "chauffage repris car les prévisions météo sont indisponibles",
           "degraded_mode_entered": "est entré en mode dégradé car certains capteurs sont indisponibles",
           "degraded_mode_resolved": "a quitté le mode dégradé car tous les capteurs sont disponibles",
           "door_open": "éteint parce qu'une porte a été ouverte",

@@ -134,7 +134,7 @@ class TestPresetCoolNumber:
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
         bt_climate.bt_target_cooltemp = 24.0
-        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
         bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
 
@@ -160,7 +160,7 @@ class TestPresetCoolNumber:
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
         bt_climate.bt_target_cooltemp = 24.0
-        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
         bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
 
@@ -196,7 +196,7 @@ class TestPresetCoolNumber:
         bt_climate.hvac_mode = HVACMode.HEAT_COOL
         bt_climate.bt_target_temp = 30.0
         bt_climate.bt_target_cooltemp = 30.0
-        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 30.0}
         bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
         bt_climate._enforce_cool_above_heat.side_effect = lambda **kwargs: (
