@@ -24,6 +24,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
     reconcile_tick,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -373,18 +374,29 @@ class TestBudgetRetry:
     the device still matches.
     """
 
-    def _capture_tasks(self, bt):
+    def _capture_retries(self, bt):
+        """Collect the budget retries the cycles schedule.
+
+        Every setpoint that goes out also starts a confirmation watchdog;
+        those are closed unrun, since only the retries are under test.
+        """
         captured = []
-        bt.task_manager.create_task = Mock(
-            side_effect=lambda coro, name=None: captured.append((coro, name)) or Mock()
-        )
+
+        def _create_task(coro, name=None):
+            if name is not None and "budget_retry" in name:
+                captured.append((coro, name))
+            else:
+                coro.close()
+            return Mock()
+
+        bt.task_manager.create_task = Mock(side_effect=_create_task)
         return captured
 
     @pytest.mark.asyncio
     async def test_deferred_write_schedules_a_retry_cycle(self):
         """The deferred setpoint is re-requested when the budget reopens."""
         bt = _control_bt()
-        captured = self._capture_tasks(bt)
+        captured = self._capture_retries(bt)
         await _run_setpoint_cycle(bt, target=22.0)
         assert captured == []
 
@@ -404,7 +416,7 @@ class TestBudgetRetry:
     async def test_repeated_defers_schedule_only_one_retry(self):
         """Back-to-back defers coalesce into a single pending retry."""
         bt = _control_bt()
-        captured = self._capture_tasks(bt)
+        captured = self._capture_retries(bt)
         await _run_setpoint_cycle(bt, target=22.0)
         bt.clock.advance(5.0)
         await _run_setpoint_cycle(bt, target=23.0)
@@ -739,6 +751,16 @@ class TestOffsetReconcileHandoff:
     written, with the same tolerance, so a queued cycle is not a no-op
     that leaves the tick re-queueing forever.
     """
+
+    @pytest.fixture(autouse=True)
+    def _offset_entity_registered_and_enabled(self):
+        """The registry holds the calibration number as an enabled entry."""
+        registry = make_entity_registry(make_registry_entry("number.offset"))
+        with patch(
+            "custom_components.better_thermostat.utils.helpers.er.async_get",
+            return_value=registry,
+        ):
+            yield
 
     def _diverged_offset_bt(self):
         bt = _control_bt()

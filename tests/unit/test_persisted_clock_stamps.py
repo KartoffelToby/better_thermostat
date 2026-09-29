@@ -20,8 +20,6 @@ import re
 from typing import get_args, get_type_hints
 from unittest.mock import patch
 
-import pytest
-
 from custom_components.better_thermostat.utils.calibration import mpc as mpc_module
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
@@ -44,6 +42,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
     compute_pid,
+    observe_standby,
     sanitize_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
@@ -174,11 +173,6 @@ def _state_at_shutdown(**overrides) -> PIDState:
     return state
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a hold stamp from the previous uptime lies in the future after a "
-    "host reboot, so the hold gate keeps the output at the stored percent",
-)
 def test_output_follows_the_controller_on_the_first_cycle_after_a_host_reboot():
     """The first cycle after a host reboot puts out what the controller asks.
 
@@ -193,6 +187,23 @@ def test_output_follows_the_controller_on_the_first_cycle_after_a_host_reboot():
     assert debug["hold_time_rem"] <= params.min_hold_time_s
     assert percent == round(debug["u"])
     assert percent != 40
+
+
+def test_hold_and_tuning_stamps_ahead_of_the_clock_reset_on_their_own():
+    """A hold or tuning stamp from the previous uptime is dropped by itself.
+
+    The measurement stamp can be missing from the store while the other
+    two survive; each stamp that lies ahead of the clock is from the
+    previous uptime whatever the others hold.
+    """
+    params = PIDParams(auto_tune=False)
+    state = _restored_after_reboot(_state_at_shutdown(pid_last_time=0.0))
+
+    percent, debug, state = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S, room=20.8)
+
+    assert percent == round(debug["u"])
+    assert percent != 40
+    assert state.last_tune_ts == 0.0
 
 
 def test_output_is_held_within_the_hold_time_after_a_core_restart():
@@ -210,12 +221,6 @@ def test_output_is_held_within_the_hold_time_after_a_core_restart():
     assert 0 < debug["hold_time_rem"] <= params.min_hold_time_s
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a measurement stamp from the previous uptime lies in the future "
-    "after a host reboot, and the derivative divides the drift over the "
-    "downtime by one second",
-)
 def test_derivative_does_not_read_the_downtime_drift_as_a_one_second_change():
     """The derivative after a host reboot is no larger than after any gap.
 
@@ -244,6 +249,64 @@ def test_derivative_after_a_core_restart_spreads_the_drift_over_the_gap():
     assert abs(debug["d"]) <= params.kd * 0.3 / 240.0
 
 
+def test_standby_after_a_host_reboot_keeps_tracking_the_room():
+    """A standby observation after a host reboot starts the measurement chain.
+
+    While a window is open the controller only follows the room. The
+    first cycle after the window closes measures its gap from that
+    observation, as it does within one uptime.
+    """
+    params = PIDParams(auto_tune=False)
+    state = _restored_after_reboot(_state_at_shutdown())
+
+    state = observe_standby(params, state, 20.6, now=_UPTIME_AFTER_REBOOT_S)
+    _, debug, _ = _cycle(params, state, now=_UPTIME_AFTER_REBOOT_S + 60.0, room=20.6)
+
+    assert debug["dt_s"] == 60.0
+    assert state.last_tune_ts == 0.0
+
+
+def test_auto_tune_reads_no_overshoot_across_a_host_reboot():
+    """The error before a reboot and the first one after it form no pair.
+
+    The room was well below target at shutdown and reached it while the
+    host was down. Auto-tune reads an overshoot from two errors of
+    consecutive cycles; across the downtime they are not, so the first
+    cycle after the reboot leaves the proportional and derivative gains.
+    """
+    params = PIDParams(auto_tune=True, min_hold_time_s=0.0)
+    state = _restored_after_reboot(_state_at_shutdown(last_abs_error=1.0))
+    first_cycle_s = params.tune_min_interval_s + 60.0
+
+    _, _, state = _cycle(params, state, now=first_cycle_s, room=21.0)
+
+    assert (state.pid_kp, state.pid_kd) == (60.0, 2000.0)
+
+
+def test_integrator_relief_reads_no_setpoint_crossing_across_a_host_reboot():
+    """A room that crossed the setpoint while the host was down keeps its integral.
+
+    The relief answers a sign change of the error between consecutive
+    cycles. The error before the reboot and the first one after it are
+    not consecutive, so the first cycle integrates as from a fresh start.
+    """
+    params = PIDParams(auto_tune=False, min_hold_time_s=0.0)
+    below_at_shutdown = _restored_after_reboot(_state_at_shutdown(last_error_sign=1))
+    no_sign_at_shutdown = _restored_after_reboot(
+        _state_at_shutdown(last_error_sign=None)
+    )
+
+    _, after_crossing, _ = _cycle(
+        params, below_at_shutdown, now=_UPTIME_AFTER_REBOOT_S, room=21.05
+    )
+    _, fresh, _ = _cycle(
+        params, no_sign_at_shutdown, now=_UPTIME_AFTER_REBOOT_S, room=21.05
+    )
+
+    assert after_crossing["i_relief"] is False
+    assert after_crossing["i"] == fresh["i"]
+
+
 def _tuning_cycles(start_s: float) -> PIDState:
     """Run a sluggish room for three cycles from ``start_s`` and return the state.
 
@@ -257,11 +320,6 @@ def _tuning_cycles(start_s: float) -> PIDState:
     return state
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a tuning stamp from the previous uptime lies in the future after a "
-    "host reboot, so the tuning interval never elapses",
-)
 def test_auto_tune_resumes_within_the_first_cycles_after_a_host_reboot():
     """Auto-tune answers a sluggish room within the first cycles after a reboot.
 
@@ -372,3 +430,73 @@ def test_mpc_v2_stamps_are_read_from_the_wall_clock():
     snapshot = payload["snapshot"]
     for name in _wall_fields(ControllerSnapshot):
         assert _WALL_START_S <= snapshot[name] <= _WALL_START_S + 3600.0, name
+
+
+# -- Wall-clock stamps: a step back of the wall clock -------------------------
+
+_WALL_STEP_BACK_S = 4 * 3600.0
+"""How far the wall clock steps back, in seconds."""
+
+
+def _mpc_cycle(state: MpcState, wall_s: float, room: float) -> tuple[int, MpcState]:
+    """Run one MPC cycle at the wall-clock reading ``wall_s``."""
+    inp = MpcInput(
+        key="k",
+        target_temp_C=21.0,
+        current_temp_C=room,
+        trv_temp_C=22.0,
+        temp_slope_K_per_min=0.0,
+        outdoor_temp_C=5.0,
+    )
+    with patch.object(mpc_module, "time", return_value=wall_s):
+        out, state = compute_mpc(inp, MpcParams(), state=state, all_states={})
+    assert out is not None
+    return out.valve_percent, state
+
+
+def test_every_mpc_stamp_ahead_of_the_clock_is_taken_as_absent():
+    """No MPC stamp stays ahead of the wall clock after a cycle.
+
+    Every classified wall-clock stamp starts a day in the future, as after
+    the clock stepped back; one cycle later none lies ahead of the clock.
+    """
+    ahead = _WALL_START_S + 86400.0
+    state = MpcState(last_percent=100.0, last_temp=20.0, last_trv_temp=21.0)
+    for name in _wall_fields(MpcState):
+        setattr(state, name, ahead)
+
+    _, state = _mpc_cycle(state, _WALL_START_S, room=20.0)
+
+    ahead_of_clock = {
+        name: getattr(state, name)
+        for name in _wall_fields(MpcState)
+        if getattr(state, name) is not None and getattr(state, name) > _WALL_START_S
+    }
+    assert ahead_of_clock == {}
+
+
+def test_mpc_backs_off_on_the_first_cycle_after_the_wall_clock_steps_back():
+    """A room over target closes the valve right after a clock step back.
+
+    Before the step the room is cold and the valve fully open. The step
+    back leaves the last update ahead of the clock; the minimum interval
+    between updates is measured within one clock, so it does not hold the
+    valve open until the clock catches up. Loss learning resumes as the
+    room cools.
+    """
+    state = MpcState()
+    wall = _WALL_START_S
+    for cycle in range(20):
+        percent, state = _mpc_cycle(state, wall, room=19.0 + 0.02 * cycle)
+        wall += 300.0
+    assert percent == 100
+    learned_before = state.loss_learn_count
+
+    wall -= _WALL_STEP_BACK_S
+    percent, state = _mpc_cycle(state, wall, room=21.8)
+    assert percent < 100
+
+    for cycle in range(1, 10):
+        wall += 300.0
+        _, state = _mpc_cycle(state, wall, room=21.8 - 0.02 * cycle)
+    assert state.loss_learn_count > learned_before

@@ -18,6 +18,7 @@ import pytest
 from custom_components.better_thermostat.adapters import delegate
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -27,6 +28,17 @@ _RETRY = "custom_components.better_thermostat.utils.retry"
 
 # Attempts one write is worth: the first one plus the delegate's retries.
 ATTEMPTS = 6
+
+
+@pytest.fixture(autouse=True)
+def _helper_entities_registered_and_enabled():
+    """The registry holds the TRV's helper entities as enabled entries."""
+    registry = make_entity_registry(make_registry_entry(VALVE_ENTITY))
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
 
 
 def _thermostat(adapter, quirks=None):
@@ -71,7 +83,11 @@ class TestAValveWriteThatFails:
 
     @pytest.mark.asyncio
     async def test_a_write_through_a_model_quirk_is_attempted_again(self):
-        """A quirk drives the same wire, so it is worth the same attempts."""
+        """A quirk drives the same wire, so it is worth the same attempts.
+
+        Once they are spent, the adapter's own channel still takes the
+        position.
+        """
         quirks = SimpleNamespace(
             override_set_valve=AsyncMock(side_effect=OSError("bus error"))
         )
@@ -81,8 +97,9 @@ class TestAValveWriteThatFails:
         with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
             answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
 
-        assert answer is False
         assert quirks.override_set_valve.await_count == ATTEMPTS
+        assert answer is True
+        adapter.set_valve.assert_awaited_once_with(thermostat, ENTITY_ID, 50)
 
     @pytest.mark.asyncio
     async def test_a_write_nobody_could_make_is_reported(self, caplog):

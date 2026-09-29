@@ -14,6 +14,7 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 from ..utils.const import CalibrationType
+from ..utils.helpers import is_sibling_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,12 +67,12 @@ async def check_operation_mode(
     device_id = reg_entity.device_id
     target_entity = None
     for ent in entity_registry.entities.values():
-        if ent.device_id != device_id or ent.domain != "select":
+        if not is_sibling_entry(ent, device_id) or ent.domain != "select":
             continue
         en = (ent.entity_id or "").lower()
         uid = (ent.unique_id or "").lower()
         name = (getattr(ent, "original_name", None) or "").lower()
-        if "_trv_mode" in en or "_trv_mode" in uid or "Trv mode" in name:
+        if "_trv_mode" in en or "_trv_mode" in uid or "trv mode" in name:
             target_entity = ent.entity_id
     if target_entity is None:
         _LOGGER.debug(

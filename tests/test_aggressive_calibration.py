@@ -22,7 +22,9 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.calibration.pid import PIDState
 from custom_components.better_thermostat.utils.const import CalibrationMode
 
 ENTITY_ID = "climate.test_trv"
@@ -62,6 +64,9 @@ def _make_bt(
     bt.weather_entity = None
     # Short-circuit MPC/TPI/PID internal compute
     bt.bt_hvac_mode = HVACMode.OFF
+    # PID standby still follows the room, on a real state and clock.
+    bt.clock = FakeClock(monotonic_value=1_000.0)
+    bt.state_mgr.get_pid.side_effect = lambda _key: PIDState()
 
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = lambda _self, _eid, offset: float(offset)

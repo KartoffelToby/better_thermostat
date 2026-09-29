@@ -20,7 +20,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
+from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
@@ -76,6 +76,13 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     return float(ema)
 
 
+# Every external-temperature write happens under the filter lock, so one
+# device that never answers would otherwise hold back every later reading and
+# keepalive tick. A write that outlasts this bound counts as refused; the
+# ``TimeoutError`` it raises is an ``OSError`` and meets the same handlers.
+EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S = 30.0
+
+
 def temperature_filter_lock(self) -> asyncio.Lock:
     """Return the lock that serialises this entity's temperature filter.
 
@@ -105,12 +112,6 @@ def temperature_filter_lock(self) -> asyncio.Lock:
         lock = asyncio.Lock()
         self._temperature_filter_lock = lock
     return lock
-
-
-async def _apply_temperature_update(self, new_temp):
-    """Apply the new external temperature once the filter is free."""
-    async with temperature_filter_lock(self):
-        await _commit_temperature_update(self, new_temp)
 
 
 async def _commit_temperature_update(self, new_temp):
@@ -181,11 +182,15 @@ async def _commit_temperature_update(self, new_temp):
     for entity_id in entity_ids:
         try:
             _trv = self.real_trvs.get(entity_id)
+            if _trv is not None and _trv.awaiting_initialization:
+                # Its first write goes out with its initialization.
+                continue
             quirks = _trv.model_quirks if _trv is not None else None
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                await quirks.maybe_set_external_temperature(
-                    self, entity_id, self.cur_temp
-                )
+                async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
+                    await quirks.maybe_set_external_temperature(
+                        self, entity_id, self.cur_temp
+                    )
             else:
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
@@ -263,20 +268,13 @@ async def trigger_temperature_change(self, event):
         None if _incoming_temperature is None else round(_incoming_temperature, 2)
     )
 
-    # Base debounce (seconds) for normal devices; anti-flicker lets us go down to 5s
-    # here. HomematicIP still gets a higher interval (600s) below.
+    # Debounce (seconds) of the room sensor; anti-flicker lets us go down to 5s
+    # here. The radio limits of the heads are paced where BT writes to them.
     _time_diff = 5
     # Significance threshold: 0.11°C (to filter out 0.1°C noise).
     # We ignore the tolerance setting here so we keep getting precise sensor
     # updates even with a larger control tolerance.
     _sig_threshold = 0.11
-
-    try:
-        for trv in self.all_trvs:
-            if trv["advanced"][CONF_HOMEMATICIP]:
-                _time_diff = 600
-    except KeyError, TypeError:
-        pass
 
     # First-run guard: seed the timestamp far enough in the past that the
     # first real update clears the debounce interval finalized above (setting
@@ -383,23 +381,45 @@ async def trigger_temperature_change(self, event):
         # Schedule timer if not already scheduled
         if not _plateau_ok and getattr(self, "plateau_timer_cancel", None) is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
+            _plateau_value = self.pending_temp
+            # A value that left and came back starts a new plateau with a
+            # timer of its own; this one only applies the episode it was
+            # started for.
+            _plateau_since = self.pending_since
 
             async def _plateau_cb(_now):
                 self.plateau_timer_cancel = None
-                # Re-check debounce interval so HomematicIP 600s is respected
-                _cb_age = (
-                    (dt_util.now() - self.last_external_sensor_change).total_seconds()
-                    if self.last_external_sensor_change is not None
-                    else 999999
-                )
-                _cb_interval_ok = _cb_age > _time_diff
-                if self.pending_temp is not None and _cb_interval_ok:
+                async with temperature_filter_lock(self):
+                    # The entity does not own this task, so its removal cannot
+                    # cancel it; a timer that got the turn only after the
+                    # entity was removed writes nothing.
+                    if self.is_removed:
+                        return
+                    # A reading handled while the timer waited for the filter
+                    # has applied or replaced the value the timer was armed
+                    # for; only that value, still pending, is applied.
+                    if (
+                        self.pending_temp is None
+                        or self.pending_temp != _plateau_value
+                        or self.pending_since != _plateau_since
+                    ):
+                        return
+                    # Re-check the debounce interval at the time the timer fires
+                    _cb_age = (
+                        (
+                            dt_util.now() - self.last_external_sensor_change
+                        ).total_seconds()
+                        if self.last_external_sensor_change is not None
+                        else 999999
+                    )
+                    if _cb_age <= _time_diff:
+                        return
                     _LOGGER.debug(
                         "better_thermostat %s: external_temperature plateau auto-accepted (value=%.2f)",
                         self.device_name,
                         self.pending_temp,
                     )
-                    await _apply_temperature_update(self, self.pending_temp)
+                    await _commit_temperature_update(self, self.pending_temp)
 
             self.plateau_timer_cancel = async_call_later(
                 self.hass, remaining, _plateau_cb

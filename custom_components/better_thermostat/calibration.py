@@ -80,9 +80,11 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_calibration_mode,
+    normalize_step,
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
+from custom_components.better_thermostat.utils.watcher import reachable_trv_temperature
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
@@ -130,8 +132,8 @@ def _compute_zero_open_offset(
 def effective_room_temp(self: BetterThermostat) -> float | None:
     """Room temperature for the control law, honoring the fail-soft ladder.
 
-    Under SENSOR_FALLBACK the mean of the available TRV-internal
-    temperatures substitutes the (dead) room sensor — completing the
+    Under SENSOR_FALLBACK the mean of the internal temperatures of the
+    reachable TRVs substitutes the (dead) room sensor — completing the
     fallback that the watcher has always announced. On every other rung
     this is simply the current room temperature.
 
@@ -148,11 +150,11 @@ def effective_room_temp(self: BetterThermostat) -> float | None:
     """
     mode = self.kernel_state.control_mode.mode
     if mode == ControlMode.SENSOR_FALLBACK:
-        temps = []
-        for trv in self.real_trvs.values():
-            value = trv.current_temperature
-            if isinstance(value, (int, float)):
-                temps.append(float(value))
+        temps = [
+            value
+            for entity_id in self.real_trvs
+            if (value := reachable_trv_temperature(self, entity_id)) is not None
+        ]
         if temps:
             return sum(temps) / len(temps)
     return self.cur_temp
@@ -1500,10 +1502,10 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
 
-    _trv_temp_step_raw = self.real_trvs[entity_id].target_temp_step
-    _trv_temp_step = _convert_to_float(_trv_temp_step_raw)
-    if _trv_temp_step is None or _trv_temp_step <= 0:
-        _trv_temp_step = 0.5
+    # The step is the grid the setpoint is rounded to, so it is kept as the
+    # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
+    # drifts off whole degrees Fahrenheit within a few steps.
+    _trv_temp_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
     if _cur_trv_temp is None:
         return None

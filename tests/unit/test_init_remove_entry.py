@@ -93,6 +93,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
         assert "invalid_external_temperature_Kinderzimmer" in called_ids
         assert "invalid_window_state_Kinderzimmer" in called_ids
+        assert "invalid_door_state_Kinderzimmer" in called_ids
         assert "degraded_mode_Kinderzimmer" in called_ids
 
     @pytest.mark.asyncio

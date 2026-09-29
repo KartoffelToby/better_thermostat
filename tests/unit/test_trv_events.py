@@ -404,6 +404,68 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "attributes",
+        [
+            {"current_temperature": "unknown", "temperature": 19.0},
+            {"current_temperature": None, "temperature": 19.0},
+            {"temperature": 19.0},
+        ],
+        ids=["unknown", "none", "missing"],
+    )
+    async def test_report_without_internal_temperature_invalidates_it(
+        self, mock_bt, attributes
+    ):
+        """A TRV that stops reporting its internal temperature has no live one.
+
+        The device stays reachable, but a stored reading it no longer
+        confirms must not keep feeding SENSOR_FALLBACK and the ladder.
+        """
+        trv_state = State(ENTITY_ID, "heat", attributes=attributes)
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(minutes=10)
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+            )
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
+
+    @pytest.mark.asyncio
+    async def test_first_reading_after_a_gap_in_internal_temperature_is_taken(
+        self, mock_bt
+    ):
+        """The first reading after a report without one repopulates the cache at once."""
+        gap_state = State(ENTITY_ID, "heat", attributes={"temperature": 19.0})
+        mock_bt.hass.states.get.return_value = gap_state
+        # The last accepted reading is recent, well inside the 5 s debounce
+        # window.
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now()
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=gap_state, old_state=gap_state)
+            )
+            assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
+
+            trv_state = _make_state(attributes={"current_temperature": 18.5})
+            mock_bt.hass.states.get.return_value = trv_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+            )
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.5
+
+    @pytest.mark.asyncio
     async def test_fahrenheit_current_temp_without_unit_attr(self, mock_bt):
         """A Fahrenheit TRV with no unit attribute is read via the system unit.
 
@@ -1232,6 +1294,141 @@ class TestHvacModeUpdate:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "heat"
+
+    @pytest.mark.parametrize(
+        "bt_hvac_mode", [HVACMode.HEAT, HVACMode.OFF], ids=["heating", "off"]
+    )
+    @pytest.mark.asyncio
+    async def test_an_unswapped_device_reporting_auto_leaves_the_room_mode(
+        self, mock_bt, bt_hvac_mode
+    ):
+        """A reported AUTO without the swap option changes neither room mode.
+
+        The report is ambiguous: a heating room must not be switched off by
+        it, and a room that is off must not be switched on.
+        """
+        mock_bt.bt_hvac_mode = bt_hvac_mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "heat"
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 19.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == bt_hvac_mode
+
+    @pytest.mark.parametrize(
+        ("bt_hvac_mode", "no_off"),
+        [(HVACMode.HEAT, False), (HVACMode.OFF, True)],
+        ids=["heating", "no_off_device_room_off"],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unswapped_device_reporting_auto_leaves_the_room_target(
+        self, mock_bt, bt_hvac_mode, no_off
+    ):
+        """A reported AUTO without the swap option carries no setpoint either.
+
+        The setpoint belongs to the ambiguous report, typically the device's
+        own schedule, so it must not become the room target, and on a
+        no_off_system_mode device it must not switch a room that is off on.
+        """
+        mock_bt.bt_hvac_mode = bt_hvac_mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["no_off_system_mode"] = no_off
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "heat"
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 16.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert (mock_bt.bt_hvac_mode, mock_bt.bt_target_temp) == (bt_hvac_mode, 19.0)
+
+    @pytest.mark.parametrize(
+        ("event_mode", "registry_mode", "expected_target"),
+        [
+            pytest.param("auto", "heat", 19.0, id="auto_event_heat_registry"),
+            pytest.param("heat", "auto", 16.0, id="heat_event_auto_registry"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_report_carrying_the_setpoint_decides_whether_it_is_ignored(
+        self, mock_bt, event_mode, registry_mode, expected_target
+    ):
+        """The mode of the event whose setpoint is read decides, not the registry.
+
+        A queued event can be handled after the device has already reported
+        again, so the registry may hold a different mode than the event.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "heat"
+        attributes = {
+            "current_temperature": 18.0,
+            "temperature": 16.0,
+            "hvac_modes": ["off", "heat", "auto"],
+        }
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str=registry_mode, attributes=attributes
+        )
+        event = _make_event(
+            mock_bt,
+            new_state=_make_state(state_str=event_mode, attributes=attributes),
+            old_state=_make_state(state_str="heat"),
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == expected_target
+
+    @pytest.mark.asyncio
+    async def test_a_swapped_device_reporting_auto_sets_the_room_target(self, mock_bt):
+        """A reported AUTO with the swap option is heating and carries a setpoint.
+
+        On such a device AUTO is the heating mode, so a press on its own
+        controls reaches the room target like one reported in HEAT.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.AUTO]
+        trv.hvac_mode = "auto"
+        trv_state = _make_state(
+            state_str="auto",
+            attributes={
+                "current_temperature": 18.0,
+                "temperature": 16.0,
+                "hvac_modes": ["off", "heat", "auto"],
+            },
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="auto")
+        )
+
+        await trigger_trv_change(mock_bt, event)
+
+        assert (mock_bt.bt_hvac_mode, mock_bt.bt_target_temp) == (HVACMode.HEAT, 16.0)
 
     @pytest.mark.asyncio
     async def test_a_missing_child_lock_flag_counts_as_unlocked(self, mock_bt):
@@ -2128,6 +2325,43 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
+    async def test_a_routine_no_off_report_in_a_room_with_a_cooler_requests_no_cycle(
+        self, mock_bt
+    ):
+        """A device without an off mode repeating its setpoint leaves a heating room as it is.
+
+        A room with a cooler heats in HEAT_COOL. A routine report of the
+        setpoint the device already holds names the mode the room is in, so
+        it moves nothing and requests no control cycle.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_target_temp = 20.0
+        mock_bt.bt_target_cooltemp = 25.0
+        routine = {"temperature": 20.0, "current_temperature": 18.0}
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat", attributes=routine
+        )
+        event = _make_event(
+            mock_bt,
+            new_state=_make_state(attributes=routine),
+            old_state=_make_state(attributes=routine),
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT_COOL
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_no_off_wakeup_is_capped_without_a_tie_break(self, mock_bt):
         """A no_off wakeup against a cool target with room below it needs no fallback.
 
@@ -2492,11 +2726,6 @@ class TestConvertInboundStates:
                 [HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL],
                 "heat_cool",
                 id="both_spellings_reporting_heat_cool",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="a device offering heat and heat_cool that reports "
-                    "heat_cool is decoded as no mode at all",
-                ),
             ),
             pytest.param(
                 [HVACMode.OFF, HVACMode.HEAT_COOL], "heat_cool", id="heat_cool_only"
@@ -2537,12 +2766,25 @@ class TestConvertInboundStates:
 
         assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
 
-    def test_an_unswapped_device_reporting_auto_is_decoded_as_off(self, mock_bt):
-        """A reported AUTO without the swap option reaches the adoption as OFF.
+    def test_a_swapped_heat_cool_device_reporting_heat_cool_heats(self, mock_bt):
+        """A swapped device whose heating mode is heat_cool reports it as HEAT.
+
+        Better Thermostat writes heat_cool to such a device, so switching it
+        back on at the panel has to reach the adoption as heating.
+        """
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.advanced["heat_auto_swapped"] = True
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT_COOL]
+        state = _make_state(state_str="heat_cool")
+
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.HEAT
+
+    def test_an_unswapped_device_reporting_auto_is_ignored(self, mock_bt):
+        """A reported AUTO without the swap option reaches the adoption as no mode.
 
         AUTO names the device's heating mode only when the swap option says
-        so; without it the report is read as the device leaving the heating
-        mode, which is what the remap's error about the swap option explains.
+        so; without it the report is ambiguous and must neither switch the
+        room off nor on.
         """
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
             HVACMode.OFF,
@@ -2551,7 +2793,7 @@ class TestConvertInboundStates:
         ]
         state = _make_state(state_str="auto")
 
-        assert convert_inbound_states(mock_bt, ENTITY_ID, state) == HVACMode.OFF
+        assert convert_inbound_states(mock_bt, ENTITY_ID, state) is None
 
     def test_unsupported_mode_returns_none(self, mock_bt):
         """Return None for unsupported HVAC modes like COOL."""
@@ -3406,6 +3648,10 @@ def _prepare_outage_room(bt, *, with_peer: bool):
     bt.devices_errors = []
     bt.devices_states = {}
     bt._critical_grace_until = None
+    # The listener looks for TRVs startup went ahead without before it reads
+    # the report; every head here was set up by startup.
+    bt._trvs_initializing = set()
+    bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(bt)
     spawned = []
     bt._spawn_owned = lambda coro, name=None: spawned.append(coro)
     return unavailable, spawned
@@ -3421,14 +3667,6 @@ class TestOutageReportThroughTheListener:
     front of the handler, because that is the way the report arrives.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "the listener's availability check fails on the head that reports "
-            "the outage and returns before the handler, so the head keeps its "
-            "last internal temperature and the next reading stays debounced"
-        ),
-    )
     @pytest.mark.parametrize(
         "with_peer", [True, False], ids=["one_of_two_heads", "the_only_head"]
     )

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.better_thermostat import DOMAIN
 from custom_components.better_thermostat.core.decide import decide, running_kernel_state
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import (
@@ -16,11 +17,7 @@ from custom_components.better_thermostat.core.snapshot import (
 from custom_components.better_thermostat.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.better_thermostat.utils.const import (
-    CONF_HEATER,
-    CONF_SENSOR,
-    DOMAIN,
-)
+from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
 
 
 def _snapshot() -> WorldSnapshot:
@@ -160,15 +157,25 @@ async def test_window_sensor_lookup_error_is_swallowed():
 
 
 @pytest.mark.asyncio
-async def test_a_download_leaves_the_stored_entry_as_it_was(hass):
-    """Downloading the diagnostics writes nothing into the entry."""
+@pytest.mark.parametrize(
+    ("integration", "expected_adapter"), [("mqtt", "mqtt"), (None, "unknown")]
+)
+async def test_diagnostics_leave_the_entry_data_untouched(
+    integration, expected_adapter
+):
+    """A diagnostics download leaves the stored entry configuration as it was.
+
+    The TRV dicts inside ``entry.data`` are the stored configuration; a key
+    added to them here would be persisted with the next entry update.
+    """
     entry = MockConfigEntry(
         domain=DOMAIN,
+        entry_id="entry-1",
         data={
             CONF_HEATER: [
                 {
                     "trv": "climate.trv",
-                    "integration": "mqtt",
+                    "integration": integration,
                     "advanced": {"calibration": 0},
                     "model": "TRVZB",
                 }
@@ -176,13 +183,13 @@ async def test_a_download_leaves_the_stored_entry_as_it_was(hass):
             CONF_SENSOR: "sensor.room",
         },
     )
-    hass.states.async_set("climate.trv", "heat")
     before = copy.deepcopy(dict(entry.data))
 
-    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+    diagnostics = await async_get_config_entry_diagnostics(_hass(None), entry)
 
     assert dict(entry.data) == before
-    assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == "mqtt"
+    assert "adapter" not in entry.data[CONF_HEATER][0]
+    assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == expected_adapter
 
 
 @pytest.mark.asyncio

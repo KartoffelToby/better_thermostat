@@ -24,6 +24,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     import_mpc_v2_state,
     make_plant_prior,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
+    MIN_STEP_DT_S,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -169,18 +172,24 @@ def test_confirmed_valve_input_replaces_optimistic_previous_command() -> None:
     assert seen_previous_input == [0.2]
 
 
+_REPLAN_ERROR_K = -0.4
+
+
 def _integral_after_one_replan(gap_s: float) -> tuple[float, float]:
     """Return the error integral after a replan ``gap_s`` after the first one.
 
-    The room sits 2 K below target with the valve mid-rail, so the
-    anti-windup guard never skips the step. Also returns the replan interval.
+    The room sits ``_REPLAN_ERROR_K`` off the target, inside the integration
+    band, with the valve mid-rail, so the anti-windup guard never skips the
+    step. Also returns the replan interval.
     """
     params = MpcV2Params()
     params.governor.enabled = False
     controller = MpcV2Controller(params)
-    controller.step(100.0, 20.0, 22.0, 5.0)
+    assert abs(_REPLAN_ERROR_K) < controller.params.qp.integral_error_band
+    room_temperature = 22.0 + _REPLAN_ERROR_K
+    controller.step(100.0, room_temperature, 22.0, 5.0)
     controller.set_applied_u(0.5)
-    controller.step(100.0 + gap_s, 20.0, 22.0, 5.0)
+    controller.step(100.0 + gap_s, room_temperature, 22.0, 5.0)
     return controller.optimiser.e_integral_K_min, controller.params.qp.step_s
 
 
@@ -192,14 +201,9 @@ def test_integral_covers_an_on_schedule_replan_interval() -> None:
 
     integral, _ = _integral_after_one_replan(step_s)
 
-    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a replan after a gap integrates the error over the whole gap, "
-    "not over one replan interval",
-)
 def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
     """A gap between replans adds no more error than one interval would.
 
@@ -209,7 +213,7 @@ def test_a_delayed_replan_integrates_at_most_one_replan_interval() -> None:
     integral, step_s = _integral_after_one_replan(900.0)
 
     assert step_s < 900.0
-    assert integral == pytest.approx(-2.0 * step_s / 60.0)
+    assert integral == pytest.approx(_REPLAN_ERROR_K * step_s / 60.0)
 
 
 def test_snapshot_round_trip_preserves_last_u() -> None:
@@ -388,6 +392,113 @@ def test_sub_second_repeat_step_holds_covariance() -> None:
     # A regular next cycle still advances the filter.
     controller.step(t_s=1000.0 + 30.0, T_room_C=20.1, T_target_C=22.0, T_outdoor_C=5.0)
     assert not np.array_equal(controller.kalman.P, p_after_first)
+
+
+@pytest.mark.parametrize("offset_s", [-0.5, -0.001, 0.0, 0.5])
+def test_a_repeat_within_the_minimum_step_holds_the_command(offset_s: float) -> None:
+    """A call less than a second before or after the last one holds the command.
+
+    It neither folds the reading into the filter again nor moves the stamp
+    the next cycle measures its interval from.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    u1, _ = controller.step(t_s=1000.0, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    u2, _ = controller.step(
+        t_s=1000.0 + offset_s, T_room_C=17.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+
+    assert u2 == u1
+    np.testing.assert_array_equal(controller.kalman.P, p_after_first)
+    assert controller._last_t_s == 1000.0
+
+
+def test_a_step_back_of_the_minimum_step_runs_a_cycle() -> None:
+    """A call a full minimum step before the last one folds its reading in."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1000.0, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    controller.step(
+        t_s=1000.0 - MIN_STEP_DT_S, T_room_C=17.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+
+    assert not np.array_equal(controller.kalman.P, p_after_first)
+    assert controller._last_t_s == 1000.0 - MIN_STEP_DT_S
+
+
+_STEP_BACK_START_S = 1_700_000_000.0
+_STEP_BACK_CYCLE_S = 300.0
+
+
+def _settled_at_target() -> tuple[MpcV2State, float]:
+    """Run two hours of five-minute cycles with the room on its setpoint.
+
+    Returns the state and the time of the cycle that would follow.
+    """
+    state: MpcV2State | None = None
+    now = _STEP_BACK_START_S
+    for _ in range(24):
+        out, state = compute_mpc_v2(
+            _baseline_input(target_temp_C=21.0, current_temp_C=21.0),
+            MpcV2Params(),
+            state,
+            now=now,
+        )
+        assert out is not None
+        now += _STEP_BACK_CYCLE_S
+    assert state is not None
+    return state, now
+
+
+def _cold_room_percents(state: MpcV2State, now: float, cycles: int) -> list[int]:
+    """Return the valve percents of ``cycles`` cycles in a room 4 K cold."""
+    percents = []
+    for _ in range(cycles):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temp_C=21.0,
+                current_temp_C=17.0,
+                applied_valve_pct=state.last_percent,
+            ),
+            MpcV2Params(),
+            state,
+            now=now,
+        )
+        assert out is not None
+        percents.append(out.valve_percent)
+        now += _STEP_BACK_CYCLE_S
+    return percents
+
+
+def test_a_forward_cycle_opens_the_valve_for_a_cold_room() -> None:
+    """On a clock that runs forward, a room 4 K cold opens the valve at once."""
+    state, now = _settled_at_target()
+    held = int(state.last_percent)
+
+    percents = _cold_room_percents(state, now, cycles=1)
+
+    assert percents[0] > held
+
+
+def test_a_wall_clock_step_back_does_not_hold_the_valve() -> None:
+    """After the wall clock steps back, the controller keeps controlling.
+
+    A time sync or a host that boots without a real-time clock can set the
+    clock hours back. Every stamp the controller took before the step then
+    lies ahead of the clock; the next cycles must still compute a command
+    rather than repeat the last one until the clock passes the old stamps.
+    """
+    state, now = _settled_at_target()
+    held = int(state.last_percent)
+    assert state.controller is not None
+
+    percents = _cold_room_percents(state, now - 4 * 3600.0, cycles=2)
+
+    assert max(percents) > held
+    assert float(state.controller.kalman.x_hat[0]) < 18.0
+    assert state.controller._last_t_s == now - 4 * 3600.0 + _STEP_BACK_CYCLE_S
 
 
 def test_outdoor_fallback_logs_once(caplog) -> None:
@@ -928,3 +1039,103 @@ def test_restored_snapshot_reproduces_the_uninterrupted_command_sequence(
     after_restart = drive(resumed, range(resume_at, steps))
 
     assert before_restart + after_restart == uninterrupted
+
+
+def _radiator_estimate_after_gap(gap_s: float) -> float:
+    """Return the radiator estimate after one ``gap_s`` gap at half open."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.set_applied_u(0.5)
+    _, diag = controller.step(
+        t_s=1_000.0 + gap_s, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+    )
+    return diag.T_rad_hat
+
+
+def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
+    """The first step after 180 days predicts once, over a bounded span.
+
+    The observer's plant is asked for one transition and one propagation, and
+    the propagation covers no more sub-steps than its settling time holds:
+    beyond that the state is on its fixed point, so a year-long gap lands on
+    the same estimate.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.set_applied_u(0.5)
+    plant = controller.plant_fine
+    calls = {"linearised_AB": 0, "propagate": 0, "euler": 0}
+    for name, key in (
+        ("linearised_AB", "linearised_AB"),
+        ("propagate", "propagate"),
+        ("_euler_step", "euler"),
+    ):
+        original = getattr(plant, name)
+
+        def counted(*args, _original=original, _key=key, **kwargs):
+            calls[_key] += 1
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(plant, name, counted)
+
+    _, diag = controller.step(
+        t_s=1_000.0 + 180 * 86_400.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+    )
+
+    settled_steps = math.ceil(plant.settling_time_s / plant.dt_s)
+    assert settled_steps < 180 * 86_400.0 / plant.dt_s / 20
+    assert calls["linearised_AB"] == 1
+    assert calls["propagate"] == 1
+    assert calls["euler"] <= settled_steps
+    assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)
+    assert 21.0 < diag.T_rad_hat < plant.params.T_water_C
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"), [(0.5, 0.05), (-0.5, -0.05), (0.01, 0.01)]
+)
+def test_restored_disturbance_readings_stay_inside_their_bound(
+    stored: float, expected: float
+) -> None:
+    """A stored estimate beyond ``max_abs_K_per_min`` restores at the bound.
+
+    Both the fast estimate and the planning reading are bounded that way
+    while the controller runs, so a snapshot cannot hand them more.
+    """
+    params = MpcV2Params()
+    assert params.dob.max_abs_K_per_min == 0.05
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": SNAPSHOT_VERSION,
+            "x_hat": [21.0, 30.0],
+            "D_hat_K_per_min": stored,
+            "planning_disturbance": stored,
+        }
+    )
+    assert snap is not None
+    controller = MpcV2Controller(params)
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(expected)
+    assert controller.dob.planning_filtered == pytest.approx(expected)
+
+
+def test_a_snapshot_without_a_planning_reading_plans_from_zero() -> None:
+    """A snapshot from before the planning reading existed starts it at zero.
+
+    The fast estimate it does carry reflects the free heat of the minutes
+    before the restart, which the plan after it has no reason to assume.
+    """
+    snap = ControllerSnapshot.from_mapping(
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, 30.0], "D_hat_K_per_min": 0.02}
+    )
+    assert snap is not None
+    assert snap.planning_disturbance is None
+    controller = MpcV2Controller(MpcV2Params())
+
+    controller.restore_snapshot(snap)
+
+    assert controller.dob.D_hat_K_per_min == pytest.approx(0.02)
+    assert controller.dob.planning_filtered == 0.0
+    assert controller.dob.planning_rate == 0.0
