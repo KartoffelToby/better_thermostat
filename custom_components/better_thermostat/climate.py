@@ -1869,9 +1869,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             # The StateManager, hydrated before the restore, is the
             # persistence authority and keeps the rates at full precision.
-            # The restored attributes, rounded for display, only fill in when
-            # the store carries nothing — a migration fallback for upgrades
-            # from versions that persisted via RestoreEntity.
+            # The restored attributes, rounded for display, only fill in a
+            # rate the store does not carry, such as for an entry whose rates
+            # were persisted through the entity attributes.
             _stored_power, _stored_loss = (
                 self.state_mgr.clamped_thermal()
                 if self.state_mgr is not None
