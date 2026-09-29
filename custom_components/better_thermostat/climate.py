@@ -1530,15 +1530,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
     async def _trigger_humidity_change(self, event):
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
         self.async_set_context(event.context)
         # A sensor that stops reporting or is removed leaves the humidity
-        # unknown, as it does at startup.
+        # unknown, as it does at startup. The humidity is the sensor's
+        # reading, not a head's, so it is published while a head is
+        # unavailable as well.
         if self.humidity_sensor_entity_id is not None and is_entity_available(
             self.hass, self.humidity_sensor_entity_id
         ):
@@ -1549,6 +1546,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
         else:
             self._current_humidity = None
+        # Checked for the repair issue an unavailable head raises.
+        await check_critical_entities(self)
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):

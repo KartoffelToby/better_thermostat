@@ -583,15 +583,30 @@ async def test_every_entrance_reaches_a_room_with_all_heads(hass, entrance):
         assert await report_and_wait(room, entrance)
 
 
-@pytest.mark.xfail(
+_BLOCKED_WHILE_A_HEAD_IS_GONE = pytest.mark.xfail(
     strict=True,
     reason=(
-        "every trigger wrapper returns before its handler as soon as any "
-        "head of the room is unavailable, so the room ignores its window, "
-        "door, sensors, cooler, weather and periodic tick"
+        "every trigger wrapper but the humidity sensor's returns before its "
+        "handler as soon as any head of the room is unavailable, so the room "
+        "ignores its window, door, room sensor, cooler, weather and periodic "
+        "tick"
     ),
 )
-@pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
+
+
+@pytest.mark.parametrize(
+    "entrance",
+    [
+        pytest.param(
+            entrance,
+            id=entrance.name,
+            marks=()
+            if entrance.name == "humidity_sensor_reports"
+            else _BLOCKED_WHILE_A_HEAD_IS_GONE,
+        )
+        for entrance in ENTRANCES
+    ],
+)
 async def test_every_entrance_reaches_the_room_while_one_head_is_gone(hass, entrance):
     """A head off the air takes only itself out of the room.
 
