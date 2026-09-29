@@ -35,12 +35,21 @@ def _identity_mode():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", [HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF])
-async def test_supported_mode_is_applied_and_queued(bt, mode):
-    """A supported mode is stored, state is written, and control is queued."""
-    with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
-        await BetterThermostat.async_set_hvac_mode(bt, mode)
-    assert bt.bt_hvac_mode == mode
+@pytest.mark.parametrize(
+    ("mode", "held"),
+    [
+        (HVACMode.HEAT, HVACMode.HEAT),
+        (HVACMode.HEAT_COOL, HVACMode.HEAT),
+        (HVACMode.OFF, HVACMode.OFF),
+    ],
+)
+async def test_supported_mode_is_applied_and_queued(bt, mode, held):
+    """A supported mode is stored as the room's intent, and control is queued.
+
+    Both spellings of "on" are held as HEAT.
+    """
+    await BetterThermostat.async_set_hvac_mode(bt, mode)
+    assert bt.bt_hvac_mode == held
     bt.async_write_ha_state.assert_called_once()
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 

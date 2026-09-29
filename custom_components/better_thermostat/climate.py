@@ -193,6 +193,7 @@ from .utils.helpers import (
     read_bound_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
+    room_mode_intent,
     round_by_step,
     state_temperature_unit,
 )
@@ -959,6 +960,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp = DEFAULT_TARGET_TEMP
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
+        # The room's intent, not a device spelling: HEAT means "on" in every
+        # room, with or without a cooler. room_mode_intent() maps every mode
+        # the room is switched into onto it; get_hvac_bt_mode() publishes it
+        # and mode_remap() spells it for each device.
         self._bt_hvac_mode: HVACMode | None = None
         self.closed_window_triggered = False
         self.call_for_heat = True
@@ -2196,7 +2201,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                 try:
-                    self.bt_hvac_mode = HVACMode(old_state.state)
+                    self.bt_hvac_mode = room_mode_intent(HVACMode(old_state.state))
                 except ValueError:
                     _LOGGER.warning(
                         "better_thermostat %s: restored an unrecognised hvac mode %s; "
@@ -3795,7 +3800,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 f"Unsupported hvac_mode {hvac_mode!r} for {self.device_name}; "
                 f"supported: heat, heat_cool, off"
             )
-        self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+        self.bt_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
         self.last_user_change_monotonic = self.clock.monotonic()
         self.async_write_ha_state()
         # During valve maintenance we must not block on the control queue (maxsize=1)
@@ -4245,7 +4250,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             # Same normalization as async_set_hvac_mode, so both service
             # entry points map HEAT/HEAT_COOL identically.
-            _new_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+            _new_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
 
         def _validated_setpoint(attr: str, context: str) -> float | None:
             """Cast one temperature kwarg to float or reject the call.

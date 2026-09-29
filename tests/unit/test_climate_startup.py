@@ -2409,7 +2409,7 @@ class TestCoolerTargetReadAtListenerRegistration:
     async def test_cooler_online_by_now_seeds_the_cool_target(self, bt):
         """The state the startup seed could not see is read here."""
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         await _run_finalize_startup(bt)
@@ -2473,7 +2473,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         cooling side.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         bt.bt_target_temp = 21.0
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 19.0})})
 
@@ -2509,7 +2509,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         is currently cooling.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         _install_states(
             bt,
             {
@@ -2943,7 +2943,7 @@ class TestFinalizeStartupOnADualRoleEntity:
     def _make_shared_bt(bt):
         """Name the tracked thermostat as the cooler as well."""
         bt.cooler_entity_id = TRV_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         bt._preset_cool_temperatures = {PRESET_NONE: 24.0}
         return bt
 
@@ -2985,7 +2985,7 @@ class TestFinalizeStartupOnADualRoleEntity:
     async def test_a_distinct_cooler_still_registers_its_own_subscription(self, bt):
         """A cooler of its own keeps the handler written for it."""
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         tracked = await self._run_capturing_subscriptions(bt)

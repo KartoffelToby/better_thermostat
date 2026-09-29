@@ -1923,20 +1923,9 @@ async def control_trv(
                 self, _trv, "controlling()"
             )
 
-            # HEAT_COOL is the mode a room with a cooler runs in, and it names
-            # a pair of targets Better Thermostat holds. A device that carries
-            # both roles and advertises heat_cool would take it as an
-            # instruction to run its own thermostat against its own pair, so
-            # the cycle in which the heating channel drives it names the
-            # heating role alone. Devices that advertise heat_cool without heat
-            # keep receiving heat_cool, because that is what mode_remap()
-            # translates HEAT into for them.
-            _outbound_mode = self.bt_hvac_mode
-            if _outbound_mode == HVACMode.HEAT_COOL and (
-                entity_id == dual_role_entity_id(self)
-            ):
-                _outbound_mode = HVACMode.HEAT
-            _remapped_states = convert_outbound_states(self, entity_id, _outbound_mode)
+            _remapped_states = convert_outbound_states(
+                self, entity_id, self.bt_hvac_mode
+            )
             if not isinstance(_remapped_states, dict):
                 _LOGGER.warning(
                     "better_thermostat %s: convert_outbound_states returned %r for %s "
