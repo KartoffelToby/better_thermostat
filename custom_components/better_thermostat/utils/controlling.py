@@ -10,7 +10,11 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import (
+    ATTR_MAX_TEMP,
+    ATTR_MIN_TEMP,
+    HVACMode,
+)
 from homeassistant.const import (
     EVENT_STATE_CHANGED,
     STATE_UNAVAILABLE,
@@ -70,6 +74,7 @@ from custom_components.better_thermostat.utils.helpers import (
     dual_role_entity_id,
     get_current_set_temperatures,
     matches_any_setpoint,
+    read_bound_celsius,
     read_setpoint_celsius,
     state_temperature_unit,
     supports_single_target_temperature,
@@ -1070,17 +1075,22 @@ async def control_queue(self: BetterThermostat) -> None:
 _CoolerCommand = HVACMode | tuple[float, float | None] | None
 
 
-def cooler_low_bound(high: float, target_temp: float | None) -> float:
+def cooler_low_bound(
+    high: float, target_temp: float | None, lowest: float | None = None
+) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
     A range write needs both bounds, and Home Assistant rejects a low bound
-    above the high one. The heating target is the natural lower bound; it can
-    only exceed the cooling target while the two are out of sync, so it is
-    capped at the value being written.
+    above the high one or outside the cooler's range. The heating target is
+    the natural lower bound; it can only exceed the cooling target while the
+    two are out of sync, so it is capped at the value being written. The
+    heating target is held to the heaters' range, not the cooler's, so it is
+    raised onto ``lowest``, the cooler's minimum, where it sits below it.
     """
-    if target_temp is None:
-        return high
-    return min(float(target_temp), high)
+    low = high if target_temp is None else min(float(target_temp), high)
+    if lowest is not None and low < lowest:
+        low = min(lowest, high)
+    return low
 
 
 def _cooler_retry_deferred(
@@ -1195,6 +1205,20 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     if snapshot is None:
         snapshot = build_snapshot(self)
     desired_temp = snapshot.target_cooltemp
+    # Home Assistant refuses a setpoint outside the cooler's own range, and
+    # the cooling target can leave it where a configured bound widens the
+    # cooling range past the device's, so the write is held to the device.
+    _cooler_min = read_bound_celsius(
+        self, cooler_state, ATTR_MIN_TEMP, lower=True, context="control_cooler()"
+    )
+    _cooler_max = read_bound_celsius(
+        self, cooler_state, ATTR_MAX_TEMP, lower=False, context="control_cooler()"
+    )
+    if desired_temp is not None:
+        if _cooler_min is not None and desired_temp < _cooler_min:
+            desired_temp = _cooler_min
+        if _cooler_max is not None and _cooler_max < desired_temp:
+            desired_temp = _cooler_max
 
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
@@ -1366,7 +1390,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     _low_bound_drifted = False
     _low_bound_changed = False
     if _write_range and desired_temp is not None:
-        _low_to_set = cooler_low_bound(desired_temp, target_temp)
+        _low_to_set = cooler_low_bound(desired_temp, target_temp, _cooler_min)
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
         last_low = last_sent.get("target_temp_low", (None, None))[0]
@@ -1482,7 +1506,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     if temp_to_send is not None:
         _temp_wanted = (
             temp_to_send,
-            cooler_low_bound(temp_to_send, target_temp) if _write_range else None,
+            cooler_low_bound(temp_to_send, target_temp, _cooler_min)
+            if _write_range
+            else None,
         )
         if _cooler_retry_deferred(
             last_sent, "temperature", _temp_wanted, now_monotonic
@@ -1505,7 +1531,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             temp_to_send,
         )
         _temp_to_set = temp_to_send
-        _low_to_set = cooler_low_bound(temp_to_send, target_temp)
+        _low_to_set = cooler_low_bound(temp_to_send, target_temp, _cooler_min)
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(
                 TemperatureConverter.convert(
@@ -1565,7 +1591,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             last_sent.pop("temperature_settled", None)
             if _write_range:
                 last_sent["target_temp_low"] = (
-                    cooler_low_bound(temp_to_send, target_temp),
+                    cooler_low_bound(temp_to_send, target_temp, _cooler_min),
                     now_monotonic,
                 )
                 last_sent.pop("target_temp_low_settled", None)

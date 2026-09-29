@@ -37,7 +37,12 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from .utils.helpers import async_normalize_bt_entity_ids, convert_to_float_celsius
+from .utils.helpers import (
+    async_normalize_bt_entity_ids,
+    convert_to_float_celsius,
+    get_cool_temperature_range,
+    get_heat_temperature_range,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -189,9 +194,6 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         else:
             self._attr_translation_key = _PRESET_TRANSLATION_KEYS[preset_mode]
 
-        # Set min/max/step based on climate entity configuration
-        self._attr_native_min_value = bt_climate.min_temp
-        self._attr_native_max_value = bt_climate.max_temp
         # Home Assistant converts this number's value and range into the
         # system unit but publishes its step as given, so the step has to be
         # the one of the system unit, as the climate entity publishes it.
@@ -242,6 +244,20 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     def device_info(self):
         """Return the device info."""
         return self._bt_climate.device_info
+
+    @property
+    def native_min_value(self) -> float:
+        """Return the lowest heating temperature the preset can hold.
+
+        Read from the climate entity on every access, because its range is
+        resolved from the devices only after this entity is created.
+        """
+        return get_heat_temperature_range(self._bt_climate)[0]
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the highest heating temperature the preset can hold."""
+        return get_heat_temperature_range(self._bt_climate)[1]
 
     @property
     def native_value(self) -> float | None:
@@ -320,6 +336,16 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         )
 
     @property
+    def native_min_value(self) -> float:
+        """Return the lowest cooling temperature the preset can hold."""
+        return get_cool_temperature_range(self._bt_climate)[0]
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the highest cooling temperature the preset can hold."""
+        return get_cool_temperature_range(self._bt_climate)[1]
+
+    @property
     def native_value(self) -> float | None:
         """Return the configured cooling temperature for this preset.
 
@@ -353,9 +379,8 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
             step = self._bt_climate.bt_target_temp_step or 0.5
             cool_value = self._bt_climate.bt_target_temp + step
 
-        cool_value = min(
-            self._bt_climate.max_temp, max(self._bt_climate.min_temp, cool_value)
-        )
+        cool_lower, cool_upper = get_cool_temperature_range(self._bt_climate)
+        cool_value = min(cool_upper, max(cool_lower, cool_value))
         self._bt_climate._preset_cool_temperatures[self._preset_mode] = cool_value
 
         if self._bt_climate.preset_mode == self._preset_mode:

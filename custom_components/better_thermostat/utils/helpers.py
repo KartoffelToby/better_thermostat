@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Final, NamedTuple, Protocol, TypedDict
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_STEP,
+    DEFAULT_MAX_TEMP as CLIMATE_DEFAULT_MAX_TEMP,
+    DEFAULT_MIN_TEMP as CLIMATE_DEFAULT_MIN_TEMP,
     DOMAIN as CLIMATE_DOMAIN,
     ClimateEntityFeature,
     HVACMode,
@@ -1288,6 +1290,88 @@ def setpoint_echo_window(step: float) -> float:
     return max(step - SETPOINT_MATCH_TOLERANCE, SETPOINT_MATCH_TOLERANCE)
 
 
+def get_cool_temperature_bounds(
+    self: BetterThermostat,
+) -> tuple[float | None, float | None]:
+    """Return the cooling channel's bounds, None where none is known.
+
+    The counterpart of ``bt_min_temp`` / ``bt_max_temp`` for the cooling
+    channel: a bound the cooler has not resolved falls back to the heating
+    one, which is the only range of a thermostat without a cooler, and stays
+    None while that is unknown as well.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance carrying both ranges
+
+    Returns
+    -------
+    tuple[float | None, float | None]
+            the lower and upper bound, in °C
+    """
+    lower = (
+        self.cool_min_temperature
+        if self.cool_min_temperature is not None
+        else self.bt_min_temp
+    )
+    upper = (
+        self.cool_max_temperature
+        if self.cool_max_temperature is not None
+        else self.bt_max_temp
+    )
+    return lower, upper
+
+
+def get_heat_temperature_range(self: BetterThermostat) -> tuple[float, float]:
+    """Return the range the heating target is held to.
+
+    Unlike ``bt_min_temp`` / ``bt_max_temp`` it is never open: a bound no
+    device has reported yet falls back to Home Assistant's default for a
+    climate entity, which is what the entity publishes in that case.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance carrying the heating range
+
+    Returns
+    -------
+    tuple[float, float]
+            the lower and upper bound, in °C
+    """
+    lower = self.bt_min_temp
+    upper = self.bt_max_temp
+    return (
+        CLIMATE_DEFAULT_MIN_TEMP if lower is None else lower,
+        CLIMATE_DEFAULT_MAX_TEMP if upper is None else upper,
+    )
+
+
+def get_cool_temperature_range(self: BetterThermostat) -> tuple[float, float]:
+    """Return the range the cooling target is held to.
+
+    The closed counterpart of :func:`get_cool_temperature_bounds`: a bound
+    that is unknown there falls back to :func:`get_heat_temperature_range`.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance carrying both ranges
+
+    Returns
+    -------
+    tuple[float, float]
+            the lower and upper bound, in °C
+    """
+    heat_lower, heat_upper = get_heat_temperature_range(self)
+    lower, upper = get_cool_temperature_bounds(self)
+    return (
+        heat_lower if lower is None else lower,
+        heat_upper if upper is None else upper,
+    )
+
+
 def resolve_inbound_setpoint(
     self: BetterThermostat,
     state: State | None,
@@ -1296,6 +1380,7 @@ def resolve_inbound_setpoint(
     known_values: tuple[float | None, ...],
     step: float,
     log_source: str,
+    cooling: bool = False,
 ) -> InboundSetpoint | None:
     """Prepare a setpoint reported by a controlled device for adoption.
 
@@ -1333,6 +1418,9 @@ def resolve_inbound_setpoint(
             before it is passed
     log_source : str
             caller name, forwarded for logging context
+    cooling : bool
+            whether the setpoint is adopted into the cooling channel, which
+            bounds it by the cooling range instead of the heating one
 
     Returns
     -------
@@ -1344,16 +1432,21 @@ def resolve_inbound_setpoint(
         return None
 
     # A bound stays None until a child entity reports one, so each side is
-    # enforced only once it is known. Non-overlapping heater and cooler ranges
-    # leave bt_min_temp above bt_max_temp, so the two bounds are applied in
+    # enforced only once it is known. Non-overlapping device ranges leave the
+    # lower bound above the upper one, so the two bounds are applied in
     # sequence rather than exclusively and the upper one decides.
+    lower, upper = (
+        get_cool_temperature_bounds(self)
+        if cooling
+        else (self.bt_min_temp, self.bt_max_temp)
+    )
     value = raw
     clamped = False
-    if self.bt_min_temp is not None and value < self.bt_min_temp:
-        value = self.bt_min_temp
+    if lower is not None and value < lower:
+        value = lower
         clamped = True
-    if self.bt_max_temp is not None and self.bt_max_temp < value:
-        value = self.bt_max_temp
+    if upper is not None and upper < value:
+        value = upper
         clamped = True
 
     echo_window = setpoint_echo_window(step)

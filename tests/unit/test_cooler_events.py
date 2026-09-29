@@ -37,6 +37,8 @@ def mock_bt():
     bt.bt_target_temp_step = 0.5
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.cooler_entity_id = ENTITY_ID
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
@@ -393,6 +395,35 @@ class TestInboundCoolSetpointClamp:
         assert mock_bt.bt_target_cooltemp == 25.5
         assert mock_bt.bt_target_temp == 25.0  # untouched
         assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+
+    @pytest.mark.asyncio
+    async def test_report_above_the_heating_range_is_bounded_by_the_cooler(
+        self, mock_bt
+    ):
+        """A report the cooler's range holds is adopted past the heater's maximum."""
+        mock_bt.cool_min_temperature = 16.0
+        mock_bt.cool_max_temperature = 35.0
+        old_state = _make_state(attributes={"temperature": 27.0})
+        new_state = _make_state(attributes={"temperature": 33.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 33.0
+        assert mock_bt.bt_target_temp == 20.0  # untouched
+
+    @pytest.mark.asyncio
+    async def test_report_above_the_cooler_range_is_clamped_onto_it(self, mock_bt):
+        """A report beyond the cooler's maximum is clamped to it, not to the heater's."""
+        mock_bt.cool_min_temperature = 16.0
+        mock_bt.cool_max_temperature = 35.0
+        old_state = _make_state(attributes={"temperature": 27.0})
+        new_state = _make_state(attributes={"temperature": 37.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 35.0
 
     @pytest.mark.asyncio
     async def test_reported_setpoint_below_heat_target_is_raised(self, mock_bt):

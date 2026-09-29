@@ -51,6 +51,8 @@ def mock_bt():
     bt.bt_target_cooltemp = 26.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.bt_target_temp_step = 0.5
     bt.tolerance = 0.5
     # HVAC
@@ -136,6 +138,9 @@ def mock_bt():
     )
     bt._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         bt, value
+    )
+    bt._bound_cool_target_to_range = lambda value: (
+        BetterThermostat._bound_cool_target_to_range(bt, value)
     )
     bt._configured_target_temp_step = None
     bt._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(bt, value)
@@ -2145,3 +2150,62 @@ class TestSeedCoolTarget:
         )
         assert mock_bt.bt_target_cooltemp == 22.5
         assert mock_bt.bt_target_temp == 22.0
+
+
+# ===========================================================================
+# Per-channel ranges with a cooler
+# ===========================================================================
+
+
+class TestChannelRanges:
+    """With a cooler each target is held to its own channel's range.
+
+    The fixture's heads span 5 to 30 °C; the cooler here spans 16 to 35 °C,
+    so the published range is 5 to 35 °C.
+    """
+
+    @pytest.fixture
+    def cooled_bt(self, mock_bt):
+        """Give ``mock_bt`` a cooler whose range reaches past the heads'."""
+        mock_bt.cooler_entity_id = "climate.cooler"
+        mock_bt.cool_min_temperature = 16.0
+        mock_bt.cool_max_temperature = 35.0
+        mock_bt.min_temp = 5.0
+        mock_bt.max_temp = 35.0
+        return mock_bt
+
+    def test_a_re_injected_cooling_target_is_bounded_by_the_cooler(self, cooled_bt):
+        """A cooling target the cooler holds is not cut to the heads' maximum."""
+        assert BetterThermostat._bound_cool_target_to_range(cooled_bt, 33.0) == 33.0
+        assert BetterThermostat._bound_cool_target_to_range(cooled_bt, 37.0) == 35.0
+
+    def test_the_cooling_bump_is_capped_by_the_cooler_maximum(self, cooled_bt):
+        """A heating target on the heads' maximum leaves the cooler room above it."""
+        cooled_bt.hvac_mode = HVACMode.HEAT_COOL
+        cooled_bt.bt_target_temp = 30.0
+        cooled_bt.bt_target_cooltemp = 29.0
+
+        BetterThermostat._enforce_cool_above_heat(cooled_bt)
+
+        assert cooled_bt.bt_target_cooltemp == 30.5
+
+    def test_the_inbound_cooling_floor_is_capped_by_the_cooler_maximum(self, cooled_bt):
+        """A cooler report is raised above the heating target up to the cooler's max."""
+        cooled_bt.bt_target_temp = 30.0
+
+        assert BetterThermostat._clamp_inbound_cool_target(cooled_bt, 29.0) == 30.5
+
+    def test_a_preset_is_held_to_the_heating_range(self, cooled_bt):
+        """A heating preset above the heads' maximum applies as that maximum."""
+        assert BetterThermostat._preset_target(cooled_bt, 33.0) == 30.0
+
+    @pytest.mark.asyncio
+    async def test_a_selected_preset_is_held_to_the_heating_range(self, cooled_bt):
+        """Selecting a preset stored above the heads' maximum heats to that maximum."""
+        cooled_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT]
+        cooled_bt.preset_mgr.mode = PRESET_NONE
+        cooled_bt.preset_mgr.update_temperature(PRESET_COMFORT, 33.0)
+
+        await BetterThermostat.async_set_preset_mode(cooled_bt, PRESET_COMFORT)
+
+        assert cooled_bt.bt_target_temp == 30.0

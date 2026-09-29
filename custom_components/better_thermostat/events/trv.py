@@ -436,6 +436,8 @@ async def trigger_trv_change(
         known_values=_known_values,
         step=_step,
         log_source="trigger_trv_change()",
+        # A report the cooling channel owns is bounded by the cooling range.
+        cooling=_cooling_owns,
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
     if (
@@ -451,8 +453,8 @@ async def trigger_trv_change(
             trv.last_temperature,
         )
         # The no_off OFF detection compares against the TRV's minimum, so it
-        # uses the reported value, not one the clamp may have raised into
-        # [bt_min_temp, bt_max_temp].
+        # uses the reported value, not one the clamp may have raised into the
+        # channel's range.
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
