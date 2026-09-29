@@ -10,7 +10,7 @@ of the room: neither setpoint says anything about the heating target.
 
 from dataclasses import replace
 
-from homeassistant.components.climate import HVACMode
+from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.core import State
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 import pytest
@@ -90,6 +90,26 @@ async def test_an_adopted_setpoint_is_bounded_into_the_range(
     bt = await _start(hass, profile, stored, profile)
 
     assert bt.bt_target_temp == expected
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+async def test_a_range_head_hands_over_its_heating_setpoint(hass, stored):
+    """A head publishing a 21-25 °C band and no setpoint gives the room 21 °C."""
+    profile = replace(
+        GENERIC_HEAT_TRV,
+        hvac_modes=(HVACMode.HEAT_COOL, HVACMode.OFF),
+        hvac_mode=HVACMode.HEAT_COOL,
+        target_temperature=None,
+        target_temperature_low=21.0,
+        target_temperature_high=25.0,
+        supported_features=ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.TURN_OFF
+        | ClimateEntityFeature.TURN_ON,
+    )
+
+    bt = await _start(hass, profile, stored, profile)
+
+    assert bt.bt_target_temp == 21.0
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
