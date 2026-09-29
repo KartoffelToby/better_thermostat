@@ -81,7 +81,10 @@ async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
         {"temperature": 4.0, "supported_features": WeatherEntityFeature.FORECAST_DAILY},
     )
 
+    asked = asyncio.Event()
+
     async def get_forecasts_that_hang(call):
+        asked.set()
         await asyncio.Event().wait()
 
     hass.services.async_register(
@@ -102,6 +105,7 @@ async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
         await setup_entry(hass, entry)
         await wait_for_startup(hass, entry)
 
+    assert asked.is_set()
     assert hass.states.get(BT_ENTITY).state == "heat"
 
 
