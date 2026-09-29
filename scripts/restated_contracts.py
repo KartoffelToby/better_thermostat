@@ -30,12 +30,12 @@ its own that is not enough to ask about, but next to a restating wording it is
 the sharper half of the list.
 
 **What this does not reach.** The marker list is a sample of the suspicion, not
-a survey of it. Of 3275 test docstrings in the tree it reports 112, and two
-common shapes stay outside it by measurement: 246 summaries opening "Test that
-…", which name the call rather than the obligation, and 177 built around
-"should", which state an expectation without saying whose. Matching either
-would add 423 sentences to a list of 112 and bury the question this exists to
-ask, so both are left to the reader. A green run means the budget held, never
+a survey of it. It reports a small share of the tree's test docstrings, and
+two common shapes stay outside it by measurement: summaries opening "Test
+that …", which name the call rather than the obligation, and summaries built
+around "should", which state an expectation without saying whose. Together
+they outnumber the reported hits several times over, so matching either would
+bury the question this exists to ask, and both are left to the reader. A green run means the budget held, never
 that the tree is free of restatements.
 
 **Symptom wording.** A test whose docstring repeats a phrase from a document
