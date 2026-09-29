@@ -156,9 +156,10 @@ def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
     measured against them comes out negative: the hold time and the tuning
     interval would not elapse until the new uptime passes the old one.
     How long the host was down is unknown, so the stamps and the
-    measurements they belong to restart as on a first cycle, the errors
-    auto-tune compares between consecutive cycles among them. The integral
-    and the learned gains are kept.
+    measurements they belong to restart as on a first cycle, the error and
+    its sign that auto-tune and the integrator relief compare between
+    consecutive cycles among them. The integral and the learned gains are
+    kept.
     """
     latest = max(state.pid_last_time, state.last_output_change_ts, state.last_tune_ts)
     if latest <= now:
@@ -170,6 +171,7 @@ def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
     state.pid_last_error = None
     state.last_abs_error = None
     state.previous_abs_error = None
+    state.last_error_sign = None
 
 
 def compute_pid(
