@@ -404,6 +404,68 @@ class TestInternalTemperatureChange:
         assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "attributes",
+        [
+            {"current_temperature": "unknown", "temperature": 19.0},
+            {"current_temperature": None, "temperature": 19.0},
+            {"temperature": 19.0},
+        ],
+        ids=["unknown", "none", "missing"],
+    )
+    async def test_report_without_internal_temperature_invalidates_it(
+        self, mock_bt, attributes
+    ):
+        """A TRV that stops reporting its internal temperature has no live one.
+
+        The device stays reachable, but a stored reading it no longer
+        confirms must not keep feeding SENSOR_FALLBACK and the ladder.
+        """
+        trv_state = State(ENTITY_ID, "heat", attributes=attributes)
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(minutes=10)
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+            )
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
+
+    @pytest.mark.asyncio
+    async def test_first_reading_after_a_gap_in_internal_temperature_is_taken(
+        self, mock_bt
+    ):
+        """The first reading after a report without one repopulates the cache at once."""
+        gap_state = State(ENTITY_ID, "heat", attributes={"temperature": 19.0})
+        mock_bt.hass.states.get.return_value = gap_state
+        # The last accepted reading is recent, well inside the 5 s debounce
+        # window.
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now()
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=gap_state, old_state=gap_state)
+            )
+            assert mock_bt.real_trvs[ENTITY_ID].current_temperature is None
+
+            trv_state = _make_state(attributes={"current_temperature": 18.5})
+            mock_bt.hass.states.get.return_value = trv_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+            )
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 18.5
+
+    @pytest.mark.asyncio
     async def test_fahrenheit_current_temp_without_unit_attr(self, mock_bt):
         """A Fahrenheit TRV with no unit attribute is read via the system unit.
 

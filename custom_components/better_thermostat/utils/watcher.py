@@ -28,6 +28,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
 from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 from .const import DOMAIN
 
@@ -108,6 +109,36 @@ def is_trv_available(self, entity_id: str) -> bool:
     return is_entity_available(
         self.hass, entity_id, trv_state_unknown_as_available(self, entity_id)
     )
+
+
+def reachable_trv_temperature(self, entity_id: str) -> float | None:
+    """Return a TRV's stored internal temperature while the TRV is reachable.
+
+    A stored reading only counts while its TRV is available: a value kept
+    from before an outage describes a device that no longer reports.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to read
+
+    Returns
+    -------
+    float | None
+        The internal temperature in °C, or None when the TRV is not tracked,
+        not available, or holds no finite reading
+    """
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return None
+    value = trv.current_temperature
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    if not is_trv_available(self, entity_id):
+        return None
+    return float(value)
 
 
 def get_battery_status(self, entity) -> None:
@@ -559,6 +590,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     # The control-mode region is the typed record; the entity's
     # degraded_mode property derives from it.
     old_degraded = self.kernel_state.control_mode.degraded
+    old_rung = self.kernel_state.control_mode.mode
     self.kernel_state = replace(
         self.kernel_state,
         control_mode=control_mode_step(
@@ -568,10 +600,8 @@ async def check_and_update_degraded_mode(self) -> bool:
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
     trv_temp_ok = any(
-        isinstance(trv.current_temperature, (int, float))
-        and math.isfinite(float(trv.current_temperature))
-        and is_trv_available(self, entity_id)
-        for entity_id, trv in self.real_trvs.items()
+        reachable_trv_temperature(self, entity_id) is not None
+        for entity_id in self.real_trvs
     )
     self.kernel_state = replace(
         self.kernel_state,
@@ -584,6 +614,16 @@ async def check_and_update_degraded_mode(self) -> bool:
         ),
     )
     self.unavailable_sensors = unavailable
+    # A committed rung changes the room temperature the control law reads,
+    # so the devices are driven from the new source now rather than on the
+    # next unrelated trigger. Valve maintenance requests its own cycle when
+    # it ends.
+    if (
+        self.kernel_state.control_mode.mode != old_rung
+        and not getattr(self, "in_maintenance", False)
+        and getattr(self, "control_queue_task", None) is not None
+    ):
+        request_control_cycle(self)
     degraded = self.kernel_state.control_mode.degraded
 
     in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())
