@@ -270,7 +270,10 @@ async def _register_dynamic_entity_callback(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
             bt_climate.device_name,
         )
-        hass.async_create_background_task(
+        # Scoped to the entry, so an unload cancels an update still pending
+        # instead of letting it add entities to an entry that is gone.
+        entry.async_create_background_task(
+            hass,
             _handle_dynamic_entity_update(hass, entry, bt_climate, async_add_entities),
             name=f"bt_dynamic_entity_update_{entry.entry_id}",
         )

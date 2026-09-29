@@ -1918,3 +1918,31 @@ class TestBtSimpleAttributeSensor:
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
+
+
+class TestDynamicUpdateBelongsToTheEntry:
+    """An entity update started by a configuration change ends with its entry."""
+
+    @pytest.mark.asyncio
+    async def test_the_update_task_is_owned_by_the_config_entry(self):
+        """The update runs as a task of the entry, which an unload cancels.
+
+        A task owned by Home Assistant alone would outlive the unload and add
+        entities to an entry that no longer exists.
+        """
+        from custom_components.better_thermostat import sensor as sensor_module
+
+        hass = MagicMock()
+        entry = _make_entry("entry_owned")
+        entry.async_create_background_task = MagicMock(
+            side_effect=lambda _hass, coro, name: coro.close()
+        )
+        with patch.object(sensor_module, "async_dispatcher_connect", MagicMock()):
+            await sensor_module._register_dynamic_entity_callback(
+                hass, entry, _make_bt_climate(), MagicMock()
+            )
+        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"](None)
+
+        entry.async_create_background_task.assert_called_once()
+        assert entry.async_create_background_task.call_args.args[0] is hass
+        hass.async_create_background_task.assert_not_called()
