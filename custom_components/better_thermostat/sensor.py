@@ -103,6 +103,12 @@ async def _setup_algorithm_sensors(
 ) -> list[SensorEntity]:
     """Set up algorithm-specific sensors based on current configuration.
 
+    The entities of every algorithm no TRV uses any more are removed first,
+    whichever algorithms are being created. A sensor already tracked for its
+    algorithm is live and is not created a second time, so an algorithm
+    whose cleanup removed only some of its sensors gets exactly the missing
+    ones back when it is used again.
+
     Parameters
     ----------
     hass : HomeAssistant
@@ -115,11 +121,10 @@ async def _setup_algorithm_sensors(
         When provided, only sensors for these algorithms are created.
         When ``None`` (initial setup), all active algorithms are created.
 
-    The entities of every algorithm no TRV uses any more are removed first,
-    whichever algorithms are being created. A sensor already tracked for its
-    algorithm is live and is not created a second time, so an algorithm
-    whose cleanup removed only some of its sensors gets exactly the missing
-    ones back when it is used again.
+    Returns
+    -------
+    list[SensorEntity]
+        The sensors not yet tracked, for the caller to add.
     """
     algorithm_sensors: list[SensorEntity] = []
     entry_id = entry.entry_id
