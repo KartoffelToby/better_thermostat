@@ -5,8 +5,9 @@ version. A change wanted on both lines is written twice, one commit per line.
 A change written only on `1.9` is a gap, and ``git cherry`` cannot tell a gap
 from a pair: the two commits of a pair are written separately, so they share
 no ancestry below the merge base, and ``git cherry`` matches by patch id,
-which differs whenever the two diffs differ. What they share is the text, so
-the comparison is textual.
+which ignores only whitespace and line numbers, so two diffs that differ in
+anything else count as unrelated. What they share is the text, so the
+comparison is textual.
 
 Every commit on the maintenance line that the development line does not
 contain is reduced to a set of *markers*, and each marker is looked up in the

@@ -532,8 +532,10 @@ version. A change wanted on both is written twice, one commit per line, because
 the lines have diverged far enough that a cherry-pick no longer applies. A
 change written only on `1.9` is a gap, and history does not show it: the two
 commits of a pair are written separately, so they share no ancestry below the
-merge base, and `git cherry` matches by patch id, which differs whenever the
-two diffs differ, so it reports such a pair as missing, the same as a gap.
+merge base, and `git cherry` matches by patch id, which ignores only whitespace
+and line numbers. Two diffs that differ in anything else get different patch
+ids, so `git cherry` finds no equivalent patch and reports such a pair as
+missing, the same as a gap.
 
 `scripts/forward_port_gaps.py` compares the text instead. For every commit on
 `1.9` that `develop` does not contain it takes up to twelve distinctive added
