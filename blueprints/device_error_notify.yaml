@@ -55,6 +55,7 @@ mode: parallel
 max_exceeded: silent
 
 variables:
+  thermostat_device: !input thermostat_device
   enable_error_alert: !input enable_error_alert
   enable_temp_reached_alert: !input enable_temp_reached_alert
 
@@ -88,7 +89,7 @@ action:
             data:
               title: "Better Thermostat – Device error"
               message: >
-                ⚠️ {{ device_attr(trigger.device_id, 'name') }} reported a
+                ⚠️ {{ device_attr(thermostat_device, 'name') }} reported a
                 device error. Please check the integration and your TRV devices.
 
       # ── Target temperature reached ─────────────────────────────────────────
@@ -102,5 +103,5 @@ action:
             data:
               title: "Better Thermostat – Target temperature reached"
               message: >
-                ✅ {{ device_attr(trigger.device_id, 'name') }} has reached
+                ✅ {{ device_attr(thermostat_device, 'name') }} has reached
                 its target temperature.

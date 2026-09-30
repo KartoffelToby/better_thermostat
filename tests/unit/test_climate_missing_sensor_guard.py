@@ -82,7 +82,7 @@ async def test_finalize_startup_logs_error_and_skips_listeners(caplog):
     with (
         caplog.at_level(logging.ERROR),
         patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
+        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
         patch(f"{_CLIMATE}.async_track_time_interval", MagicMock()),

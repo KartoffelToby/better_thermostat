@@ -39,7 +39,8 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
+          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen.",
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
@@ -63,7 +64,9 @@
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
-      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist."
+      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist.",
+      "already_configured": "Ein Better Thermostat mit diesem Namen steuert diese Thermostate bereits.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören; entferne es zuerst dort."
     }
   },
   "options": {
@@ -93,7 +96,8 @@
           "calibration": "Die Art der Kalibrierung",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern."
+          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "cooler": "Klimagerät AC (optional)"
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
@@ -109,7 +113,8 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
+          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen.",
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
@@ -120,7 +125,9 @@
     },
     "error": {
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
-      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten."
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
+      "no_sensor": "Bitte einen Raumtemperatursensor auswählen.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören."
     }
   },
   "issues": {
@@ -150,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ungültige Außentemperatur",
       "description": "Der externe Temperatursensor für Better Thermostat {name} hat einen unplausiblen Wert gemeldet: {value}.\n\nDer Messwert lag außerhalb des plausiblen Bereichs und wurde ignoriert. Bitte überprüfen Sie Ihre Temperatursensor-Konfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} wird von mehr als einem Better Thermostat gesteuert",
+      "description": "Das Thermostat {trv} gehört zu diesen Better Thermostats: {entries}. Sie schreiben konkurrierende Solltemperaturen und Modi darauf. Entferne es in den Einstellungen aus allen bis auf eines; danach verschwindet dieser Hinweis von selbst."
     }
   },
   "services": {

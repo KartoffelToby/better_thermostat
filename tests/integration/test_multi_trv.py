@@ -603,14 +603,6 @@ async def test_every_entrance_reaches_a_room_with_all_heads(hass, entrance):
         assert await report_and_wait(room, entrance)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "every trigger wrapper returns before its handler as soon as any "
-        "head of the room is unavailable, so the room ignores its window, "
-        "door, sensors, cooler, weather and periodic tick"
-    ),
-)
 @pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
 async def test_every_entrance_reaches_the_room_while_one_head_is_gone(hass, entrance):
     """A head off the air takes only itself out of the room.
@@ -654,14 +646,6 @@ async def test_a_head_gone_for_hours_is_the_only_one_reported(hass):
     assert room.bt.devices_errors == [room.absent.entity_id]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the gate on the trigger wrappers does not lift with time: after the "
-        "startup grace windows have closed and two hours of periodic ticks, "
-        "an opened window still leaves the reachable heads heating"
-    ),
-)
 async def test_a_room_with_a_head_gone_for_hours_still_answers_its_window(hass):
     """A head that stays away does not leave the room deaf for its absence.
 
@@ -676,15 +660,6 @@ async def test_a_room_with_a_head_gone_for_hours_still_answers_its_window(hass):
     assert await report_and_wait(room, WINDOW_OPENS)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "every trigger wrapper returns before its handler as soon as any "
-        "head of the room is unavailable, so a room that started without a "
-        "head ignores its window, door, sensors, cooler, weather and "
-        "periodic tick"
-    ),
-)
 @pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
 async def test_every_entrance_reaches_a_room_that_started_without_a_head(
     hass, entrance
