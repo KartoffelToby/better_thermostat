@@ -38,6 +38,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     _migrate_v0_to_v1,
     _serialize,
     deserialize_mpc,
+    deserialize_mpc_v2,
     deserialize_pid,
     deserialize_tpi,
 )
@@ -842,3 +843,155 @@ class TestDeserializeRejectsNonFinite:
         mpc = deserialize_mpc({"gain_est": 10**400, "last_percent": 40.0})
         assert mpc.gain_est is None
         assert mpc.last_percent == 40.0
+
+
+def _warnings(caplog) -> list[str]:
+    """Return the WARNING-or-worse messages the state manager logged."""
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno >= logging.WARNING and record.name == _SM
+    ]
+
+
+class TestDroppedStoredValuesAreReported:
+    """A stored value the load cannot use is named when it is dropped.
+
+    Past the load path a dropped field or entry carries the default a first
+    start leaves there, so a value the store lost looks exactly like one it
+    never held. The load is the only place that can still say so.
+    """
+
+    @pytest.mark.parametrize(
+        ("deserialize", "raw", "field"),
+        [
+            pytest.param(deserialize_mpc, {"gain_est": "abc"}, "gain_est", id="mpc"),
+            pytest.param(
+                deserialize_mpc,
+                {"gain_est": float("nan")},
+                "gain_est",
+                id="mpc-non-finite",
+            ),
+            pytest.param(deserialize_pid, {"pid_kp": "abc"}, "pid_kp", id="pid"),
+            pytest.param(
+                deserialize_pid,
+                {"pid_integral": float("inf")},
+                "pid_integral",
+                id="pid-non-finite",
+            ),
+            pytest.param(
+                deserialize_tpi, {"last_percent": "bad"}, "last_percent", id="tpi"
+            ),
+            pytest.param(
+                deserialize_tpi,
+                {"last_percent": float("nan")},
+                "last_percent",
+                id="tpi-non-finite",
+            ),
+            pytest.param(
+                deserialize_mpc_v2, {"created_ts": "later"}, "created_ts", id="mpc_v2"
+            ),
+        ],
+    )
+    def test_an_unreadable_field_is_named_with_its_key(
+        self, caplog, deserialize, raw, field
+    ):
+        """A field the load cannot use keeps its default and is reported.
+
+        The report names the field and the entry it belonged to.
+        """
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            deserialize(raw, key="room_key")
+
+        assert any(
+            field in message and "room_key" in message for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    @pytest.mark.parametrize("section", ["mpc", "mpc_v2", "pid", "tpi"])
+    def test_a_misshapen_entry_is_named(self, caplog, section):
+        """An entry that is not a mapping is dropped and reported with its key."""
+        raw = {"version": 1, section: {"room_key": "not_a_dict"}}
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize(raw)
+
+        assert getattr(state, section) == {}
+        assert any(
+            section in message and "room_key" in message
+            for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    @pytest.mark.parametrize(
+        "section", ["mpc", "mpc_v2", "pid", "tpi", "thermal", "presets"]
+    )
+    def test_a_misshapen_section_is_named(self, caplog, section):
+        """A whole section of the wrong shape is dropped and reported by name."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize({"version": 1, section: "garbage"})
+
+        assert any(section in message for message in _warnings(caplog)), _warnings(
+            caplog
+        )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("heating_power", "later"),
+            ("heat_loss_rate", "Infinity"),
+            ("heat_loss_rate", 1e400),
+            ("heating_power", [20.0]),
+        ],
+    )
+    def test_an_unusable_thermal_value_is_named(self, caplog, field, value):
+        """A stored thermal value that is not a finite number is named."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize({"version": 1, "thermal": {field: value}})
+
+        assert getattr(state.thermal, field) is None
+        assert any(
+            "thermal" in message and field in message for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    def test_an_unusable_preset_is_named(self, caplog):
+        """A stored preset temperature that is not a finite number is named."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            state = _deserialize(
+                {"version": 1, "presets": {"eco": "warm", "comfort": 21.0}}
+            )
+
+        assert state.presets == {"comfort": 21.0}
+        assert any(
+            "presets" in message and "eco" in message for message in _warnings(caplog)
+        ), _warnings(caplog)
+
+    def test_a_null_thermal_value_is_not_reported(self, caplog):
+        """A null thermal value is a value not yet learned, not a lost one."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize(
+                {
+                    "version": 1,
+                    "thermal": {"heating_power": None, "heat_loss_rate": None},
+                }
+            )
+
+        assert _warnings(caplog) == []
+
+    @pytest.mark.parametrize(
+        ("section", "entry", "field"),
+        [
+            ("mpc", {"gain_est": float("nan")}, "gain_est"),
+            ("mpc_v2", {"created_ts": float("inf")}, "created_ts"),
+            ("pid", {"pid_kp": float("nan")}, "pid_kp"),
+            ("tpi", {"last_update_ts": float("nan")}, "last_update_ts"),
+        ],
+    )
+    def test_a_load_names_the_entry_of_a_dropped_value(
+        self, caplog, section, entry, field
+    ):
+        """A value the store load drops is reported with its section and key."""
+        with caplog.at_level(logging.DEBUG, logger=_SM):
+            _deserialize({"version": 1, section: {"room_key": entry}})
+
+        assert any(
+            section in message and "room_key" in message and field in message
+            for message in _warnings(caplog)
+        ), _warnings(caplog)

@@ -1383,6 +1383,38 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_target_temp == 5.0
 
     @pytest.mark.asyncio
+    async def test_echo_above_range_logs_the_reported_setpoint(self, mock_bt, caplog):
+        """The debug log names what the TRV reported, not BT's clamped view.
+
+        A calibration setpoint above ``bt_max_temp`` comes back verbatim from
+        the TRV. Logging only the clamped value would read as if BT had capped
+        the setpoint it sent at its own maximum.
+        """
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 33.5, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = new_state
+        mock_bt.real_trvs[ENTITY_ID].last_temperature = 33.5
+        caplog.set_level(logging.DEBUG)
+
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_target_temp == 19.0
+        assert "setpoint change 19.0 -> 33.5 (clamped to 30.0) NOT adopted" in (
+            caplog.text
+        )
+        assert "_new_heating_setpoint: 33.5 (clamped to 30.0)" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_setpoint_clamped_to_max(self, mock_bt):
         """Setpoint above max should be clamped."""
         old_state = _make_state(
@@ -3155,3 +3187,90 @@ class TestDualRoleEntityReports:
 
         assert mock_bt.bt_target_temp == 23.5
         mock_bt.control_queue_task.put.assert_awaited_once()
+
+
+def _prepare_outage_room(bt, *, with_peer: bool):
+    """Make ``bt`` a room whose head ``ENTITY_ID`` has just gone off the air.
+
+    With ``with_peer`` a second head that is still on the air shares the room.
+    The stand-in carries what the listener in climate.py reads before it hands
+    the event on, and collects the handler it hands it to.
+    """
+    if with_peer:
+        _add_homematicip_peer(bt)
+    unavailable = State(ENTITY_ID, "unavailable")
+    peer_state = State(
+        PEER_ID, "heat", attributes={"current_temperature": 20.0, "temperature": 19.0}
+    )
+    bt.hass.states.get.side_effect = lambda entity_id: (
+        unavailable if entity_id == ENTITY_ID else peer_state
+    )
+    bt.in_maintenance = False
+    bt.devices_errors = []
+    bt.devices_states = {}
+    bt._critical_grace_until = None
+    # The listener looks for TRVs startup went ahead without before it reads
+    # the report; every head here was set up by startup.
+    bt._trvs_initializing = set()
+    bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(bt)
+    spawned = []
+    bt._spawn_owned = lambda coro, name=None: spawned.append(coro)
+    return unavailable, spawned
+
+
+class TestOutageReportThroughTheListener:
+    """The report of a head going off the air, from the listener to the handler.
+
+    ``BetterThermostat._trigger_trv_change`` receives the state change and
+    hands it to ``trigger_trv_change``, whose outage branch drops the head's
+    internal temperature and lets the first reading after the outage past the
+    debounce. The two run together here, with the real availability check in
+    front of the handler, because that is the way the report arrives.
+    """
+
+    @pytest.mark.parametrize(
+        "with_peer", [True, False], ids=["one_of_two_heads", "the_only_head"]
+    )
+    @pytest.mark.asyncio
+    async def test_the_outage_report_reaches_the_handler(self, mock_bt, with_peer):
+        """A head that goes off the air stops counting as a live reading.
+
+        Its last internal temperature is dropped, and its first reading after
+        the outage is taken without waiting out the debounce, whether or not
+        the room has another head.
+        """
+        unavailable, spawned = _prepare_outage_room(mock_bt, with_peer=with_peer)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        recovered = _make_state(attributes={"current_temperature": 21.0})
+        routed_states = mock_bt.hass.states.get.side_effect
+
+        with (
+            patch("custom_components.better_thermostat.utils.watcher.ir"),
+            patch(
+                "custom_components.better_thermostat.climate."
+                "check_and_update_degraded_mode",
+                AsyncMock(),
+            ),
+        ):
+            await BetterThermostat._trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=unavailable)
+            )
+            for handler in spawned:
+                await handler
+            spawned.clear()
+
+            assert trv.current_temperature is None
+            assert trv.accept_next_internal_temp is True
+
+            mock_bt.hass.states.get.side_effect = lambda entity_id: (
+                recovered if entity_id == ENTITY_ID else routed_states(entity_id)
+            )
+            await BetterThermostat._trigger_trv_change(
+                mock_bt,
+                _make_event(mock_bt, new_state=recovered, old_state=unavailable),
+            )
+            for handler in spawned:
+                await handler
+
+        assert trv.current_temperature == 21.0
