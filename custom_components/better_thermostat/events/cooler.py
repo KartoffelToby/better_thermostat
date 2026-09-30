@@ -18,11 +18,41 @@ from custom_components.better_thermostat.utils.helpers import (
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
+    round_by_step,
     setpoint_echo_window,
     state_says_nothing,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def cooling_writes_as_held(self, step: float) -> tuple[float | None, float | None]:
+    """Return the cooling channel's writes as the device holds them, in °C.
+
+    The cooling channel sends the cool target as it stands, and the device
+    holds it on its own grid. Compared unrounded, a target that sits off that
+    grid lies less than a step from the grid point a single press reaches, so
+    the press would read as the write coming back. The cool target stands for
+    a write whose service call has not returned yet, which the send cache
+    records only afterwards.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    step : float
+        the device's setpoint step in °C
+
+    Returns
+    -------
+    tuple[float | None, float | None]
+        the cool target and the last sent cooling setpoint on the device's
+        grid, each None while unknown
+    """
+    return (
+        round_by_step(self.bt_target_cooltemp, step),
+        round_by_step(self.last_sent_cooler_temp, step),
+    )
 
 
 @callback
@@ -68,7 +98,7 @@ async def trigger_cooler_change(self, event):
         self,
         new_state,
         keys=COOLER_SETPOINT_KEYS,
-        known_values=(self.bt_target_cooltemp, self.last_sent_cooler_temp),
+        known_values=cooling_writes_as_held(self, _step),
         step=_step,
         log_source="trigger_cooler_change()",
     )

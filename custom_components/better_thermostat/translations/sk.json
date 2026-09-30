@@ -444,6 +444,7 @@
           "window_close": "vykurovanie obnovené, pretože bolo zatvorené okno",
           "summer_mode_on": "vypnuté, pretože vonkajšia teplota je príliš vysoká",
           "summer_mode_off": "vykurovanie obnovené, pretože vonkajšia teplota klesla",
+          "weather_forecast_missing": "vykurovanie obnovené, pretože predpoveď počasia nie je dostupná",
           "degraded_mode_entered": "vstúpil do núdzového režimu, pretože niektoré senzory sú nedostupné",
           "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné",
           "door_open": "turned off because a door was opened",

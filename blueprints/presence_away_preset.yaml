@@ -78,8 +78,8 @@ blueprint:
       selector:
         boolean: {}
 
-mode: single
-max_exceeded: silent
+# A presence change cancels a pending Away delay and is evaluated afresh.
+mode: restart
 
 variables:
   notify_target: !input notify_target
@@ -91,6 +91,8 @@ variables:
 trigger:
   - platform: state
     entity_id: !input presence_entities
+    # State changes only: attribute updates (e.g. GPS) would restart the delay.
+    to: ~
     id: presence_changed
 
 condition: []
@@ -115,14 +117,17 @@ action:
             then:
               - delay:
                   minutes: !input away_delay
-              # Re-check after delay – someone may have returned
-              - variables:
-                  anyone_home_recheck: >
-                    {% set entities = presence_entities if presence_entities is iterable
-                       and presence_entities is not string else [presence_entities] %}
-                    {{ entities | map('states') | select('in', ['home', 'on']) | list | count > 0 }}
-              - condition: template
-                value_template: "{{ not anyone_home_recheck }}"
+
+          # Re-check after the delay – someone may have returned. The condition
+          # sits in the same sequence as the preset call, so a failing re-check
+          # skips it.
+          - variables:
+              anyone_home_recheck: >
+                {% set entities = presence_entities if presence_entities is iterable
+                   and presence_entities is not string else [presence_entities] %}
+                {{ entities | map('states') | select('in', ['home', 'on']) | list | count > 0 }}
+          - condition: template
+            value_template: "{{ not anyone_home_recheck }}"
 
           - service: climate.set_preset_mode
             data:
