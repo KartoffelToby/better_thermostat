@@ -606,6 +606,47 @@ def test_a_commit_that_touches_tests_only_is_not_scored(lines):
     assert not commit.scored
 
 
+def test_a_production_line_found_only_in_tests_is_not_carried(lines):
+    """A test quoting a production line does not put the line in place.
+
+    The development line holds the maintenance line's production text only
+    inside a test file, so the fix itself never arrived there.
+    """
+    script, line = lines
+    production = _body(3)
+    line.git("checkout", "-q", "develop")
+    line.write("tests/test_module.py", production)
+    line.commit("test: quote the fix the other line made")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{production}")
+    maintenance_commit = line.commit("fix: the maintenance line's form")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 3
+    assert not commit.carried_forward
+
+
+def test_a_replaced_line_kept_in_a_test_is_not_a_marker(lines):
+    """The maintenance line's production text decides what it still holds.
+
+    A later commit replaced the lines in production and kept them in a test,
+    so the development line is not asked to hold them.
+    """
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(4)}")
+    intermediate = line.commit("fix: the first attempt")
+    line.write("module.py", f"shared = 1\n{_body(4, start=10)}")
+    line.write("tests/test_module.py", _body(4))
+    line.commit("fix: the final state")
+
+    commit = _measure(script, line, intermediate)
+
+    assert commit.markers == 0
+    assert not commit.scored
+
+
 @pytest.mark.parametrize("successor_on_develop", [True, False])
 def test_a_line_the_maintenance_line_replaced_later_is_not_a_marker(
     lines, successor_on_develop

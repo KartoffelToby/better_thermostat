@@ -275,8 +275,17 @@ def _tree_paths(ref: str) -> list[str]:
 
 
 def _tree_lines(ref: str) -> set[str]:
-    """Return every stripped text line the ref's tree holds."""
-    paths = [path for path in _tree_paths(ref) if _is_text(path)]
+    """Return every stripped line the ref's production text files hold.
+
+    Markers come from production files only, so they are looked up there
+    only: a test that quotes the line it pins holds the text without the
+    change being in place.
+    """
+    paths = [
+        path
+        for path in _tree_paths(ref)
+        if _is_text(path) and not path.startswith(TEST_ROOT)
+    ]
     # ``-z`` on the input too: without it the request is one path per line,
     # and a name holding a newline would be read as two requests.
     specification = "".join(f"{ref}:{path}\0" for path in paths).encode()
