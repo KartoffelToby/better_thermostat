@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 
 from custom_components.better_thermostat.calibration import _compute_mpc_v2_balance
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -264,6 +265,18 @@ def test_dispatch_skips_sampling_when_control_mode_degraded() -> None:
     at all. Both rungs must leave the buffer untouched.
     """
     bt = _make_bt()
+    # The TRV stays reachable and reports its temperature, so SENSOR_FALLBACK
+    # reads its internal temperature.
+    bt.hass = SimpleNamespace(
+        states=SimpleNamespace(
+            get=lambda entity_id: (
+                State(entity_id, "heat", {"current_temperature": 19.0})
+                if entity_id == "climate.x"
+                else None
+            )
+        ),
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit="°C")),
+    )
     bt.real_trvs["climate.x"].last_valve_percent = 37
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is not None

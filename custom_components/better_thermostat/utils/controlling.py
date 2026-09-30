@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 import logging
 import math
@@ -62,15 +62,21 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    TRV_SETPOINT_KEYS,
     attr_to_celsius,
     clamp_valve_percent,
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_device,
+    device_setpoint_step,
     dual_role_entity_id,
     get_current_set_temperatures,
+    last_sent_cooler_temperature,
     matches_any_setpoint,
+    normalize_step,
     read_setpoint_celsius,
+    round_by_step,
+    setpoint_echo_window,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -164,8 +170,24 @@ COOLER_QUANTIZATION_TOLERANCE_K = 0.5
 # Valve deviations below this are the device's own business.
 RECONCILE_VALVE_TOLERANCE_PCT = 5.0
 # Pause before re-queueing a cycle in which a TRV reported failure, so a
-# persistently failing device cannot spin the control queue.
+# persistently failing device cannot spin the control queue. Each further
+# failure of the same cycle doubles the pause.
 FAILED_CYCLE_BACKOFF_S = 2.0
+# Ceiling of that pause. The five-minute reconcile tick queues a cycle for a
+# device that does not hold what it was sent anyway, so a longer pause would
+# not space the attempts any further; it would only hold back the retry that
+# picks up a device which starts accepting the command again.
+FAILED_CYCLE_BACKOFF_MAX_S = 300.0
+# Once a run of failed cycles has reached that ceiling it is reported as a
+# warning at most this often, with how long it has lasted; the attempts in
+# between go to the debug log. A device that refuses for good would otherwise
+# leave the same warning every few minutes all day.
+FAILED_CYCLE_WARNING_INTERVAL_S = 3600.0
+# Pause at the end of a TRV's control call while its state events are still
+# ignored, so the device's reports of what was just written land inside that
+# window instead of being taken as a change made at the device.
+TRV_STATE_SETTLE_S = 3.0
+
 # How long a write channel waits for the device to confirm a command
 # before its watchdog releases the in-flight flag and assumes the command
 # applied. Shared by the mode, setpoint and calibration watchdogs, so a
@@ -302,10 +324,13 @@ def _schedule_budget_retry(
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
     """Queue one control cycle for an offline TRV's next retry window.
 
-    Consumes the reachability region's ``retry_at``: the cycle re-probes
-    the device, and while it stays offline the region's step advances
-    the exponential backoff. Availability events still trigger an
-    immediate cycle when the device returns by itself.
+    Consumes the reachability region's ``retry_at``: the cycle re-reads
+    the device's state without actively probing it. If the TRV is
+    reachable when the cycle runs, normal control resumes and may write
+    to it. If it stays offline, the kernel does not address it outside
+    boost heating, and the region's step advances the exponential
+    backoff. Availability events still trigger an immediate cycle when
+    the device returns by itself.
     """
     region = self.kernel_state.reachability.get(entity_id)
     if region is None or region.online or region.retry_at is None:
@@ -609,32 +634,37 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
     Builds a snapshot, asks the kernel for the desired state, and
     enqueues one control cycle when any device diverges — the general
     mechanism that heals lost writes without per-case keepalives.
+
+    The control watchdog is read here too. A divergence behind a loop that
+    has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
+    it exists for and is logged as an error. A room whose devices hold the
+    intent has nothing for a cycle to do, however long ago the last one
+    ran, so a quiet loop is not reported.
     """
     if self.startup_running or self.ignore_states:
         return
     if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
         return
     try:
-        if control_loop_stalled(
-            self.kernel_state.last_control_monotonic, self.clock.monotonic()
-        ):
-            _LOGGER.error(
-                "better_thermostat %s: control watchdog: no control cycle for "
-                "more than %.0f minutes, forcing one",
-                self.device_name,
-                WATCHDOG_MAX_AGE_S / 60.0,
-            )
-            request_control_cycle(self)
-            return
         snapshot, desired = compute_control_cycle(self, record=False, commit=False)
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return
-        _LOGGER.debug(
-            "better_thermostat %s: reconcile: device state diverged, "
-            "queueing a control cycle",
-            self.device_name,
-        )
+        if control_loop_stalled(
+            self.kernel_state.last_control_monotonic, self.clock.monotonic()
+        ):
+            _LOGGER.error(
+                "better_thermostat %s: control watchdog: device state diverged "
+                "and no control cycle for more than %.0f minutes, forcing one",
+                self.device_name,
+                WATCHDOG_MAX_AGE_S / 60.0,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: reconcile: device state diverged, "
+                "queueing a control cycle",
+                self.device_name,
+            )
         request_control_cycle(self)
     except Exception:
         _LOGGER.exception(
@@ -668,16 +698,19 @@ class TaskManager:
     """Manages background asyncio tasks with automatic cleanup.
 
     Tracks created tasks and automatically removes them from the set when they complete.
+    The entity cancels what is still running when it is removed; from then on
+    the manager starts nothing.
     """
 
     def __init__(self, hass: HomeAssistant | None = None) -> None:
         """Initialize the task manager with an empty task set."""
         self.tasks: set[asyncio.Task[Any]] = set()
         self.hass = hass
+        self.closed = False
 
     def create_task(
         self, coro: Coroutine[Any, Any, Any], name: str | None = None
-    ) -> asyncio.Task[Any]:
+    ) -> asyncio.Task[Any] | None:
         """Create and track an asyncio task with automatic cleanup on completion.
 
         Parameters
@@ -689,9 +722,12 @@ class TaskManager:
 
         Returns
         -------
-        asyncio.Task
-            The created task
+        asyncio.Task or None
+            The created task, or None once the manager is closed
         """
+        if self.closed:
+            coro.close()
+            return None
         if self.hass is not None:
             task = self.hass.async_create_background_task(
                 coro, name=name or "bt_task_manager_task"
@@ -701,6 +737,205 @@ class TaskManager:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
+
+    def cancel_all(self) -> list[asyncio.Task[Any]]:
+        """Cancel every tracked task and close the manager to new ones.
+
+        Returns
+        -------
+        list[asyncio.Task]
+            The cancelled tasks, for the caller to await
+        """
+        self.closed = True
+        tasks = list(self.tasks)
+        self.tasks.clear()
+        for task in tasks:
+            task.cancel()
+        return tasks
+
+
+@dataclass
+class _FailedCycleRun:
+    """Consecutive control cycles that failed while the user's targets stood.
+
+    ``intent`` is the room targets the user had set at the time and the whole
+    of what tells one run from the next. ``failing`` holds the TRVs that
+    failed during the run and ``reported`` the failures already logged with
+    their traceback, as the TRV and the kind of error,
+    ``wait_s`` the pause the run has reached, ``started_at`` when its first
+    failure happened, ``warned_at`` when a failure at the ceiling was last
+    reported as a warning and ``retry`` the pending re-queue.
+
+    A TRV that starts failing during a run joins it and inherits its pause,
+    up to the ceiling, for the retry of its own write. The five-minute
+    reconcile tick queues a cycle for a device that does not hold what it
+    was sent anyway, so that write is not held back any longer than the
+    periodic ticks already space it.
+    """
+
+    intent: tuple[Any, ...]
+    failing: frozenset[str]
+    reported: frozenset[tuple[str, str]]
+    count: int
+    wait_s: float
+    started_at: float
+    warned_at: float | None = None
+    retry: asyncio.Task[None] | None = None
+
+
+def _user_intent(self: BetterThermostat) -> tuple[Any, ...]:
+    """Return the room targets a user sets, as the failure pacing compares them."""
+    return (self.bt_target_temp, self.bt_target_cooltemp, self.bt_hvac_mode)
+
+
+async def _requeue_failed_cycle(self: BetterThermostat, delay_s: float) -> None:
+    """Request a control cycle once a failed cycle's pause has passed."""
+    await asyncio.sleep(delay_s)
+    request_control_cycle(self)
+
+
+def _controlled_cleanly(
+    self: BetterThermostat,
+    entity_id: str,
+    dispatched: list[str],
+    desired: DesiredState | None,
+) -> bool:
+    """Return whether a clean cycle controlled this TRV rather than skipping it.
+
+    A cycle leaves out a TRV the cooling channel drives and skips one its
+    decision did not address, and either way reports nothing wrong without
+    having written to it. The decision addresses a TRV the snapshot reads as
+    available, which includes one whose quirk runs it while it reports
+    unknown, and during a heating boost every TRV. Without a shared decision
+    each TRV decided on a snapshot of its own, and the TRV counts as
+    controlled when its state reads as available.
+    """
+    if entity_id not in dispatched:
+        return False
+    state = self.hass.states.get(entity_id)
+    if state is None:
+        return False
+    if desired is not None:
+        return entity_id in desired.trvs
+    return not trv_report_is_unreadable(self, entity_id, state)
+
+
+def _pace_failed_cycle(
+    self: BetterThermostat,
+    run: _FailedCycleRun | None,
+    failures: list[tuple[str, BaseException | bool]],
+    dispatched: list[str],
+    desired: DesiredState | None,
+) -> _FailedCycleRun | None:
+    """Report a cycle's failures and schedule its retry; return the run.
+
+    A cycle that fails while the user's targets stand continues the run and
+    doubles the pause, up to its ceiling, whichever TRV failed and whatever
+    its error said: a refusal that numbers its messages, a payload the
+    calibration moves between cycles and devices failing in turn are all
+    still the same run. A failure after the user set new targets starts a
+    run at the base pause. The retry is a task of its own, so the queue goes
+    on serving requests while it waits: a new target reaches the devices at
+    once. Each TRV and kind of error is logged with its traceback the first
+    time it fails in a run, and in a single line after that.
+
+    A clean cycle ends the run once the retry has fired and it controlled
+    every TRV that failed in the run, or once the user has set new targets.
+    A clean cycle before the retry fired, one the write budget deferred for
+    instance, never tried the refused write again and keeps the run, and so
+    does one whose decision left a failing TRV unaddressed or left it to the
+    cooling channel. ``desired`` is the decision the cycle ran on, None when
+    the cycle had no shared one.
+    """
+    if not failures:
+        if run is None:
+            return None
+        if run.intent == _user_intent(self) and (
+            (run.retry is not None and not run.retry.done())
+            or not all(
+                _controlled_cleanly(self, entity_id, dispatched, desired)
+                for entity_id in run.failing
+            )
+        ):
+            return run
+        if run.retry is not None:
+            run.retry.cancel()
+        return None
+
+    intent = _user_intent(self)
+    now = self.clock.monotonic()
+    if run is not None and run.intent == intent:
+        count = run.count + 1
+        wait_s = min(run.wait_s * 2, FAILED_CYCLE_BACKOFF_MAX_S)
+        reported = run.reported
+        failing = run.failing | {entity_id for entity_id, _ in failures}
+        started_at = run.started_at
+        warned_at = run.warned_at
+    else:
+        count = 1
+        wait_s = FAILED_CYCLE_BACKOFF_S
+        reported = frozenset()
+        failing = frozenset(entity_id for entity_id, _ in failures)
+        started_at = now
+        warned_at = None
+    # At the ceiling the run is reported hourly; below it every failure is.
+    at_ceiling = wait_s >= FAILED_CYCLE_BACKOFF_MAX_S
+    warn_again = not at_ceiling or (
+        warned_at is None or now - warned_at >= FAILED_CYCLE_WARNING_INTERVAL_S
+    )
+    if run is not None and run.retry is not None:
+        run.retry.cancel()
+
+    # A retry inside the setpoint's write-budget window writes nothing, so
+    # it is not due before the refused setpoint could go out again.
+    delay_s = max(
+        [wait_s]
+        + [_budget_remaining(self, entity_id, "setpoint") for entity_id, _ in failures]
+    )
+    for entity_id, outcome in failures:
+        if not isinstance(outcome, BaseException):
+            continue
+        kind = (entity_id, type(outcome).__name__)
+        if kind not in reported:
+            reported = reported | {kind}
+            _LOGGER.error(
+                "better_thermostat %s: ERROR controlling TRV %s: %s",
+                self.device_name,
+                entity_id,
+                outcome,
+                exc_info=outcome,
+            )
+        elif not at_ceiling:
+            _LOGGER.warning(
+                "better_thermostat %s: controlling TRV %s failed again (%d cycles "
+                "in a row): %s; retrying in %.0f s",
+                self.device_name,
+                entity_id,
+                count,
+                outcome,
+                delay_s,
+            )
+        else:
+            _LOGGER.log(
+                logging.WARNING if warn_again else logging.DEBUG,
+                "better_thermostat %s: controlling TRV %s still failing after %d "
+                "cycles in %.0f min: %s; retrying every %.0f s",
+                self.device_name,
+                entity_id,
+                count,
+                (now - started_at) / 60.0,
+                outcome,
+                delay_s,
+            )
+    if at_ceiling and warn_again:
+        warned_at = now
+    retry = asyncio.create_task(
+        _requeue_failed_cycle(self, delay_s),
+        name=f"bt_failed_cycle_retry_{self.device_name}",
+    )
+    return _FailedCycleRun(
+        intent, failing, reported, count, wait_s, started_at, warned_at, retry
+    )
 
 
 def advance_hvac_action(self: BetterThermostat) -> None:
@@ -862,8 +1097,57 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         if (
             temperature_moved
             or _held_report_control_inputs(self, trv) != acted_on_before
+            or _locked_device_moved(self, entity_id, trv, state)
         ):
             request_control_cycle(self)
+
+
+def _locked_device_moved(
+    self: BetterThermostat, entity_id: str, trv: Trv, state: State | None
+) -> bool:
+    """Return whether a child-locked TRV holds a setpoint or mode it was not sent.
+
+    The lock keeps a press at the device from being adopted, so it moves no
+    control input, and the cycle that turns the device back has to be asked
+    for by what the device holds. A mode command still waiting for its
+    confirmation is left to its watchdog, since the report can lag it; a
+    setpoint report that lags a write shows a value the device was sent
+    before.
+
+    The mode is held against the command of the channel that drives the
+    device: while the cooling channel owns a device that carries both roles,
+    that is the mode the cooler last sent, not the heating channel's. A device
+    reporting ``unknown`` names no mode, which is how a model that reads
+    ``unknown`` as operating reports, so only its setpoint is compared.
+    """
+    if state is None or not (trv.advanced or {}).get("child_lock"):
+        return False
+    if state.state != STATE_UNKNOWN:
+        if cooling_owns_dual_role_device(self, entity_id):
+            commanded_mode = cooler_send_cache(self).get("hvac_mode", (None, None))[0]
+        elif trv.system_mode_received:
+            commanded_mode = trv.last_hvac_mode
+        else:
+            commanded_mode = None
+        if commanded_mode is not None and state.state != commanded_mode:
+            return True
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
+    )
+    step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
+    if entity_id == dual_role_entity_id(self):
+        # The cooling channel's writes as the device holds them, on its grid,
+        # the way the inbound handler compares them.
+        known += [
+            round_by_step(self.bt_target_cooltemp, step),
+            round_by_step(last_sent_cooler_temperature(self), step),
+        ]
+    known_values = [value for value in known if value is not None]
+    if reported is None or not known_values:
+        return False
+    window = setpoint_echo_window(step)
+    return all(abs(reported - value) >= window for value in known_values)
 
 
 def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, ...]:
@@ -899,6 +1183,7 @@ async def control_queue(self: BetterThermostat) -> None:
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    failed_run: _FailedCycleRun | None = None
     try:
         while True:
             if getattr(self, "in_maintenance", False):
@@ -1012,27 +1297,24 @@ async def control_queue(self: BetterThermostat) -> None:
                         # Run all TRV controls in parallel
                         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                        result = True
-                        for i, res in enumerate(results):
-                            if isinstance(res, Exception):
-                                entity_id = controlled_trvs[i]
-                                _LOGGER.error(
-                                    "better_thermostat %s: ERROR controlling TRV %s: %s",
-                                    self.device_name,
-                                    entity_id,
-                                    res,
-                                )
-                                result = False
-                            elif res is False:
-                                result = False
+                        failures: list[tuple[str, BaseException | bool]] = [
+                            (controlled_trvs[i], res)
+                            for i, res in enumerate(results)
+                            if isinstance(res, Exception) or res is False
+                        ]
 
-                        # Retry task if some TRVs failed; coalesces with any
-                        # already-pending request. The backoff sits here rather
-                        # than in the failing worker: a worker holds the TRV lock
-                        # and would stall the rest of the cycle with it.
-                        if result is False:
-                            await asyncio.sleep(FAILED_CYCLE_BACKOFF_S)
-                            request_control_cycle(self)
+                        # Retry the cycle if some TRVs failed; the retry
+                        # coalesces with any already-pending request. The
+                        # backoff sits here rather than in the failing worker:
+                        # a worker holds the TRV lock and would stall the rest
+                        # of the cycle with it.
+                        failed_run = _pace_failed_cycle(
+                            self,
+                            failed_run,
+                            failures,
+                            controlled_trvs,
+                            cycle[1] if cycle is not None else None,
+                        )
 
                         if not getattr(self, "in_maintenance", False):
                             # The inbound handler stood down for the whole
@@ -1058,6 +1340,8 @@ async def control_queue(self: BetterThermostat) -> None:
         )
         raise
     finally:
+        if failed_run is not None and failed_run.retry is not None:
+            failed_run.retry.cancel()
         # Ensure ignore_states is reset on any exit unless maintenance wants it suppressed.
         if not getattr(self, "in_maintenance", False):
             self.ignore_states = False
@@ -1142,6 +1426,47 @@ def _record_cooler_failure(
     )
 
 
+def _on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float | None
+) -> float | None:
+    """Return a cooler setpoint in °C as it lies on the cooler's own grid.
+
+    The cooler publishes its step in the system unit, so a Fahrenheit value is
+    rounded in Fahrenheit and brought back; the payload's conversion then
+    lands on that grid point again. A cooler that publishes no usable step
+    holds whole degrees on a Fahrenheit system, Home Assistant's precision
+    for that unit, and on a Celsius system is rounded onto the step its
+    reports are compared with.
+    """
+    if value is None:
+        return None
+    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
+    step = convert_to_float(
+        str(cooler_state.attributes.get("target_temp_step")),
+        self.device_name,
+        "control_cooler()",
+    )
+    if step is None or step <= 0:
+        if not fahrenheit:
+            return round_by_step(
+                value, device_setpoint_step(self, cooler_state, "control_cooler()")
+            )
+        step = 1.0
+    if fahrenheit:
+        on_grid = round_by_step(
+            TemperatureConverter.convert(
+                value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
+            step,
+        )
+        if on_grid is None:
+            return None
+        return TemperatureConverter.convert(
+            on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    return round_by_step(value, step)
+
+
 async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     """Control the cooler entity based on current temperature and cooling setpoint.
 
@@ -1191,10 +1516,13 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     last_sent = cooler_send_cache(self)
     now_monotonic = self.clock.monotonic()
 
-    # Determine desired state based on the world snapshot of this cycle
+    # Determine desired state based on the world snapshot of this cycle. The
+    # cooler holds setpoints on its own grid only, so the command is the
+    # cooling target rounded once onto that grid; every comparison below and
+    # the send cache work with the value the device is actually sent.
     if snapshot is None:
         snapshot = build_snapshot(self)
-    desired_temp = snapshot.target_cooltemp
+    desired_temp = _on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
 
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
@@ -1366,7 +1694,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     _low_bound_drifted = False
     _low_bound_changed = False
     if _write_range and desired_temp is not None:
-        _low_to_set = cooler_low_bound(desired_temp, target_temp)
+        _low_to_set = cooler_low_bound(
+            desired_temp, _on_cooler_grid(self, cooler_state, target_temp)
+        )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
         last_low = last_sent.get("target_temp_low", (None, None))[0]
@@ -1482,7 +1812,11 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     if temp_to_send is not None:
         _temp_wanted = (
             temp_to_send,
-            cooler_low_bound(temp_to_send, target_temp) if _write_range else None,
+            cooler_low_bound(
+                temp_to_send, _on_cooler_grid(self, cooler_state, target_temp)
+            )
+            if _write_range
+            else None,
         )
         if _cooler_retry_deferred(
             last_sent, "temperature", _temp_wanted, now_monotonic
@@ -1505,7 +1839,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             temp_to_send,
         )
         _temp_to_set = temp_to_send
-        _low_to_set = cooler_low_bound(temp_to_send, target_temp)
+        _low_to_set = _low_to_set_c = cooler_low_bound(
+            temp_to_send, _on_cooler_grid(self, cooler_state, target_temp)
+        )
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(
                 TemperatureConverter.convert(
@@ -1529,13 +1865,17 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             }
         else:
             _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
-        # Only prime the send-cache on success. A failed call must not look
-        # like a completed send, otherwise the throttle would suppress the
-        # retry; its run of failures is recorded instead, which paces the
+        # The device can report the write back while the call is still in
+        # flight, so the value is recorded as sent before the call goes out.
+        # A failed call must not look like a completed send, otherwise the
+        # throttle would suppress the retry, so a failure puts the previous
+        # entry back and records its run of failures instead, which paces the
         # retry without pretending the command arrived. Any exception from
         # this one service call is isolated (cloud integrations propagate raw
         # errors such as ConnectionError) so the hvac_mode command below still
         # runs; CancelledError derives from BaseException and propagates.
+        _previous_send = last_sent.get("temperature")
+        last_sent["temperature"] = (temp_to_send, now_monotonic)
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -1545,6 +1885,10 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
                 context=self.context,
             )
         except Exception as err:
+            if _previous_send is None:
+                last_sent.pop("temperature", None)
+            else:
+                last_sent["temperature"] = _previous_send
             _record_cooler_failure(
                 last_sent, "temperature", _temp_wanted, now_monotonic
             )
@@ -1556,7 +1900,6 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
                 err,
             )
         else:
-            last_sent["temperature"] = (temp_to_send, now_monotonic)
             last_sent.pop("temperature_failed", None)
             # A fresh send invalidates the settled reading of the channels it
             # carried; the device answers those anew. A single-setpoint
@@ -1564,10 +1907,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             # bound's settled reading.
             last_sent.pop("temperature_settled", None)
             if _write_range:
-                last_sent["target_temp_low"] = (
-                    cooler_low_bound(temp_to_send, target_temp),
-                    now_monotonic,
-                )
+                last_sent["target_temp_low"] = (_low_to_set_c, now_monotonic)
                 last_sent.pop("target_temp_low_settled", None)
 
     # Decide whether an hvac_mode command is needed, throttling identical
@@ -1707,20 +2047,9 @@ async def control_trv(
                 self, _trv, "controlling()"
             )
 
-            # HEAT_COOL is the mode a room with a cooler runs in, and it names
-            # a pair of targets Better Thermostat holds. A device that carries
-            # both roles and advertises heat_cool would take it as an
-            # instruction to run its own thermostat against its own pair, so
-            # the cycle in which the heating channel drives it names the
-            # heating role alone. Devices that advertise heat_cool without heat
-            # keep receiving heat_cool, because that is what mode_remap()
-            # translates HEAT into for them.
-            _outbound_mode = self.bt_hvac_mode
-            if _outbound_mode == HVACMode.HEAT_COOL and (
-                entity_id == dual_role_entity_id(self)
-            ):
-                _outbound_mode = HVACMode.HEAT
-            _remapped_states = convert_outbound_states(self, entity_id, _outbound_mode)
+            _remapped_states = convert_outbound_states(
+                self, entity_id, self.bt_hvac_mode
+            )
             if not isinstance(_remapped_states, dict):
                 _LOGGER.warning(
                     "better_thermostat %s: convert_outbound_states returned %r for %s "
@@ -1953,15 +2282,35 @@ async def control_trv(
                     _reported_hvac_mode,
                     _new_hvac_mode,
                 )
+                _commanded_before = self.real_trvs[entity_id].last_hvac_mode
                 self.real_trvs[entity_id].last_hvac_mode = _new_hvac_mode
                 self.real_trvs[entity_id].withdrawn_hvac_mode = None
                 self.real_trvs[entity_id].withdrawn_hvac_mode_until = None
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, entity_id, _new_hvac_mode
                 )
+                _mode_refused = False
                 if _tvr_has_quirk is False:
-                    await set_hvac_mode(self, entity_id, _new_hvac_mode)
-                if self.real_trvs[entity_id].system_mode_received is True:
+                    _mode_refused = (
+                        await set_hvac_mode(self, entity_id, _new_hvac_mode) is False
+                    )
+                # A refused mode is written again by the next cycle, which
+                # still finds the device in its old mode; there is nothing to
+                # wait for until then. Until it goes through, the device holds
+                # the mode it reports, and that is the mode last commanded as
+                # far as the mode cache and the inbound handler are concerned:
+                # the refused one would read the device's next plain report
+                # as a press back to its old mode.
+                if _mode_refused:
+                    self.real_trvs[entity_id].last_hvac_mode = (
+                        _commanded_before
+                        if _reported_hvac_mode in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+                        else _reported_hvac_mode
+                    )
+                if (
+                    not _mode_refused
+                    and self.real_trvs[entity_id].system_mode_received is True
+                ):
                     self.real_trvs[entity_id].system_mode_received = False
                     self.task_manager.create_task(
                         check_system_mode(self, entity_id),
@@ -2125,31 +2474,37 @@ async def control_trv(
                         )
                         trv.last_temperature = _temperature
                         trv.remember_setpoint_written(_temperature)
-                        _tvr_has_quirk = await override_set_temperature(
-                            self, entity_id, _temperature
-                        )
-                        if _tvr_has_quirk is False:
-                            await set_temperature(self, entity_id, _temperature)
-                        # The delegate records the value it sent after its own
-                        # rounding and clamping, which is the one the device
-                        # can echo. Only writes of this path are remembered:
-                        # maintenance drives the device through the delegate
-                        # and nothing confirms those writes.
-                        trv.remember_setpoint_written(trv.last_temperature)
-                        # Every write is watched on its own: a watchdog still
-                        # waiting on an earlier write steps aside for this one
-                        # rather than holding the channel for a command the
-                        # device may never report.
-                        trv.target_temp_received = False
-                        self.task_manager.create_task(
-                            check_target_temperature(
-                                self,
-                                entity_id,
-                                trv.last_setpoint_write_id,
-                                trv.last_temperature,
-                            ),
-                            name=f"bt_check_target_temp_{entity_id}",
-                        )
+                        try:
+                            _tvr_has_quirk = await override_set_temperature(
+                                self, entity_id, _temperature
+                            )
+                            if _tvr_has_quirk is False:
+                                await set_temperature(self, entity_id, _temperature)
+                        finally:
+                            # The delegate records the value it sent after its
+                            # own rounding and clamping, which is the one the
+                            # device can echo, and records it before the call
+                            # goes out. Only writes of this path are
+                            # remembered: maintenance drives the device through
+                            # the delegate and nothing confirms those writes.
+                            trv.remember_setpoint_written(trv.last_temperature)
+                            # Every write is watched on its own: a watchdog
+                            # still waiting on an earlier write steps aside for
+                            # this one rather than holding the channel for a
+                            # command the device may never report. A call that
+                            # raises may still have reached the device, and the
+                            # earlier watchdog has already stepped aside, so
+                            # this write is watched either way.
+                            trv.target_temp_received = False
+                            self.task_manager.create_task(
+                                check_target_temperature(
+                                    self,
+                                    entity_id,
+                                    trv.last_setpoint_write_id,
+                                    trv.last_temperature,
+                                ),
+                                name=f"bt_check_target_temp_{entity_id}",
+                            )
                     else:
                         # A deferred setpoint re-derives on the catch-up cycle
                         # once the slot is free again. Falling through to the
@@ -2165,7 +2520,7 @@ async def control_trv(
         _stamp_heartbeat(self)
 
         # Let TRV state updates propagate before accepting new state events
-        await asyncio.sleep(3)
+        await asyncio.sleep(TRV_STATE_SETTLE_S)
         return True
     finally:
         if _suppression_owned:

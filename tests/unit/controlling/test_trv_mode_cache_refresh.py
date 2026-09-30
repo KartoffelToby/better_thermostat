@@ -23,6 +23,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    _locked_device_moved,
     control_queue,
     read_reports_held_during_cycle,
 )
@@ -581,3 +582,185 @@ class TestHeldReportsAcrossAnOutage:
         )
 
         assert thermostat.bt_target_temp == 19.0
+
+
+class TestALockedPressHeldDuringACycle:
+    """A press at a child-locked TRV that the cycle held off is turned back."""
+
+    @staticmethod
+    def _lock(thermostat):
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.advanced["child_lock"] = True
+        trv.report_unread = True
+        return trv
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(_reported_state("heat", setpoint=25.0), id="setpoint_up"),
+            pytest.param(_reported_state("heat", setpoint=16.0), id="setpoint_down"),
+            pytest.param(_reported_state("off"), id="mode"),
+        ],
+    )
+    async def test_a_locked_press_requests_a_cycle(
+        self, thermostat, reported_states, published
+    ):
+        """The next cycle drives the device back without waiting for a tick."""
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = published
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_called_once_with(thermostat)
+        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(_reported_state("heat", setpoint=19.0), id="its_own_write"),
+            pytest.param(_reported_state("heat", setpoint=19.2), id="within_a_step"),
+        ],
+    )
+    async def test_a_locked_device_holding_the_write_requests_none(
+        self, thermostat, reported_states, published
+    ):
+        """A locked device that reports what it was sent needs no cycle."""
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = published
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_lagging_report_of_a_pending_write_requests_none(
+        self, thermostat, reported_states
+    ):
+        """A report of the value before an unconfirmed write is not a press."""
+        trv = self._lock(thermostat)
+        trv.remember_setpoint_confirmed(19.0)
+        trv.last_temperature = 22.0
+        trv.target_temp_received = False
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_lagging_report_of_a_pending_mode_requests_none(
+        self, thermostat, reported_states
+    ):
+        """A report of the mode before an unconfirmed mode command is not a press."""
+        trv = self._lock(thermostat)
+        trv.last_hvac_mode = "off"
+        trv.system_mode_received = False
+        reported_states[ENTITY_ID] = _reported_state("heat")
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(24.0, True, id="one_step_below_the_held_target"),
+            pytest.param(24.5, False, id="the_held_target"),
+        ],
+    )
+    async def test_a_dual_role_device_compares_cooling_writes_as_it_holds_them(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit reads a press against its grid.
+
+        The cooling target 24.3 is held as 24.5 on a 0.5 grid, so a press to
+        24.0 is one step away from what the device was sent, and 24.5 is the
+        write itself.
+        """
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.3
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with (
+            patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
+            patch(f"{_CTRL}.last_sent_cooler_temperature", return_value=24.3),
+        ):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("held_mode", "requested"),
+        [
+            pytest.param("cool", False, id="the_cooling_command"),
+            pytest.param("heat", True, id="the_idle_heating_command"),
+        ],
+    )
+    async def test_a_cooled_dual_role_device_is_held_to_the_cooling_command(
+        self, thermostat, reported_states, held_mode, requested
+    ):
+        """A locked reversible unit the cooling channel drives holds its mode.
+
+        The cooling channel owns the device and last sent it cool, while the
+        heating channel's own mode command is still heat. A device holding
+        cool holds what it was sent and needs no cycle; one holding heat was
+        turned away from the cooling command and is turned back.
+        """
+        trv = self._lock(thermostat)
+        trv.last_hvac_mode = "heat"
+        trv.last_temperature = 19.0
+        thermostat.cooler_entity_id = ENTITY_ID
+        thermostat._cooler_last_sent = {
+            "hvac_mode_decided": HVACMode.COOL,
+            "hvac_mode": (HVACMode.COOL, 1.0),
+            "temperature": (25.0, 1.0),
+        }
+        state = _reported_state(held_mode, setpoint=25.0)
+
+        moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("setpoint", "requested"),
+        [
+            pytest.param(19.0, False, id="holding_the_write"),
+            pytest.param(25.0, True, id="setpoint_pressed"),
+        ],
+    )
+    async def test_an_operating_unknown_report_is_read_for_its_setpoint_only(
+        self, thermostat, reported_states, setpoint, requested
+    ):
+        """A model that reports an operating device as unknown names no mode.
+
+        The report is read, since the model says the device operates, but
+        unknown is not a mode the device was turned to; only a setpoint it
+        was not sent asks for the cycle that turns it back.
+        """
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = _reported_state(STATE_UNKNOWN, setpoint=setpoint)
+
+        with (
+            patch(
+                "custom_components.better_thermostat.model_fixes.model_quirks."
+                "trv_state_unknown_as_available",
+                return_value=True,
+            ),
+            patch(f"{_CTRL}.request_control_cycle") as request,
+        ):
+            await read_reports_held_during_cycle(thermostat)
+
+        assert request.called is requested

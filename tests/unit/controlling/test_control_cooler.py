@@ -444,9 +444,10 @@ class TestControlCoolerSendCache:
     @pytest.mark.asyncio
     async def test_fahrenheit_reported_temp_matching_target_is_not_resent(self):
         """A cooler reporting the target in °F triggers no set_temperature."""
-        # 75.2 °F == 24.0 °C, the desired cooling setpoint.
+        # 24.0 °C is 75.2 °F; a °F cooler that publishes no step holds whole
+        # degrees, so 75 °F is the target as it holds it.
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=75.2, system_unit=UnitOfTemperature.FAHRENHEIT
+            cooler_temp_attr=75.0, system_unit=UnitOfTemperature.FAHRENHEIT
         )
 
         await control_cooler(mock_self)
@@ -486,8 +487,9 @@ class TestControlCoolerSendCache:
 
         await control_cooler(mock_self)
 
+        # 22.0 °C is 71.6 °F; the device holds the nearest point of its grid.
         payload = _service_calls(mock_hass, "set_temperature")[0].args[2]
-        assert payload == {"entity_id": "climate.cooler", "temperature": 71.6}
+        assert payload == {"entity_id": "climate.cooler", "temperature": 72.0}
 
     @pytest.mark.asyncio
     async def test_identical_repeat_within_interval_is_throttled(self):
@@ -562,12 +564,14 @@ class TestControlCoolerSendCache:
     async def test_quantized_device_reading_is_accepted_without_resend(self):
         """A device that snaps the setpoint onto its own grid gets one send.
 
-        The device answers a desired 22.22 with a reported 22.0. That settled
-        reading counts as convergence, so the identical command is not re-sent
-        even after the resend interval expires.
+        The device publishes no step, so the command goes out on the grid its
+        reports are compared with, 22.5 for a desired 22.4. The device answers
+        with a reported 22.0. That settled reading counts as convergence, so
+        the identical command is not re-sent even after the resend interval
+        expires.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=22.0, target_cooltemp=22.22
+            cooler_temp_attr=22.0, target_cooltemp=22.4
         )
 
         await control_cooler(mock_self)
@@ -586,7 +590,7 @@ class TestControlCoolerSendCache:
     async def test_reported_drift_after_settling_triggers_resend(self):
         """A reported value that moves off its settled reading is corrected."""
         mock_self, mock_hass, mock_cooler_state = _make_cooler_setup(
-            cooler_temp_attr=22.0, target_cooltemp=22.22
+            cooler_temp_attr=22.0, target_cooltemp=22.4
         )
 
         await control_cooler(mock_self)
@@ -601,13 +605,13 @@ class TestControlCoolerSendCache:
 
         temp_calls = _service_calls(mock_hass, "set_temperature")
         assert len(temp_calls) == 2
-        assert temp_calls[1].args[2]["temperature"] == 22.22
+        assert temp_calls[1].args[2]["temperature"] == 22.5
 
     @pytest.mark.asyncio
     async def test_changed_target_overrides_quantization_acceptance(self):
         """A new desired value sends immediately despite a settled reading."""
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=22.0, target_cooltemp=22.22
+            cooler_temp_attr=22.0, target_cooltemp=22.4
         )
 
         await control_cooler(mock_self)
@@ -1964,8 +1968,9 @@ class TestControlCoolerTargetRange:
 
         await control_cooler(mock_self)
 
+        # Without a published step the cooler holds whole degrees Fahrenheit.
         payload = self._set_temperature_payload(mock_hass)
-        assert payload["target_temp_high"] == 75.2  # 24.0 °C
+        assert payload["target_temp_high"] == 75.0  # 24.0 °C is 75.2 °F
         assert payload["target_temp_low"] == 68.0  # 20.0 °C
 
     @pytest.mark.asyncio
@@ -2063,7 +2068,7 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=28.0, target_temp_low=19.0
             ),
-            target_cooltemp=22.22,
+            target_cooltemp=22.4,
             target_temp=20.0,
         )
 
@@ -2086,7 +2091,7 @@ class TestControlCoolerTargetRange:
         assert len(temp_calls) == 2
         assert temp_calls[1].args[2] == {
             "entity_id": "climate.cooler",
-            "target_temp_high": pytest.approx(22.22),
+            "target_temp_high": pytest.approx(22.5),
             "target_temp_low": pytest.approx(20.0),
         }
 

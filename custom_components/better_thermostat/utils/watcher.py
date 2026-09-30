@@ -17,6 +17,7 @@ import logging
 import math
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -27,7 +28,13 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_state_unknown_as_available,
 )
-from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
+from custom_components.better_thermostat.utils.helpers import (
+    async_fire_logbook_entry,
+    attr_to_celsius,
+    convert_to_float_celsius,
+    is_reasonable_temperature,
+)
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 from .const import DOMAIN
 
@@ -110,6 +117,81 @@ def is_trv_available(self, entity_id: str) -> bool:
     )
 
 
+def room_sensor_reading(self, state: State | None) -> float | None:
+    """Return the room temperature a room sensor state carries.
+
+    An available sensor whose state is no number, or a number outside the
+    plausible range, carries no room temperature any more than a missing
+    one does: the room cannot be controlled on it.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    state : State | None
+        The state the room sensor publishes
+
+    Returns
+    -------
+    float | None
+        The room temperature in Celsius, or ``None`` when the state carries
+        no plausible one
+    """
+    if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
+        return None
+    value = convert_to_float_celsius(
+        str(state.state),
+        self.device_name,
+        "room_sensor_reading()",
+        unit_of_measurement=state.attributes.get("unit_of_measurement"),
+    )
+    if not is_reasonable_temperature(value):
+        return None
+    return value
+
+
+def reachable_trv_temperature(self, entity_id: str) -> float | None:
+    """Return a TRV's stored internal temperature while the TRV reports one.
+
+    A stored reading only counts while its TRV is available and its current
+    state carries a convertible, plausible internal temperature: a value kept
+    from before an outage describes a device that no longer reports, and the
+    handler keeps the stored value across a report it cannot use, such as a
+    marker value, which the device does not confirm either.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity ID of the TRV to read
+
+    Returns
+    -------
+    float | None
+        The internal temperature in °C, or None when the TRV is not tracked,
+        not available, holds no finite reading, or reports no usable one
+    """
+    trv = self.real_trvs.get(entity_id)
+    if trv is None:
+        return None
+    value = trv.current_temperature
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return None
+    if not is_trv_available(self, entity_id):
+        return None
+    reported = attr_to_celsius(
+        self,
+        self.hass.states.get(entity_id),
+        "current_temperature",
+        None,
+        "reachable_trv_temperature()",
+    )
+    if not is_reasonable_temperature(reported):
+        return None
+    return float(value)
+
+
 def get_battery_status(self, entity) -> None:
     """Read a battery entity for a device and update internal state.
 
@@ -117,10 +199,8 @@ def get_battery_status(self, entity) -> None:
 
     A battery entity that is itself unavailable, or that has not published a
     level yet, has nothing worth storing: the placeholder would take the place
-    of a reading, and since a stored reading is what stops later passes from
-    asking again, the level would never be read again. The stored slot is left
-    untouched in that case and the read is retried once
-    ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+    of a reading. The stored slot is left untouched in that case and the read
+    is retried once ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
 
     Parameters
     ----------
@@ -153,9 +233,11 @@ def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
     """Read an available entity's battery, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    an entity state write. A battery value is only ever new on the first pass
-    after startup, while it is still unpopulated, or when the entity has just
-    come back from an outage, so those are the passes that read it.
+    an entity state write. A pass therefore reads the battery only on the
+    first pass after startup, while it is still unpopulated, when the entity
+    has just come back from an outage, or when the battery entity reports a
+    level other than the stored one. Comparing against that level is an
+    in-memory state lookup.
 
     An unpopulated reading can also mean that the battery entity itself had
     nothing to report, which would otherwise put a read on every pass, so
@@ -189,7 +271,14 @@ def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
             if self.clock.monotonic() < retry_at:
                 return
         elif info.get("battery") is not None:
-            return
+            # A stored level stays current only as long as the battery entity
+            # agrees with it, and it ages while its device stays available.
+            # A battery entity with no level to offer leaves the stored one
+            # standing.
+            battery_state = self.hass.states.get(info["battery_id"])
+            level = None if battery_state is None else battery_state.state
+            if level == info["battery"] or level in UNAVAILABLE_STATES + UNKNOWN_STATES:
+                return
 
     get_battery_status(self, entity)
 
@@ -549,9 +638,18 @@ async def check_and_update_degraded_mode(self) -> bool:
             recovered=self.sensor_entity_id in previously_unavailable,
         )
 
+    # The ladder asks more of the room sensor than availability: a sensor
+    # that stays available while reporting implausible values leaves the
+    # room without a temperature to control on, the same as a lost one.
+    room_sensor_ok = sensor_available and (
+        room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
+        is not None
+    )
+
     # The control-mode region is the typed record; the entity's
     # degraded_mode property derives from it.
     old_degraded = self.kernel_state.control_mode.degraded
+    old_rung = self.kernel_state.control_mode.mode
     self.kernel_state = replace(
         self.kernel_state,
         control_mode=control_mode_step(
@@ -561,22 +659,30 @@ async def check_and_update_degraded_mode(self) -> bool:
     # A stored reading only counts while its TRV is actually reachable;
     # otherwise a pre-outage value would keep HOLD unreachable forever.
     trv_temp_ok = any(
-        isinstance(trv.current_temperature, (int, float))
-        and math.isfinite(float(trv.current_temperature))
-        and is_trv_available(self, entity_id)
-        for entity_id, trv in self.real_trvs.items()
+        reachable_trv_temperature(self, entity_id) is not None
+        for entity_id in self.real_trvs
     )
     self.kernel_state = replace(
         self.kernel_state,
         control_mode=control_mode_step_ladder(
             self.kernel_state.control_mode,
-            room_sensor_ok=bool(sensor_available),
+            room_sensor_ok=room_sensor_ok,
             trv_temp_ok=trv_temp_ok,
             now=self.clock.monotonic(),
             params=LadderParams(),
         ),
     )
     self.unavailable_sensors = unavailable
+    # A committed rung changes the room temperature the control law reads,
+    # so the devices are driven from the new source now rather than on the
+    # next unrelated trigger. Valve maintenance requests its own cycle when
+    # it ends.
+    if (
+        self.kernel_state.control_mode.mode != old_rung
+        and not getattr(self, "in_maintenance", False)
+        and getattr(self, "control_queue_task", None) is not None
+    ):
+        request_control_cycle(self)
     degraded = self.kernel_state.control_mode.degraded
 
     in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())

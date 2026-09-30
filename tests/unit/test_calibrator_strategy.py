@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.calibrator import (
@@ -183,6 +184,10 @@ class TestStrategyRegistry:
         bt.real_trvs = {
             "climate.trv": Trv(entity_id="climate.trv", current_temperature=20.5)
         }
+        bt.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, "heat", {"current_temperature": 20.5}
+        )
+        bt.hass.config.units.temperature_unit = "°C"
 
         cap = strategy.capability(bt, "climate.trv")
         assert cap.configured and cap.healthy

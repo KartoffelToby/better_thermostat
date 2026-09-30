@@ -39,12 +39,12 @@
           "valve_maintenance": "Режим обслуживания клапана (если термоголовка не имеет собственного)",
           "calibration": "Тип калибровки",
           "calibration_mode": "Режим калибровки",
-          "mpc_v2_plant_preset": "MPC v2 room model",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead",
+          "mpc_v2_plant_preset": "MPC v2 размер помещения"
         },
         "data_description": {
           "protect_overheating": "Некоторые термоголовки не закрывают клапан полностью при достижении температуры, либо батарея долго остывает — это может приводить к перегреву. Данная опция позволяет этого избежать.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room model setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room size setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
         }
@@ -65,7 +65,9 @@
     },
     "abort": {
       "single_instance_allowed": "Для каждого физического термостата можно создать только один Better Thermostat.",
-      "no_devices_found": "Сущность термостата не найдена. Убедитесь, что в Home Assistant существует сущность climate."
+      "no_devices_found": "Сущность термостата не найдена. Убедитесь, что в Home Assistant существует сущность climate.",
+      "already_configured": "Better Thermostat с этим именем уже управляет этими термостатами.",
+      "trv_in_use": "{trv} уже управляется Better Thermostat {entry}. Термостат может принадлежать только одному Better Thermostat; сначала удалите его там."
     }
   },
   "options": {
@@ -95,7 +97,8 @@
           "calibration": "Тип калибровки",
           "heat_auto_swapped": "Поменять местами режимы «авто» и «обогрев» на термоголовке",
           "child_lock": "Игнорировать все команды на термоголовке (детский замок)",
-          "homematicip": "Замедлить запросы для HomematicIP (предотвращение превышения рабочего цикла)"
+          "homematicip": "Замедлить запросы для HomematicIP (предотвращение превышения рабочего цикла)",
+          "cooler": "Устройство охлаждения (необязательно)"
         },
         "data_description": {
           "presets": "Выберите предустановки, которые будут доступны для этого термостата."
@@ -111,12 +114,12 @@
           "valve_maintenance": "Режим обслуживания клапана (если термоголовка не имеет собственного)",
           "calibration": "Тип калибровки",
           "calibration_mode": "Режим калибровки",
-          "mpc_v2_plant_preset": "MPC v2 room model",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead",
+          "mpc_v2_plant_preset": "MPC v2 размер помещения"
         },
         "data_description": {
           "protect_overheating": "Некоторые термоголовки не закрывают клапан полностью при достижении температуры, либо батарея долго остывает — это может приводить к перегреву. Данная опция позволяет этого избежать.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room model setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room size setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
         }
@@ -124,7 +127,9 @@
     },
     "error": {
       "no_heater": "Пожалуйста, выберите хотя бы один реальный термостат.",
-      "target_temp_min_above_max": "Минимальная заданная температура не должна превышать максимальную."
+      "target_temp_min_above_max": "Минимальная заданная температура не должна превышать максимальную.",
+      "no_sensor": "Выберите датчик температуры в помещении.",
+      "trv_in_use": "{trv} уже управляется Better Thermostat {entry}. Термостат может принадлежать только одному Better Thermostat."
     }
   },
   "issues": {
@@ -154,6 +159,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} — недопустимая внешняя температура",
       "description": "Датчик внешней температуры Better Thermostat {name} вернул неправдоподобное значение: {value}.\n\nПоказание вышло за пределы допустимого диапазона и было проигнорировано. Проверьте настройки датчика температуры."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} управляется несколькими Better Thermostat",
+      "description": "Термостат {trv} принадлежит этим Better Thermostat: {entries}. Они записывают в него конкурирующие целевые температуры и режимы. Удалите его в настройках из всех, кроме одного; после этого проблема исчезнет сама."
     }
   },
   "services": {

@@ -223,3 +223,32 @@ async def test_the_restore_point_survives_a_restart(hass, fake_trv):
 
     await _set_preset(hass, "none")
     assert _target(hass) == 21.5
+
+
+@pytest.mark.asyncio
+async def test_a_state_from_the_removed_save_action_restores_cleanly(hass, fake_trv):
+    """A state saved while the removed save/restore actions existed still loads.
+
+    Such a state carries a ``saved_temperature`` attribute. The thermostat
+    restores everything else from it and no longer publishes that attribute.
+    """
+    mock_restore_cache(
+        hass,
+        (
+            State(
+                BT_ENTITY,
+                "heat",
+                {
+                    "temperature": 20.5,
+                    "saved_temperature": 19.0,
+                    "unit_of_measurement": "°C",
+                },
+            ),
+        ),
+    )
+    await _setup(hass)
+
+    assert _preset(hass) == "none"
+    assert _target(hass) == 20.5
+    assert _restore_point(hass) is None
+    assert "saved_temperature" not in hass.states.get(BT_ENTITY).attributes

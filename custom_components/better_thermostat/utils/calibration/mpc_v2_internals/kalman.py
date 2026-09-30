@@ -124,8 +124,13 @@ class KalmanObserver:
         A, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
         # ``Q`` is configured for the plant's nominal observer step.  Scale
         # it with elapsed time so sparse events increase uncertainty instead
-        # of making the filter over-confident.
-        q_scale = elapsed_s / max(self.plant.dt_s, 1e-9)
+        # of making the filter over-confident. The prediction covers at most
+        # the plant's settling time, and so does the process noise: the
+        # stable dynamics forget older disturbances just as they forget the
+        # older state, so a longer silence adds no further uncertainty.
+        q_scale = min(elapsed_s, self.plant.settling_time_s) / max(
+            self.plant.dt_s, 1e-9
+        )
         P_pred = A @ self.P @ A.T + self.Q * q_scale
         innovation = y_meas - float((self.C @ x_pred).item())
         # ``S = C·P_pred·Cᵀ + R`` is 1×1; invert it as a guarded scalar

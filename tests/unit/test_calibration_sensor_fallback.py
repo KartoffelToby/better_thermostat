@@ -10,6 +10,8 @@ available at all.
 
 from unittest.mock import MagicMock, patch
 
+from homeassistant.core import State
+
 from custom_components.better_thermostat.calibration import (
     _compute_mpc_balance,
     _compute_mpc_v2_balance,
@@ -110,7 +112,18 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> MagicMock:
     bt.heating_power = None
     bt.heat_loss_rate = None
     bt.clock.monotonic.return_value = 100.0
-    bt.hass.states.get.return_value = None
+    # The TRV itself is reachable and reports its temperature; every other
+    # entity is absent.
+    bt.hass.states.get.side_effect = lambda entity_id: (
+        State(
+            entity_id,
+            "heat",
+            {} if trv_temp is None else {"current_temperature": trv_temp},
+        )
+        if entity_id == "climate.trv"
+        else None
+    )
+    bt.hass.config.units.temperature_unit = "°C"
     bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
     bt.real_trvs = {
         "climate.trv": Trv.from_legacy_dict(

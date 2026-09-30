@@ -28,26 +28,36 @@ flowchart LR
 ```
 
 **Adapters** (`adapters/`) speak the integration's dialect: Zigbee2MQTT,
-deCONZ, Tado, generic climate services. **Model quirks**
-(`model_fixes/`) override single operations for devices that need
-special sequences (for example valve writes on the Sonoff TRVZB). The
-`Trv` object carries both, plus a `TrvCapabilities` descriptor derived
-in one place (whether the device supports offset writes or direct valve
-writes), so the rest of the code consults capabilities instead of
-probing quirk modules.
+deCONZ, Tado, Z-Wave JS, generic climate services. Zigbee2MQTT and
+Z-Wave JS both publish the valve as a number entity of its own, and
+`adapters/valve_entity.py` serves that valve channel for both.
+**Model quirks** (`model_fixes/`) override single operations for
+devices that need special sequences (for example valve writes on the
+Sonoff TRVZB). The `Trv` object carries both, plus a `TrvCapabilities`
+descriptor derived in one place (whether the device supports offset
+writes, direct valve writes, and an OFF mode), so the rest of the code
+consults capabilities instead of probing quirk modules.
 
 ## The write budget
 
 Non-safety writes to one TRV keep a minimum spacing of 30 seconds,
 **per channel** (setpoint, offset, valve), so one channel's writes
-cannot starve another's slot. Safety-relevant writes (OFF for an open
-window or absent heat demand, frost-floor rewrites, closing the valve)
-always bypass the budget but still stamp the slot, so the spacing stays
+cannot starve another's slot. A TRV with the HomematicIP option enabled
+gets ten minutes instead, since its head shares the access point's 1 %
+radio duty cycle; the first setpoint write after the user changes the
+target or mode still goes out at the 30-second pace. HVAC-mode
+commands, OFF included, do not go through the budget at all.
+Safety-relevant writes on a budgeted channel (the minimum setpoint
+that stands in for OFF on a TRV without an off mode, frost-floor rewrites, closing the valve) always
+bypass the budget but still stamp the slot, so the spacing stays
 accurate.
 
-A deferred setpoint write is not dropped: the defer path schedules one
-coalesced control cycle for the moment the budget reopens. Deferred
-offset writes re-derive on the next calibration tick.
+A deferred write is not dropped on any of the three channels: the
+defer path schedules one coalesced control cycle for the moment the
+budget reopens, and that cycle re-derives the value. A valve write the
+device rejected after the budget was spent schedules the same catch-up
+cycle. The follow-up is needed because the reconciler compares against
+the last value actually written, which the device still matches.
 
 ## The reconciler
 
@@ -58,9 +68,11 @@ intent against what the devices report:
 - **mode** — an OFF intent against a device reporting a heating mode
   (devices that cannot switch off legitimately stay in a heating mode
   at their minimum temperature and are compared by setpoint instead),
+  and a heating intent against a device reporting OFF,
 - **setpoint** — the last commanded value against the reported target,
-  with a tolerance of half the device-reported step, so firmware
-  snapping a value onto its own coarser grid still counts as a match,
+  with a tolerance of half the device-reported step (at least 0.05 K),
+  so firmware snapping a value onto its own coarser grid still counts
+  as a match,
 - **offset** — the commanded calibration against the calibration
   entity, once the device confirmed the last write (in-flight writes
   remain the write path's business),

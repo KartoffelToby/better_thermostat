@@ -4,6 +4,7 @@ Tests the degraded mode functionality including entity availability checks,
 optional vs critical sensor classification, and degraded mode state management.
 """
 
+import asyncio
 from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
@@ -517,12 +518,21 @@ class TestCheckCriticalEntitiesBattery:
 
     check_critical_entities runs on nearly every event, so it must not read a
     battery entity on every call. A read happens only on the first pass
-    (battery still unpopulated) or when a TRV recovers.
+    (battery still unpopulated), when a TRV recovers, or when the battery
+    entity reports a level other than the stored one.
     """
 
     @staticmethod
-    def _make_available(mock_bt_instance):
-        mock_bt_instance.hass.states.get.side_effect = _answers_with("heat")
+    def _make_available(mock_bt_instance, batteries=None):
+        """Make every TRV available and each battery entity report its level.
+
+        ``batteries`` maps battery entity ids to the level they report; every
+        other lookup answers with ``heat``.
+        """
+        levels = batteries or {}
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, levels.get(entity_id, "heat")
+        )
         mock_bt_instance.devices_errors = []
         return mock_bt_instance
 
@@ -545,13 +555,28 @@ class TestCheckCriticalEntitiesBattery:
     @pytest.mark.asyncio
     async def test_no_read_when_battery_already_populated(self, mock_bt_instance):
         """Steady state: populated battery values are not read again."""
-        bt = self._make_available(mock_bt_instance)
+        bt = self._make_available(
+            mock_bt_instance, {"sensor.b1": "80", "sensor.b2": "90"}
+        )
         bt.devices_states = {
             "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
             "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
         }
 
         assert await self._reads(bt) == 0
+
+    @pytest.mark.asyncio
+    async def test_read_when_a_battery_reports_a_new_level(self, mock_bt_instance):
+        """A battery whose entity moved on is read while its TRV stays up."""
+        bt = self._make_available(
+            mock_bt_instance, {"sensor.b1": "79", "sensor.b2": "90"}
+        )
+        bt.devices_states = {
+            "climate.trv_1": {"battery_id": "sensor.b1", "battery": "80"},
+            "climate.trv_2": {"battery_id": "sensor.b2", "battery": "90"},
+        }
+
+        assert await self._reads(bt) == 1
 
     @pytest.mark.asyncio
     async def test_read_on_initial_unpopulated_battery(self, mock_bt_instance):
@@ -658,9 +683,9 @@ class TestGetBatteryStatus:
     def test_the_battery_is_read_again_once_the_device_is_back(self, mock_bt_instance):
         """A device offline at startup still gets a battery level afterwards.
 
-        Nothing watches the battery entity itself, so a stored reading is the
-        only thing that keeps later passes from asking again. A device that
-        was away when it was first asked has to stay askable.
+        Nothing watches the battery entity itself, so only a later pass can
+        ask again. A device that was away when it was first asked has to stay
+        askable.
         """
         from custom_components.better_thermostat.utils.watcher import (
             BATTERY_REREAD_DELAY_SECONDS,
@@ -748,6 +773,73 @@ class TestGetBatteryStatus:
         refresh_battery_reading(bt, self.TRV, recovered=True)
 
         assert bt.devices_states[self.TRV]["battery"] == "87"
+
+    def test_a_new_level_from_the_battery_entity_replaces_the_stored_one(
+        self, mock_bt_instance
+    ):
+        """A battery ages while its device stays available the whole time.
+
+        The level has to follow the battery entity on an ordinary pass, or
+        it stays at whatever the first read found until the next outage.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            refresh_battery_reading,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        get_battery_status(bt, self.TRV)
+
+        self._reporting(bt, "82")
+        refresh_battery_reading(bt, self.TRV, recovered=False)
+
+        assert bt.devices_states[self.TRV]["battery"] == "82"
+
+    def test_an_unchanged_level_is_not_written_again(self, mock_bt_instance):
+        """A level already on record costs no entity state write."""
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            refresh_battery_reading,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        get_battery_status(bt, self.TRV)
+        bt.async_write_ha_state.reset_mock()
+
+        refresh_battery_reading(bt, self.TRV, recovered=False)
+
+        bt.async_write_ha_state.assert_not_called()
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+
+    @pytest.mark.parametrize("live", ["unavailable", "unknown", None])
+    def test_a_battery_entity_without_a_level_keeps_the_stored_one(
+        self, mock_bt_instance, live
+    ):
+        """A battery entity with nothing to say does not replace the last level.
+
+        Nor does it hold up the next one: the level it reports once it is back
+        is read on the pass that sees it.
+        """
+        from custom_components.better_thermostat.utils.watcher import (
+            get_battery_status,
+            refresh_battery_reading,
+        )
+
+        bt = self._bt(mock_bt_instance, "87")
+        get_battery_status(bt, self.TRV)
+        bt.async_write_ha_state.reset_mock()
+
+        self._reporting(bt, live)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
+
+        bt.async_write_ha_state.assert_not_called()
+        assert bt.devices_states[self.TRV]["battery"] == "87"
+
+        self._reporting(bt, "80")
+        bt.clock.advance(1.0)
+        refresh_battery_reading(bt, self.TRV, recovered=False)
+
+        assert bt.devices_states[self.TRV]["battery"] == "80"
 
 
 class TestCheckAndUpdateDegradedMode:
@@ -844,6 +936,92 @@ class TestCheckAndUpdateDegradedMode:
         assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "rung"),
+        [
+            pytest.param(21.0, "sensor_fallback", id="usable"),
+            pytest.param(126.5, "hold", id="marker"),
+            pytest.param("not a number", "hold", id="non_numeric"),
+        ],
+    )
+    async def test_a_trv_counts_for_the_ladder_only_on_a_temperature_it_reports(
+        self, mock_bt_instance, reported, rung
+    ):
+        """A stored TRV reading keeps the ladder off HOLD only while the TRV confirms it.
+
+        The handler keeps the stored reading across a report it cannot use,
+        so a TRV that goes on reporting a marker or garbage would otherwise
+        hold the room on SENSOR_FALLBACK with a value it no longer reports.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": reported})
+            if entity_id == "sensor.room_temp":
+                return State(entity_id, "unavailable")
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode(rung)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reading", ["126.5", "-60.0", "not a number"])
+    async def test_ladder_falls_back_when_the_room_sensor_reports_nonsense(
+        self, mock_bt_instance, reading
+    ):
+        """An available room sensor without a plausible reading steps the ladder down.
+
+        The room has no temperature to control on either way, so the TRV
+        temperature takes over as it does for a lost sensor. The sensor is
+        still reachable, so it is not reported as unavailable.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": 21.0})
+            value = reading if entity_id == "sensor.room_temp" else "20.0"
+            return State(entity_id, value)
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert "sensor.room_temp" not in mock_bt_instance.unavailable_sensors
+
+    @pytest.mark.asyncio
     async def test_no_degraded_mode_when_all_sensors_available(self, mock_bt_instance):
         """Test that degraded_mode is False when all sensors are available."""
         from custom_components.better_thermostat.utils.watcher import (
@@ -898,13 +1076,24 @@ class TestCheckAndUpdateDegradedMode:
         )
 
     @staticmethod
-    def _with_batteries(mock_bt_instance, *, battery):
-        """Give every watched sensor a battery entity in the given read state."""
+    def _with_batteries(mock_bt_instance, *, battery, live=None):
+        """Give every watched sensor a battery entity in the given read state.
+
+        ``battery`` is the stored level and ``live`` the one the battery
+        entity reports, the stored one unless given. Every other lookup
+        answers with a temperature.
+        """
         mock_bt_instance.devices_states = {
             entity: {"battery_id": f"{entity}_battery", "battery": battery}
             for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
         }
-        TestCheckAndUpdateDegradedMode._all_sensors_reporting(mock_bt_instance)
+        reported = {
+            f"{entity}_battery": battery if live is None else live
+            for entity in TestCheckAndUpdateDegradedMode.WATCHED_SENSORS
+        }
+        mock_bt_instance.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, reported.get(entity_id, "20.0")
+        )
 
     @staticmethod
     async def _run(mock_bt_instance):
@@ -927,7 +1116,7 @@ class TestCheckAndUpdateDegradedMode:
         self, mock_bt_instance
     ):
         """First pass after startup: every available sensor gets one read."""
-        self._with_batteries(mock_bt_instance, battery=None)
+        self._with_batteries(mock_bt_instance, battery=None, live="87")
 
         assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
@@ -943,6 +1132,13 @@ class TestCheckAndUpdateDegradedMode:
         self._with_batteries(mock_bt_instance, battery="87")
 
         assert await self._run(mock_bt_instance) == 0
+
+    @pytest.mark.asyncio
+    async def test_rereads_batteries_that_report_a_new_level(self, mock_bt_instance):
+        """A battery ages while its sensor stays available."""
+        self._with_batteries(mock_bt_instance, battery="87", live="82")
+
+        assert await self._run(mock_bt_instance) == len(self.WATCHED_SENSORS)
 
     @pytest.mark.asyncio
     async def test_rereads_the_battery_of_a_sensor_that_just_recovered(
@@ -969,6 +1165,123 @@ class TestCheckAndUpdateDegradedMode:
         mock_bt_instance.unavailable_sensors = list(self.WATCHED_SENSORS)
 
         assert await self._run(mock_bt_instance) == 0
+
+
+class TestRungChangeRequestsControl:
+    """A committed ladder rung drives the devices from the new source at once.
+
+    A calibration mode that does not recompute on its own gives the room no
+    other reason to run a control cycle, so the room temperature the new rung
+    selects would otherwise wait for the next unrelated trigger.
+    """
+
+    ROOM_SENSOR = "sensor.room_temp"
+
+    @staticmethod
+    def _prepare(mock_bt_instance, *, room_sensor_available):
+        """Report every entity, the room sensor as given, and idle the queue."""
+
+        def states_get(entity_id):
+            if (
+                entity_id == TestRungChangeRequestsControl.ROOM_SENSOR
+                and not room_sensor_available
+            ):
+                return State(entity_id, "unavailable")
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": 21.0})
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = states_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+        mock_bt_instance.in_maintenance = False
+        mock_bt_instance.control_queue_task = asyncio.Queue(maxsize=1)
+
+    @staticmethod
+    async def _pass(mock_bt_instance):
+        """Run one degraded-mode pass."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+    @pytest.mark.asyncio
+    async def test_a_committed_downgrade_requests_a_control_cycle(
+        self, mock_bt_instance
+    ):
+        """Falling back to the TRV temperatures is acted on when it commits."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=False)
+
+        await self._pass(mock_bt_instance)
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert mock_bt_instance.control_queue_task.empty()
+
+        mock_bt_instance.clock.advance(121.0)
+        await self._pass(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_committed_recovery_requests_a_control_cycle(
+        self, mock_bt_instance
+    ):
+        """Returning to the room sensor is acted on when it commits."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+            ControlModeState,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=True)
+        mock_bt_instance.kernel_state = replace(
+            mock_bt_instance.kernel_state,
+            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK),
+        )
+
+        await self._pass(mock_bt_instance)
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.empty()
+
+        mock_bt_instance.clock.advance(301.0)
+        await self._pass(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_a_rung_change_during_valve_maintenance_requests_nothing(
+        self, mock_bt_instance
+    ):
+        """Valve maintenance keeps control of the valves until it ends."""
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+
+        self._prepare(mock_bt_instance, room_sensor_available=False)
+        mock_bt_instance.in_maintenance = True
+
+        await self._pass(mock_bt_instance)
+        mock_bt_instance.clock.advance(121.0)
+        await self._pass(mock_bt_instance)
+
+        assert (
+            mock_bt_instance.kernel_state.control_mode.mode
+            == ControlMode.SENSOR_FALLBACK
+        )
+        assert mock_bt_instance.control_queue_task.empty()
 
 
 class TestRoomSensorOutageWarning:

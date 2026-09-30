@@ -39,12 +39,12 @@
           "valve_maintenance": "Εάν ο θερμοστάτης σας δεν διαθέτει δικό του τρόπο συντήρησης, μπορείτε να χρησιμοποιήσετε αυτήν την επιλογή",
           "calibration": "Τύπος βαθμονόμησης",
           "calibration_mode": "Λειτουργία βαθμονόμησης",
-          "mpc_v2_plant_preset": "MPC v2 room model",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead",
+          "mpc_v2_plant_preset": "MPC v2 μέγεθος δωματίου"
         },
         "data_description": {
           "protect_overheating": "Μερικά TRVs δεν κλείνουν πλήρως τη βαλβίδα όταν επιτυγχάνεται η επιθυμητή θερμοκρασία. Ή ο θερμοσίφωνας διαθέτει πολλή υπολειμματική θερμότητα. Αυτό μπορεί να προκαλέσει υπερθέρμανση. Αυτή η επιλογή μπορεί να το αποτρέψει.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room model setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room size setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Πώς πρέπει να εφαρμοστεί η βαθμονόμηση στο TRV (Θερμοκρασία στόχος ή μετατόπιση)\n***Βασισμένη στη Θερμοκρασία Στόχο***: Εφαρμόστε τη βαθμονόμηση στη θερμοκρασία στόχο.\n***Βασισμένη στη Μετατόπιση***: Εφαρμόστε τη βαθμονόμηση στη μετατόπιση."
         }
@@ -65,7 +65,9 @@
     },
     "abort": {
       "single_instance_allowed": "Επιτρέπεται μόνο μία εμφάνιση θερμοστάτη για κάθε πραγματικό θερμοστάτη.",
-      "no_devices_found": "Δεν βρέθηκε καμία οντότητα θερμοστάτη, βεβαιωθείτε ότι έχετε μια οντότητα κλιματισμού στο Home Assistant"
+      "no_devices_found": "Δεν βρέθηκε καμία οντότητα θερμοστάτη, βεβαιωθείτε ότι έχετε μια οντότητα κλιματισμού στο Home Assistant",
+      "already_configured": "Ένα Better Thermostat με αυτό το όνομα ελέγχει ήδη αυτούς τους θερμοστάτες.",
+      "trv_in_use": "Το {trv} ελέγχεται ήδη από το Better Thermostat {entry}. Ένας θερμοστάτης μπορεί να ανήκει μόνο σε ένα Better Thermostat· αφαιρέστε τον πρώτα από εκεί."
     }
   },
   "options": {
@@ -95,7 +97,8 @@
           "calibration": "Ο τύπος βαθμονόμησης",
           "heat_auto_swapped": "Αν το αυτόματο σημαίνει θέρμανση για το TRV σας και θέλετε να το ανταλλάξετε",
           "child_lock": "Αγνοήστε όλες τις εισόδους στο TRV όπως λειτουργία κλειδώματος παιδιών",
-          "homematicip": "Εάν χρησιμοποιείτε HomematicIP, θα πρέπει να το ενεργοποιήσετε για να επιβραδύνει τα αιτήματα και να αποτρέψει τον κύκλο λειτουργίας"
+          "homematicip": "Εάν χρησιμοποιείτε HomematicIP, θα πρέπει να το ενεργοποιήσετε για να επιβραδύνει τα αιτήματα και να αποτρέψει τον κύκλο λειτουργίας",
+          "cooler": "Η συσκευή ψύξης (προαιρετικό)"
         },
         "data_description": {
           "presets": "Επιλέξτε τις προεπιλογές που θα είναι διαθέσιμες για αυτόν τον θερμοστάτη."
@@ -111,12 +114,12 @@
           "valve_maintenance": "Εάν ο θερμοστάτης σας δεν διαθέτει δικό του τρόπο συντήρησης, μπορείτε να χρησιμοποιήσετε αυτήν την επιλογή",
           "calibration": "Ο τύπος βαθμονόμησης που θέλετε να χρησιμοποιήσετε",
           "calibration_mode": "Λειτουργία βαθμονόμησης",
-          "mpc_v2_plant_preset": "MPC v2 room model",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead",
+          "mpc_v2_plant_preset": "MPC v2 μέγεθος δωματίου"
         },
         "data_description": {
           "protect_overheating": "Μερικά TRVs δεν κλείνουν πλήρως τη βαλβίδα όταν επιτυγχάνεται η επιθυμητή θερμοκρασία. Ή ο θερμοσίφωνας διαθέτει πολλή υπολειμματική θερμότητα. Αυτό μπορεί να προκαλέσει υπερθέρμανση. Αυτή η επιλογή μπορεί να το αποτρέψει.",
-          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room model setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The room model comes from the MPC v2 room size setting.\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Πώς πρέπει να εφαρμοστεί η βαθμονόμηση στο TRV (Θερμοκρασία στόχος ή μετατόπιση)\n***Βασισμένη στη Θερμοκρασία Στόχο***: Εφαρμόστε τη βαθμονόμηση στη θερμοκρασία στόχο.\n***Βασισμένη στη Μετατόπιση***: Εφαρμόστε τη βαθμονόμηση στη μετατόπιση."
         }
@@ -124,7 +127,9 @@
     },
     "error": {
       "no_heater": "Παρακαλώ επιλέξτε τουλάχιστον ένα πραγματικό θερμοστάτη.",
-      "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο."
+      "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο.",
+      "no_sensor": "Επιλέξτε έναν αισθητήρα θερμοκρασίας δωματίου.",
+      "trv_in_use": "Το {trv} ελέγχεται ήδη από το Better Thermostat {entry}. Ένας θερμοστάτης μπορεί να ανήκει μόνο σε ένα Better Thermostat."
     }
   },
   "issues": {
@@ -154,6 +159,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - μη έγκυρη εξωτερική θερμοκρασία",
       "description": "Ο αισθητήρας εξωτερικής θερμοκρασίας για το Better Thermostat {name} ανέφερε μια μη εύλογη τιμή: {value}.\n\nΗ ένδειξη ήταν εκτός του εύλογου εύρους και αγνοήθηκε. Ελέγξτε τη διαμόρφωση του αισθητήρα θερμοκρασίας σας."
+    },
+    "shared_trv": {
+      "title": "BT: Το {trv} ελέγχεται από περισσότερα από ένα Better Thermostat",
+      "description": "Ο θερμοστάτης {trv} ανήκει σε αυτά τα Better Thermostat: {entries}. Γράφουν ανταγωνιστικές θερμοκρασίες-στόχους και λειτουργίες σε αυτόν. Αφαιρέστε τον από όλα εκτός από ένα στις ρυθμίσεις τους· το ζήτημα θα εξαφανιστεί μετά από μόνο του."
     }
   },
   "services": {

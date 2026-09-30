@@ -1,17 +1,18 @@
-"""Every configuration gets a five-minute availability tick.
+"""Every configuration gets a ladder tick shorter than the ladder's windows.
 
 Two jobs live in the recurring handlers. One is the control recompute the
 balance and calibration modes need, and only some modes need it. The other
 is advancing the degradation ladder and re-checking the critical entities,
 and every configuration needs that: the ladder commits a downgrade after a
-120-second debounce and an upgrade after 300 seconds of stability, so a
-periodic evaluation slower than those windows leaves transitions pending.
+120-second debounce and an upgrade after 300 seconds of stability, and the
+evaluation that commits has to arrive after the window has elapsed.
 
 The event handlers advance the ladder too, but the case the ladder exists
 for is a sensor that stopped reporting, and a sensor that stopped reporting
 produces no events. What is left is the periodic path, which is why it has
 to exist for every configuration rather than for the modes that happen to
-want a recompute as well.
+want a recompute as well, and why its interval bounds how late a commit
+lands.
 """
 
 from datetime import timedelta
@@ -20,6 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
@@ -31,33 +33,33 @@ from tests.unit.test_climate_startup_registration import (
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
-# Both handlers that carry the ladder on a five-minute interval. Which one a
-# configuration gets depends on whether it also wants the recompute.
-_LADDER_TICKS = ("_trigger_time", "_availability_tick")
+
+def _has_ladder_tick(bt, registered):
+    """Whether the ladder tick is registered on its interval."""
+    return (
+        bt._availability_tick,
+        timedelta(seconds=LADDER_TICK_S),
+    ) in registered.intervals
 
 
-def _five_minute_ladder_tick(bt, registered):
-    """Return the name of the ladder-advancing five-minute tick, or None."""
-    for name in _LADDER_TICKS:
-        if (getattr(bt, name), timedelta(minutes=5)) in registered.intervals:
-            return name
-    return None
+def _has_control_tick(bt, registered):
+    """Whether the five-minute recompute tick is registered."""
+    return (bt._trigger_time, timedelta(minutes=5)) in registered.intervals
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [m.value for m in CalibrationMode])
-async def test_every_calibration_mode_gets_a_five_minute_ladder_tick(mode):
+async def test_every_calibration_mode_gets_the_ladder_tick(mode):
     """No mode is left with the hourly weather tick as its only ladder step.
 
     The recompute is gated and stays gated. What this claims is only that
-    something advances the ladder every five minutes, whichever of the two
-    handlers a mode ends up with.
+    the ladder tick runs whatever the mode.
     """
     bt = _startup_bt(advanced={"calibration_mode": mode})
 
     registered = await _run_finalize_startup(bt)
 
-    assert _five_minute_ladder_tick(bt, registered) is not None
+    assert _has_ladder_tick(bt, registered)
 
 
 @pytest.mark.asyncio
@@ -71,22 +73,22 @@ async def test_the_default_calibration_mode_gets_one_too():
 
     registered = await _run_finalize_startup(bt)
 
-    assert _five_minute_ladder_tick(bt, registered) is not None
+    assert _has_ladder_tick(bt, registered)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("mode", "expected"),
+    ("mode", "recomputes"),
     [
-        (CalibrationMode.PID_CALIBRATION.value, "_trigger_time"),
-        (CalibrationMode.MPC_CALIBRATION.value, "_trigger_time"),
-        (CalibrationMode.HEATING_POWER_CALIBRATION.value, "_availability_tick"),
-        (CalibrationMode.NO_CALIBRATION.value, "_availability_tick"),
-        (CalibrationMode.AGGRESIVE_CALIBRATION.value, "_availability_tick"),
+        (CalibrationMode.PID_CALIBRATION.value, True),
+        (CalibrationMode.MPC_CALIBRATION.value, True),
+        (CalibrationMode.HEATING_POWER_CALIBRATION.value, False),
+        (CalibrationMode.NO_CALIBRATION.value, False),
+        (CalibrationMode.AGGRESIVE_CALIBRATION.value, False),
     ],
 )
-async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, expected):
-    """The gate decides which of the two handlers runs.
+async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, recomputes):
+    """The gate decides whether the recompute tick runs next to the ladder tick.
 
     A mode that does not recompute must not start queueing a control cycle
     every five minutes: that is radio traffic to a battery device, and it is
@@ -96,7 +98,8 @@ async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, expecte
 
     registered = await _run_finalize_startup(bt)
 
-    assert _five_minute_ladder_tick(bt, registered) == expected
+    assert _has_control_tick(bt, registered) == recomputes
+    assert _has_ladder_tick(bt, registered)
 
 
 @pytest.mark.asyncio
@@ -177,17 +180,18 @@ class _TrvMapThatCannotBeRead(dict):
 async def test_an_unreadable_trv_map_still_gets_the_ladder_tick():
     """The tick every configuration needs cannot depend on reading the modes.
 
-    Deciding which of the two five-minute handlers to register means reading
-    each head's balance and calibration mode. That read failing says nothing
-    about the ladder, which still has to step, so the run falls back to the
-    availability tick rather than to no tick at all.
+    Deciding whether to register the recompute means reading each head's
+    balance and calibration mode. That read failing says nothing about the
+    ladder, which still has to step, so the run keeps the ladder tick and
+    drops only the recompute.
     """
     bt = _startup_bt()
     bt.real_trvs = _TrvMapThatCannotBeRead()
 
     registered = await _run_finalize_startup(bt)
 
-    assert _five_minute_ladder_tick(bt, registered) == "_availability_tick"
+    assert _has_ladder_tick(bt, registered)
+    assert not _has_control_tick(bt, registered)
 
 
 @pytest.mark.asyncio
@@ -208,4 +212,4 @@ async def test_an_unreadable_maintenance_list_leaves_the_other_ticks_standing():
     # never reached the collector, and the fallback would go untested.
     collect.assert_called_once_with(bt.real_trvs)
     assert (bt._maintenance_tick, timedelta(minutes=5)) not in registered.intervals
-    assert _five_minute_ladder_tick(bt, registered) is not None
+    assert _has_ladder_tick(bt, registered)
