@@ -413,9 +413,11 @@ uv run python scripts/pep8_naming_budget.py check    # what CI runs
 
 The two gates point in opposite directions inside those paths, and that is not
 yet settled. `glossary.toml` rejects `delta_T` wherever it appears, the
-calibration modules included, and `.naming-budget.json` charges every use. The
-ruff exemption buys nothing there. A separate change decides whether the
-glossary gains an exception for the notation or those names come out.
+calibration modules included, and `.naming-budget.json` charges each source
+line that uses it as an identifier. A test spelling it is not charged while
+production still does. The ruff exemption buys nothing there. A separate change
+decides whether the glossary gains an exception for the notation or those names
+come out.
 
 ## Blind exception handlers
 

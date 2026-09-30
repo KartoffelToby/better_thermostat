@@ -1,4 +1,4 @@
-<!-- Target `develop`. A fix for the maintenance line goes to `1.9` as a second pull request. Never target `master`. -->
+<!-- Target `develop`. A fix for the maintenance line goes to `1.9` as a second pull request. Only release pull requests from `develop` or `1.9` target `master`. -->
 
 ## Motivation:
 
