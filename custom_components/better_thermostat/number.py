@@ -18,8 +18,9 @@ from homeassistant.components.climate.const import (
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
@@ -36,7 +37,11 @@ from .utils.const import (
     CalibrationMode,
     CalibrationType,
 )
-from .utils.helpers import async_normalize_bt_entity_ids, convert_to_float_celsius
+from .utils.helpers import (
+    TrvNamedEntity,
+    async_normalize_bt_entity_ids,
+    convert_to_float_celsius,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -188,14 +193,42 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         else:
             self._attr_translation_key = _PRESET_TRANSLATION_KEYS[preset_mode]
 
-        # Set min/max/step based on climate entity configuration
-        self._attr_native_min_value = bt_climate.min_temp
-        self._attr_native_max_value = bt_climate.max_temp
-        self._attr_native_step = bt_climate.target_temperature_step or 0.1
+    # The range and the step are the thermostat's. Its startup resolves them
+    # from the device, which on a boot runs after this entity is built, so
+    # they are read from the thermostat and republished with its state.
+    @property
+    def native_min_value(self) -> float:
+        """Return the lowest temperature the thermostat accepts."""
+        return self._bt_climate.min_temp
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the highest temperature the thermostat accepts."""
+        return self._bt_climate.max_temp
+
+    @property
+    def native_step(self) -> float:
+        """Return the step the thermostat's setpoint moves in."""
+        return self._bt_climate.target_temperature_step or 0.1
+
+    def _follow_thermostat(self) -> None:
+        """Republish this entity whenever the thermostat's state changes."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_thermostat_state
+                )
+            )
+
+    @callback
+    def _on_thermostat_state(self, event: Event[EventStateChangedData]) -> None:
+        """Publish the thermostat's current range and step."""
+        self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
+        self._follow_thermostat()
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
             return
@@ -295,6 +328,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         # restore into preset_mgr) and call the RestoreEntity/NumberEntity bases; this
         # entity restores into the cooling map below instead.
         await super(BetterThermostatPresetNumber, self).async_added_to_hass()
+        self._follow_thermostat()
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state in (None, "unknown", "unavailable"):
             return
@@ -367,7 +401,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         self._bt_climate.async_write_ha_state()
 
 
-class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
+class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat PID Parameter Number."""
 
     _attr_has_entity_name = True
@@ -401,6 +435,11 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
             self._attr_native_min_value = 0.0
             self._attr_native_max_value = 10000.0
             self._attr_native_step = 1.0
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added."""
+        await super().async_added_to_hass()
+        self._follow_trv_name()
 
     @property
     def device_info(self):
@@ -457,7 +496,9 @@ class BetterThermostatPIDNumber(NumberEntity, RestoreEntity):
         self.async_write_ha_state()
 
 
-class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
+class BetterThermostatValveMaxOpeningNumber(
+    TrvNamedEntity, NumberEntity, RestoreEntity
+):
     """Representation of a Better Thermostat Valve Max Opening Number."""
 
     _attr_has_entity_name = True
@@ -488,6 +529,7 @@ class BetterThermostatValveMaxOpeningNumber(NumberEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
+        self._follow_trv_name()
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state not in (
             None,
