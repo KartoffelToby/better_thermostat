@@ -28,6 +28,14 @@ from .helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
+# How long a weather-only setup keeps its decision while the weather entity
+# gives no forecast verdict. check_weather runs once an hour, so this holds
+# the decision across three silent checks: long enough to ride out a cloud
+# weather service that is rate-limited or reconnecting, short enough that an
+# entity gone for good cannot keep a room in summer mode, which is the side
+# the outdoor sensor path also falls back to when it has no data.
+WEATHER_VERDICT_HOLD = timedelta(hours=3)
+
 # How long check_ambient_air_temperature reuses the two-day outdoor mean it
 # read from the recorder. The check runs on every outdoor sensor update, and a
 # quarter of an hour of new readings barely moves a mean of per-day means, so
@@ -51,15 +59,49 @@ async def check_weather(self) -> bool:
     old_call_for_heat = self.call_for_heat
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
-
-    self.call_for_heat = True
+    _heats_without_verdict = False
 
     if self.weather_entity is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
-        if isinstance(
-            _call_for_heat_weather, bool
-        ):  # Only apply if we got a valid response
+        if isinstance(_call_for_heat_weather, bool):
+            if self.weather_fallback_active:
+                _LOGGER.info(
+                    "better_thermostat %s: weather entity %s gives a forecast "
+                    "verdict again, heating follows the forecast",
+                    self.device_name,
+                    self.weather_entity,
+                )
+            self.weather_verdict_missing_since = None
+            self.weather_fallback_active = False
+            self.weather_verdict_received = True
             self.call_for_heat = _call_for_heat_weather
+        elif self.outdoor_sensor is None:
+            # None means the prediction has no opinion: the previous decision
+            # stays for WEATHER_VERDICT_HOLD, then the room heats. With an
+            # outdoor sensor configured its verdict decides below, so the
+            # hold only applies where the forecast is the only source, and
+            # only to a verdict the forecast gave since startup: a decision
+            # restored from saved state is not held, the room heats.
+            # Monotonic time keeps the hold its length across a DST change.
+            _now = monotonic()
+            if self.weather_verdict_missing_since is None:
+                self.weather_verdict_missing_since = _now
+            _silent_s = _now - self.weather_verdict_missing_since
+            if (
+                not self.weather_fallback_active
+                and _silent_s >= WEATHER_VERDICT_HOLD.total_seconds()
+            ):
+                _LOGGER.warning(
+                    "better_thermostat %s: weather entity %s has given no forecast "
+                    "for %.1f hours, resuming heating until it does",
+                    self.device_name,
+                    self.weather_entity,
+                    _silent_s / 3600.0,
+                )
+                self.weather_fallback_active = True
+            if self.weather_fallback_active or not self.weather_verdict_received:
+                self.call_for_heat = True
+                _heats_without_verdict = True
 
     if self.outdoor_sensor is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
@@ -103,6 +145,12 @@ async def check_weather(self) -> bool:
                 "summer_mode_on",
                 "turned off because the outdoor temperature is too high",
             )
+        elif _heats_without_verdict:
+            await async_fire_logbook_entry(
+                self,
+                "weather_forecast_missing",
+                "resumed heating because the weather forecast is unavailable",
+            )
         else:
             await async_fire_logbook_entry(
                 self,
@@ -139,7 +187,7 @@ async def check_weather_prediction(self) -> bool | None:
             "better_thermostat %s: off_temperature not set or not a float.",
             self.device_name,
         )
-        return False
+        return None
 
     try:
         state = self.hass.states.get(self.weather_entity)
@@ -223,6 +271,13 @@ async def check_weather_prediction(self) -> bool | None:
             if valid_temps:
                 avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
 
+            # A forecast whose entries and current reading are all unusable
+            # carries no temperature at all, so it gives no opinion rather
+            # than the "warm" an empty comparison would read as.
+            if avg_forecast_temp is None and not isinstance(
+                cur_outside_temp, (int, float)
+            ):
+                return None
             cond_cur = (
                 isinstance(cur_outside_temp, (int, float))
                 and cur_outside_temp < self.off_temperature

@@ -363,10 +363,20 @@ async def trigger_trv_change(self, event):
         log_source="trigger_trv_change()",
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
+    # An AUTO the remap did not decode is a report from a device without the
+    # heat auto swapped option, running a mode of its own; its setpoint is not
+    # a target for the room, so neither the setpoint nor the mode it implies
+    # on a no_off device is adopted. The setpoint comes from the event's own
+    # state, so that state decides, not the registry state, which may already
+    # hold a later report.
+    _ignored_auto_report = new_state.state == HVACMode.AUTO and mode_remap(
+        self, entity_id, str(new_state.state), True
+    ) not in (HVACMode.OFF, HVACMode.HEAT)
     if (
         _setpoint is not None
         and _old_heating_setpoint is not None
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
+        and not _ignored_auto_report
     ):
         # The logs name the value the TRV reported; BT's range clamp is shown
         # beside it, so a setpoint BT wrote above its own maximum does not
