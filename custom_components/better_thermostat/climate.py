@@ -2188,9 +2188,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         commands the TRV, and maintenance holds the valves for the exercise.
         Maintenance looks again once it has ended.
         """
-        if getattr(self, "in_maintenance", False):
-            return
         for entity_id, trv in list(self.real_trvs.items()):
+            # Maintenance can start while an earlier TRV of this pass is
+            # being set up, so it is checked before every TRV.
+            if getattr(self, "in_maintenance", False):
+                return
             if (
                 not trv.awaiting_initialization
                 or entity_id in self._trvs_initializing
