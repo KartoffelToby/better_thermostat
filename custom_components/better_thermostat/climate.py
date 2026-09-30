@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -38,6 +38,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
     PRECISION_TENTHS,
     PRECISION_WHOLE,
     STATE_UNAVAILABLE,
@@ -45,7 +46,7 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import Context, State, callback
+from homeassistant.core import Context, Event, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import (
     device_registry as dr,
@@ -100,17 +101,15 @@ from .device_binding import async_bind_trv_device, async_unbind_trv_device
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
+    EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
     _update_external_temp_ema,
     temperature_filter_lock,
     trigger_temperature_change,
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import (
-    initial_tweak,
-    load_model_quirks,
-    trv_state_unknown_as_available,
-)
+from .model_fixes.model_quirks import initial_tweak, load_model_quirks
+from .switch import restored_child_lock
 from .trv import Trv
 from .utils.calibration.pid import (
     PIDParams,
@@ -133,9 +132,9 @@ from .utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
-    ATTR_STATE_SAVED_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
+    CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
     CONF_DOOR_TIMEOUT_AFTER,
@@ -196,6 +195,7 @@ from .utils.helpers import (
     read_bound_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
+    room_mode_intent,
     round_by_step,
     state_temperature_unit,
 )
@@ -245,10 +245,19 @@ from .utils.watcher import (
     check_and_update_degraded_mode,
     check_critical_entities,
     is_entity_available,
+    is_trv_available,
 )
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
+
+# How many attempts a TRV that arrives after startup gets before a step that
+# keeps failing is accepted with defaults, the way startup accepts it for the
+# TRVs it has. A device that is still waking up gets two more reports to
+# complete its setup; one that can never complete a step, such as a device
+# without a readable offset, is driven after its third report instead of
+# being set up again on every report.
+LATE_TRV_INITIALIZATION_ATTEMPTS = 3
 
 # How often the room temperature is re-sent to TRVs that mirror it into an
 # input of their own. Such a device falls back to its own sensor after a fixed
@@ -954,6 +963,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp = DEFAULT_TARGET_TEMP
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
+        # The room's intent, not a device spelling: HEAT means "on" in every
+        # room, with or without a cooler. room_mode_intent() maps every mode
+        # the room is switched into onto it; get_hvac_bt_mode() publishes it
+        # and mode_remap() spells it for each device.
         self._bt_hvac_mode: HVACMode | None = None
         self.closed_window_triggered = False
         self.call_for_heat = True
@@ -966,7 +979,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_external_sensor_change = self.clock.now() - timedelta(hours=2)
         self._temp_lock = asyncio.Lock()
         self.bt_update_lock = False
-        self._saved_temperature = None
         if enabled_presets is not None:
             self.preset_mgr = PresetManager(enabled_presets=enabled_presets)
         else:
@@ -1037,6 +1049,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         self._door_task = None
         self._owned_tasks: set[asyncio.Task[Any]] = set()
+        # TRVs startup went ahead without whose initialisation is running now.
+        self._trvs_initializing: set[str] = set()
         self.is_removed = False
         # Valve maintenance control
         # If control actions are requested during valve maintenance, defer them and
@@ -1233,8 +1247,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 adapter=_adapter,
                 model_quirks=_model_quirks,
                 model=resolved_model,
-                advanced=_advanced,
+                # A copy: settings changed at runtime, such as the child-lock
+                # switch, must not rewrite the config entry in memory.
+                advanced=dict(_advanced),
             )
+            # The child lock the startup sends the TRV is the one its switch
+            # restores to, so the device is not set to the option first.
+            child_lock = restored_child_lock(
+                self.hass,
+                self.unique_id,
+                trv["trv"],
+                bool(_advanced.get(CONF_CHILD_LOCK)),
+            )
+            if child_lock is not None:
+                self.real_trvs[trv["trv"]].advanced[CONF_CHILD_LOCK] = child_lock
 
         def on_remove():
             self.is_removed = True
@@ -1257,6 +1283,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
         self.async_on_remove(on_remove)
+
+        async def _save_held_back_state(_event: Event) -> None:
+            # A delayed save is flushed by the Store itself. One held back for
+            # a copy of the stored payload is taken here: in the final write
+            # the Store writes at once, so the copy is confirmed before the
+            # state replaces the payload.
+            if self.state_mgr is not None and self.state_mgr.copy_pending:
+                self._record_runtime_to_state()
+                await self.state_mgr.flush()
+
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                EVENT_HOMEASSISTANT_FINAL_WRITE, _save_held_back_state
+            )
+        )
 
         await super().async_added_to_hass()
 
@@ -1303,12 +1344,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(async_at_started(self.hass, _async_startup))
 
     async def _trigger_check_weather(self, event=None):
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         await check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
@@ -1331,19 +1368,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         calibration mode: a mode that does not recompute must not start
         queueing a control cycle every five minutes.
         """
-        # The ladder steps before the critical-entity check, so it keeps
-        # stepping while an unreachable valve would abort a handler that
-        # checked first.
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
 
     async def _trigger_time(self, event=None):
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: periodic tick skipped (valve maintenance running)",
@@ -1367,12 +1397,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ``call_for_heat`` actually flips, so frequent outdoor readings that
         stay on the same side of the threshold do not spam the queue.
         """
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
             return
         await check_ambient_air_temperature(self)
@@ -1424,12 +1450,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         would end up regulated on the older of the two.
         """
         async with temperature_filter_lock(self):
-            # The degradation ladder advances first: it must keep stepping (e.g.
-            # room sensor lost) even while an unavailable TRV aborts the trigger.
             await check_and_update_degraded_mode(self)
-            _check = await check_critical_entities(self)
-            if _check is False:
-                return
+            await check_critical_entities(self)
             self.async_set_context(event.context)
             await trigger_temperature_change(self, event)
 
@@ -1483,11 +1505,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                             if hasattr(self, "real_trvs")
                             else None
                         )
+                        if _mq_trv is not None and _mq_trv.awaiting_initialization:
+                            # Its first write goes out with its initialization.
+                            continue
                         quirks = _mq_trv.model_quirks if _mq_trv is not None else None
                         if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                            ok = await quirks.maybe_set_external_temperature(
-                                self, entity_id, cur
-                            )
+                            async with asyncio.timeout(
+                                EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S
+                            ):
+                                ok = await quirks.maybe_set_external_temperature(
+                                    self, entity_id, cur
+                                )
                             _LOGGER.debug(
                                 "better_thermostat %s: external_temperature keepalive sent to %s (ok=%s, value=%s)",
                                 self.device_name,
@@ -1551,12 +1579,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
+        # A report from a TRV startup went ahead without is the sign it is
+        # back; it is initialised before the report is read.
+        await self._initialize_arrived_trvs()
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
@@ -1569,6 +1596,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         if (event.data.get("new_state")) is None:
             return
+        # A TRV still awaiting its initialisation has nothing its report could
+        # be compared against: no mode, no setpoint, no bounds. Its report is
+        # read once the initialisation has completed.
+        reporting_trv = self.real_trvs.get(event.data.get("entity_id"))
+        if reporting_trv is not None and reporting_trv.awaiting_initialization:
+            return
 
         self._spawn_owned(
             trigger_trv_change(self, event),
@@ -1576,12 +1609,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _trigger_contact_change(self, event, trigger_fn, task_label):
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1601,12 +1630,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self._trigger_contact_change(event, trigger_door_change, "door")
 
     async def _trigger_cooler_change(self, event):
-        # The degradation ladder advances first: it must keep stepping (e.g.
-        # room sensor lost) even while an unavailable TRV aborts the trigger.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1673,6 +1698,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     return
                 continue
 
+            # A TRV that is still unavailable here has outlasted the grace
+            # window. Startup goes ahead with the others and leaves this one
+            # to be initialised when it reports again.
+            for entity_id in self._unavailable_trvs():
+                self.real_trvs[entity_id].awaiting_initialization = True
+                self.all_entities.append(entity_id)
             states = self._collect_trv_states()
             self._resolve_temperature_range(states)
             self._initialize_sensors(sensor_state)
@@ -1694,9 +1725,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             break
 
     def _check_entities_ready(self, sensor_state: State | None) -> bool:
-        """Check whether sensor and all TRVs are available.
+        """Decide whether startup can go ahead.
 
-        Returns True when every entity is ready, False otherwise.
+        The room sensor has to be available. The TRVs have to be available
+        as well while the startup grace window is open, so a TRV whose
+        integration is still loading is initialised with the others. Once
+        the window has closed, startup goes ahead with the TRVs that are
+        available and leaves the rest to be initialised when they report
+        again. A room with no TRV available keeps waiting: there is nothing
+        to control, and the temperature range and the mode startup derives
+        from the TRVs would have nothing to be read from.
+
+        Returns True when startup can go ahead, False otherwise.
         """
         if sensor_state is None or sensor_state.state in (
             STATE_UNAVAILABLE,
@@ -1710,30 +1750,49 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return False
 
-        for entity_id in self.real_trvs:
-            trv_state = self.hass.states.get(entity_id)
-            if (
-                trv_state is None
-                or trv_state.state in (STATE_UNAVAILABLE, None)
-                or (
-                    trv_state.state == STATE_UNKNOWN
-                    and not trv_state_unknown_as_available(self, entity_id)
-                )
-            ):
+        unavailable = self._unavailable_trvs()
+        if not unavailable:
+            return True
+        grace_until = getattr(self, "_critical_grace_until", None)
+        in_grace = grace_until is not None and self.clock.now() < grace_until
+        if in_grace or len(unavailable) == len(self.real_trvs):
+            for entity_id in unavailable:
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
                     self.device_name,
                     entity_id,
                 )
-                return False
+            return False
+        for entity_id in unavailable:
+            _LOGGER.warning(
+                "better_thermostat %s: TRV/climate entity '%s' is still unavailable "
+                "after the startup grace window; starting without it, it is "
+                "initialised as soon as it reports again",
+                self.device_name,
+                entity_id,
+            )
         return True
 
+    def _unavailable_trvs(self) -> list[str]:
+        """Return the TRVs that are not in a state they can be driven in."""
+        return [
+            entity_id
+            for entity_id in self.real_trvs
+            if not is_trv_available(self, entity_id)
+        ]
+
     def _collect_trv_states(self) -> list[State]:
-        """Collect current State objects for all TRVs and optional cooler."""
+        """Collect current State objects for the initialised TRVs and the cooler.
+
+        A TRV still awaiting its initialisation is left out: it was
+        unavailable when startup read the others, and its state carries none
+        of the values read from these states.
+        """
         states = [
             state
-            for entity_id in self.real_trvs
-            if (state := self.hass.states.get(entity_id)) is not None
+            for entity_id, trv in self.real_trvs.items()
+            if not trv.awaiting_initialization
+            and (state := self.hass.states.get(entity_id)) is not None
         ]
 
         # Include cooler entity in min/max calculation to ensure BT's
@@ -2172,7 +2231,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                 try:
-                    self.bt_hvac_mode = HVACMode(old_state.state)
+                    self.bt_hvac_mode = room_mode_intent(HVACMode(old_state.state))
                 except ValueError:
                     _LOGGER.warning(
                         "better_thermostat %s: restored an unrecognised hvac mode %s; "
@@ -2183,12 +2242,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # call_for_heat and humidity are observations, not UI state:
             # they are rebuilt from live data within the first cycles, so
             # they are deliberately not restored from entity attributes.
-            if old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None) is not None:
-                self._saved_temperature = convert_to_float(
-                    str(old_state.attributes.get(ATTR_STATE_SAVED_TEMPERATURE, None)),
-                    self.device_name,
-                    "startup()",
-                )
             if old_state.attributes.get(ATTR_STATE_MAIN_MODE, None) is not None:
                 self.last_main_hvac_mode = str(
                     old_state.attributes[ATTR_STATE_MAIN_MODE]
@@ -2304,10 +2357,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         self.async_write_ha_state()
 
-    async def _initialize_trvs(self) -> None:
-        """Initialize each TRV: init, tweak, calibration offsets, attributes, control."""
-        for entity_id, trv in self.real_trvs.items():
-            self.all_entities.append(entity_id)
+    async def _initialize_trvs(
+        self, entity_ids: Iterable[str] | None = None
+    ) -> set[str]:
+        """Initialize TRVs: init, tweak, calibration offsets, attributes.
+
+        A step that fails is logged and the TRV is initialised as far as the
+        remaining steps go, with defaults where the failed step would have
+        read a value.
+
+        Parameters
+        ----------
+        entity_ids : Iterable[str] | None
+            The TRVs to initialise. ``None`` initialises every TRV that is not
+            awaiting a later initialisation.
+
+        Returns
+        -------
+        set[str]
+            The TRVs for which a step failed.
+        """
+        failed: set[str] = set()
+        if entity_ids is None:
+            entity_ids = [
+                entity_id
+                for entity_id, trv in self.real_trvs.items()
+                if not trv.awaiting_initialization
+            ]
+        for entity_id in entity_ids:
+            trv = self.real_trvs[entity_id]
+            if entity_id not in self.all_entities:
+                self.all_entities.append(entity_id)
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )
@@ -2319,12 +2399,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     entity_id,
                 )
             except TimeoutError:
+                failed.add(entity_id)
                 _LOGGER.error(
                     "better_thermostat %s: Timeout initializing TRV %s",
                     self.device_name,
                     entity_id,
                 )
             except Exception as exc:
+                failed.add(entity_id)
                 _LOGGER.error(
                     "better_thermostat %s: Error initializing TRV %s: %s",
                     self.device_name,
@@ -2335,6 +2417,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             try:
                 await initial_tweak(self, entity_id)
             except Exception as exc:
+                failed.add(entity_id)
                 _LOGGER.error(
                     "better_thermostat %s: Error running initial tweak for TRV %s: %s",
                     self.device_name,
@@ -2369,6 +2452,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         entity_id,
                     )
                 except TimeoutError:
+                    failed.add(entity_id)
                     _LOGGER.error(
                         "better_thermostat %s: Timeout getting offsets for TRV %s",
                         self.device_name,
@@ -2376,6 +2460,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     )
                     self._set_trv_calibration_defaults(entity_id)
                 except Exception as exc:
+                    failed.add(entity_id)
                     _LOGGER.error(
                         "better_thermostat %s: Error getting offsets for TRV %s: %s",
                         self.device_name,
@@ -2464,6 +2549,86 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
                 _current_temp = None
             trv.current_temperature = _current_temp
+        return failed
+
+    async def _initialize_arrived_trvs(self) -> None:
+        """Initialise the TRVs startup went ahead without, once they are back.
+
+        Such a TRV gets what startup gives every other TRV, and the
+        temperature range is derived again with it included. It joins the
+        control cycles only once that is done, and a control cycle is
+        requested right after so it is commanded without waiting for the
+        next event. An attempt in which a step failed keeps it out and its
+        next report tries again; after ``LATE_TRV_INITIALIZATION_ATTEMPTS``
+        such attempts it joins on the defaults the failed steps left.
+        """
+        for entity_id, trv in list(self.real_trvs.items()):
+            if (
+                not trv.awaiting_initialization
+                or entity_id in self._trvs_initializing
+                or not is_trv_available(self, entity_id)
+            ):
+                continue
+            self._trvs_initializing.add(entity_id)
+            _LOGGER.info(
+                "better_thermostat %s: TRV %s is available; initialising it",
+                self.device_name,
+                entity_id,
+            )
+            try:
+                failed = await self._initialize_trvs([entity_id])
+            except Exception:
+                # A raise outside the steps that log their own failure ends
+                # this attempt the same way a failed step does, so it counts
+                # toward the bound instead of repeating on every report.
+                _LOGGER.exception(
+                    "better_thermostat %s: initialising TRV %s raised",
+                    self.device_name,
+                    entity_id,
+                )
+                failed = {entity_id}
+            finally:
+                self._trvs_initializing.discard(entity_id)
+            if self.is_removed or self.real_trvs.get(entity_id) is not trv:
+                return
+            if entity_id in failed:
+                trv.failed_initialization_attempts += 1
+                if (
+                    trv.failed_initialization_attempts
+                    < LATE_TRV_INITIALIZATION_ATTEMPTS
+                ):
+                    # The failed step has logged its own error; this line
+                    # only says what happens next, so it stays below warning.
+                    _LOGGER.info(
+                        "better_thermostat %s: initialising TRV %s failed "
+                        "(attempt %d of %d); it stays out of control and is "
+                        "tried again on its next report",
+                        self.device_name,
+                        entity_id,
+                        trv.failed_initialization_attempts,
+                        LATE_TRV_INITIALIZATION_ATTEMPTS,
+                    )
+                    continue
+                _LOGGER.warning(
+                    "better_thermostat %s: initialising TRV %s failed %d "
+                    "times; it is driven on defaults for what could not be "
+                    "read, as at startup",
+                    self.device_name,
+                    entity_id,
+                    trv.failed_initialization_attempts,
+                )
+            trv.failed_initialization_attempts = 0
+            trv.awaiting_initialization = False
+            self._resolve_temperature_range(self._collect_trv_states())
+            if self.bt_target_temp is not None:
+                self.bt_target_temp = self._bound_target_to_range(self.bt_target_temp)
+            if self.bt_target_cooltemp is not None:
+                self.bt_target_cooltemp = self._bound_target_to_range(
+                    self.bt_target_cooltemp
+                )
+                self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
+            self.async_write_ha_state()
+            request_control_cycle(self)
 
     async def _startup_control_trvs(self) -> None:
         """Write the initial mode/setpoint/calibration to every TRV.
@@ -2510,7 +2675,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def _post_grace_recheck(
         self,
         grace_until: datetime | None,
-        recheck: Callable[[BetterThermostat], Awaitable[bool]],
+        recheck: Callable[[BetterThermostat], Awaitable[object]],
     ) -> None:
         """Re-run an availability check once a startup grace window elapses.
 
@@ -2525,7 +2690,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         grace_until : datetime | None
             End of the grace window; ``None`` or a past instant runs the
             recheck immediately.
-        recheck : Callable[[BetterThermostat], Awaitable[bool]]
+        recheck : Callable[[BetterThermostat], Awaitable[object]]
             Availability check coroutine function, invoked with this
             thermostat instance.
         """
@@ -2825,6 +2990,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.hass, self.entity_ids, self._trigger_trv_change
             )
             self.async_on_remove(self._async_unsub_state_changed)
+        # A TRV startup went ahead without may have come back before the
+        # listener above existed, and a TRV that has come back does not
+        # necessarily report again soon.
+        await self._initialize_arrived_trvs()
         if self.window_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -3075,7 +3244,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     return False
 
             async def _set_temp(entity_id: str, temp: float) -> None:
-                await adapter_set_temperature(self, entity_id, temp)
+                # A control cycle already running when maintenance starts
+                # still writes setpoints, and it reads the value the delegate
+                # sent back from the TRV once its call returns. Taking the
+                # control lock keeps a maintenance setpoint out of that window.
+                async with self._temp_lock:
+                    await adapter_set_temperature(self, entity_id, temp)
 
             async def _set_mode(entity_id: str, mode: str) -> None:
                 await adapter_set_hvac_mode(self, entity_id, mode)
@@ -3296,7 +3470,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,
             ATTR_STATE_LAST_CHANGE: self.last_change.isoformat(),
-            ATTR_STATE_SAVED_TEMPERATURE: self._saved_temperature,
             ATTR_STATE_PRESET_TEMPERATURE: self.preset_mgr.saved_temperature,
             ATTR_STATE_PRESET_COOL_TEMPERATURE: self._preset_cool_temperature,
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
@@ -3657,7 +3830,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 f"Unsupported hvac_mode {hvac_mode!r} for {self.device_name}; "
                 f"supported: heat, heat_cool, off"
             )
-        self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+        self.bt_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
         self.last_user_change_monotonic = self.clock.monotonic()
         self.async_write_ha_state()
         # During valve maintenance we must not block on the control queue (maxsize=1)
@@ -4107,7 +4280,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
             # Same normalization as async_set_hvac_mode, so both service
             # entry points map HEAT/HEAT_COOL identically.
-            _new_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+            _new_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
 
         def _validated_setpoint(attr: str, context: str) -> float | None:
             """Cast one temperature kwarg to float or reject the call.
@@ -4399,9 +4572,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
-                    cool_temp = self._preset_cool_temperatures[preset_mode]
-                    self.bt_target_cooltemp = min(
-                        self.max_temp, max(self.min_temp, cool_temp)
+                    self.bt_target_cooltemp = self._preset_target(
+                        self._preset_cool_temperatures[preset_mode]
                     )
                     _LOGGER.debug(
                         "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
@@ -4698,6 +4870,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._owned_tasks.clear()
         for owned_task in owned_tasks:
             owned_task.cancel()
+        # The write watchdogs and retries the control loop starts run on the
+        # task manager and wait for minutes; closing it also stops the workers
+        # below from starting new ones while they wind down.
+        if hasattr(self, "task_manager"):
+            owned_tasks.extend(self.task_manager.cancel_all())
         if self._control_task:
             self._control_task.cancel()
             try:

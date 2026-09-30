@@ -18,6 +18,7 @@ from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.core import State
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -114,6 +115,17 @@ class Trv:
     local_calibration_max: float = 7
     local_calibration_step: float = 0.5
 
+    # -- Lifecycle ---------------------------------------------------------
+    # Set for a TRV the thermostat started without because it was unavailable
+    # once the startup grace window had closed. Such a TRV has not been read
+    # or set up by startup, so it stays out of every control cycle until it
+    # reports again and its initialisation has completed.
+    awaiting_initialization: bool = False
+    # Attempts at initialising such a TRV in which a step failed. The count
+    # bounds how long it is kept out before it is driven on defaults the way
+    # startup drives a TRV whose step failed.
+    failed_initialization_attempts: int = 0
+
     # -- Write tracking ----------------------------------------------------
     ignore_trv_states: bool = False
     calibration_received: bool = True
@@ -167,6 +179,14 @@ class Trv:
     # inbound handler off. The end of the cycle reads the device's state then,
     # before a later cycle can write over a press nobody has read.
     report_unread: bool = False
+    # The state the first of those held reports replaced. The end of the cycle
+    # judges the device's state against it, so a device that came back from
+    # ``unavailable`` inside the cycle is read as a return, not as a press.
+    state_before_held_report: State | None = None
+    # A held report whose internal temperature was taken while the cycle ran.
+    # The value is applied as it arrives, so reading the report again at the
+    # end of the cycle finds nothing new; this is what still asks for a cycle.
+    temperature_moved_while_held: bool = False
     last_current_temperature: float | None = None
     # ``last_calibration`` is the command the adapter actually put on the
     # wire, after its own clamp to the device's declared offset range;
@@ -203,6 +223,11 @@ class Trv:
     # in Home Assistant, so the warning is logged once per entity while it
     # stays disabled instead of per lookup or write.
     disabled_siblings_logged: set[str] = field(default_factory=set)
+    # Write channels whose last write spent every attempt and still raised,
+    # keyed by channel, each with the delegate's record of the outage. The
+    # next write on such a channel gets one attempt instead of the retry
+    # chain, which runs under the room's control lock, until the outage ends.
+    unreachable_write_channels: dict[str, Any] = field(default_factory=dict)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None

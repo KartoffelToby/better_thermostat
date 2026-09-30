@@ -47,6 +47,7 @@ from custom_components.better_thermostat.sensor import (
     _cleanup_stale_algorithm_entities,
     _get_active_algorithms,
     _get_filtered_temp,
+    _handle_dynamic_entity_update,
     _setup_algorithm_sensors,
     async_setup_entry,
     async_unload_entry,
@@ -56,6 +57,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
 )
+from tests.factories import make_entity_registry, make_registry_entry
 
 DOMAIN = "better_thermostat"
 
@@ -825,10 +827,6 @@ class TestSetupAlgorithmSensors:
             )
         assert sensors == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="MPC tracking lists an mpc_status unique_id that no sensor carries",
-    )
     @pytest.mark.asyncio
     async def test_mpc_tracking_names_exactly_the_created_sensors(self):
         """The tracked MPC unique_ids are the ones of the sensors just created.
@@ -848,10 +846,6 @@ class TestSetupAlgorithmSensors:
         ]
         assert sorted(tracked_ids) == sorted(s.unique_id for s in sensors)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="MPC stays tracked after every sensor it created was removed",
-    )
     @pytest.mark.asyncio
     async def test_dropping_mpc_removes_it_from_tracking(self):
         """Once MPC is no longer configured and its sensors are gone, it is untracked.
@@ -885,9 +879,6 @@ class TestSetupAlgorithmSensors:
         assert reg.async_remove.call_count == len(registered)
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
 
-    @pytest.mark.xfail(
-        strict=True, reason="MPC v1 and MPC v2 sensors share their unique_ids"
-    )
     @pytest.mark.asyncio
     async def test_mpc_and_mpc_v2_sensors_have_distinct_unique_ids(self):
         """Heads calibrated by MPC v1 and v2 in one room get separate sensors.
@@ -909,6 +900,47 @@ class TestSetupAlgorithmSensors:
         unique_ids = [s.unique_id for s in sensors]
         assert len(unique_ids) == 8
         assert len(set(unique_ids)) == len(unique_ids), unique_ids
+
+    @pytest.mark.parametrize(
+        ("translation_key", "moved"),
+        [("mpc_v2_virtual_temp", True), ("virtual_temp", False)],
+        ids=["mpc_v2_entry", "mpc_v1_entry"],
+    )
+    @pytest.mark.asyncio
+    async def test_mpc_v2_takes_over_its_entry_from_the_mpc_v1_unique_id(
+        self, translation_key, moved
+    ):
+        """An MPC v2 sensor keeps the registry entry it was registered under.
+
+        An entry an MPC v2 sensor registered under the MPC v1 unique_id moves
+        to the MPC v2 unique_id, keeping its entity_id; an MPC v1 sensor's
+        entry stays with MPC v1.
+        """
+        shared = make_registry_entry(
+            "sensor.test_bt_virtual_temperature",
+            unique_id="test_bt_123_virtual_temp",
+            platform=DOMAIN,
+            translation_key=translation_key,
+        )
+        reg = make_entity_registry(shared)
+        reg.async_get_entity_id.side_effect = lambda domain, platform, unique_id: (
+            reg.entities.get_entity_id((domain, platform, unique_id))
+        )
+        bt = _make_bt_climate(
+            real_trvs=_trvs_in_modes(CalibrationMode.MPC_V2_CALIBRATION)
+        )
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=reg,
+        ):
+            await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+
+        if moved:
+            reg.async_update_entity.assert_called_once_with(
+                shared.entity_id, new_unique_id="test_bt_123_mpc_v2_virtual_temp"
+            )
+        else:
+            reg.async_update_entity.assert_not_called()
 
 
 # ===========================================================================
@@ -953,6 +985,39 @@ class TestAsyncSetupEntry:
         async_add_entities.assert_called_once()
         sensors = async_add_entities.call_args[0][0]
         assert len(sensors) == 6
+
+    @pytest.mark.asyncio
+    async def test_a_setup_retried_after_a_failure_creates_the_algorithm_sensors(self):
+        """A record left by a setup that failed part way does not hide sensors.
+
+        The first setup tracks the MPC sensors and then fails before the
+        entry registers its unload cleanup. The retry creates them again.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        hass = MagicMock()
+        hass.data = {DOMAIN: {"entry_1": {"climate": bt}}}
+        entry = _make_entry()
+        async_add_entities = MagicMock()
+
+        with (
+            patch(
+                "custom_components.better_thermostat.sensor.async_get_entity_registry",
+                return_value=_make_entity_registry(),
+            ),
+            patch(
+                "custom_components.better_thermostat.sensor._register_dynamic_entity_callback"
+            ),
+            patch(
+                "custom_components.better_thermostat.sensor.async_normalize_bt_entity_ids",
+                side_effect=[RuntimeError("registry busy"), None],
+            ),
+        ):
+            with pytest.raises(RuntimeError):
+                await async_setup_entry(hass, entry, async_add_entities)
+            await async_setup_entry(hass, entry, async_add_entities)
+
+        sensors = async_add_entities.call_args[0][0]
+        assert sum(isinstance(s, BetterThermostatMpcGainSensor) for s in sensors) == 1
 
 
 # ===========================================================================
@@ -1100,10 +1165,6 @@ class TestCleanupStaleAlgorithmEntities:
             "entry_1", {}
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="an entity removed by an earlier cleanup still counts as not removed",
-    )
     @pytest.mark.asyncio
     async def test_retry_after_partial_removal_clears_tracking(self):
         """A later cleanup finishes what a partial one started.
@@ -1180,6 +1241,117 @@ class TestCleanupStaleAlgorithmEntities:
         assert len(warnings) == 1
         assert "sensor.entity" in warnings[0].getMessage()
         assert "registry error" in warnings[0].getMessage()
+
+
+class TestDynamicAlgorithmSensors:
+    """A configuration change adds and removes algorithm sensors as TRVs use them."""
+
+    @staticmethod
+    def _registry_of(registered, failing=()):
+        """Build a registry that holds `registered` and refuses to remove `failing`."""
+        reg = _make_entity_registry()
+        reg.async_get_entity_id.side_effect = lambda _domain, _platform, unique_id: (
+            registered.get(unique_id)
+        )
+
+        def remove(entity_id):
+            if entity_id in failing:
+                raise RuntimeError("registry error")
+            registered.pop(
+                next(uid for uid, eid in registered.items() if eid == entity_id)
+            )
+
+        reg.async_remove.side_effect = remove
+        return reg
+
+    @staticmethod
+    async def _config_change(bt, reg):
+        """Run one configuration change and return the entities it added."""
+        async_add_entities = MagicMock()
+        with (
+            patch(
+                "custom_components.better_thermostat.sensor.async_get_entity_registry",
+                return_value=reg,
+            ),
+            patch(
+                "custom_components.better_thermostat.sensor._cleanup_unused_number_entities"
+            ),
+        ):
+            await _handle_dynamic_entity_update(
+                MagicMock(), _make_entry(), bt, async_add_entities
+            )
+        if not async_add_entities.call_count:
+            return []
+        return list(async_add_entities.call_args.args[0])
+
+    @pytest.mark.asyncio
+    async def test_a_second_algorithm_leaves_the_first_ones_sensors_in_place(self):
+        """A TRV switching to PID beside one on MPC adds PID and keeps MPC.
+
+        The MPC sensors stay registered and tracked; only the PID sensors are
+        created.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+        registered = {s.unique_id: f"sensor.{s.unique_id}" for s in mpc_sensors}
+        reg = self._registry_of(registered)
+
+        bt.real_trvs = _trvs_in_modes(
+            CalibrationMode.MPC_CALIBRATION, CalibrationMode.PID_CALIBRATION
+        )
+        added = await self._config_change(bt, reg)
+
+        reg.async_remove.assert_not_called()
+        assert len(registered) == len(mpc_sensors)
+        assert {type(s) for s in added} == {
+            BetterThermostatPidKpSensor,
+            BetterThermostatPidKiSensor,
+            BetterThermostatPidKdSensor,
+            BetterThermostatPidOutputSensor,
+            BetterThermostatPidErrorSensor,
+        }
+        assert set(_ACTIVE_ALGORITHM_ENTITIES["entry_1"]) == {
+            CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.PID_CALIBRATION,
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_algorithm_used_again_after_a_partial_cleanup_gets_its_sensors_back(
+        self,
+    ):
+        """Only the sensors a partial cleanup removed are created again.
+
+        Dropping MPC removes three of its four sensors; the registry refuses
+        the fourth, which stays live. When a TRV uses MPC again, the three
+        removed ones are created and the live one is not added a second time.
+        """
+        bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
+        with patch(
+            "custom_components.better_thermostat.sensor.async_get_entity_registry",
+            return_value=_make_entity_registry(),
+        ):
+            mpc_sensors = await _setup_algorithm_sensors(MagicMock(), _make_entry(), bt)
+        mpc_ids = {s.unique_id for s in mpc_sensors}
+        registered = {uid: f"sensor.{uid}" for uid in mpc_ids}
+        refused_id = mpc_sensors[1].unique_id
+        reg = self._registry_of(registered, failing={f"sensor.{refused_id}"})
+
+        bt.real_trvs = {}
+        assert await self._config_change(bt, reg) == []
+        assert set(registered) == {refused_id}
+
+        bt.real_trvs = _trvs_in_modes(CalibrationMode.MPC_CALIBRATION)
+        added = await self._config_change(bt, reg)
+
+        assert {s.unique_id for s in added} == mpc_ids - {refused_id}
+        assert (
+            set(_ACTIVE_ALGORITHM_ENTITIES["entry_1"][CalibrationMode.MPC_CALIBRATION])
+            == mpc_ids
+        )
 
 
 # ===========================================================================
@@ -1759,3 +1931,31 @@ class TestBtSimpleAttributeSensor:
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
+
+
+class TestDynamicUpdateBelongsToTheEntry:
+    """An entity update started by a configuration change ends with its entry."""
+
+    @pytest.mark.asyncio
+    async def test_the_update_task_is_owned_by_the_config_entry(self):
+        """The update runs as a task of the entry, which an unload cancels.
+
+        A task owned by Home Assistant alone would outlive the unload and add
+        entities to an entry that no longer exists.
+        """
+        from custom_components.better_thermostat import sensor as sensor_module
+
+        hass = MagicMock()
+        entry = _make_entry("entry_owned")
+        entry.async_create_background_task = MagicMock(
+            side_effect=lambda _hass, coro, name: coro.close()
+        )
+        with patch.object(sensor_module, "async_dispatcher_connect", MagicMock()):
+            await sensor_module._register_dynamic_entity_callback(
+                hass, entry, _make_bt_climate(), MagicMock()
+            )
+        sensor_module._ENTITY_CLEANUP_CALLBACKS["entry_owned"](None)
+
+        entry.async_create_background_task.assert_called_once()
+        assert entry.async_create_background_task.call_args.args[0] is hass
+        hass.async_create_background_task.assert_not_called()
