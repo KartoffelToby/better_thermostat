@@ -58,7 +58,10 @@ a returning room sensor lifts HOLD straight to OPTIMAL.
   uncalibrated: the controller stops adjusting, each device stays
   locked on the last known target (re-sent if the device loses it), and
   the frost floor stays enforced on every write. Nothing downstream of
-  the HOLD decision may re-introduce an adjustment, boost included.
+  the HOLD decision may re-introduce an adjustment, boost included. The
+  only valve write on HOLD is the overheat-safe boost reset: while boost
+  heating is active and a suppression (open window, no heat demand)
+  forces the TRV to OFF, a direct-valve TRV gets its valve closed to 0 %.
 
 Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
 does not flip behavior; upgrades require sustained recovery
@@ -105,6 +108,10 @@ other's annunciations.
 Persisted state is hardened at three layers: deserialization skips a
 wrong-typed field individually while a non-finite value resets the
 whole stored entry to its defaults, an unreadable store yields
-defaults instead of killing startup (in both cases the stored payload
-is first copied aside, see [Persistence](/internals/persistence/)),
-and the sanitize step heals whatever still reaches a controller.
+defaults instead of killing startup, and the sanitize step heals
+whatever still reaches a controller. For a reset entry and an
+unreadable store, load attempts to copy the stored payload aside
+before the defaults apply. If that copy cannot be confirmed on disk,
+the defaults still apply, but saves are held back and the copy is
+retried, so the live store keeps the payload until the copy exists
+(see [Persistence](/internals/persistence/)).

@@ -51,7 +51,10 @@ caller-owned controller state, and returns its output together with
 that state; PID also returns a debug record, as
 `(percent, PIDDebugInfo, PIDState)`. The returned state is the object
 passed in, mutated in place, and standby paths such as PID's
-`observe_standby()` update it the same way. Each strategy owns its
+`observe_standby()` update it the same way. MPC, TPI and PID require a
+state; `compute_mpc_v2` also accepts `state=None`, in which case it
+creates a fresh `MpcV2State` and returns that new object, so the
+identity guarantee holds only when the caller supplies a state. Each strategy owns its
 state; the `StateManager` is the only persistence authority.
 
 `BalanceStrategy` pairs a mode's computation with its result accessor.

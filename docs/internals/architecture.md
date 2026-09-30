@@ -99,8 +99,10 @@ The cascade does not branch on the fail-soft ladder: every rung gets the
 same heating intent, with the user's target as the setpoint. The shell
 reads the rung when it applies that intent. On OPTIMAL and
 SENSOR_FALLBACK it runs calibration on top of the setpoint; on HOLD it
-sends the setpoint uncalibrated and writes no offset and no valve
-percentage.
+sends the setpoint uncalibrated and writes no offset and no calibrated
+valve percentage. The one valve write left on HOLD is the boost safety
+reset: while boost heating is active and a suppression forces the TRV to
+OFF, a direct-valve TRV still gets its valve closed to 0 %.
 
 OFF intents carry their **suppression reason** so the shell can choose
 between a literal OFF (window, no heat demand) and the device-specific
