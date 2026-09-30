@@ -455,6 +455,7 @@
           "window_close": "genoptog opvarmning fordi et vindue blev lukket",
           "summer_mode_on": "slukket fordi udendørstemperaturen er for høj",
           "summer_mode_off": "genoptog opvarmning fordi udendørstemperaturen faldt",
+          "weather_forecast_missing": "genoptog opvarmning fordi vejrudsigten ikke er tilgængelig",
           "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
           "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige",
           "door_open": "turned off because a door was opened",

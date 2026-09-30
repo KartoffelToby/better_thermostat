@@ -15,7 +15,7 @@ from ..mpc_v2_internals.dob import DisturbanceObserver
 from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
-from ..mpc_v2_internals.qp_optimiser import QpOptimiser, require_daqp
+from ..mpc_v2_internals.qp_optimiser import QpOptimiser
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -54,6 +54,9 @@ class ControllerSnapshot:
     rg_v_C: float | None
     last_t_s: float
     next_mpc_t_s: float
+    # ``None`` for a snapshot written before the planning reading existed;
+    # the restore then starts it from zero.
+    planning_disturbance: float | None = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -65,8 +68,9 @@ class ControllerSnapshot:
         non-numeric or non-finite values is dropped entirely — ``float`` accepts
         ``NaN`` and infinity, and either one spreads through the observer into
         every later command, so the controller boots fresh instead of running on
-        poisoned state. ``rg_v_C`` is the one nullable field: a stored ``null``
-        means "no governor state" and stays legal.
+        poisoned state. Two fields are nullable: a stored ``null`` in ``rg_v_C``
+        means "no governor state", and a missing or ``null``
+        ``planning_disturbance`` means "start it from zero".
         """
         try:
             version = int(raw.get("v", 0))
@@ -88,6 +92,9 @@ class ControllerSnapshot:
                 rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
+                planning_disturbance=None
+                if raw.get("planning_disturbance") is None
+                else float(raw["planning_disturbance"]),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -102,6 +109,11 @@ class ControllerSnapshot:
             snapshot.last_t_s,
             snapshot.next_mpc_t_s,
             *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
+            *(
+                []
+                if snapshot.planning_disturbance is None
+                else [snapshot.planning_disturbance]
+            ),
         ]
         if not all(math.isfinite(x) for x in numbers):
             _LOGGER.warning("MPC v2 snapshot contains non-finite data; ignoring")
@@ -127,9 +139,6 @@ class MpcV2Controller:
             sub-params are copied because ``step_s`` is rewritten below, so the
             caller's object is never mutated.
         """
-        # Fail fast when the daqp wheel is missing so the HA log carries
-        # a clear message instead of crashing on the first QP solve.
-        require_daqp()
         # Copy the one sub-param this controller mutates in place — ``qp``
         # (``step_s`` rewritten below) — so the caller's object is never
         # aliased. It is a flat dataclass, so a shallow ``replace`` fully
@@ -194,21 +203,27 @@ class MpcV2Controller:
             self.kalman.initialise(np.array([T_room_C, T_rad_init]))
             self._next_mpc_t_s = t_s
             self._initialised = True
+        self._forget_stamps_ahead_of_the_clock(t_s)
 
         dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
         if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
-            # Forward-only: a non-positive dt_s (backward time jump) or a step
-            # below the minimum reuses the previous state and must NOT advance
-            # _last_t_s, otherwise a stale timestamp would reach dob.update.
+            # A repeat step within the minimum reuses the previous state and
+            # must NOT advance _last_t_s, otherwise a stale timestamp would
+            # reach dob.update.
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
-        innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
-        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
-        self.dob.update(innovation, dt_s)
+        # The observer follows real elapsed time; the QP below stays on its
+        # fixed coarse planning grid.
+        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C, dt_s=dt_s)
+        # The disturbance observer takes the share of the residual the filter
+        # moved its room estimate by, not the raw innovation.
+        self.dob.update(self.kalman.room_correction, dt_s)
 
-        # The governor runs behind the observer so it judges which setpoints
-        # are reachable on the same disturbance estimate the QP plans with.
+        # The governor runs behind the observer and judges which setpoints are
+        # reachable on this cycle's fast estimate. The QP plans with the slow
+        # ``planning_rate`` instead, which lags too far for that judgement: a
+        # setpoint out of reach would keep the valve off its rail.
         sp_for_opt = self.governor.update(
             T_sp=T_target_C,
             T_outdoor_C=T_outdoor_C,
@@ -229,7 +244,7 @@ class MpcV2Controller:
             T_sp=sp_for_opt,
             T_outdoor_C=T_outdoor_C,
             u_last=self._last_u,
-            D_hat_K_per_min=self.dob.D_hat_K_per_min,
+            D_hat_K_per_min=self.dob.planning_rate,
         )
         self.optimiser.update_integral(
             T_room=T_room_C, T_sp=sp_for_opt, u_applied=u, dt_s=self.params.qp.step_s
@@ -239,6 +254,24 @@ class MpcV2Controller:
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
         return u, self._diagnostics()
+
+    def _forget_stamps_ahead_of_the_clock(self, t_s: float) -> None:
+        """Drop the cycle stamps when the previous one lies ahead of ``t_s``.
+
+        The stamps are read from the wall clock, which can step back (a time
+        sync, a host with a wrong clock at boot). Measured against a stamp
+        from before the step, every later interval comes out negative until
+        the clock catches up, and the controller would repeat its last
+        command for as long as the step. A stamp at least ``MIN_STEP_DT_S``
+        ahead is taken as absent, as on a first cycle: the observer advances
+        by one plant step and the plan is due at once. The estimates
+        themselves are kept. A stamp less than that ahead belongs to a repeat
+        call within the same pass and stays, so that call is held like one a
+        moment later.
+        """
+        if self._last_t_s - t_s >= MIN_STEP_DT_S:
+            self._last_t_s = 0.0
+            self._next_mpc_t_s = -1.0
 
     def export_snapshot(self) -> ControllerSnapshot:
         """Return a typed snapshot of the controller state for persistence."""
@@ -253,6 +286,7 @@ class MpcV2Controller:
             rg_v_C=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
+            planning_disturbance=self.dob.planning_filtered,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -273,7 +307,7 @@ class MpcV2Controller:
             P = np.asarray(snap.kalman_P, dtype=float)
             if P.shape == (n, n) and bool(np.all(np.isfinite(P))):
                 self.kalman.P = P
-        self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
+        self.dob.restore(snap.D_hat_K_per_min, snap.planning_disturbance)
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
         for u in snap.u_history:

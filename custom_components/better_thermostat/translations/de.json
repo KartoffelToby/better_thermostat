@@ -455,6 +455,7 @@
           "window_close": "Heizen fortgesetzt, da ein Fenster geschlossen wurde",
           "summer_mode_on": "ausgeschaltet, da die Außentemperatur zu hoch ist",
           "summer_mode_off": "Heizen fortgesetzt, da die Außentemperatur gesunken ist",
+          "weather_forecast_missing": "Heizen fortgesetzt, da die Wettervorhersage nicht verfügbar ist",
           "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
           "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind",
           "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",

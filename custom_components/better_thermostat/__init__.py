@@ -257,6 +257,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     entry : ConfigEntry
         The config entry being removed.
     """
+    # Runtime import: events.contact imports DOMAIN from this package.
+    from .events.contact import CONTACT_ROLES, contact_issue_id
+
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
     hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
 
@@ -264,8 +267,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     for issue_id in (
         f"invalid_external_temperature_{device_name}",
-        f"invalid_window_state_{device_name}",
-        f"invalid_door_state_{device_name}",
+        *(contact_issue_id(role, device_name) for role in CONTACT_ROLES),
         f"degraded_mode_{device_name}",
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
