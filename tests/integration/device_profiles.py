@@ -384,6 +384,24 @@ the adapter that serves it. The device registry model is the whole of what
 makes it this device: it is what selects the quirk.
 """
 
+RANGE_ONLY_HEAT_TRV = DeviceProfile(
+    name="range_only_heat_trv",
+    integration="generic_thermostat",
+    calibration="target_temp_based",
+    has_device_registry_entry=False,
+    configured_target_temp_step="0.5",
+    target_temperature=None,
+    target_temperature_low=18.0,
+    target_temperature_high=25.0,
+    supported_features=_RANGE_FEATURES,
+)
+"""A heating head that publishes a band on 18-25 °C and no single setpoint.
+
+It advertises only the range feature, so Home Assistant refuses a plain
+``temperature`` payload for it; its heating setpoint is the lower bound of
+the band.
+"""
+
 ROOM_AC_COOLER = DeviceProfile(
     name="room_ac_cooler",
     integration="generic_thermostat",
@@ -576,6 +594,7 @@ SINGLE_ROLE_PROFILES = (
     MQTT_OFFSET_TRV,
     TADO_OFFSET_TRV,
     VALVE_TRV,
+    RANGE_ONLY_HEAT_TRV,
 )
 """Every profile a test can drive as the single controlled device."""
 
