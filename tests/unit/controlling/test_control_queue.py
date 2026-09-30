@@ -797,3 +797,98 @@ class TestControlQueueOnADualRoleEntity:
         mock_self._commit_hvac_action.assert_called_once_with(
             mock_self._compute_hvac_action_pure.return_value
         )
+
+
+@pytest.mark.asyncio
+async def test_a_trv_awaiting_initialization_is_not_controlled():
+    """A TRV startup went ahead without is not addressed before it is set up.
+
+    Its capabilities, bounds and setpoint have not been read yet, and boost
+    addresses a TRV whatever its availability, so skipping it for being
+    unavailable would still let a boost write reach it.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.calculate_heat_loss = AsyncMock()
+    mock_self.cooler_entity_id = None
+    mock_self.real_trvs = {
+        entity_id: _tracked_trv(entity_id)
+        for entity_id in ("climate.trv1", "climate.trv2")
+    }
+    mock_self.real_trvs["climate.trv2"].awaiting_initialization = True
+    mock_self.control_queue_task = asyncio.Queue()
+    await mock_self.control_queue_task.put(mock_self)
+
+    with patch(
+        "custom_components.better_thermostat.utils.controlling.control_trv",
+        new=AsyncMock(return_value=True),
+    ) as mock_control_trv:
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        try:
+            await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=5)
+        finally:
+            queue_task.cancel()
+            try:
+                await queue_task
+            except asyncio.CancelledError:
+                pass
+
+    assert [call.args[1] for call in mock_control_trv.await_args_list] == [
+        "climate.trv1"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("awaiting", "cooler_passes"),
+    [pytest.param(True, 0, id="awaiting"), pytest.param(False, 1, id="initialised")],
+)
+@pytest.mark.asyncio
+async def test_a_cooler_awaiting_initialization_is_not_controlled(
+    awaiting, cooler_passes
+):
+    """A cooler that is also a TRV still being set up gets no cooling pass.
+
+    The cooling channel writes a mode and a setpoint to the same device the
+    heating channel leaves alone until its initialisation is done.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.calculate_heat_loss = AsyncMock()
+    mock_self.cooler_entity_id = "climate.ac"
+    mock_self.real_trvs = {
+        entity_id: _tracked_trv(entity_id)
+        for entity_id in ("climate.trv1", "climate.ac")
+    }
+    mock_self.real_trvs["climate.ac"].awaiting_initialization = awaiting
+    mock_self.control_queue_task = asyncio.Queue()
+    await mock_self.control_queue_task.put(mock_self)
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_cooler",
+            new=AsyncMock(),
+        ) as mock_control_cooler,
+    ):
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        try:
+            await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=5)
+        finally:
+            queue_task.cancel()
+            try:
+                await queue_task
+            except asyncio.CancelledError:
+                pass
+
+    assert mock_control_cooler.await_count == cooler_passes
