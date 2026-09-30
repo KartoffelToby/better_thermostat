@@ -285,7 +285,10 @@ async def read_reports_held_during_cycle(self) -> None:
     over the turn before anyone has read it. The caller runs this right after
     it releases ``ignore_states`` and before it takes the next cycle, so each
     TRV that reported meanwhile has its current state read by the inbound
-    handler as a report of its own.
+    handler as a report of its own. That report replaces the state the first
+    held report replaced, so a device that came back from ``unavailable``
+    inside the cycle is read as a return, the way the handler reads it outside
+    a cycle, and not as a setpoint turned at the device.
 
     The mode such a state carries is read the same way, unless a mode
     command to the device is still unconfirmed. The handler declines a mode
@@ -310,6 +313,8 @@ async def read_reports_held_during_cycle(self) -> None:
         if not trv.report_unread:
             continue
         trv.report_unread = False
+        previous = trv.state_before_held_report
+        trv.state_before_held_report = None
         state = self.hass.states.get(entity_id)
         if (
             state is None
@@ -323,7 +328,7 @@ async def read_reports_held_during_cycle(self) -> None:
         held_report = Event(
             EVENT_STATE_CHANGED,
             EventStateChangedData(
-                entity_id=entity_id, old_state=state, new_state=state
+                entity_id=entity_id, old_state=previous, new_state=state
             ),
             context=Context(),
         )
@@ -416,9 +421,18 @@ async def control_queue(self):
                             self.device_name,
                         )
 
-                    # Handle cooler logic once per cycle
+                    # Handle cooler logic once per cycle. A cooler that is also
+                    # a TRV still awaiting its initialisation joins the cycles
+                    # only once that is done, like the heating channel.
                     _cooler_pass_completed = False
-                    if self.cooler_entity_id is not None:
+                    _cooler_trv = (
+                        self.real_trvs.get(self.cooler_entity_id)
+                        if self.cooler_entity_id is not None
+                        else None
+                    )
+                    if self.cooler_entity_id is not None and not (
+                        _cooler_trv is not None and _cooler_trv.awaiting_initialization
+                    ):
                         try:
                             await control_cooler(self)
                         except Exception:
@@ -443,7 +457,12 @@ async def control_queue(self):
                     )
                     tasks = []
                     controlled_trvs = []
-                    for trv in self.real_trvs.keys():
+                    for trv, trv_data in self.real_trvs.items():
+                        # A TRV startup went ahead without carries none of
+                        # the values a control decision reads, and boost
+                        # would address it even while it is unreachable.
+                        if trv_data.awaiting_initialization:
+                            continue
                         if _cooling_owns_shared and trv == _shared_entity_id:
                             _LOGGER.debug(
                                 "better_thermostat %s: %s is driven by the cooling "
@@ -1005,22 +1024,8 @@ async def control_trv(self, heater_entity_id=None):
                 self, _trv, "controlling()"
             )
 
-            # HEAT_COOL is the mode a room with a cooler runs in, and it names
-            # a pair of targets Better Thermostat holds. A device that carries
-            # both roles and advertises heat_cool would take it as an
-            # instruction to run its own thermostat against its own pair, so
-            # the cycle in which the heating channel drives it names the
-            # heating role alone. Devices that advertise heat_cool without heat
-            # keep receiving heat_cool, because that is what mode_remap()
-            # translates HEAT into for them.
-            _outbound_mode = self.bt_hvac_mode
-            if (
-                _outbound_mode == HVACMode.HEAT_COOL
-                and heater_entity_id == dual_role_entity_id(self)
-            ):
-                _outbound_mode = HVACMode.HEAT
             _remapped_states = convert_outbound_states(
-                self, heater_entity_id, _outbound_mode
+                self, heater_entity_id, self.bt_hvac_mode
             )
             if not isinstance(_remapped_states, dict):
                 _LOGGER.warning(

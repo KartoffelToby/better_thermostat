@@ -23,9 +23,17 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_registry import async_entries_for_config_entry
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util, slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -227,15 +235,36 @@ def entity_uses_mpc_calibration(bt, entity_id: str) -> bool:
 
 
 def get_hvac_bt_mode(self, mode: str) -> str:
-    """Return the main HVAC mode mapping for the Better Thermostat.
+    """Return the mode Better Thermostat publishes for a room mode.
 
-    The function handles simple mapping from HVACMode.HEAT to configured
-    internal modes used by the integration.
+    Either spelling of "on" is published in the spelling the instance's own
+    mode list carries, HEAT_COOL for a room with a cooler and HEAT otherwise.
     """
-    if mode == HVACMode.HEAT:
-        mode = self.map_on_hvac_mode
-    elif mode == HVACMode.HEAT_COOL:
-        mode = HVACMode.HEAT
+    if mode in (HVACMode.HEAT, HVACMode.HEAT_COOL):
+        return self.map_on_hvac_mode
+    return mode
+
+
+def room_mode_intent(mode: HVACMode) -> HVACMode:
+    """Return the mode a room holds for a mode it is switched into.
+
+    A room with a cooler publishes "on" as HEAT_COOL and a room without one
+    as HEAT, and a device may call its heating mode either. The room itself
+    holds one intent for both, HEAT; the published state and each device's
+    command are derived from it at their own edge.
+
+    Parameters
+    ----------
+    mode : HVACMode
+        the mode the room is switched into, in any of its spellings
+
+    Returns
+    -------
+    HVACMode
+        HEAT for either spelling of "on", the mode unchanged otherwise
+    """
+    if mode == HVACMode.HEAT_COOL:
+        return HVACMode.HEAT
     return mode
 
 
@@ -479,7 +508,9 @@ def mode_remap(
     str | None
             remapped mode according to device's quirks, or None for an
             outbound mode the device does not offer, meaning the device's
-            mode is left untouched
+            mode is left untouched, and for a reported AUTO on a device
+            without the heat auto swapped option, meaning the report is
+            ignored
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -512,8 +543,23 @@ def mode_remap(
         # and as HEAT everywhere else.
         if hvac_mode == HVACMode.AUTO and inbound:
             return HVACMode.HEAT
+        # A device without AUTO receives HEAT or HEAT_COOL as its heating
+        # mode, so a reported HEAT_COOL is it heating, as on an unswapped
+        # device. Where AUTO is offered, AUTO is the heating mode and a
+        # reported HEAT_COOL is some other mode of the device.
+        if (
+            inbound
+            and hvac_mode == HVACMode.HEAT_COOL
+            and not device_offers_mode(trv.hvac_modes or (), HVACMode.AUTO)
+        ):
+            return HVACMode.HEAT
         return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
 
+    # A reported HEAT_COOL is the device heating, whichever other modes it
+    # offers: HEAT is the instance-level spelling of that demand, and a device
+    # offering both spellings may still report the wider one.
+    if inbound and hvac_mode == HVACMode.HEAT_COOL:
+        return HVACMode.HEAT
     trv_modes = trv.hvac_modes
     if not trv_modes:
         return hvac_mode
@@ -525,8 +571,6 @@ def mode_remap(
         # entity only supports HEAT_COOL, but not HEAT - need to translate
         if not inbound and hvac_mode == HVACMode.HEAT:
             return HVACMode.HEAT_COOL
-        if inbound and hvac_mode == HVACMode.HEAT_COOL:
-            return HVACMode.HEAT
     if not _offers_heat_cool and _offers_heat:
         # entity only supports HEAT, but not HEAT_COOL - need to translate.
         # Only the outbound direction needs it: HEAT is already the
@@ -550,6 +594,11 @@ def mode_remap(
                 entity_id,
                 hvac_mode,
             )
+        # A reported AUTO is ambiguous without the swap option, so it is not
+        # decoded at all: the instance keeps its mode and the next control
+        # cycle writes that mode back to the device.
+        if inbound:
+            return None
         return HVACMode.OFF
 
     return _clamp_to_offered_mode(self, trv, entity_id, hvac_mode, inbound)
@@ -2324,3 +2373,65 @@ def is_bt_climate_entity(entry: er.RegistryEntry) -> bool:
     this integration (platform) and be a climate entity (domain).
     """
     return entry.platform == DOMAIN and entry.domain == CLIMATE_DOMAIN
+
+
+def current_trv_name(hass: HomeAssistant, trv_entity_id: str) -> str:
+    """Return the name of a TRV as far as it is known now.
+
+    The reported state carries the name the user sees. Before the TRV's own
+    integration reports, its registry entry and device, loaded before any
+    integration is set up, give the same name; a TRV without a registry
+    entry is known by its entity id only. A new entity's entity_id is derived
+    from its name when it is first registered, so the name matters then.
+    """
+    trv_state = hass.states.get(trv_entity_id)
+    if trv_state is not None and trv_state.name:
+        return trv_state.name
+    reg_entry = er.async_get(hass).async_get(trv_entity_id)
+    if reg_entry is not None:
+        return er.async_get_full_entity_name(hass, reg_entry) or trv_entity_id
+    return trv_entity_id
+
+
+class TrvNamedEntity(Entity):
+    """Entity of one TRV, named after it through the ``trv_name`` placeholder.
+
+    The TRV's reported name is known once its own integration reports a
+    state, which on a boot can come after this entity is built; until then
+    the placeholder holds the name ``current_trv_name`` finds. The name
+    follows the TRV's state from then on.
+    """
+
+    _trv_entity_id: str
+
+    def _follow_trv_name(self) -> None:
+        """Name the entity after the TRV now and whenever the TRV reports."""
+        placeholders = getattr(self, "_attr_translation_placeholders", None)
+        if not placeholders or "trv_name" not in placeholders:
+            return
+        self._adopt_trv_name(self.hass.states.get(self._trv_entity_id))
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._trv_entity_id], self._on_trv_state
+            )
+        )
+
+    @callback
+    def _on_trv_state(self, event: Event[EventStateChangedData]) -> None:
+        """Rename the entity when the TRV reports a different name."""
+        if self._adopt_trv_name(event.data["new_state"]):
+            self.async_write_ha_state()
+
+    def _adopt_trv_name(self, trv_state: State | None) -> bool:
+        """Put the TRV's reported name into the placeholder.
+
+        Returns whether the name changed. ``name`` is cached on the entity and
+        not invalidated by a new placeholder, so the cache is dropped here.
+        """
+        if trv_state is None or not trv_state.name:
+            return False
+        if self._attr_translation_placeholders.get("trv_name") == trv_state.name:
+            return False
+        self._attr_translation_placeholders = {"trv_name": trv_state.name}
+        self.__dict__.pop("name", None)
+        return True

@@ -60,10 +60,6 @@ from custom_components.better_thermostat.utils.helpers import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
-# per-cycle dispatch from repeating it when the daqp import keeps failing.
-_MPC_V2_IMPORT_WARNED: set[str] = set()
-
 # Post-adjustment gates that fire because Better Thermostat is not calling for
 # heat take the same arm while the cooler runs: a TRV valve that opens works
 # against the cooler, so cooling is the strongest form of not calling for heat.
@@ -474,18 +470,6 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             v2_params,
             state=mpc_v2_state,
         )
-    except ImportError as err:
-        # Controller construction raises when the daqp wheel is missing.
-        # daqp is not a hard manifest requirement (it has no aarch64 wheel for
-        # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per thermostat instead of spamming every cycle.
-        if self.device_name not in _MPC_V2_IMPORT_WARNED:
-            _MPC_V2_IMPORT_WARNED.add(self.device_name)
-            _LOGGER.warning(
-                "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
-            )
-        trv_state.calibration_balance = None
-        return None, False
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",
