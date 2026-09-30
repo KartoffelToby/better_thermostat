@@ -222,6 +222,7 @@ class QpOptimiser:
         # solver that keeps failing does not flood the log.
         self._daqp_failure_reported = False
         self._flat_fallback_reported = False
+        self._non_finite_reported = False
         if not DAQP_AVAILABLE:
             _LOGGER.info(
                 "MPC v2 plans with its NumPy solver; the daqp package is not "
@@ -417,8 +418,9 @@ class QpOptimiser:
 
         When the plan space collapses (no rate or box width), or the
         iteration fails or ends infeasible, the best flat plan is returned
-        instead, which is always feasible; the failure is logged at DEBUG. A
-        non-finite objective holds the last command.
+        instead, which is always feasible. A non-finite objective holds the
+        last command. Either event is logged at WARNING the first time an
+        optimiser meets it and at DEBUG after that.
         """
         n = self.N
         u_last = bounds.u_last
@@ -434,6 +436,11 @@ class QpOptimiser:
             return np.full(n, max(u_min, min(u_max, u_last)))
         # A non-finite objective has no optimum; the last command holds.
         if not (np.all(np.isfinite(hessian)) and np.all(np.isfinite(gradient))):
+            level = logging.DEBUG if self._non_finite_reported else logging.WARNING
+            self._non_finite_reported = True
+            _LOGGER.log(
+                level, "MPC v2 plan objective is not finite; holding the last command"
+            )
             return np.full(n, float(np.clip(u_last, first_lo, first_hi)))
         # Every flat plan inside the first interval is feasible; the best of
         # them is the fallback.

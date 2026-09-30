@@ -657,3 +657,30 @@ def test_a_repeated_flat_fallback_warns_once(monkeypatch, caplog) -> None:
 
     flat = [r for r in caplog.records if "planning flat" in r.getMessage()]
     assert [r.levelname for r in flat] == ["WARNING", "DEBUG", "DEBUG"]
+
+
+def test_a_non_finite_objective_holds_the_command_and_warns_once(
+    monkeypatch, caplog
+) -> None:
+    """A plan that cannot be computed holds the last command and says so once.
+
+    A NaN in the predicted state makes every later objective non-finite, so
+    the valve would otherwise stay where it is without a trace in the log.
+    """
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
+        qp_optimiser,
+    )
+
+    monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
+    caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
+    opt = _make_optimiser(delta_u_max=0.2)
+    commands = [
+        opt.solve(
+            np.array([float("nan"), 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3
+        )
+        for _ in range(3)
+    ]
+
+    held = [r for r in caplog.records if "not finite" in r.getMessage()]
+    assert commands == [pytest.approx(0.3)] * 3
+    assert [r.levelname for r in held] == ["WARNING", "DEBUG", "DEBUG"]
