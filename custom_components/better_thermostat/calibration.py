@@ -84,6 +84,7 @@ from custom_components.better_thermostat.utils.helpers import (
     round_by_step,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
+from custom_components.better_thermostat.utils.watcher import reachable_trv_temperature
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
@@ -131,8 +132,8 @@ def _compute_zero_open_offset(
 def effective_room_temp(self: BetterThermostat) -> float | None:
     """Room temperature for the control law, honoring the fail-soft ladder.
 
-    Under SENSOR_FALLBACK the mean of the available TRV-internal
-    temperatures substitutes the (dead) room sensor — completing the
+    Under SENSOR_FALLBACK the mean of the internal temperatures of the
+    reachable TRVs substitutes the (dead) room sensor — completing the
     fallback that the watcher has always announced. On every other rung
     this is simply the current room temperature.
 
@@ -149,11 +150,11 @@ def effective_room_temp(self: BetterThermostat) -> float | None:
     """
     mode = self.kernel_state.control_mode.mode
     if mode == ControlMode.SENSOR_FALLBACK:
-        temps = []
-        for trv in self.real_trvs.values():
-            value = trv.current_temperature
-            if isinstance(value, (int, float)):
-                temps.append(float(value))
+        temps = [
+            value
+            for entity_id in self.real_trvs
+            if (value := reachable_trv_temperature(self, entity_id)) is not None
+        ]
         if temps:
             return sum(temps) / len(temps)
     return self.cur_temp

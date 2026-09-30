@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACAction
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.calibration import (
@@ -62,6 +63,24 @@ class TestSensorFallbackSubstitution:
         bt = _bt(ControlMode.SENSOR_FALLBACK)
         for trv in bt.real_trvs.values():
             trv.current_temperature = None
+        assert effective_room_temp(bt) == 20.0
+
+    def test_fallback_leaves_out_an_unreachable_trv(self):
+        """Only TRVs that are reachable contribute to the substitute.
+
+        A reading stored before its TRV went unavailable no longer describes
+        the room, even when nothing has cleared it yet.
+        """
+        bt = _bt(ControlMode.SENSOR_FALLBACK)
+        bt.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, "unavailable" if entity_id == "climate.b" else "heat"
+        )
+        assert effective_room_temp(bt) == 21.0
+
+    def test_fallback_with_every_trv_unreachable_keeps_the_last_reading(self):
+        """Stored readings of unreachable TRVs do not replace the room reading."""
+        bt = _bt(ControlMode.SENSOR_FALLBACK)
+        bt.hass.states.get.return_value = None
         assert effective_room_temp(bt) == 20.0
 
     def test_hold_does_not_substitute(self):
