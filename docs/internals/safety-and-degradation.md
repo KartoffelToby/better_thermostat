@@ -72,9 +72,12 @@ stay fully controlled.
 `core/watchdog.py` answers one question: did a control cycle complete
 recently? The heartbeat is stamped on every *deliberate* outcome of a
 cycle, including skipping an unavailable TRV or deferring a write to
-the budget, while error paths that bail out leave it alone. A silent
-hang (no cycle for 15 minutes) raises an error and forces a cycle
-through the reconciler tick.
+the budget, while error paths that bail out leave it alone. The
+reconciler tick reads it: a device that diverges from the intent while
+no cycle has completed for 15 minutes is a silent hang, which raises an
+error and forces a cycle. A room whose devices hold the intent has
+nothing for a cycle to do, so a loop that stays quiet there is not
+reported, however long ago its last cycle ran.
 
 ## Calibrator self-healing and health
 

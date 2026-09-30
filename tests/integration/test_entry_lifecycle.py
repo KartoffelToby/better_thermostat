@@ -362,6 +362,54 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     assert fake_trv._attr_target_temperature == lost
 
 
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        replace(
+            GENERIC_HEAT_TRV,
+            name=f"generic_heat_trv_{mode.value}",
+            calibration_mode=mode.value,
+        )
+        for mode in CalibrationMode
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_a_quiet_room_does_not_trip_the_control_watchdog(hass, fake_trv, caplog):
+    """An hour without a reason to control is not a stalled control loop.
+
+    A room holding its temperature publishes no state change, and a
+    calibration mode without the five-minute recompute queues no cycle of
+    its own, so in such a room no control cycle may run for an hour. The
+    devices still hold the intent, so the watchdog has no hang to report
+    and no cycle to force, whichever calibration mode the room runs.
+    """
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.better_thermostat.core.clock import FakeClock
+
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    # The periodic ticks are registered at the very end of startup.
+    await hass.async_block_till_done()
+
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    start = dt_util.utcnow()
+    caplog.clear()
+    elapsed = 0
+    while elapsed < 3600:
+        clock.advance(30)
+        elapsed += 30
+        async_fire_time_changed(hass, start + timedelta(seconds=elapsed))
+        await hass.async_block_till_done()
+
+    assert [r.message for r in caplog.records if "control watchdog" in r.message] == []
+
+
 @pytest.mark.parametrize("fake_trv", [GENERIC_HEAT_TRV], indirect=True, ids=profile_id)
 async def test_entity_ids_the_user_chose_survive_a_restart(hass, fake_trv):
     """A restart leaves the ids in the registry alone, whoever wrote them.

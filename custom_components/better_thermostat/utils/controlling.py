@@ -631,32 +631,37 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
     Builds a snapshot, asks the kernel for the desired state, and
     enqueues one control cycle when any device diverges — the general
     mechanism that heals lost writes without per-case keepalives.
+
+    The control watchdog is read here too. A divergence behind a loop that
+    has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
+    it exists for and is logged as an error. A room whose devices hold the
+    intent has nothing for a cycle to do, however long ago the last one
+    ran, so a quiet loop is not reported.
     """
     if self.startup_running or self.ignore_states:
         return
     if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
         return
     try:
-        if control_loop_stalled(
-            self.kernel_state.last_control_monotonic, self.clock.monotonic()
-        ):
-            _LOGGER.error(
-                "better_thermostat %s: control watchdog: no control cycle for "
-                "more than %.0f minutes, forcing one",
-                self.device_name,
-                WATCHDOG_MAX_AGE_S / 60.0,
-            )
-            request_control_cycle(self)
-            return
         snapshot, desired = compute_control_cycle(self, record=False, commit=False)
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return
-        _LOGGER.debug(
-            "better_thermostat %s: reconcile: device state diverged, "
-            "queueing a control cycle",
-            self.device_name,
-        )
+        if control_loop_stalled(
+            self.kernel_state.last_control_monotonic, self.clock.monotonic()
+        ):
+            _LOGGER.error(
+                "better_thermostat %s: control watchdog: device state diverged "
+                "and no control cycle for more than %.0f minutes, forcing one",
+                self.device_name,
+                WATCHDOG_MAX_AGE_S / 60.0,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: reconcile: device state diverged, "
+                "queueing a control cycle",
+                self.device_name,
+            )
         request_control_cycle(self)
     except Exception:
         _LOGGER.exception(
