@@ -86,6 +86,10 @@ async def test_a_save_pending_at_removal_does_not_bring_the_state_back(
 
     await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
+    assert _stored_keys(hass_storage, entry) == []
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=5))
+    await hass.async_block_till_done()
 
     assert _stored_keys(hass_storage, entry) == []
 
