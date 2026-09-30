@@ -30,6 +30,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     async_fire_logbook_entry,
+    attr_to_celsius,
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
@@ -150,10 +151,13 @@ def room_sensor_reading(self, state: State | None) -> float | None:
 
 
 def reachable_trv_temperature(self, entity_id: str) -> float | None:
-    """Return a TRV's stored internal temperature while the TRV is reachable.
+    """Return a TRV's stored internal temperature while the TRV reports one.
 
-    A stored reading only counts while its TRV is available: a value kept
-    from before an outage describes a device that no longer reports.
+    A stored reading only counts while its TRV is available and its current
+    state carries a convertible, plausible internal temperature: a value kept
+    from before an outage describes a device that no longer reports, and the
+    handler keeps the stored value across a report it cannot use, such as a
+    marker value, which the device does not confirm either.
 
     Parameters
     ----------
@@ -166,7 +170,7 @@ def reachable_trv_temperature(self, entity_id: str) -> float | None:
     -------
     float | None
         The internal temperature in °C, or None when the TRV is not tracked,
-        not available, or holds no finite reading
+        not available, holds no finite reading, or reports no usable one
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -175,6 +179,15 @@ def reachable_trv_temperature(self, entity_id: str) -> float | None:
     if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
         return None
     if not is_trv_available(self, entity_id):
+        return None
+    reported = attr_to_celsius(
+        self,
+        self.hass.states.get(entity_id),
+        "current_temperature",
+        None,
+        "reachable_trv_temperature()",
+    )
+    if not is_reasonable_temperature(reported):
         return None
     return float(value)
 
