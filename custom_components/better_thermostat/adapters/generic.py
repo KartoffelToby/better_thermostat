@@ -7,6 +7,7 @@ used by Better Thermostat when a device-specific adapter does not exist.
 from __future__ import annotations
 
 import asyncio
+from itertools import pairwise
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -19,6 +20,7 @@ from ..utils.helpers import (
     normalize_hvac_mode,
 )
 from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
+from .delegate import set_hvac_mode as delegate_set_hvac_mode
 from .types import AdapterHost, AdapterProbeHost
 
 if TYPE_CHECKING:
@@ -215,12 +217,17 @@ async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
     Returns
     -------
     float
-        Step the entity publishes, or the shared default when it
-        publishes none.
+        Step a number entity publishes, the smallest spacing between the
+        options of a select, or the shared default when neither is
+        readable.
     """
     state = _calibration_state(self, entity_id)
     if state is None:
         return DEFAULT_OFFSET_STEP
+    if state.domain == "select":
+        offered = sorted(set(_offered_offsets(state)))
+        spacings = [high - low for low, high in pairwise(offered)]
+        return min(spacings, default=DEFAULT_OFFSET_STEP)
     return float(str(state.attributes.get("step", DEFAULT_OFFSET_STEP)))
 
 
@@ -289,7 +296,11 @@ async def set_temperature(
 
 
 async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
-    """Set new target hvac mode."""
+    """Set new target hvac mode.
+
+    A write the device or Home Assistant refuses raises, so the caller can
+    retry it and tell a refused mode from one that went out.
+    """
 
     hvac_mode_norm = normalize_hvac_mode(hvac_mode)
     _LOGGER.debug(
@@ -311,14 +322,6 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
             "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
             entity_id,
             hvac_mode_norm,
-        )
-    except Exception as exc:
-        _LOGGER.exception(
-            "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
-            self.device_name,
-            entity_id,
-            hvac_mode_norm,
-            exc,
         )
 
 
@@ -415,7 +418,10 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
         if last_hvac_mode is not None and last_hvac_mode != "off":
             await asyncio.sleep(3)
-            await set_hvac_mode(self, entity_id, last_hvac_mode)
+            # The offset is on the wire whatever happens to the mode after
+            # it. The mode goes out through the mode channel, which retries,
+            # reports and paces a refusal like any other mode write.
+            await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
 
         return True
     else:

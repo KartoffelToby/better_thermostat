@@ -17,19 +17,20 @@ async def async_get_config_entry_diagnostics(
         trv_state = hass.states.get(trv_config["trv"])
         if trv_state is None:
             continue
-        trv_config["adapter"] = trv_config["integration"]
-        if trv_config["adapter"] is None:
-            trv_config["adapter"] = "unknown"
+        integration = trv_config.get("integration")
         trvs[trv_config["trv"]] = {
             "name": trv_state.name,
             "state": trv_state.state,
             "attributes": trv_state.attributes,
-            "bt_config": trv_config["advanced"],
-            "bt_adapter": trv_config["adapter"],
-            "bt_integration": trv_config["integration"],
-            "model": trv_config["model"],
+            "bt_config": trv_config.get("advanced"),
+            "bt_adapter": integration if integration is not None else "unknown",
+            "bt_integration": integration,
+            "model": trv_config.get("model"),
         }
-    external_temperature = hass.states.get(config_entry.data[CONF_SENSOR])
+    sensor_entity_id = config_entry.data.get(CONF_SENSOR)
+    external_temperature = (
+        hass.states.get(sensor_entity_id) if sensor_entity_id else None
+    )
 
     window: str | State | None = "-"
     window_entity_id = config_entry.data.get(CONF_SENSOR_WINDOW, False)
