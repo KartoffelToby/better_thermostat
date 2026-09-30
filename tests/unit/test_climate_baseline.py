@@ -136,6 +136,7 @@ def mock_bt():
     bt._enforce_cool_above_heat = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
     )
+    bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
     bt._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         bt, value
     )
@@ -1282,6 +1283,20 @@ class TestAsyncSetTemperature:
         mock_bt.bt_target_cooltemp = 20.0  # below heat target → should be adjusted
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
         assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+
+    @pytest.mark.asyncio
+    async def test_a_cooling_only_target_moves_the_heating_target_below_it(
+        self, mock_bt
+    ):
+        """A cooling target set on its own is kept; the heating target yields."""
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_cooltemp = 26.0
+        await self._call(mock_bt, **{ATTR_TARGET_TEMP_HIGH: 21.0})
+        assert mock_bt.bt_target_cooltemp == 21.0
+        assert mock_bt.bt_target_temp == 20.5
 
     @pytest.mark.asyncio
     async def test_min_max_clamping(self, mock_bt):
