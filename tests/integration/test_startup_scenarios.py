@@ -34,6 +34,7 @@ from custom_components.better_thermostat.calibration import effective_room_temp
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
+    LADDER_TICK_S,
     ControlMode,
     LadderParams,
 )
@@ -361,6 +362,66 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
 
     await let_a_tick_fire(stability_s + 60)
 
+    assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        _on_calibration_mode(GENERIC_HEAT_TRV, CalibrationMode.PID_CALIBRATION.value),
+        _on_calibration_mode(GENERIC_HEAT_TRV, DEFAULT_CALIBRATION_MODE.value),
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_a_silent_room_sensor_moves_the_ladder_one_tick_after_each_window(
+    hass, fake_trv
+):
+    """A sensor that goes quiet moves the ladder without any further event.
+
+    The outage and the return each publish one state change, and that
+    evaluation only starts the window. The commit needs a second evaluation
+    once the window has passed, and in a settled room nothing but the
+    periodic ladder tick supplies it. The rung therefore follows each window
+    by at most one ``LADDER_TICK_S``, in both directions and for both kinds
+    of calibration mode.
+
+    Time moves in half-tick steps, so every tick that falls due runs at the
+    moment it is due rather than all at once after a long jump.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    # The periodic ticks are registered at the very end of startup.
+    await hass.async_block_till_done()
+
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    start = dt_util.utcnow()
+    elapsed = 0.0
+
+    async def let_time_pass(seconds):
+        """Move both clocks on by ``seconds`` in half-tick steps."""
+        nonlocal elapsed
+        step = LADDER_TICK_S / 2
+        target = elapsed + seconds
+        while elapsed < target:
+            clock.advance(step)
+            elapsed += step
+            async_fire_time_changed(hass, start + timedelta(seconds=elapsed))
+            await hass.async_block_till_done()
+
+    params = LadderParams()
+
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    await hass.async_block_till_done()
+    await let_time_pass(params.down_debounce_s + LADDER_TICK_S)
+    assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+
+    set_room_sensor(hass, 18.0)
+    await hass.async_block_till_done()
+    await let_time_pass(params.up_stability_s + LADDER_TICK_S)
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
 
 
