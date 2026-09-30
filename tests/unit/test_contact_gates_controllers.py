@@ -15,7 +15,6 @@ the valve is what reaches the device either way.
 
 from __future__ import annotations
 
-import importlib.util
 from types import SimpleNamespace
 from typing import Any
 
@@ -39,8 +38,6 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
-
-_HAS_DAQP = importlib.util.find_spec("daqp") is not None
 
 
 class _InMemoryStateManager:
@@ -144,10 +141,7 @@ CONTROLLERS = [
     pytest.param(CalibrationMode.MPC_CALIBRATION, _compute_mpc_balance, id="mpc"),
     pytest.param(CalibrationMode.TPI_CALIBRATION, _compute_tpi_balance, id="tpi"),
     pytest.param(
-        CalibrationMode.MPC_V2_CALIBRATION,
-        _compute_mpc_v2_balance,
-        id="mpc_v2",
-        marks=pytest.mark.skipif(not _HAS_DAQP, reason="MPC v2 needs the daqp solver"),
+        CalibrationMode.MPC_V2_CALIBRATION, _compute_mpc_v2_balance, id="mpc_v2"
     ),
 ]
 

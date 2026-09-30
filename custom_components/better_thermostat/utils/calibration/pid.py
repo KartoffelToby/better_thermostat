@@ -147,6 +147,33 @@ def _r(val: float | None, decimals: int = 2) -> float | None:
 # --- PID Computation -----------------------------------------------
 
 
+def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
+    """Drop the stored stamps when they lie ahead of this cycle's clock.
+
+    The stamps are read from the monotonic clock, which counts from the
+    host's boot and survives a restart of Home Assistant alone. After a
+    host reboot the stored stamps lie ahead of it, and every interval
+    measured against them comes out negative: the hold time and the tuning
+    interval would not elapse until the new uptime passes the old one.
+    How long the host was down is unknown, so the stamps and the
+    measurements they belong to restart as on a first cycle, the error and
+    its sign that auto-tune and the integrator relief compare between
+    consecutive cycles among them. The integral and the learned gains are
+    kept.
+    """
+    latest = max(state.pid_last_time, state.last_output_change_ts, state.last_tune_ts)
+    if latest <= now:
+        return
+    state.pid_last_time = 0.0
+    state.last_output_change_ts = 0.0
+    state.last_tune_ts = 0.0
+    state.pid_last_meas = None
+    state.pid_last_error = None
+    state.last_abs_error = None
+    state.previous_abs_error = None
+    state.last_error_sign = None
+
+
 def compute_pid(
     params: PIDParams,
     inp_target_temp_C: float | None,
@@ -198,6 +225,7 @@ def compute_pid(
         _LOGGER.warning(
             "better_thermostat: healed poisoned PID state for %s (%s)", key, pathology
         )
+    _forget_stamps_from_a_previous_uptime(st, now)
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
