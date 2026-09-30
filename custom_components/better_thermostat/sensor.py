@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from functools import partial
 import logging
 from typing import TYPE_CHECKING
@@ -19,6 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import (
     EntityRegistry,
+    async_entries_for_config_entry,
     async_get as async_get_entity_registry,
 )
 from homeassistant.helpers.event import async_track_state_change_event
@@ -74,12 +75,65 @@ async def async_setup_entry(
     # Dynamische algorithmus-spezifische Sensor-Erstellung
     algorithm_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
     sensors.extend(algorithm_sensors)
+    remove_unclaimed_registry_entries(
+        async_get_entity_registry(hass),
+        entry,
+        Platform.SENSOR,
+        (sensor.unique_id for sensor in sensors),
+        bt_climate,
+    )
 
     async_normalize_bt_entity_ids(hass, entry, Platform.SENSOR)
     async_add_entities(sensors, True)
 
     # Register callback for dynamic entity updates
     await _register_dynamic_entity_callback(hass, entry, bt_climate, async_add_entities)
+
+
+def remove_unclaimed_registry_entries(
+    registry: EntityRegistry,
+    entry: ConfigEntry,
+    domain: str,
+    live_unique_ids: Iterable[str | None],
+    bt_climate: BetterThermostat,
+) -> None:
+    """Remove the entry's registry entries of ``domain`` no live entity claims.
+
+    A platform builds every entity its configuration asks for when it is set
+    up. A registry entry of the same entry and domain that none of them claims
+    belongs to a setting the thermostat no longer has, such as another
+    calibration algorithm; left in place it shows as an unavailable entity.
+
+    That holds only while the thermostat built every TRV it is configured
+    with. The entities of a TRV it failed to build are not stale, so nothing
+    is removed then.
+    """
+    # An unloaded registry (a mocked hass in unit tests) has no entries.
+    if not hasattr(registry, "entities"):
+        return
+    configured = {
+        trv_entity_id
+        for trv_config in bt_climate.all_trvs or []
+        if (trv_entity_id := trv_config.get("trv"))
+    }
+    missing = configured - set(bt_climate.real_trvs or {})
+    if missing:
+        _LOGGER.debug(
+            "Better Thermostat %s: keeping the %s registry entries, TRVs %s are "
+            "not set up",
+            bt_climate.device_name,
+            domain,
+            sorted(missing),
+        )
+        return
+    live = set(live_unique_ids)
+    for reg_entry in async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            reg_entry.platform == DOMAIN
+            and reg_entry.domain == domain
+            and reg_entry.unique_id not in live
+        ):
+            registry.async_remove(reg_entry.entity_id)
 
 
 async def _setup_algorithm_sensors(
@@ -197,7 +251,10 @@ async def _register_dynamic_entity_callback(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
             bt_climate.device_name,
         )
-        hass.async_create_background_task(
+        # Scoped to the entry, so an unload cancels an update still pending
+        # instead of letting it add entities to an entry that is gone.
+        entry.async_create_background_task(
+            hass,
             _handle_dynamic_entity_update(hass, entry, bt_climate, async_add_entities),
             name=f"bt_dynamic_entity_update_{entry.entry_id}",
         )
@@ -942,11 +999,23 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_should_poll = (
-        True  # Weather entity updates not strictly coupled to climate state
-    )
     _attr_icon = "mdi:solar-power"
     _unique_id_suffix = "solar_intensity"
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the weather entity as well as the thermostat.
+
+        The weather changes on its own schedule, not with the thermostat's
+        state.
+        """
+        await super().async_added_to_hass()
+        weather_entity = self._bt_climate.weather_entity
+        if weather_entity:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [weather_entity], self._on_climate_update
+                )
+            )
 
     def _update_state(self) -> None:
         """Update state using utility function."""
