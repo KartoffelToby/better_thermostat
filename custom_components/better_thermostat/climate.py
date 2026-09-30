@@ -1287,6 +1287,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # not one of the entity's owned tasks: cancelling it would drop the
             # state the next start reads back.
             if self.state_mgr is not None:
+                self.state_mgr.close()
                 try:
                     self._record_runtime_to_state()
                     self.hass.async_create_background_task(

@@ -73,6 +73,18 @@ from custom_components.better_thermostat.utils.state_manager import (
 
 _SM = "custom_components.better_thermostat.utils.state_manager"
 
+
+def _hass_double() -> AsyncMock:
+    """Return a hass double whose event loop accepts timers.
+
+    A copy that cannot be written starts a retry timer on ``hass.loop``;
+    the ``AsyncMock`` default would turn ``loop.time()`` into a coroutine.
+    """
+    hass = AsyncMock()
+    hass.loop = MagicMock()
+    return hass
+
+
 # ---------------------------------------------------------------------------
 # Dataclass defaults
 # ---------------------------------------------------------------------------
@@ -1293,7 +1305,7 @@ class TestStateManagerLoadSave:
 
     def _make_manager_with_store(self):
         """Create a StateManager with a capturable mock Store."""
-        mock_hass = AsyncMock()
+        mock_hass = _hass_double()
         mock_store = AsyncMock()
         with patch(
             "custom_components.better_thermostat.utils.state_manager.Store",
@@ -1812,7 +1824,7 @@ class TestUnreadableStoreIsKeptForRecovery:
     async def test_copy_carries_the_content_that_could_not_be_read(self):
         """The set-aside copy holds the payload verbatim."""
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = {
                 "version": 1,
                 "mpc": {"k1": {"gain_est": 0.5}},
@@ -1831,7 +1843,7 @@ class TestUnreadableStoreIsKeptForRecovery:
     async def test_defaults_still_replace_the_unreadable_state(self):
         """Setting the copy aside does not change the fallback behaviour."""
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
             with patch(f"{_SM}._deserialize", side_effect=TypeError("poisoned")):
                 await mgr.load()
@@ -1843,7 +1855,7 @@ class TestUnreadableStoreIsKeptForRecovery:
     async def test_an_earlier_copy_is_not_overwritten(self):
         """The first copy is the one still holding the accumulated state."""
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
             earlier = AsyncMock()
             earlier.async_load = AsyncMock(
@@ -1859,7 +1871,7 @@ class TestUnreadableStoreIsKeptForRecovery:
     async def test_a_readable_store_leaves_no_copy(self):
         """Nothing is set aside when the store deserializes."""
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = {
                 "version": 1,
                 "mpc": {"k1": {"gain_est": 0.5}},
@@ -1873,7 +1885,7 @@ class TestUnreadableStoreIsKeptForRecovery:
     async def test_an_empty_store_leaves_no_copy(self):
         """A first start has nothing to preserve."""
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             await mgr.load()
 
         assert _SET_ASIDE_KEY not in stores
@@ -1882,7 +1894,7 @@ class TestUnreadableStoreIsKeptForRecovery:
     async def test_a_failed_copy_still_lets_startup_continue(self, caplog):
         """A storage error while copying is reported, not raised."""
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = {"version": 1, "mpc": {}}
             with (
                 caplog.at_level(logging.WARNING, logger=_SM),
@@ -1910,7 +1922,7 @@ class TestUnreadableStoreIsKeptForRecovery:
             "mpc": {"k1": {"gain_est": 0.5, "loss_est": 0.02, "kalman_P": None}},
         }
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = payload
             await mgr.load()
 
@@ -1940,7 +1952,7 @@ class TestUnreadableStoreIsKeptForRecovery:
         those overwrite the stored payload on the next save.
         """
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = payload
             await mgr.load()
 
@@ -1978,7 +1990,7 @@ class TestUnreadableStoreIsKeptForRecovery:
         """
         payload = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = payload
             self._failing_copy(stores, OSError("disk full"), OSError("disk full"))
             if poisoned_by == "an unreadable store":
@@ -2000,7 +2012,7 @@ class TestUnreadableStoreIsKeptForRecovery:
         """Once the payload is set aside, the live store is written again."""
         payload = {"version": 1, "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
         with _stores_by_key() as stores:
-            mgr = StateManager(AsyncMock(), "test_entry")
+            mgr = StateManager(_hass_double(), "test_entry")
             stores[_LIVE_STORE_KEY].async_load.return_value = payload
             copy = self._failing_copy(stores, OSError("disk full"))
             await mgr.load()
@@ -2051,7 +2063,7 @@ class TestEveryDistinctPayloadIsKept:
 
     @staticmethod
     async def _load_and_save(stores, payload: dict) -> StateManager:
-        mgr = StateManager(AsyncMock(), "test_entry")
+        mgr = StateManager(_hass_double(), "test_entry")
         stores[_LIVE_STORE_KEY].async_load.return_value = payload
         await mgr.load()
         mgr.mark_dirty()
@@ -2223,9 +2235,9 @@ class TestTheCopyIsConfirmedOnTheHomeAssistantStore:
 class TestAFailedCopyThatRecovers:
     """Once the copy can be written again, the session's state is saved.
 
-    A copy that failed at load is retried by the runtime saves, first after
-    a minute and then at a doubling interval, so a disk that stays full is
-    not written to on every save.
+    A copy that failed at load is retried on a timer, and by a runtime save
+    that falls due first, after a minute and then at a doubling interval, so
+    a disk that stays full is not written to on every save.
     """
 
     _LIVE_KEY = "better_thermostat_retry_entry_state"
@@ -2351,3 +2363,82 @@ class TestAFailedCopyThatRecovers:
         assert self._COPY_KEY not in hass_storage
         assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
         assert manager.dirty is True
+
+    @staticmethod
+    async def _advance(hass, freezer, seconds: float) -> None:
+        """Move the clock on by *seconds* and let what fell due run."""
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass, dt_util.utcnow())
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    async def test_the_copy_and_the_held_save_land_on_their_own_timer(
+        self, hass, hass_storage, freezer
+    ):
+        """Learning skipped for the copy is saved once the retry is due.
+
+        No further change of state is needed: until something else triggers
+        a save, an abrupt stop would otherwise lose that learning.
+        """
+        disk = {"full": True}
+        recorded: list[bool] = []
+        with self._disk(disk):
+            manager = await self._loaded(hass, hass_storage)
+            manager.mark_dirty()
+            manager.schedule_delay_save(
+                pre_save=lambda: recorded.append(True), delay_s=1.0
+            )
+            await hass.async_block_till_done(wait_background_tasks=True)
+            disk["full"] = False
+
+            await self._advance(hass, freezer, 30)
+            assert self._COPY_KEY not in hass_storage
+
+            await self._advance(hass, freezer, 31)
+            await self._advance(hass, freezer, 2)
+
+        assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] != self._PAYLOAD
+        assert recorded == [True]
+        assert manager.dirty is False
+
+    async def test_the_timer_backs_off_while_the_copy_fails(
+        self, hass, hass_storage, freezer
+    ):
+        """Each failed timed try waits twice as long as the one before."""
+        disk = {"full": True}
+        attempts: list[int] = []
+        with self._disk(disk):
+            manager = await self._loaded(hass, hass_storage)
+            manager.mark_dirty()
+            for second in range(1, 450):
+                done = disk["attempts"]
+                await self._advance(hass, freezer, 1)
+                if disk["attempts"] > done:
+                    attempts.append(second)
+            manager.close()
+
+        assert attempts == [60, 180, 420]
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+
+    async def test_a_closed_manager_leaves_no_timer_behind(
+        self, hass, hass_storage, freezer
+    ):
+        """A removed entity's manager tries the copy when flushed, not on a timer.
+
+        A timer that outlived the entity would write into a store the next
+        entity for the same entry owns by then.
+        """
+        disk = {"full": True}
+        with self._disk(disk):
+            manager = await self._loaded(hass, hass_storage)
+            manager.mark_dirty()
+            manager.close()
+            await self._advance(hass, freezer, 2 * 3600)
+            tried_before_the_flush = disk["attempts"]
+
+            await manager.flush()
+            await self._advance(hass, freezer, 2 * 3600)
+
+        assert tried_before_the_flush == 1
+        assert disk["attempts"] == 2
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
