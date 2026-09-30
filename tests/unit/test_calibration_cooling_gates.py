@@ -41,7 +41,7 @@ def build_bt(
     bt.cur_temp = cur_temp
     bt.cur_temp_filtered = None
     bt.bt_target_temp = bt_target_temp
-    bt.bt_hvac_mode = HVACMode.HEAT_COOL
+    bt.bt_hvac_mode = HVACMode.HEAT
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.window_open = False

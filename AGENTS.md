@@ -8,8 +8,9 @@ Run everything through `uv`: `uv sync --frozen` once, then `uv run pytest tests`
 directly picks up the wrong environment, and `-p no:homeassistant` errors the
 integration suite out.
 
-Pull requests target `develop`. `1.9` is the maintenance line and `master`
-carries releases; nothing goes onto any of the three directly.
+Pull requests target `develop`; a fix wanted on the maintenance line `1.9` gets
+a second pull request there. `master` carries releases and takes no feature or
+fix pull requests; nothing goes onto any of the three directly.
 
 The Python floor is 3.14.2, inherited from Home Assistant, so the tree writes
 `except TypeError, ValueError:` without parentheses.

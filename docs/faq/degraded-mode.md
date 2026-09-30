@@ -6,8 +6,9 @@ slug: faq/degraded-mode
 
 Better Thermostat raises a **degraded mode** repair issue when one of the
 sensors it was configured with becomes unavailable: the room temperature
-sensor, the window sensor, the humidity sensor, the outdoor sensor, or the
-weather entity. The thermostat keeps running; the issue tells you that it
+sensor, the window sensor, the door sensor, the humidity sensor, the
+outdoor sensor, or the weather entity. An unavailable cooling device
+counts as well. The thermostat keeps running; the issue tells you that it
 is working with less information than you configured.
 
 During the first five minutes after startup the warning is suppressed so
@@ -40,9 +41,9 @@ The Better Thermostat climate entity exposes the rung as the
 `control_mode` attribute (`optimal`, `sensor_fallback`, or `hold`),
 along with `degraded_for_s` (how long the degradation has lasted) and
 `unavailable_sensors`. The `calibrator_health` attribute reports per
-TRV whether its calibration controller is healthy or has self-healed
-(for example after a poisoned learning state) or shows oscillating
-output. Check them under **Developer tools → States**.
+TRV the health of its calibration controller: `healthy`, `non_finite`
+(a learned value was not a number), `oscillating`, `runaway_gains`, or
+`windup_suspect`. Check them under **Developer tools → States**.
 
 ## What you should do
 

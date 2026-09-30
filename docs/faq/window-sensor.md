@@ -28,8 +28,8 @@ the values above, for example with a
 
 Two options debounce the sensor:
 
-- **"Delay before the thermostat turns off when the window is opened"**
-- **"Delay before the thermostat turns on when the window is closed"**
+- **"Delay before the thermostat should turn off when the window is opened"**
+- **"Delay before the thermostat should turn on when the window is closed"**
 
 A state change only takes effect after it has persisted for the whole
 delay. A window that closes again within the open delay (or reopens
@@ -39,5 +39,6 @@ slamming or a quick airing check, are filtered out.
 - With a delay of `0` the change takes effect immediately with the event.
 - While the delay is running, the displayed window state keeps showing
   the previous, committed state.
-- Changing a delay in the options applies to a wait that is already in
-  progress: the remaining time is recomputed from the new value.
+- Saving the options reloads Better Thermostat. A wait that was in
+  progress is dropped, and the window state the sensor reports at that
+  moment applies right away.

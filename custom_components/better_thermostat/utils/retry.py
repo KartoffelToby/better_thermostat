@@ -50,7 +50,7 @@ def async_retry(
     backoff_factor: float = 2.0,
     max_delay: float = 60.0,
     exceptions: tuple[type[Exception], ...] = (Exception,),
-    log_level: int = logging.ERROR,
+    log_level: int = logging.DEBUG,
     identifier: str = "",
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
@@ -58,7 +58,11 @@ def async_retry(
     Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
     :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first
     attempt even when ``exceptions`` covers them, so a broken call fails fast
-    with its own traceback rather than after the whole backoff budget.
+    rather than after the whole backoff budget. An attempt that is retried
+    is logged at ``log_level``, debug unless the caller asks otherwise, and
+    the failure that ends the attempts as one warning. The traceback goes
+    with them only while debug logging is on, and the caller the error is
+    handed back to reports it as loudly as it needs.
 
     Parameters
     ----------
@@ -114,7 +118,9 @@ def async_retry(
                             f"{log_prefix}{func.__name__} hit an error that "
                             f"retrying cannot fix: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(
+                            log_message, exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
+                        )
                         raise
 
                     if attempt >= retries:
@@ -122,7 +128,9 @@ def async_retry(
                             f"{log_prefix}{func.__name__} failed after "
                             f"{retries + 1} attempts: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(
+                            log_message, exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
+                        )
                         raise
 
                     # Calculate exponential backoff
@@ -139,7 +147,11 @@ def async_retry(
                         f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
                     )
 
-                    _LOGGER.log(log_level, log_message, exc_info=True)
+                    _LOGGER.log(
+                        log_level,
+                        log_message,
+                        exc_info=_LOGGER.isEnabledFor(logging.DEBUG),
+                    )
 
                     await asyncio.sleep(actual_delay)
                     attempt += 1

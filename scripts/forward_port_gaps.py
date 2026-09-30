@@ -2,15 +2,17 @@
 
 `1.9` is the maintenance line, `develop` is what ships as the next major
 version. A change wanted on both lines is written twice, one commit per line.
-A change written only on `1.9` is a gap, and the gap is invisible to
-``git cherry``: pull requests land squashed, so a pair shares no patch id and
-no ancestry below the merge base. What survives a squash is the text, so the
+A change written only on `1.9` is a gap, and ``git cherry`` cannot tell a gap
+from a pair: the two commits of a pair are written separately, so they share
+no ancestry below the merge base, and ``git cherry`` matches by patch id,
+which ignores only whitespace and line numbers, so two diffs that differ in
+anything else count as unrelated. What they share is the text, so the
 comparison is textual.
 
 Every commit on the maintenance line that the development line does not
 contain is reduced to a set of *markers*, and each marker is looked up in the
 development line's **tree**. Comparing against the tree instead of the history
-is what makes the squash irrelevant: a line that reached `develop` under any
+is what finds the pair: a line that reached `develop` under any
 commit is in the tree. The share of a commit's markers found there is its hit
 rate.
 

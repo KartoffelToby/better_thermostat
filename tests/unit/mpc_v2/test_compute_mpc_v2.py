@@ -24,6 +24,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     import_mpc_v2_state,
     make_plant_prior,
 )
+from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
+    MIN_STEP_DT_S,
+)
 from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plant import (
     PlantModelRC2,
     PlantParams,
@@ -389,6 +392,113 @@ def test_sub_second_repeat_step_holds_covariance() -> None:
     # A regular next cycle still advances the filter.
     controller.step(t_s=1000.0 + 30.0, T_room_C=20.1, T_target_C=22.0, T_outdoor_C=5.0)
     assert not np.array_equal(controller.kalman.P, p_after_first)
+
+
+@pytest.mark.parametrize("offset_s", [-0.5, -0.001, 0.0, 0.5])
+def test_a_repeat_within_the_minimum_step_holds_the_command(offset_s: float) -> None:
+    """A call less than a second before or after the last one holds the command.
+
+    It neither folds the reading into the filter again nor moves the stamp
+    the next cycle measures its interval from.
+    """
+    controller = MpcV2Controller(MpcV2Params())
+    u1, _ = controller.step(t_s=1000.0, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    u2, _ = controller.step(
+        t_s=1000.0 + offset_s, T_room_C=17.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+
+    assert u2 == u1
+    np.testing.assert_array_equal(controller.kalman.P, p_after_first)
+    assert controller._last_t_s == 1000.0
+
+
+def test_a_step_back_of_the_minimum_step_runs_a_cycle() -> None:
+    """A call a full minimum step before the last one folds its reading in."""
+    controller = MpcV2Controller(MpcV2Params())
+    controller.step(t_s=1000.0, T_room_C=20.0, T_target_C=22.0, T_outdoor_C=5.0)
+    p_after_first = controller.kalman.P.copy()
+
+    controller.step(
+        t_s=1000.0 - MIN_STEP_DT_S, T_room_C=17.0, T_target_C=22.0, T_outdoor_C=5.0
+    )
+
+    assert not np.array_equal(controller.kalman.P, p_after_first)
+    assert controller._last_t_s == 1000.0 - MIN_STEP_DT_S
+
+
+_STEP_BACK_START_S = 1_700_000_000.0
+_STEP_BACK_CYCLE_S = 300.0
+
+
+def _settled_at_target() -> tuple[MpcV2State, float]:
+    """Run two hours of five-minute cycles with the room on its setpoint.
+
+    Returns the state and the time of the cycle that would follow.
+    """
+    state: MpcV2State | None = None
+    now = _STEP_BACK_START_S
+    for _ in range(24):
+        out, state = compute_mpc_v2(
+            _baseline_input(target_temp_C=21.0, current_temp_C=21.0),
+            MpcV2Params(),
+            state,
+            now=now,
+        )
+        assert out is not None
+        now += _STEP_BACK_CYCLE_S
+    assert state is not None
+    return state, now
+
+
+def _cold_room_percents(state: MpcV2State, now: float, cycles: int) -> list[int]:
+    """Return the valve percents of ``cycles`` cycles in a room 4 K cold."""
+    percents = []
+    for _ in range(cycles):
+        out, state = compute_mpc_v2(
+            _baseline_input(
+                target_temp_C=21.0,
+                current_temp_C=17.0,
+                applied_valve_pct=state.last_percent,
+            ),
+            MpcV2Params(),
+            state,
+            now=now,
+        )
+        assert out is not None
+        percents.append(out.valve_percent)
+        now += _STEP_BACK_CYCLE_S
+    return percents
+
+
+def test_a_forward_cycle_opens_the_valve_for_a_cold_room() -> None:
+    """On a clock that runs forward, a room 4 K cold opens the valve at once."""
+    state, now = _settled_at_target()
+    held = int(state.last_percent)
+
+    percents = _cold_room_percents(state, now, cycles=1)
+
+    assert percents[0] > held
+
+
+def test_a_wall_clock_step_back_does_not_hold_the_valve() -> None:
+    """After the wall clock steps back, the controller keeps controlling.
+
+    A time sync or a host that boots without a real-time clock can set the
+    clock hours back. Every stamp the controller took before the step then
+    lies ahead of the clock; the next cycles must still compute a command
+    rather than repeat the last one until the clock passes the old stamps.
+    """
+    state, now = _settled_at_target()
+    held = int(state.last_percent)
+    assert state.controller is not None
+
+    percents = _cold_room_percents(state, now - 4 * 3600.0, cycles=2)
+
+    assert max(percents) > held
+    assert float(state.controller.kalman.x_hat[0]) < 18.0
+    assert state.controller._last_t_s == now - 4 * 3600.0 + _STEP_BACK_CYCLE_S
 
 
 def test_outdoor_fallback_logs_once(caplog) -> None:

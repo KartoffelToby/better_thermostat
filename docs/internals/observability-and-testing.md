@@ -41,7 +41,8 @@ drift from the dataclasses.
 
 Four nets with distinct failure modes they catch:
 
-1. **Pure unit tests** (`tests/unit/`, the bulk) — the core is HA-free,
+1. **Pure unit tests** (`tests/unit/` holds the bulk, and further unit
+   test files sit directly in `tests/`) — the core is HA-free,
    so the kernel, the regions, the safety hull, and the recorder are
    tested without mocks; the shell is tested against `MagicMock`
    entities. The core is covered exhaustively: every branch of the
@@ -58,10 +59,13 @@ Four nets with distinct failure modes they catch:
    and deterministic, so two runs are byte-identical: refactorings of
    the calibration code are proven behavior-preserving by diffing the
    benchmark output before and after.
-4. **Golden replays** (`tests/fixtures/replay_corpus/`) — one committed
-   decision tuple per kernel tier, pinned byte-stable. An intentional
-   kernel change regenerates them (`BT_REGEN_GOLDENS=1`) and the diff
-   shows exactly which decisions changed.
+4. **Golden replays** (`tests/fixtures/replay_corpus/`) — committed
+   decision tuples for startup, maintenance, mode OFF, an open window,
+   an open door, no call for heat, heating, the SENSOR_FALLBACK and HOLD
+   rungs, and an unreachable TRV, pinned byte-stable. An intentional
+   kernel change regenerates them
+   (`BT_REGEN_GOLDENS=1`) and the diff shows exactly which decisions
+   changed.
 
 The standby contract, the no-raw-dict-access guard, and the controller
 state-threading contract each live in their own file, so a regression

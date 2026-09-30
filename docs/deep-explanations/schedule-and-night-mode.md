@@ -153,6 +153,6 @@ scenes only when you need the extra state or have run out of preset slots.
 
 The bundled [automation blueprints](/setup/automation-blueprints/) already use presets. The night
 mode blueprint drives the `sleep` preset from a Home Assistant `schedule` helper and returns to
-`none` when the window closes:
+`none` when the schedule helper turns off:
 
 <a href="https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/KartoffelToby/better_thermostat/blob/master/blueprints/night_mode.yaml" target="_blank"><img src="https://my.home-assistant.io/badges/blueprint_import.svg" alt="Import night mode blueprint" /></a>

@@ -8,8 +8,9 @@ gone, whether two heads of different models each get what they can express,
 and how one room-level valve command is split between them.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 import time
 from unittest.mock import MagicMock, patch
@@ -25,6 +26,7 @@ from homeassistant.components.weather import (
 )
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import Context, SupportsResponse
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -38,10 +40,14 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     DISTRIBUTE_COMPENSATION_PCT_PER_K,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
+from custom_components.better_thermostat.utils.watcher import (
+    STARTUP_CRITICAL_GRACE_PERIOD,
+)
 
 from .conftest import (
     BT_ENTITY,
     COOLER_RESEND,
+    CRITICAL_GRACE,
     DOMAIN,
     HUMIDITY_ID,
     WINDOW_ID,
@@ -65,8 +71,10 @@ from .device_profiles import (
     GROUP_OF_THREE,
     GROUP_SCENARIOS,
     MIXED_GRID_GROUP,
+    MQTT_OFFSET_TRV,
     ROOM_AC_COOLER,
     VALVE_GROUP,
+    GroupScenario,
 )
 
 
@@ -318,6 +326,11 @@ ENTITY_CYCLE_REQUEST = (
     "custom_components.better_thermostat.climate.request_control_cycle"
 )
 
+# A startup grace window that is already over by the time the first check
+# runs, and the production one, for a room that has to start without waiting.
+NO_GRACE = timedelta(seconds=0)
+STARTUP_GRACE = STARTUP_CRITICAL_GRACE_PERIOD
+
 # How long a reaction is waited for. Everything under test answers within a
 # few loop turns, and a case that is expected to fail waits this out in full.
 REACTION_TIMEOUT_S = 3.0
@@ -496,13 +509,17 @@ def entrance_id(entrance: Entrance) -> str:
     return entrance.name
 
 
-async def open_room(hass, entrance: Entrance, *, one_head_gone: bool) -> OutageRoom:
+async def open_room(
+    hass, entrance: Entrance, *, one_head_gone: bool, gone_at_boot: bool = False
+) -> OutageRoom:
     """Start a heating three-head room wired for ``entrance``.
 
     Every input the room can have is published before startup, cold outside
     and all contacts shut, but only the one the entrance needs is in the
     entry, so no other input can answer for it. With ``one_head_gone`` the
-    middle head drops off the air once the room is running.
+    middle head drops off the air once the room is running; with
+    ``gone_at_boot`` as well, it is already off the air when the room starts
+    and the startup grace window is over before the first check.
     """
     *heads, cooler = await build_devices(hass, *GROUP_OF_THREE.profiles, ROOM_AC_COOLER)
     set_room_sensor(hass, 19.5)
@@ -530,8 +547,11 @@ async def open_room(hass, entrance: Entrance, *, one_head_gone: bool) -> OutageR
     )
     room = OutageRoom(hass, None, heads, None, cooler, forecast, MagicMock())
     room.publish_forecast(COLD_OUTSIDE)
-    await setup_entry(hass, entry)
-    room.bt = await wait_for_startup(hass, entry)
+    if one_head_gone and gone_at_boot:
+        heads[1].set_available(False)
+    with patch(CRITICAL_GRACE, NO_GRACE if gone_at_boot else STARTUP_GRACE):
+        await setup_entry(hass, entry)
+        room.bt = await wait_for_startup(hass, entry)
 
     target = (
         {"target_temp_low": 22.0, "target_temp_high": 25.0}
@@ -583,14 +603,6 @@ async def test_every_entrance_reaches_a_room_with_all_heads(hass, entrance):
         assert await report_and_wait(room, entrance)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "every trigger wrapper returns before its handler as soon as any "
-        "head of the room is unavailable, so the room ignores its window, "
-        "door, sensors, cooler, weather and periodic tick"
-    ),
-)
 @pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
 async def test_every_entrance_reaches_the_room_while_one_head_is_gone(hass, entrance):
     """A head off the air takes only itself out of the room.
@@ -634,14 +646,6 @@ async def test_a_head_gone_for_hours_is_the_only_one_reported(hass):
     assert room.bt.devices_errors == [room.absent.entity_id]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the gate on the trigger wrappers does not lift with time: after the "
-        "startup grace windows have closed and two hours of periodic ticks, "
-        "an opened window still leaves the reachable heads heating"
-    ),
-)
 async def test_a_room_with_a_head_gone_for_hours_still_answers_its_window(hass):
     """A head that stays away does not leave the room deaf for its absence.
 
@@ -654,3 +658,399 @@ async def test_a_room_with_a_head_gone_for_hours_still_answers_its_window(hass):
     await let_two_hours_pass(room)
 
     assert await report_and_wait(room, WINDOW_OPENS)
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES, ids=entrance_id)
+async def test_every_entrance_reaches_a_room_that_started_without_a_head(
+    hass, entrance
+):
+    """A head that is off the air at boot takes only itself out of the room.
+
+    The room starts once the startup grace window has closed, and from then
+    on it answers every input exactly as a room whose head dropped out after
+    startup does.
+    """
+    with patch(OUTDOOR_HISTORY, return_value={}):
+        room = await open_room(hass, entrance, one_head_gone=True, gone_at_boot=True)
+        assert await report_and_wait(room, entrance)
+
+
+def missing_entity_issues(hass) -> list[str]:
+    """Return the missing-entity repair issues Better Thermostat holds open."""
+    return sorted(
+        issue_id
+        for (domain, issue_id) in ir.async_get(hass).issues
+        if domain == DOMAIN and issue_id.startswith("missing_entity_")
+    )
+
+
+async def boot_with_heads_gone(
+    hass, trv_group, gone: list[SimulatedClimate], *, grace=NO_GRACE
+):
+    """Start the group's room with the heads in ``gone`` off the air.
+
+    Returns the entity as soon as the entry is set up, whether or not its
+    startup has finished; the grace window stays patched for the whole run
+    of the setup, which is the only time startup reads it.
+    """
+    set_room_sensor(hass, 19.5)
+    for head in gone:
+        head.set_available(False)
+    entry = make_entry(trv_group.scenario)
+    with patch(CRITICAL_GRACE, grace):
+        await setup_entry(hass, entry)
+        for _ in range(20):
+            await hass.async_block_till_done()
+    return hass.data[DOMAIN][entry.entry_id]["climate"], entry
+
+
+async def set_room_target(hass, value: float) -> None:
+    """Set a room target the heads do not hold, so reaching them takes a write."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": value},
+        blocking=True,
+    )
+
+
+async def room_target_reaches(hass, heads, value: float) -> bool:
+    """Set a room target and report whether every head gets a write carrying it.
+
+    Only writes after the command count, so a write left over from startup
+    cannot stand in for one the target caused.
+    """
+    baselines = {head.entity_id: len(head.set_temperature_calls) for head in heads}
+    await set_room_target(hass, value)
+    if not await wait_for(
+        hass,
+        lambda: all(
+            len(head.set_temperature_calls) > baselines[head.entity_id]
+            for head in heads
+        ),
+    ):
+        return False
+    for head in heads:
+        assert_write_is(head.set_temperature_calls[-1], value, head.profile)
+    return True
+
+
+def has_adopted(bt, profile) -> bool:
+    """Whether Better Thermostat has read this device's capabilities."""
+    try:
+        assert_profile_adopted(bt, profile)
+    except AssertionError:
+        return False
+    return True
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_room_booting_with_a_head_gone_starts_once_the_grace_window_closes(
+    hass, trv_group
+):
+    """A head that is off the air at boot does not hold the room back for good.
+
+    The startup grace window is what separates a head that is late from one
+    that is gone. Once it has closed, the room starts with the heads it has:
+    it takes its listeners, heats through the reachable heads, and names the
+    absent one, which it leaves alone.
+    """
+    absent = trv_group[1]
+    present = [head for head in trv_group.entities if head is not absent]
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        await wait_for_startup(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
+    assert await room_target_reaches(hass, present, 22.0), {
+        head.entity_id: head.set_temperature_calls for head in present
+    }
+    assert absent.set_temperature_calls == []
+    assert setpoint_commands(events, absent.entity_id) == []
+    assert bt.devices_errors == [absent.entity_id]
+    assert missing_entity_issues(hass) == [f"missing_entity_{absent.entity_id}"]
+    for head in present:
+        assert_profile_adopted(bt, head.profile)
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_room_booting_with_a_head_gone_waits_out_the_grace_window(
+    hass, trv_group
+):
+    """A head that is still booting is waited for, not started without.
+
+    A slow integration at boot looks exactly like a head that is gone. Inside
+    the grace window the room keeps waiting for every head and commands none
+    of them, so a late one is initialised with the others instead of being
+    left behind.
+    """
+    absent = trv_group[1]
+    bt, entry = await boot_with_heads_gone(
+        hass, trv_group, [absent], grace=STARTUP_GRACE
+    )
+
+    assert not await wait_for(
+        hass,
+        lambda: any(head.set_temperature_calls for head in trv_group.entities),
+        timeout_s=1.0,
+    )
+    assert bt.startup_running
+    assert hass.states.get(BT_ENTITY).state == "unavailable"
+    assert missing_entity_issues(hass) == []
+
+    absent.set_available(True)
+    bt = await wait_for_startup(hass, entry)
+    for head in trv_group.entities:
+        assert_profile_adopted(bt, head.profile)
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_room_with_every_head_gone_keeps_waiting_after_the_grace_window(
+    hass, trv_group
+):
+    """A room with no head to drive does not start, it waits and says why.
+
+    Starting would leave nothing to command, and every value startup reads
+    off the heads, the temperature range and the mode among them, would be
+    missing. The room stays unavailable, names every absent head, and starts
+    as soon as one of them arrives.
+    """
+    bt, entry = await boot_with_heads_gone(hass, trv_group, trv_group.entities)
+
+    assert bt.startup_running
+    assert hass.states.get(BT_ENTITY).state == "unavailable"
+    assert missing_entity_issues(hass) == sorted(
+        f"missing_entity_{head.entity_id}" for head in trv_group.entities
+    )
+
+    first = trv_group[0]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        first.set_available(True)
+        bt = await wait_for_startup(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
+    assert_profile_adopted(bt, first.profile)
+    assert await room_target_reaches(hass, [first], 22.0), first.set_temperature_calls
+
+
+@pytest.mark.parametrize("trv_group", GROUP_SCENARIOS, indirect=True, ids=profile_id)
+async def test_a_head_that_arrives_after_the_room_started_is_initialised(
+    hass, trv_group
+):
+    """A head the room started without is set up in full once it arrives.
+
+    Startup reads each head's capabilities, discovers its calibration and
+    valve channels and reads its offsets. A head that missed startup gets the
+    same, the moment it is back, so it is not driven as a device without
+    capabilities.
+    """
+    absent = trv_group[-1]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+    assert not has_adopted(bt, absent.profile)
+
+    absent.set_available(True)
+
+    assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
+    for head in trv_group.entities:
+        assert_profile_adopted(bt, head.profile)
+    assert await wait_for(hass, lambda: bt.devices_errors == [])
+
+
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_a_head_that_arrives_after_the_room_started_follows_the_room(
+    hass, trv_group
+):
+    """A head the room started without takes the room's target once it is back.
+
+    It is commanded as soon as it arrives, and from then on every change of
+    the room's target reaches it like it reaches the heads that were there
+    from the start.
+    """
+    absent = trv_group[1]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+    assert absent.set_temperature_calls == []
+
+    with patch(WRITE_BUDGET, 0.0):
+        await set_room_target(hass, 22.0)
+        absent.set_available(True)
+        assert await wait_for(hass, lambda: absent.set_temperature_calls)
+        assert_write_is(
+            absent.set_temperature_calls[-1], bt.bt_target_temp, absent.profile
+        )
+
+        baselines = {
+            head.entity_id: len(head.set_temperature_calls)
+            for head in trv_group.entities
+        }
+        await hass.services.async_call(
+            CLIMATE_DOMAIN,
+            "set_temperature",
+            {"entity_id": BT_ENTITY, "temperature": 23.0},
+            blocking=True,
+        )
+        assert await wait_for(
+            hass,
+            lambda: all(
+                len(head.set_temperature_calls) > baselines[head.entity_id]
+                for head in trv_group.entities
+            ),
+        ), {head.entity_id: head.set_temperature_calls for head in trv_group.entities}
+
+    for head in trv_group.entities:
+        assert_write_is(head.set_temperature_calls[-1], 23.0, head.profile)
+
+
+MAINTENANCE_EXERCISE = (
+    "custom_components.better_thermostat.climate.run_valve_maintenance"
+)
+
+OFFSET_GROUP = GroupScenario(
+    name="offset_number_group",
+    profiles=tuple(
+        replace(
+            MQTT_OFFSET_TRV,
+            name=f"offset_group_{letter}",
+            entity_id=f"climate.offset_group_{letter}",
+            entity_name=f"offset group {letter}",
+        )
+        for letter in ("a", "b")
+    ),
+)
+"""Two Zigbee2MQTT heads whose calibration is a number entity on the device.
+
+Setting such a head up writes to its device: the calibration number is put
+back to zero before Better Thermostat takes the calibration over.
+"""
+
+
+@pytest.mark.parametrize(
+    "trv_group", [*GROUP_SCENARIOS, OFFSET_GROUP], indirect=True, ids=profile_id
+)
+async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
+    hass, trv_group
+):
+    """A head that arrives while valve maintenance runs is set up after it.
+
+    Setting a head up writes to its device, and maintenance holds the room's
+    devices for the exercise, so nothing is set up and nothing is written
+    until maintenance has ended. The head is set up then without having to
+    report again, and takes the room's target.
+    """
+    absent = trv_group[-1]
+    present = [head for head in trv_group.entities if head is not absent]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+    with patch(WRITE_BUDGET, 0.0):
+        assert await room_target_reaches(hass, present, 22.0)
+    await hass.async_block_till_done()
+
+    exercising = asyncio.Event()
+    release = asyncio.Event()
+
+    async def held_exercise(*_args, **_kwargs):
+        exercising.set()
+        await release.wait()
+
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+    with patch(MAINTENANCE_EXERCISE, held_exercise), patch(WRITE_BUDGET, 0.0):
+        # Not a Home Assistant task: waiting for the loop to settle must not
+        # wait for the exercise, which is held open on purpose.
+        run = asyncio.ensure_future(
+            bt._run_valve_maintenance([head.entity_id for head in present])
+        )
+        await exercising.wait()
+        absent.set_available(True)
+        for _ in range(20):
+            await hass.async_block_till_done()
+
+        during = (
+            bt.in_maintenance,
+            has_adopted(bt, absent.profile),
+            [(e.data["domain"], e.data["service"]) for e in events],
+        )
+
+        release.set()
+        await run
+        assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
+        assert await wait_for(hass, lambda: absent.set_temperature_calls)
+        assert_write_is(
+            absent.set_temperature_calls[-1], bt.bt_target_temp, absent.profile
+        )
+
+    assert during == (True, False, [])
+
+
+ADAPTER_INIT = "custom_components.better_thermostat.climate.init"
+MAINTENANCE_CYCLE_SLEEP = (
+    "custom_components.better_thermostat.utils.valve_maintenance.asyncio.sleep"
+)
+
+
+@pytest.mark.parametrize("setup", ["failed_once", "in_progress"])
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_valve_maintenance_leaves_a_head_that_is_not_set_up_alone(
+    hass, trv_group, setup
+):
+    """Maintenance exercises only the heads that are set up.
+
+    A head that came back and whose setup failed or has not completed is
+    still waiting for it, and nothing about it is known that the exercise
+    relies on. Maintenance leaves it out, and the setup it is waiting for
+    brings it into the room.
+    """
+    absent = trv_group[-1]
+    present = [head for head in trv_group.entities if head is not absent]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+
+    setting_up = asyncio.Event()
+    release = asyncio.Event()
+
+    async def failing_setup(_bt, _entity_id):
+        setting_up.set()
+        raise RuntimeError("adapter")
+
+    async def slow_setup(_bt, _entity_id):
+        setting_up.set()
+        await release.wait()
+
+    with patch(ADAPTER_INIT, failing_setup if setup == "failed_once" else slow_setup):
+        absent.set_available(True)
+        await setting_up.wait()
+        if setup == "failed_once":
+            assert await wait_for(
+                hass,
+                lambda: bt.real_trvs[absent.entity_id].failed_initialization_attempts,
+            )
+    assert bt.real_trvs[absent.entity_id].awaiting_initialization
+    assert bt.real_trvs[absent.entity_id].failed_initialization_attempts == (
+        1 if setup == "failed_once" else 0
+    )
+
+    real_sleep = asyncio.sleep
+
+    async def no_cycle_wait(_seconds):
+        await real_sleep(0)
+
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+    with patch(MAINTENANCE_CYCLE_SLEEP, no_cycle_wait), patch(WRITE_BUDGET, 0.0):
+        await bt._run_valve_maintenance([head.entity_id for head in trv_group.entities])
+        exercised = sorted(
+            {
+                event.data["service_data"]["entity_id"]
+                for event in events
+                if event.data["domain"] == CLIMATE_DOMAIN
+            }
+        )
+        release.set()
+        assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
+
+    assert exercised == sorted(head.entity_id for head in present)

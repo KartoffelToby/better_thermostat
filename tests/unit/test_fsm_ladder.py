@@ -4,6 +4,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
     LadderParams,
+    start_on_rung,
     step as control_mode_step,
     step_ladder,
 )
@@ -208,3 +209,24 @@ def test_climbing_back_to_optimal_keeps_a_still_degraded_annunciation():
     state = control_mode_step(state, ["sensor.outdoor"], 1500.0)
     assert state.degraded is True
     assert state.degraded_since == 50.0
+
+
+def test_start_on_rung_commits_without_a_window_and_drops_a_pending_one():
+    """A rung set at startup holds at once and against the loss it stands for.
+
+    A downgrade window that was already running is dropped, the next
+    observation of the same loss keeps the rung, and the annunciation is
+    carried over untouched.
+    """
+    state = control_mode_step(ControlModeState(), ["sensor.room"], 10.0)
+    state = _down(state, now=10.0)
+    assert state.down_pending_since == 10.0
+
+    state = start_on_rung(state, ControlMode.SENSOR_FALLBACK)
+
+    assert state.mode == ControlMode.SENSOR_FALLBACK
+    assert state.down_pending_since is None
+    assert state.pending_target is None
+    assert state.unavailable_sensors == ("sensor.room",)
+    assert state.degraded_since == 10.0
+    assert _down(state, now=11.0).mode == ControlMode.SENSOR_FALLBACK
