@@ -163,6 +163,7 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt.is_removed = False
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
     trv.model_quirks = MagicMock()
@@ -641,6 +642,10 @@ class TestOwnedBackgroundTasks:
             await asyncio.Event().wait()
 
         _external_temperature_writes(owned_bt).side_effect = write_that_never_returns
+        owned_bt._temperature_filter_lock = None
+        owned_bt._handle_temperature_reading = lambda event: (
+            BetterThermostat._handle_temperature_reading(owned_bt, event)
+        )
 
         event = MagicMock()
         event.data = {"new_state": State(SENSOR_ID, "20.0")}
@@ -655,7 +660,7 @@ class TestOwnedBackgroundTasks:
             ),
         ):
             await BetterThermostat._trigger_temperature_change(owned_bt, event)
-        await reached_the_trv.wait()
+            await reached_the_trv.wait()
         spawned = list(owned_bt._owned_tasks)
 
         await BetterThermostat.async_will_remove_from_hass(owned_bt)
