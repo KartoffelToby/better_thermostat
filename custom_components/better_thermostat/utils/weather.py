@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -284,12 +285,43 @@ async def check_weather_prediction(self) -> bool | None:
         return None
 
 
+def outdoor_check_lock(self) -> asyncio.Lock:
+    """Return the lock that serialises this entity's ambient air check.
+
+    The check stores the live outdoor reading on the entity, may suspend
+    while the recorder is read, and then decides on the mean or, without
+    usable history, on that stored reading. The periodic tick and the outdoor
+    sensor listener run the check in their own tasks. Without the lock a
+    second check that completes during the first one's recorder read
+    overwrites the stored reading with the cached mean, and the first check
+    then falls back to that mean instead of its live reading. The lock is
+    created on first use and lives on the entity, so each Better Thermostat
+    only queues behind itself.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    asyncio.Lock
+            the entity's own lock, created on first use
+    """
+    lock = getattr(self, "_outdoor_check_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        self._outdoor_check_lock = lock
+    return lock
+
+
 async def check_ambient_air_temperature(self):
     """Get the history for two days and evaluates the necessary for heating.
 
     The two-day mean from the recorder is reused for
     ``OUTDOOR_HISTORY_REFRESH`` before it is read again. When the recorder
-    holds no usable history, the current reading decides instead.
+    holds no usable history, the current reading decides instead. Checks of
+    one entity run one at a time (see :func:`outdoor_check_lock`).
 
     Returns
     -------
@@ -298,6 +330,12 @@ async def check_ambient_air_temperature(self):
     None
             if not successful
     """
+    async with outdoor_check_lock(self):
+        return await _check_ambient_air_temperature(self)
+
+
+async def _check_ambient_air_temperature(self):
+    """Decide call_for_heat from the outdoor sensor; callers hold the lock."""
     if self.outdoor_sensor is None:
         return None
 
