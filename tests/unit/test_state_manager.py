@@ -2480,3 +2480,52 @@ class TestAFailedCopyThatRecovers:
         assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
         assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
         assert manager.dirty is True
+
+    async def test_the_final_flush_waits_for_a_copy_under_way(
+        self, hass, hass_storage, freezer
+    ):
+        """A flush during a timed copy saves the state once that copy lands.
+
+        A second try beside the running one may fail where the first one
+        succeeds; the running copy then schedules no save after ``close()``,
+        so the flush has to wait for it and write the state itself.
+        """
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        write = storage.Store._async_write_data
+        gated_writes = {"count": 0}
+
+        async def _gated(store, data):
+            if ".corrupt" in store.key:
+                gated_writes["count"] += 1
+                if gated_writes["count"] > 1:
+                    raise WriteError("disk busy")
+                entered.set()
+                await release.wait()
+            await write(store, data)
+
+        with self._disk(disk):
+            manager = await self._loaded(hass, hass_storage)
+            manager.mark_dirty()
+            disk["full"] = False
+        with patch.object(storage.Store, "_async_write_data", _gated):
+            freezer.tick(timedelta(seconds=61))
+            async_fire_time_changed(hass, dt_util.utcnow())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+
+            manager.close()
+            flush = hass.async_create_task(manager.flush())
+            for _ in range(20):
+                await asyncio.sleep(0)
+            release.set()
+            await asyncio.wait_for(flush, timeout=5)
+            flushed = hass_storage[self._LIVE_KEY]["data"]
+
+            await hass.async_block_till_done(wait_background_tasks=True)
+            await self._advance(hass, freezer, 2 * 3600)
+
+        assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
+        assert flushed != self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] == flushed
+        assert manager.dirty is False
