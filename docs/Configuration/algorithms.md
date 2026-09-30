@@ -51,7 +51,7 @@ The setup form labels this mode *(AI) Time Based (Default)*. This is the default
 
 It learns your room's heating characteristics over time. It still reads your external temperature sensor, but derives the calibration from its own model rather than leaving the decision to the TRV's built-in logic, so it adapts to how fast your room actually heats and cools.
 
-Once settled it balances comfort against energy use, keeps overshoot down and copes with changing conditions. The trade-off is the learning phase: expect two to three days before the results are good, and accept that behaviour in that window is not yet tuned.
+Once settled it balances comfort against energy use, keeps overshoot down and copes with changing conditions. The trade-off is the learning phase: it updates its heating-power model a small step after each heating cycle it observes, so how soon the results are good depends on how often the room heats, not on a fixed number of days. Until then behaviour is not yet tuned.
 
 ---
 

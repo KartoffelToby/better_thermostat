@@ -3,7 +3,7 @@ blueprint:
   description: >
     Two alerts in one blueprint:
     1. Sends a notification when Better Thermostat reports a device error
-       (e.g. a TRV becomes unavailable or throws a fault code).
+       (a TRV becomes unavailable).
     2. Optionally sends a notification when the target temperature has been
        reached (current temperature ≥ target temperature).
   domain: automation

@@ -13,8 +13,9 @@ three-dot menu of the entry, and choose **Download diagnostics**. The
 file contains:
 
 - the configuration of the entry, the state and configuration of every
-  TRV, and the state of the room temperature sensor and the window
-  sensor,
+  TRV that has a state in Home Assistant, and the state of the room
+  temperature sensor and the window sensor; a configured TRV without a
+  state is left out entirely, its configuration included,
 - the **flight recorder**: the last control decisions, each as the
   observation, the controller state, and the resulting intent. It shows
   *why* Better Thermostat did what it did, which a log line usually
