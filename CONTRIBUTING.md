@@ -525,6 +525,8 @@ ships the very commits the report would name. Ordinary pull requests target
 pull request, and nothing watches that path.
 
 The script names its own blind spots in its docstring. The one to know before
-reading the output: a commit carrying fewer than three markers is not scored at
-all, so version bumps and prose-only commits are listed apart rather than
-judged, and a real change small enough to leave no marker is listed with them.
+reading the output: a commit carrying fewer than three markers gets no hit rate
+and counts as carried forward only when every one of its markers is on
+`develop`. A commit with no production marker at all (version bumps, prose-only
+and test-only commits) is listed apart rather than judged, and a real change
+small enough to leave no marker is listed with them.

@@ -66,11 +66,12 @@ Known misreadings, both directions:
   high while adding nothing to `develop`. That reads correctly — there is
   nothing to forward-port — but the rate says "already there" rather than
   "went the other way".
-* A commit with fewer than ``MIN_MARKERS`` markers is not scored at all.
-  Version bumps, pure-prose and test-only commits land there, and so does a
-  real change small enough to leave fewer production markers than that, such
-  as a one-line fix with its test. Those commits are listed separately rather
-  than dropped, because a truncated list reads like completeness.
+* A commit with fewer than ``MIN_MARKERS`` markers gets no hit rate; it
+  counts as carried forward only when every one of its markers is present.
+  A commit with no production marker at all (version bumps, pure-prose and
+  test-only commits, and a real change too small to leave one) is listed
+  separately rather than dropped, because a truncated list reads like
+  completeness.
 
 Two modes:
 
