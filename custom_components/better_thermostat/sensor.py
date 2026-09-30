@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
+from functools import partial
 import logging
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity_registry import (
     EntityRegistry,
+    async_entries_for_config_entry,
     async_get as async_get_entity_registry,
 )
 from homeassistant.helpers.event import async_track_state_change_event
@@ -73,6 +75,13 @@ async def async_setup_entry(
     # Dynamische algorithmus-spezifische Sensor-Erstellung
     algorithm_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
     sensors.extend(algorithm_sensors)
+    remove_unclaimed_registry_entries(
+        async_get_entity_registry(hass),
+        entry,
+        Platform.SENSOR,
+        (sensor.unique_id for sensor in sensors),
+        bt_climate,
+    )
 
     async_normalize_bt_entity_ids(hass, entry, Platform.SENSOR)
     async_add_entities(sensors, True)
@@ -81,13 +90,62 @@ async def async_setup_entry(
     await _register_dynamic_entity_callback(hass, entry, bt_climate, async_add_entities)
 
 
-async def _setup_algorithm_sensors(
-    hass: HomeAssistant,
+def remove_unclaimed_registry_entries(
+    registry: EntityRegistry,
     entry: ConfigEntry,
+    domain: str,
+    live_unique_ids: Iterable[str | None],
     bt_climate: BetterThermostat,
-    algorithms_to_create: set[CalibrationMode] | None = None,
+) -> None:
+    """Remove the entry's registry entries of ``domain`` no live entity claims.
+
+    A platform builds every entity its configuration asks for when it is set
+    up. A registry entry of the same entry and domain that none of them claims
+    belongs to a setting the thermostat no longer has, such as another
+    calibration algorithm; left in place it shows as an unavailable entity.
+
+    That holds only while the thermostat built every TRV it is configured
+    with. The entities of a TRV it failed to build are not stale, so nothing
+    is removed then.
+    """
+    # An unloaded registry (a mocked hass in unit tests) has no entries.
+    if not hasattr(registry, "entities"):
+        return
+    configured = {
+        trv_entity_id
+        for trv_config in bt_climate.all_trvs or []
+        if (trv_entity_id := trv_config.get("trv"))
+    }
+    missing = configured - set(bt_climate.real_trvs or {})
+    if missing:
+        _LOGGER.debug(
+            "Better Thermostat %s: keeping the %s registry entries, TRVs %s are "
+            "not set up",
+            bt_climate.device_name,
+            domain,
+            sorted(missing),
+        )
+        return
+    live = set(live_unique_ids)
+    for reg_entry in async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            reg_entry.platform == DOMAIN
+            and reg_entry.domain == domain
+            and reg_entry.unique_id not in live
+        ):
+            registry.async_remove(reg_entry.entity_id)
+
+
+async def _setup_algorithm_sensors(
+    hass: HomeAssistant, entry: ConfigEntry, bt_climate: BetterThermostat
 ) -> list[SensorEntity]:
     """Set up algorithm-specific sensors based on current configuration.
+
+    The entities of every algorithm no TRV uses any more are removed first.
+    Sensors are created for the algorithms the TRVs use. A sensor already
+    tracked for its algorithm is live and is not created a second time, so an
+    algorithm whose cleanup removed only some of its sensors gets exactly the
+    missing ones back when it is used again.
 
     Parameters
     ----------
@@ -97,43 +155,33 @@ async def _setup_algorithm_sensors(
         Config entry the sensors belong to.
     bt_climate : BetterThermostat
         Better Thermostat climate entity the sensors report on.
-    algorithms_to_create : set | None
-        When provided, only sensors for these algorithms are created.
-        When ``None`` (initial setup), all active algorithms are created.
+
+    Returns
+    -------
+    list[SensorEntity]
+        The sensors not yet tracked, for the caller to add.
     """
     algorithm_sensors: list[SensorEntity] = []
     entry_id = entry.entry_id
     current_algorithms = _get_active_algorithms(bt_climate)
 
-    if algorithms_to_create is not None:
-        # Only create sensors for newly added algorithms
-        current_algorithms = current_algorithms & algorithms_to_create
-
-    # Cleanup stale algorithm entities from previous configurations
     await _cleanup_stale_algorithm_entities(
         hass, entry_id, bt_climate, current_algorithms
     )
 
     # Setup MPC sensors
     if CalibrationMode.MPC_CALIBRATION in current_algorithms:
-        mpc_sensors = [
-            BetterThermostatVirtualTempSensor(bt_climate),
-            BetterThermostatMpcGainSensor(bt_climate),
-            BetterThermostatMpcLossSensor(bt_climate),
-            BetterThermostatMpcKaSensor(bt_climate),
-        ]
+        mpc_sensors = _track_algorithm_sensors(
+            entry_id,
+            CalibrationMode.MPC_CALIBRATION,
+            [
+                BetterThermostatVirtualTempSensor(bt_climate),
+                BetterThermostatMpcGainSensor(bt_climate),
+                BetterThermostatMpcLossSensor(bt_climate),
+                BetterThermostatMpcKaSensor(bt_climate),
+            ],
+        )
         algorithm_sensors.extend(mpc_sensors)
-
-        # Track active MPC entities
-        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
-            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
-        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.MPC_CALIBRATION] = [
-            f"{bt_climate.unique_id}_virtual_temp",
-            f"{bt_climate.unique_id}_mpc_gain",
-            f"{bt_climate.unique_id}_mpc_loss",
-            f"{bt_climate.unique_id}_mpc_ka",
-            f"{bt_climate.unique_id}_mpc_status",
-        ]
 
         _LOGGER.debug(
             "Better Thermostat %s: Created MPC sensors for entry %s",
@@ -143,24 +191,18 @@ async def _setup_algorithm_sensors(
 
     # Setup PID sensors
     if CalibrationMode.PID_CALIBRATION in current_algorithms:
-        pid_sensors = [
-            BetterThermostatPidKpSensor(bt_climate),
-            BetterThermostatPidKiSensor(bt_climate),
-            BetterThermostatPidKdSensor(bt_climate),
-            BetterThermostatPidOutputSensor(bt_climate),
-            BetterThermostatPidErrorSensor(bt_climate),
-        ]
+        pid_sensors = _track_algorithm_sensors(
+            entry_id,
+            CalibrationMode.PID_CALIBRATION,
+            [
+                BetterThermostatPidKpSensor(bt_climate),
+                BetterThermostatPidKiSensor(bt_climate),
+                BetterThermostatPidKdSensor(bt_climate),
+                BetterThermostatPidOutputSensor(bt_climate),
+                BetterThermostatPidErrorSensor(bt_climate),
+            ],
+        )
         algorithm_sensors.extend(pid_sensors)
-
-        if entry_id not in _ACTIVE_ALGORITHM_ENTITIES:
-            _ACTIVE_ALGORITHM_ENTITIES[entry_id] = {}
-        _ACTIVE_ALGORITHM_ENTITIES[entry_id][CalibrationMode.PID_CALIBRATION] = [
-            f"{bt_climate.unique_id}_pid_kp",
-            f"{bt_climate.unique_id}_pid_ki",
-            f"{bt_climate.unique_id}_pid_kd",
-            f"{bt_climate.unique_id}_pid_output",
-            f"{bt_climate.unique_id}_pid_error",
-        ]
 
         _LOGGER.debug(
             "Better Thermostat %s: Created PID sensors for entry %s",
@@ -169,6 +211,29 @@ async def _setup_algorithm_sensors(
         )
 
     return algorithm_sensors
+
+
+def _track_algorithm_sensors(
+    entry_id: str, algorithm: CalibrationMode, sensors: Sequence[SensorEntity]
+) -> list[SensorEntity]:
+    """Record the unique_ids of one algorithm's sensors, return the untracked ones.
+
+    The stale-entity cleanup removes exactly what is recorded here, so the
+    record is taken from the sensors themselves. A sensor whose unique_id is
+    already recorded is live, and adding it again would register a second
+    entity under the same unique_id; only the others come back.
+    """
+    tracked = _ACTIVE_ALGORITHM_ENTITIES.setdefault(entry_id, {}).setdefault(
+        algorithm, []
+    )
+    untracked: list[SensorEntity] = []
+    for sensor in sensors:
+        unique_id = sensor.unique_id
+        if unique_id is None or unique_id in tracked:
+            continue
+        tracked.append(unique_id)
+        untracked.append(sensor)
+    return untracked
 
 
 async def _register_dynamic_entity_callback(
@@ -186,7 +251,10 @@ async def _register_dynamic_entity_callback(
             "Better Thermostat %s: Configuration change detected via signal, checking entity requirements",
             bt_climate.device_name,
         )
-        hass.async_create_background_task(
+        # Scoped to the entry, so an unload cancels an update still pending
+        # instead of letting it add entities to an entry that is gone.
+        entry.async_create_background_task(
+            hass,
             _handle_dynamic_entity_update(hass, entry, bt_climate, async_add_entities),
             name=f"bt_dynamic_entity_update_{entry.entry_id}",
         )
@@ -200,6 +268,7 @@ async def _register_dynamic_entity_callback(
 
     # Store unsubscribe function for cleanup
     _DISPATCHER_UNSUBSCRIBES[entry.entry_id] = unsubscribe
+    entry.async_on_unload(partial(_release_entry, entry.entry_id))
 
 
 async def _handle_dynamic_entity_update(
@@ -225,12 +294,13 @@ async def _handle_dynamic_entity_update(
             [alg.value for alg in algorithms_removed],
         )
 
-        # Setup only newly added algorithm-specific sensors
-        new_sensors = await _setup_algorithm_sensors(
-            hass, entry, bt_climate, algorithms_to_create=algorithms_added
-        )
-        if new_sensors:
-            async_add_entities(new_sensors, True)
+    # Set up for every active algorithm, not only the added ones: one whose
+    # earlier cleanup removed some of its sensors is still tracked, so it is
+    # not "added" when a TRV uses it again, and only its missing sensors are
+    # created.
+    new_sensors = await _setup_algorithm_sensors(hass, entry, bt_climate)
+    if new_sensors:
+        async_add_entities(new_sensors, True)
 
     # Always check and cleanup entities regardless of algorithm changes
     # This ensures preset and PID number cleanup happens even when only presets change
@@ -254,8 +324,11 @@ async def _cleanup_stale_algorithm_entities(
 
     for algorithm, entity_unique_ids in tracked_algorithms.items():
         if algorithm not in current_algorithms:
-            # This algorithm is no longer active - remove its entities
+            # This algorithm is no longer active - remove its entities. An id
+            # the registry no longer holds is already gone; only the ones whose
+            # removal fails stay tracked for the next cleanup.
             removed_count = 0
+            remaining_unique_ids = []
             for entity_unique_id in entity_unique_ids:
                 entity_id = entity_registry.async_get_entity_id(
                     "sensor", DOMAIN, entity_unique_id
@@ -271,6 +344,7 @@ async def _cleanup_stale_algorithm_entities(
                             entity_id,
                         )
                     except Exception as e:
+                        remaining_unique_ids.append(entity_unique_id)
                         _LOGGER.warning(
                             "Better Thermostat %s: Failed to remove %s entity %s: %s",
                             bt_climate.device_name,
@@ -287,7 +361,9 @@ async def _cleanup_stale_algorithm_entities(
                     algorithm.value,
                 )
 
-            if removed_count == len(entity_unique_ids):
+            if remaining_unique_ids:
+                tracked_algorithms[algorithm] = remaining_unique_ids
+            else:
                 algorithms_to_remove.append(algorithm)
 
     # Clean up tracking for removed algorithms
@@ -559,8 +635,16 @@ async def _cleanup_pid_switch_entities(
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload sensor entry and cleanup tracking."""
-    entry_id = entry.entry_id
+    _release_entry(entry.entry_id)
+    return True
 
+
+def _release_entry(entry_id: str) -> None:
+    """Drop the dispatcher subscription and the entity tracking of one entry.
+
+    Home Assistant does not call a platform module's unload hook, so the
+    platform setup registers this with the config entry's own unload.
+    """
     # Unsubscribe from dispatcher signals
     unsubscribe = _DISPATCHER_UNSUBSCRIBES.pop(entry_id, None)
     if unsubscribe:
@@ -572,8 +656,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
     _ACTIVE_PID_NUMBERS.pop(entry_id, None)
     _ACTIVE_SWITCH_ENTITIES.pop(entry_id, None)
-
-    return True
 
 
 # Helper
@@ -919,11 +1001,23 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_should_poll = (
-        True  # Weather entity updates not strictly coupled to climate state
-    )
     _attr_icon = "mdi:solar-power"
     _unique_id_suffix = "solar_intensity"
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the weather entity as well as the thermostat.
+
+        The weather changes on its own schedule, not with the thermostat's
+        state.
+        """
+        await super().async_added_to_hass()
+        weather_entity = self._bt_climate.weather_entity
+        if weather_entity:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [weather_entity], self._on_climate_update
+                )
+            )
 
     def _update_state(self) -> None:
         """Update state using utility function."""
