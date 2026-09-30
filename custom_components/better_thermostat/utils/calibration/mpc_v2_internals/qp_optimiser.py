@@ -415,8 +415,9 @@ class QpOptimiser:
         stalls an active-set search meets on ties; the constraints it ends
         on then define an equality problem whose exact solution replaces the
         iterate when it is feasible and its multipliers have the right sign.
-        A plan the best flat plan beats is replaced by it. Against daqp the first command agrees to 1e-4 percentage points in
-        the tests, over every plant and weight setting drawn there.
+        A plan the best flat plan beats is replaced by it. Against daqp the
+        first command agrees to 1e-4 percentage points in the tests, over
+        every plant and weight setting drawn there.
 
         When the plan space collapses (no rate or box width), or the
         iteration fails or ends infeasible, the best flat plan is returned
