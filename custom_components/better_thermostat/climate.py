@@ -80,7 +80,7 @@ from .adapters.delegate import (
 from .core.clock import Clock
 from .core.containers import BtConfig, BtRuntime
 from .core.decide import KernelState
-from .core.fsm.control_mode import ControlMode, start_on_rung
+from .core.fsm.control_mode import LADDER_TICK_S, ControlMode, start_on_rung
 from .core.fsm.lifecycle import (
     startup_finished as lifecycle_startup_finished,
     stop as lifecycle_stop,
@@ -1371,16 +1371,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def _availability_tick(self, event=None):
         """Advance the degradation ladder and re-check the critical entities.
 
-        This is the half of the recurring work every configuration needs.
-        The ladder commits a downgrade after a 120-second debounce and an
-        upgrade after 300 seconds of stability, so it has to be evaluated on
-        an interval shorter than those windows. The event handlers evaluate
-        it too, but the case it exists for is a sensor that stopped
-        reporting, and such a sensor produces no events.
+        Runs every ``LADDER_TICK_S`` in every configuration. The ladder
+        commits a downgrade after a 120-second debounce and an upgrade after
+        300 seconds of stability, and the evaluation that commits has to come
+        after the window has elapsed. The event handlers evaluate it too, but
+        the case it exists for is a sensor that stopped reporting, and such a
+        sensor produces no events.
 
-        The recompute half lives in ``_trigger_time`` and stays gated on the
-        calibration mode: a mode that does not recompute must not start
-        queueing a control cycle every five minutes.
+        It queues no control cycle and writes to no device; a committed rung
+        requests its own cycle. The recompute lives in ``_trigger_time`` and
+        stays gated on the calibration mode.
         """
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
@@ -2924,27 +2924,43 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             active_balance_modes = set()
             active_calibration_modes = set()
 
-        # Every configuration gets a five-minute tick; the mode decides which
-        # one. Without a balance or calibration mode there is nothing to
-        # recompute, but the degradation ladder still has to be evaluated
-        # faster than its 120s/300s windows, and the hourly weather tick is
-        # the only other periodic handler that advances it.
-        recomputes = bool(active_balance_modes or active_calibration_modes)
+        # Every configuration evaluates the degradation ladder every
+        # LADDER_TICK_S, which is shorter than both of its windows. A sensor
+        # that stops reporting produces no events, so this tick is what
+        # commits its rung.
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
                 partial(
                     self._start_owned_timer_work,
-                    self._trigger_time if recomputes else self._availability_tick,
-                    "bt_periodic_tick",
+                    self._availability_tick,
+                    "bt_ladder_tick",
                 ),
-                timedelta(seconds=CONTROL_TICK_S),
+                timedelta(seconds=LADDER_TICK_S),
             )
         )
+
+        # The five-minute recompute only runs for a balance or calibration
+        # mode that needs it; every run queues a control cycle.
+        recomputes = bool(active_balance_modes or active_calibration_modes)
+        if recomputes:
+            self.async_on_remove(
+                async_track_time_interval(
+                    self.hass,
+                    partial(
+                        self._start_owned_timer_work,
+                        self._trigger_time,
+                        "bt_periodic_tick",
+                    ),
+                    timedelta(seconds=CONTROL_TICK_S),
+                )
+            )
         _LOGGER.debug(
-            "better_thermostat %s: 5min %s tick enabled (balance_modes=%s calibration_modes=%s)",
+            "better_thermostat %s: ladder tick every %ds, recompute tick %s "
+            "(balance_modes=%s calibration_modes=%s)",
             self.device_name,
-            "periodic" if recomputes else "availability",
+            LADDER_TICK_S,
+            "enabled" if recomputes else "disabled",
             sorted(active_balance_modes),
             sorted(active_calibration_modes),
         )

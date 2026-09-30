@@ -50,6 +50,13 @@ class LadderParams:
     up_stability_s: float = 300.0
 
 
+# Interval of the periodic ladder evaluation, shorter than both windows of
+# ``LadderParams``. A sensor that stops reporting produces no events, so this
+# tick supplies the evaluation that commits its rung, at most one interval
+# after the window has elapsed.
+LADDER_TICK_S = 60.0
+
+
 @dataclass(frozen=True)
 class ControlModeState:
     """State of the control-mode region."""
