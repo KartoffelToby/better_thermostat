@@ -1325,6 +1325,36 @@ class TestAsyncSetTemperature:
         assert mock_bt.bt_target_temp == 20.5
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("cooling_target", "preset", "heating_target", "manual_target"),
+        [
+            pytest.param(21.0, PRESET_NONE, 20.5, 20.5, id="lowered_leaves_it"),
+            pytest.param(25.0, PRESET_COMFORT, 22.0, 20.0, id="untouched_keeps_it"),
+        ],
+    )
+    async def test_a_cooling_only_target_leaves_a_preset_only_by_moving_heating(
+        self, mock_bt, cooling_target, preset, heating_target, manual_target
+    ):
+        """A preset is left when the ordering moves its heating target, not before.
+
+        The lowered heating target is recorded as the manual one, which is the
+        target the thermostat restores in PRESET_NONE.
+        """
+        mock_bt.hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.preset_mgr.mode = PRESET_COMFORT
+        mock_bt.preset_mgr.saved_temperature = 20.0
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 22.0
+        mock_bt.bt_target_temp = 22.0
+        mock_bt.bt_target_cooltemp = 26.0
+        await self._call(mock_bt, **{ATTR_TARGET_TEMP_HIGH: cooling_target})
+        assert mock_bt.bt_target_cooltemp == cooling_target
+        assert mock_bt.bt_target_temp == heating_target
+        assert mock_bt.preset_mgr.mode == preset
+        assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == manual_target
+        assert mock_bt.preset_mgr.temperatures[PRESET_COMFORT] == 22.0
+
+    @pytest.mark.asyncio
     async def test_min_max_clamping(self, mock_bt):
         """Temperature clamped to min/max bounds."""
         mock_bt.preset_mgr.mode = PRESET_NONE

@@ -4532,6 +4532,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             cool_lower, cool_upper = get_cool_temperature_range(self)
             _new_setpointhigh = min(cool_upper, max(cool_lower, _new_setpointhigh))
 
+        _heating_target_before = self.bt_target_temp
         # Preserve explicit 0.0 values (avoid Python truthiness bug)
         if _new_setpoint is not None:
             self.bt_target_temp = _new_setpoint
@@ -4553,6 +4554,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         else:
             self._enforce_cool_above_heat(regardless_of_hvac_mode=_order_in_every_mode)
 
+        # A heating target the ordering moved is a manual heating target like
+        # one the payload set: it leaves the preset and is recorded, so the
+        # value in force is the one that persists and comes back on restart.
+        _heating_target_set = (
+            _new_setpoint is not None
+            or _new_setpointlow is not None
+            or self.bt_target_temp != _heating_target_before
+        )
+
         # If a specific preset (Comfort, Eco, …) is active and the user manually
         # changes the target temperature to a value that does not match the
         # preset's stored temperature, deactivate the preset (return to
@@ -4561,7 +4571,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # updates the preset's stored temperature so the values match and the
         # preset stays active.
         if (
-            (_new_setpoint is not None or _new_setpointlow is not None)
+            _heating_target_set
             and self.bt_target_temp is not None
             and self.preset_mgr.mode != PRESET_NONE
         ):
@@ -4584,9 +4594,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # record it as the stored manual temperature. Specific presets (Comfort, Eco,
         # etc.) are managed via separate Number entities and must NOT be overwritten
         # by manual setpoint changes.
-        if (
-            _new_setpoint is not None or _new_setpointlow is not None
-        ) and self.bt_target_temp is not None:
+        if _heating_target_set and self.bt_target_temp is not None:
             applied = float(self.bt_target_temp)
             old_value = self.preset_mgr.record_manual_change(applied)
             if old_value is not None:

@@ -220,3 +220,51 @@ async def test_without_a_cooler_the_range_is_the_heaters(hass, device_role):
     assert _published_range(hass) == (5.0, 30.0)
     with pytest.raises(ServiceValidationError):
         await _call(hass, "set_temperature", {"temperature": TARGET_ABOVE_THE_HEAD})
+
+
+@pytest.mark.parametrize(
+    "device_role", [HEATER_WITH_A_WIDE_COOLER], indirect=True, ids=profile_id
+)
+async def test_a_cooling_target_that_lowers_a_preset_heating_target_survives_a_reload(
+    hass, device_role
+):
+    """A cooling target below the preset's heating target leaves the preset.
+
+    Comfort heats to 21 °C. A cooling target of 20 °C pushes the heating
+    target one step below it, so the room no longer runs on Comfort's pair: the
+    preset is left and the lowered heating target is the manual one. A
+    thermostat still on Comfort would put 21 °C back when it restarts.
+
+    Home Assistant's service schema takes the two bounds of a range together,
+    so the cooling target alone reaches the thermostat only through a direct
+    call of the entity method.
+    """
+    set_room_sensor(hass, 22.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await _call(hass, "set_hvac_mode", {"hvac_mode": HVACMode.HEAT_COOL})
+    await _call(hass, "set_preset_mode", {"preset_mode": "comfort"})
+    assert hass.states.get(BT_ENTITY).attributes["target_temp_low"] == 21.0
+
+    with patch(WRITE_BUDGET, 0.0), patch(COOLER_RESEND, 0.0):
+        await bt.async_set_temperature(target_temp_high=20.0)
+        await hass.async_block_till_done()
+
+    attributes = hass.states.get(BT_ENTITY).attributes
+    assert attributes["preset_mode"] == "none"
+    assert (attributes["target_temp_low"], attributes["target_temp_high"]) == (
+        19.5,
+        20.0,
+    )
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    attributes = hass.states.get(BT_ENTITY).attributes
+    assert attributes["preset_mode"] == "none"
+    assert (attributes["target_temp_low"], attributes["target_temp_high"]) == (
+        19.5,
+        20.0,
+    )
