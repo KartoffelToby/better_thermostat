@@ -480,11 +480,19 @@ async def trigger_trv_change(
         and (self.bt_hvac_mode != HVACMode.OFF or _is_no_off_device)
         and not _ignored_auto_report
     ):
+        # The logs name the value the TRV reported; BT's range clamp is shown
+        # beside it, so a setpoint BT wrote above its own maximum does not
+        # read as capped.
+        _reported_setpoint = (
+            f"{_setpoint.raw} (clamped to {_setpoint.value})"
+            if _setpoint.clamped
+            else f"{_setpoint.value}"
+        )
         _LOGGER.debug(
             "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",
             self.device_name,
             _old_heating_setpoint,
-            _setpoint.value,
+            _reported_setpoint,
             trv.last_temperature,
         )
         # The no_off OFF detection compares against the TRV's minimum, so it
@@ -602,7 +610,7 @@ async def trigger_trv_change(
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
-                _new_heating_setpoint,
+                _reported_setpoint,
                 _is_echo,
                 child_lock,
                 trv.target_temp_received,
