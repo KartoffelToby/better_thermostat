@@ -2571,8 +2571,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         next event. An attempt in which a step failed keeps it out and its
         next report tries again; after ``LATE_TRV_INITIALIZATION_ATTEMPTS``
         such attempts it joins on the defaults the failed steps left.
+
+        Nothing is set up while valve maintenance runs: the initialisation
+        writes to the TRV's device, and maintenance holds the devices for the
+        exercise. Maintenance looks again once it has ended.
         """
         for entity_id, trv in list(self.real_trvs.items()):
+            # Maintenance can start while an earlier TRV of this pass is
+            # being set up, so it is checked before every TRV.
+            if getattr(self, "in_maintenance", False):
+                return
             if (
                 not trv.awaiting_initialization
                 or entity_id in self._trvs_initializing
@@ -2612,7 +2620,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     _LOGGER.info(
                         "better_thermostat %s: initialising TRV %s failed "
                         "(attempt %d of %d); it stays out of control and is "
-                        "tried again on its next report",
+                        "tried again on its next report or when valve "
+                        "maintenance ends",
                         self.device_name,
                         entity_id,
                         trv.failed_initialization_attempts,
@@ -3345,6 +3354,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # If we restore a previous True here, the control_queue loop can get
             # stuck sleeping forever and never consume queued control actions.
             self.ignore_states = False
+
+            # A TRV startup went ahead without that came back meanwhile was
+            # left alone, and it does not necessarily report again soon.
+            self._spawn_owned(
+                self._initialize_arrived_trvs(),
+                name=f"bt_initialize_arrived_trvs_{self.device_name}",
+            )
 
             # Trigger one control cycle after maintenance so BT immediately
             # resumes with the latest window/temp/target states.
