@@ -12,15 +12,23 @@ must be named, because the thermostat that depends on it is doing nothing and
 the only other symptom is silence.
 """
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
-from homeassistant.core import Context
+from homeassistant.components.weather import (
+    DOMAIN as WEATHER_DOMAIN,
+    WeatherEntityFeature,
+)
+from homeassistant.core import Context, SupportsResponse
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.better_thermostat.calibration import effective_room_temp
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -54,6 +62,10 @@ from .device_profiles import GENERIC_HEAT_TRV, MQTT_OFFSET_TRV, TRV_ID
 # A grace window that is already over by the time the first check runs, for
 # the tests that are about what happens once waiting has to stop.
 NO_GRACE = timedelta(seconds=0)
+
+FORECAST_CALL_TIMEOUT = (
+    "custom_components.better_thermostat.utils.weather.FORECAST_CALL_TIMEOUT"
+)
 
 
 def bt_issues(hass) -> list[str]:
@@ -622,3 +634,45 @@ async def test_a_room_sensor_that_drops_out_during_startup_hands_the_room_to_the
         lambda: bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK,
     )
     assert effective_room_temp(bt) == trv_temperature
+
+
+async def test_a_weather_service_that_never_answers_does_not_hold_up_startup(
+    hass, fake_trv
+):
+    """A stalled forecast call costs startup a bounded wait, not the entity.
+
+    Startup asks the weather entity for its forecast before it reports the
+    thermostat available. A cloud weather integration whose request hangs
+    while the internet is down would otherwise keep the thermostat
+    unavailable for as long as the request hangs.
+    """
+    set_room_sensor(hass, 19.0)
+    weather_id = "weather.home"
+    hass.states.async_set(
+        weather_id,
+        "sunny",
+        {"temperature": 4.0, "supported_features": WeatherEntityFeature.FORECAST_DAILY},
+    )
+
+    async def get_forecasts_that_hang(call):
+        await asyncio.Event().wait()
+
+    hass.services.async_register(
+        WEATHER_DOMAIN,
+        "get_forecasts",
+        get_forecasts_that_hang,
+        supports_response=SupportsResponse.ONLY,
+    )
+    base = make_entry(fake_trv.profile)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=base.version,
+        data={**base.data, "weather": weather_id},
+        title=base.title,
+    )
+
+    with patch(FORECAST_CALL_TIMEOUT, timedelta(seconds=0.01)):
+        await setup_entry(hass, entry)
+        await wait_for_startup(hass, entry)
+
+    assert hass.states.get(BT_ENTITY).state == "heat"

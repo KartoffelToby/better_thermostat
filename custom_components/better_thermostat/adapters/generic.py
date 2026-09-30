@@ -7,6 +7,7 @@ used by Better Thermostat when a device-specific adapter does not exist.
 from __future__ import annotations
 
 import asyncio
+from itertools import pairwise
 import logging
 from typing import TYPE_CHECKING, Final
 
@@ -17,8 +18,11 @@ from ..utils.helpers import (
     celsius_to_system_temperature,
     find_local_calibration_entity,
     normalize_hvac_mode,
+    supports_single_target_temperature,
+    supports_temperature_range,
 )
 from .base import AdapterCapabilities, wait_for_calibration_entity_or_timeout
+from .delegate import set_hvac_mode as delegate_set_hvac_mode
 from .types import AdapterHost, AdapterProbeHost
 
 if TYPE_CHECKING:
@@ -215,12 +219,17 @@ async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
     Returns
     -------
     float
-        Step the entity publishes, or the shared default when it
-        publishes none.
+        Step a number entity publishes, the smallest spacing between the
+        options of a select, or the shared default when neither is
+        readable.
     """
     state = _calibration_state(self, entity_id)
     if state is None:
         return DEFAULT_OFFSET_STEP
+    if state.domain == "select":
+        offered = sorted(set(_offered_offsets(state)))
+        spacings = [high - low for low, high in pairwise(offered)]
+        return min(spacings, default=DEFAULT_OFFSET_STEP)
     return float(str(state.attributes.get("step", DEFAULT_OFFSET_STEP)))
 
 
@@ -274,6 +283,49 @@ async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
     return float(str(state.attributes.get("max", DEFAULT_OFFSET_MAX)))
 
 
+def _setpoint_payload(
+    state: State | None, entity_id: str, temperature: float
+) -> dict[str, str | float]:
+    """Build the set_temperature payload the head accepts.
+
+    A head that advertises only TARGET_TEMPERATURE_RANGE rejects a
+    ``temperature`` write and publishes its heating setpoint as
+    ``target_temp_low``, so the setpoint goes out as the lower bound. The upper
+    bound the head holds travels along unchanged, raised to the lower bound
+    when it sits below it, because Home Assistant refuses a lower bound above
+    the upper one. Every other head gets the single-setpoint payload.
+
+    Parameters
+    ----------
+    state : State | None
+            the head's current state, whose attributes are in the system unit
+    entity_id : str
+            entity_id of the head
+    temperature : float
+            the setpoint in the system unit
+
+    Returns
+    -------
+    dict[str, str | float]
+            the service data for ``climate.set_temperature``
+    """
+    if (
+        state is None
+        or not supports_temperature_range(state)
+        or supports_single_target_temperature(state)
+    ):
+        return {"entity_id": entity_id, "temperature": temperature}
+    try:
+        high = max(float(state.attributes["target_temp_high"]), temperature)
+    except KeyError, TypeError, ValueError:
+        high = temperature
+    return {
+        "entity_id": entity_id,
+        "target_temp_low": temperature,
+        "target_temp_high": high,
+    }
+
+
 async def set_temperature(
     self: AdapterHost, entity_id: str, temperature: float
 ) -> None:
@@ -282,14 +334,18 @@ async def set_temperature(
     await self.hass.services.async_call(
         "climate",
         "set_temperature",
-        {"entity_id": entity_id, "temperature": temperature},
+        _setpoint_payload(self.hass.states.get(entity_id), entity_id, temperature),
         blocking=True,
         context=self.context,
     )
 
 
 async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> None:
-    """Set new target hvac mode."""
+    """Set new target hvac mode.
+
+    A write the device or Home Assistant refuses raises, so the caller can
+    retry it and tell a refused mode from one that went out.
+    """
 
     hvac_mode_norm = normalize_hvac_mode(hvac_mode)
     _LOGGER.debug(
@@ -311,14 +367,6 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
             "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
             entity_id,
             hvac_mode_norm,
-        )
-    except Exception as exc:
-        _LOGGER.exception(
-            "better_thermostat %s: Exception in set_hvac_mode for %s with %s: %s",
-            self.device_name,
-            entity_id,
-            hvac_mode_norm,
-            exc,
         )
 
 
@@ -415,7 +463,10 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
         if last_hvac_mode is not None and last_hvac_mode != "off":
             await asyncio.sleep(3)
-            await set_hvac_mode(self, entity_id, last_hvac_mode)
+            # The offset is on the wire whatever happens to the mode after
+            # it. The mode goes out through the mode channel, which retries,
+            # reports and paces a refusal like any other mode write.
+            await delegate_set_hvac_mode(self, entity_id, last_hvac_mode)
 
         return True
     else:
