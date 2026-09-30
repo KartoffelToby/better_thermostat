@@ -125,3 +125,26 @@ def test_update_corrects_against_the_plants_own_prediction() -> None:
     # A radiator estimate that never left its seed would satisfy the above
     # whatever the two predictions did.
     assert len(set(estimates)) == len(estimates)
+
+
+def test_process_noise_stops_growing_with_the_prediction_at_settling_time() -> None:
+    """A silence past the settling time adds no more uncertainty than one of it.
+
+    The plant propagates at most over its settling time; the process noise
+    follows the same span. Uncapped, a week-long gap beyond it would inflate
+    the radiator variance tenfold, and the next ordinary room reading would
+    then swing the unobserved radiator estimate by several kelvin.
+    """
+    plant = PlantModelRC2(PlantParams(), dt_s=30.0)
+    settling_s = plant.settling_time_s
+    observers = {}
+    for gap_s in (settling_s, 10.0 * settling_s):
+        obs = _make_observer(plant)
+        obs.initialise(np.array([20.0, 40.0]))
+        obs.update(20.0, u=0.3, T_outdoor_C=5.0, dt_s=gap_s)
+        obs.update(20.1, u=0.3, T_outdoor_C=5.0, dt_s=300.0)
+        observers[gap_s] = obs
+
+    at_settling, far_beyond = observers[settling_s], observers[10.0 * settling_s]
+    np.testing.assert_allclose(far_beyond.P, at_settling.P)
+    np.testing.assert_allclose(far_beyond.x_hat, at_settling.x_hat)
