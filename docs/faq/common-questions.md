@@ -43,8 +43,9 @@ as the slot is free, at most 30 seconds later.
 With the HomematicIP option enabled, the spacing is ten minutes, because
 HomematicIP devices share a tight radio duty cycle. The first setpoint
 write after you change the target or mode still goes out at the normal
-30-second pace. Safety-relevant writes
-(frost protection, turning off, closing the valve) are sent immediately.
+30-second pace. Safety-relevant writes (a setpoint the safety limits
+move to the device's minimum or maximum, such as frost protection,
+turning off, closing the valve) are sent immediately.
 
 If a write gets lost on the radio anyway, the periodic reconciliation
 detects the mismatch between the intended and the reported state and
