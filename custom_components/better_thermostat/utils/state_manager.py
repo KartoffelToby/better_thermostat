@@ -17,6 +17,7 @@ Usage in climate.py
     self.state_mgr.mark_dirty()
 
     async def async_will_remove_from_hass(self) -> None:
+        self.state_mgr.close()
         await self.state_mgr.flush()
 
 Schema migration
@@ -34,13 +35,21 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 import logging
 import math
 from time import monotonic
 from typing import Any
 
-from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    CoreState,
+    HassJob,
+    HomeAssistant,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from .calibration.mpc import MpcState
@@ -95,9 +104,10 @@ QUARANTINE_VERSION = 1
 # store that keeps turning unreadable does not fill the disk with copies.
 QUARANTINE_COPIES = 3
 
-# Seconds before a runtime save tries a failed copy again, doubling after
-# each failure up to the cap: a disk that recovers is used within the hour,
-# and one that stays full is not written to on every save.
+# Seconds before a failed copy is tried again, by a timer or by a runtime
+# save that falls due first, doubling after each failure up to the cap: a
+# disk that recovers is used within the hour, and one that stays full is not
+# written to on every save.
 COPY_RETRY_FIRST_S = 60.0
 COPY_RETRY_MAX_S = 3600.0
 
@@ -572,9 +582,15 @@ class StateManager:
         # Whether the failing copy has been reported at WARNING already; each
         # further attempt that fails is logged at DEBUG only.
         self._copy_failure_reported = False
-        # When a runtime save next tries the copy, and the wait after that.
+        # When the copy is next tried, the wait after that, and whether a try
+        # is under way.
         self._copy_retry_at = 0.0
         self._copy_retry_s = COPY_RETRY_FIRST_S
+        self._copy_retry_running = False
+        # The timer that tries the copy at ``_copy_retry_at`` on its own, and
+        # whether the manager still starts one; after close() it does not.
+        self._copy_retry_timer: CALLBACK_TYPE | None = None
+        self._copy_retry_timed = True
 
     # -- Public properties ---------------------------------------------------
 
@@ -756,10 +772,70 @@ class StateManager:
 
     # -- Load / Save ---------------------------------------------------------
 
+    def close(self) -> None:
+        """Stop trying the copy on a timer; call when the entity is removed.
+
+        ``flush()`` and ``save()`` still try the copy, but no timer is left
+        behind to write into a store another entity may own by then.
+        """
+        self._copy_retry_timed = False
+        self._cancel_copy_retry_timer()
+
     def _schedule_copy_retry(self) -> None:
-        """Set when a runtime save next tries the copy, and double the wait."""
-        self._copy_retry_at = monotonic() + self._copy_retry_s
-        self._copy_retry_s = min(self._copy_retry_s * 2, COPY_RETRY_MAX_S)
+        """Set when the copy is next tried, double the wait, and start the timer.
+
+        The timer tries the copy at that deadline without waiting for a
+        runtime save, and saves unsaved changes once the copy exists. Home
+        Assistant cancels it when it starts to stop, so it never runs beside
+        the final write.
+        """
+        delay_s = self._copy_retry_s
+        self._copy_retry_at = monotonic() + delay_s
+        self._copy_retry_s = min(delay_s * 2, COPY_RETRY_MAX_S)
+        self._cancel_copy_retry_timer()
+        if self._copy_retry_timed:
+            self._copy_retry_timer = async_call_later(
+                self._hass,
+                delay_s,
+                HassJob(
+                    self._retry_copy_when_due,
+                    f"bt_state_copy_retry_{self._entry_id}",
+                    cancel_on_shutdown=True,
+                ),
+            )
+
+    def _cancel_copy_retry_timer(self) -> None:
+        """Cancel the timed copy retry, if one is scheduled."""
+        if self._copy_retry_timer is not None:
+            self._copy_retry_timer()
+            self._copy_retry_timer = None
+
+    @callback
+    def _retry_copy_when_due(self, _now: datetime) -> None:
+        """Try the copy at its deadline, unless a try is already under way."""
+        self._copy_retry_timer = None
+        if self._payload_awaiting_copy is None or self._copy_retry_running:
+            return
+        self._copy_retry_running = True
+        self._hass.async_create_background_task(
+            self._retry_copy_then_save(), name=f"bt_state_copy_{self._entry_id}"
+        )
+
+    async def _retry_copy_then_save(self) -> None:
+        """Try the awaited copy again and save unsaved changes once it is kept.
+
+        While Home Assistant is stopping the copy is left for the final
+        write, as in :meth:`save`.
+        """
+        try:
+            payload = self._payload_awaiting_copy
+            if payload is None or self._hass.state is CoreState.stopping:
+                return
+            await self._quarantine_unreadable_state(payload)
+        finally:
+            self._copy_retry_running = False
+        if self._payload_awaiting_copy is None and self._dirty:
+            await self.save()
 
     def _report_copy_failure(
         self, message: str, key: str, *, with_traceback: bool = False
@@ -809,6 +885,7 @@ class StateManager:
                 stored = await kept.async_load()
                 if stored == raw:
                     self._payload_awaiting_copy = None
+                    self._cancel_copy_retry_timer()
                     return
                 if stored is None and free is None:
                     free = copy_key
@@ -845,6 +922,7 @@ class StateManager:
             self._schedule_copy_retry()
             return
         self._payload_awaiting_copy = None
+        self._cancel_copy_retry_timer()
         _LOGGER.warning(
             "better_thermostat [%s]: unreadable state kept as %s for recovery",
             self._entry_id,
@@ -934,14 +1012,22 @@ class StateManager:
         While a stored payload still waits for its copy, the copy is tried
         again once :data:`COPY_RETRY_FIRST_S`, and after each failure twice
         as long, has passed; until it succeeds the save is skipped and the
-        state stays unsaved. :meth:`flush` tries the copy regardless.
+        state stays unsaved. A timer tries the copy at the same deadline
+        without waiting for this call. :meth:`flush` tries the copy
+        regardless.
         """
         if not self._dirty:
             return
-        if self._payload_awaiting_copy is not None and monotonic() >= (
-            self._copy_retry_at
+        if (
+            self._payload_awaiting_copy is not None
+            and not self._copy_retry_running
+            and monotonic() >= self._copy_retry_at
         ):
-            await self.save()
+            self._copy_retry_running = True
+            try:
+                await self.save()
+            finally:
+                self._copy_retry_running = False
             return
         if self._payload_awaiting_copy is not None:
             _LOGGER.debug(

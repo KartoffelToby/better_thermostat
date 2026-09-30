@@ -991,6 +991,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._save_cancel()
                 self._save_cancel = None
             if self.state_mgr is not None:
+                self.state_mgr.close()
                 try:
                     self._record_thermal_to_state()
                     # The last save is left to hass rather than owned: the

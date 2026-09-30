@@ -658,6 +658,55 @@ class TestOwnedBackgroundTasks:
         assert spawned, "the reading handler was not started as an owned task"
         assert all(task.cancelled() for task in spawned)
 
+    @pytest.mark.asyncio
+    async def test_removal_stops_the_timed_copy_retry_before_the_flush(
+        self, hass, owned_bt
+    ):
+        """No timed copy retry outlives the entity.
+
+        The flush still tries the copy once. A timer left running would
+        write into the store the next entity for the same entry reads.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_bt.all_trvs = []
+        owned_bt._unique_id = "uid"
+        owned_bt._config_entry_id = "entry"
+        owned_bt.entity_id = "climate.bt_test"
+        owned_bt._save_cancel = None
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(
+                "custom_components.better_thermostat.utils.migrate_v0_stores."
+                "migrate_v0_stores",
+                new=AsyncMock(),
+            ),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        await BetterThermostat.async_will_remove_from_hass(owned_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        lifecycle = [
+            name
+            for name, _args, _kwargs in state_mgr.mock_calls
+            if name in {"close", "flush"}
+        ]
+        assert lifecycle == ["close", "flush"]
+
 
 # ---------------------------------------------------------------------------
 # 1. _check_entities_ready
