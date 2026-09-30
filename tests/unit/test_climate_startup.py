@@ -1844,13 +1844,15 @@ class TestRestoreState:
         The attributes publish the rates rounded for display; they fill in
         only for an entry whose store carries none yet.
         """
-        old = MagicMock()
-        old.state = "heat"
-        old.attributes = {
-            ATTR_STATE_HEATING_POWER: 0.0123,
-            ATTR_STATE_HEAT_LOSS: 0.00123,
-            ATTR_TEMPERATURE: 21.0,
-        }
+        old = State(
+            "climate.bt_test",
+            "heat",
+            {
+                ATTR_STATE_HEATING_POWER: 0.0123,
+                ATTR_STATE_HEAT_LOSS: 0.00123,
+                ATTR_TEMPERATURE: 21.0,
+            },
+        )
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.preset_mgr.temperatures = {}
         bt.state_mgr = MagicMock()
