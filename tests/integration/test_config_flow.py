@@ -397,6 +397,38 @@ async def test_options_flow_clears_an_optional_entity_field(hass, field, value):
     assert entry.data[field] is None
 
 
+async def test_options_flow_refuses_to_clear_the_room_sensor(hass):
+    """The room sensor stays required when the settings are changed.
+
+    An emptied selector sends no key, the same submission that clears an
+    optional entity. For the room sensor the form asks for one again and the
+    entry keeps the sensor it has, so the thermostat keeps running.
+    """
+    set_room_sensor(hass, 19.0)
+    await build_devices(hass, GENERIC_HEAT_TRV)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+    submission = _user_step_input(TRV_ID)
+    del submission[CONF_SENSOR]
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], submission
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {CONF_SENSOR: "no_sensor"}
+    assert entry.data[CONF_SENSOR] == SENSOR_ID
+
+    # The corrected submission goes through on the same form.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _user_step_input(TRV_ID)
+    )
+    assert result["step_id"] == "advanced"
+
+
 async def test_clearing_the_cooler_stops_the_thermostat_from_driving_it(hass):
     """A cleared cooler is gone from the thermostat, not just from the entry.
 

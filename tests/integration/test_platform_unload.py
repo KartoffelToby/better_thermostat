@@ -6,17 +6,11 @@ unloaded entry that keeps it leaks one subscription, and one dead climate
 object, per reload.
 """
 
-import pytest
-
 from custom_components.better_thermostat import sensor
 
 from .conftest import make_entry, set_room_sensor, setup_entry, wait_for_startup
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the sensor platform's dispatcher subscription outlives the unload",
-)
 async def test_unload_releases_the_sensor_dispatcher_subscription(hass, fake_trv):
     """After an unload the entry holds no sensor-platform subscription."""
     set_room_sensor(hass, 18.0)

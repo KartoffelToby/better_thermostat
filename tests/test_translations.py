@@ -285,3 +285,44 @@ def test_selector_catalog_covers_every_option():
         assert set(catalog[key]["options"]) == options, (
             f"selector.{key} options and the catalog have drifted apart"
         )
+
+
+def _published_form_fields() -> dict[tuple[str, str], set[str]]:
+    """Return the field keys each flow step shows, keyed by catalog section."""
+    from custom_components.better_thermostat.config_flow import (
+        _build_advanced_fields,
+        _build_user_fields,
+    )
+
+    def keys(fields) -> set[str]:
+        return {str(marker.schema) for marker in fields}
+
+    advanced = keys(
+        _build_advanced_fields(
+            sources=({},),
+            default_calibration="target_temp_based",
+            homematic=True,
+            has_auto=True,
+            support_valve=True,
+            support_offset=True,
+        )
+    )
+    return {
+        ("config", "user"): keys(_build_user_fields(mode="create", current={})),
+        ("config", "advanced"): advanced,
+        ("options", "user"): keys(_build_user_fields(mode="update", current={})),
+        ("options", "advanced"): advanced,
+    }
+
+
+@pytest.mark.parametrize("lang", ALL_LANGUAGES)
+def test_every_form_field_has_a_label(lang: str):
+    """Each field a settings form shows is labelled in every language."""
+    catalog = _load_json(TRANSLATIONS / f"{lang}.json")
+    unlabelled = {
+        f"{section}.step.{step}": sorted(
+            published - set(catalog[section]["step"][step].get("data", {}))
+        )
+        for (section, step), published in _published_form_fields().items()
+    }
+    assert {step: keys for step, keys in unlabelled.items() if keys} == {}

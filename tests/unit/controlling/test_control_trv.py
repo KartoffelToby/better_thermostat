@@ -38,7 +38,7 @@ from custom_components.better_thermostat.core.fsm.window import WindowPhase, Win
 from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
-from custom_components.better_thermostat.model_fixes import TRVZB
+from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
@@ -1021,6 +1021,108 @@ class TestControlTrvAvailablePath:
 
             # Task should be created for check_system_mode
             mock_self.task_manager.create_task.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_a_refused_mode_is_not_taken_as_the_device_mode(self):
+        """A refused mode is retried, and the device keeps the mode it reports.
+
+        The mode last commanded is what the end-of-cycle refresh caches and
+        what the inbound handler compares a report against. A refused
+        command recorded there would read the device's next plain report as
+        a press back to its old mode and undo the user's choice.
+        """
+        trv = _default_trv_config(
+            last_hvac_mode=HVACMode.OFF, system_mode_received=True
+        )
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": trv},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_set_hvac,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            await control_trv(mock_self, "climate.trv1")
+            await control_trv(mock_self, "climate.trv1")
+
+        assert [c.args[2] for c in mock_set_hvac.await_args_list] == [
+            HVACMode.HEAT,
+            HVACMode.HEAT,
+        ]
+        assert trv.last_hvac_mode == HVACMode.OFF
+        assert trv.system_mode_received is True
+        assert not any(
+            call.kwargs.get("name") == "bt_check_system_mode_climate.trv1"
+            for call in mock_self.task_manager.create_task.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_refused_mode_on_a_trv_reading_unknown_keeps_the_old_command(self):
+        """A driven Spirit reads ``unknown``; that is no mode it holds.
+
+        The device is operated while its entity reads ``unknown``, so the
+        cycle writes its mode. A refusal there leaves the mode last commanded
+        where it was rather than recording ``unknown`` as one.
+        """
+        trv = _default_trv_config(
+            model="Spirit",
+            model_quirks=ZWA021,
+            last_hvac_mode=HVACMode.HEAT,
+            system_mode_received=True,
+            advanced={
+                "calibration_mode": CalibrationMode.NO_CALIBRATION,
+                "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                "no_off_system_mode": False,
+            },
+        )
+        mock_self = _make_mock_self(
+            trv_state=STATE_UNKNOWN,
+            trv_attrs={"temperature": 21.0, "hvac_modes": ["heat", "off"]},
+            real_trvs={"climate.trv1": trv},
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(
+                _PATCHES["set_hvac_mode"], autospec=True, return_value=False
+            ) as mock_set_hvac,
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch(_PATCHES["set_valve"], autospec=True, return_value=True),
+            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "system_mode": HVACMode.HEAT,
+                "temperature": 21.0,
+            }
+
+            await control_trv(mock_self, "climate.trv1")
+
+        mock_set_hvac.assert_awaited_once()
+        assert trv.last_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
     async def test_dropout_after_valve_write_sends_no_hvac_mode(self):
@@ -3059,7 +3161,7 @@ class TestControlTrvOnADualRoleEntity:
             trv_state=HVACMode.OFF,
             trv_attrs={"temperature": 21.0},
             real_trvs={cls.SHARED_ID: trv},
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cooler_entity_id=cls.SHARED_ID,
             bt_target_temp=21.0,
         )
@@ -3086,10 +3188,11 @@ class TestControlTrvOnADualRoleEntity:
 
     @pytest.mark.asyncio
     async def test_dual_role_entity_is_sent_heat_not_heat_cool(self):
-        """An air conditioner that advertises heat_cool receives heat.
+        """An air conditioner that advertises heat_cool receives heat in a heating cycle.
 
-        Its own thermostat would otherwise run the room against its own pair of
-        setpoints for the whole cycle the heating channel owns it.
+        The room is on, which a room with a cooler publishes as heat_cool. The
+        device's own thermostat would otherwise run the room against its own
+        pair of setpoints for the whole cycle the heating channel owns it.
         """
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
@@ -3120,15 +3223,19 @@ class TestControlTrvOnADualRoleEntity:
         )
 
     @pytest.mark.asyncio
-    async def test_a_distinct_trv_still_receives_the_raw_mode(self):
-        """A radiator that is not the cooler receives the mode BT holds."""
+    async def test_a_distinct_trv_offering_heat_cool_receives_heat(self):
+        """A radiator that is not the cooler is sent heat in a heat_cool room.
+
+        A radiator that offers heat_cool as well would run its own thermostat
+        in it, so it is driven in the mode it heats in.
+        """
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
         )
         mock_self.cooler_entity_id = "climate.split_unit"
 
         assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
-            HVACMode.HEAT_COOL
+            HVACMode.HEAT
         )
 
 
