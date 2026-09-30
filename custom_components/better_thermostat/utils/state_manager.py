@@ -776,7 +776,8 @@ class StateManager:
         """Stop trying the copy on a timer; call when the entity is removed.
 
         ``flush()`` and ``save()`` still try the copy, but no timer is left
-        behind to write into a store another entity may own by then.
+        behind, and a copy already under way saves nothing, to write into a
+        store another entity may own by then.
         """
         self._copy_retry_timed = False
         self._cancel_copy_retry_timer()
@@ -825,7 +826,8 @@ class StateManager:
         """Try the awaited copy again and save unsaved changes once it is kept.
 
         While Home Assistant is stopping the copy is left for the final
-        write, as in :meth:`save`.
+        write, as in :meth:`save`. A manager closed while the copy was
+        under way saves nothing: :meth:`flush` makes its final write.
         """
         try:
             payload = self._payload_awaiting_copy
@@ -834,7 +836,11 @@ class StateManager:
             await self._quarantine_unreadable_state(payload)
         finally:
             self._copy_retry_running = False
-        if self._payload_awaiting_copy is None and self._dirty:
+        if (
+            self._payload_awaiting_copy is None
+            and self._dirty
+            and self._copy_retry_timed
+        ):
             await self.save()
 
     def _report_copy_failure(

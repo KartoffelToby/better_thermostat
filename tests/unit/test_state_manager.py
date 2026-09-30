@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -1595,6 +1596,40 @@ class TestAFailedCopyThatRecovers:
         assert tried_before_the_flush == 1
         assert copy.async_save.await_count == 2
         stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_copy_that_lands_after_close_saves_nothing(self, hass, freezer):
+        """A timed copy still under way when the entity goes saves nothing.
+
+        ``flush()`` makes the final write; a save made by the copy after
+        ``close()`` would write into a store the next entity owns by then.
+        """
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        with _stores_by_key() as stores:
+            mgr, copy = await self._loaded_on(hass, stores, disk)
+            mgr.mark_dirty()
+            kept = _saved_into(copy)
+
+            async def _gated(data):
+                entered.set()
+                await release.wait()
+                kept(data)
+
+            copy.async_save.side_effect = _gated
+            freezer.tick(timedelta(seconds=61))
+            async_fire_time_changed(hass, dt_util.utcnow())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+
+            mgr.close()
+            release.set()
+            await hass.async_block_till_done(wait_background_tasks=True)
+            await self._advance(hass, freezer, 2 * 3600)
+
+        assert copy.async_load.return_value == self._PAYLOAD
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+        assert mgr.dirty is True
 
 
 class TestEveryDistinctPayloadIsKept:
