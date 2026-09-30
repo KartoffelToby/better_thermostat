@@ -157,3 +157,33 @@ async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
 
     assert written_while_held == []
     assert writes == [("climate.trv", 30.0)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True], ids=["completed", "raised"])
+async def test_a_trv_that_returned_during_maintenance_is_looked_for_after_it(bt, fails):
+    """Returned TRVs are looked for once maintenance has ended.
+
+    A TRV startup went ahead without that came back during maintenance was
+    left alone then, and it does not necessarily report again soon.
+    """
+    maintenance_when_looked = []
+    bt._initialize_arrived_trvs = AsyncMock(
+        side_effect=lambda: maintenance_when_looked.append(bt.in_maintenance)
+    )
+    spawned = []
+    bt._spawn_owned = lambda coro, name=None: spawned.append(coro)
+    exercise = AsyncMock(side_effect=RuntimeError("boom") if fails else None)
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", exercise),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        try:
+            await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+        except RuntimeError:
+            assert fails
+    for coro in spawned:
+        await coro
+
+    assert maintenance_when_looked == [False]

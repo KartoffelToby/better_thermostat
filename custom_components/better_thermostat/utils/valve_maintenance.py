@@ -201,7 +201,9 @@ def build_trv_snapshots(
     or ``unknown`` and therefore names no mode and no setpoint to put back
     afterwards. Only a TRV with a snapshot is driven, so the one skipped
     here is never left standing in one of the cycle's temperature
-    extremes. Every skip is logged at debug level.
+    extremes. A TRV still awaiting its setup is left out as well: its
+    range, calibration and valve channel are what the setup reads, and the
+    first run after it is exercises it. Every skip is logged at debug level.
 
     Parameters
     ----------
@@ -236,6 +238,14 @@ def build_trv_snapshots(
         if trv_data is None:
             _LOGGER.debug(
                 "better_thermostat %s: maintenance skip %s (not in real_trvs)",
+                device_name,
+                trv_id,
+            )
+            continue
+        if trv_data.awaiting_initialization:
+            _LOGGER.debug(
+                "better_thermostat %s: maintenance skip %s (not set up yet; its "
+                "setup brings it in, and the next run exercises it)",
                 device_name,
                 trv_id,
             )
