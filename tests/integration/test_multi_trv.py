@@ -928,6 +928,11 @@ async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
     with patch(CRITICAL_GRACE, NO_GRACE):
         bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
         bt = await wait_for_startup(hass, entry)
+    with patch(WRITE_BUDGET, 0.0):
+        await set_room_target(hass, 22.0)
+        assert await wait_for(
+            hass, lambda: all(head.set_temperature_calls for head in present)
+        )
     await hass.async_block_till_done()
 
     exercising = asyncio.Event()

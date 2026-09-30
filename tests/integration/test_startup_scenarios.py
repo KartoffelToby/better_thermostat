@@ -17,11 +17,12 @@ from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
-from homeassistant.core import Context, SupportsResponse
+from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
@@ -49,7 +50,9 @@ from .conftest import (
     DOMAIN,
     SENSOR_ID,
     WINDOW_ID,
+    WRITE_BUDGET,
     assert_profile_adopted,
+    assert_write_is,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -395,6 +398,16 @@ async def start_without_room_sensor(hass, fake_trv, state: str | None = None):
     return bt
 
 
+async def set_room_target(hass: HomeAssistant, value: float) -> None:
+    """Set a room target the TRV does not hold, so reaching it takes a write."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": value},
+        blocking=True,
+    )
+
+
 @pytest.mark.parametrize("sensor_state", [None, "unavailable", "unknown"])
 async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     hass, fake_trv, sensor_state
@@ -406,7 +419,9 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     hour later, and an hour later the room controls on the TRV's internal
     temperature. Once the grace window has closed, startup does the same:
     the room comes up, controls on the TRV temperature from the first cycle
-    and names the missing sensor.
+    and names the missing sensor. With the room on the TRV temperature there
+    is no offset between the two, so a new room target reaches the TRV as
+    it is.
     """
     trv_temperature = fake_trv.profile.current_temperature
 
@@ -419,7 +434,13 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == (
         trv_temperature
     )
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    writes_before = len(fake_trv.set_temperature_calls)
+    with patch(WRITE_BUDGET, 0.0):
+        await set_room_target(hass, 22.0)
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > writes_before
+        )
+    assert_write_is(fake_trv.set_temperature_calls[-1], 22.0, fake_trv.profile)
     assert bt.unavailable_sensors == [SENSOR_ID]
     assert await wait_for(hass, lambda: degraded_issue_sensors(hass, bt))
     assert degraded_issue_sensors(hass, bt) == SENSOR_ID
