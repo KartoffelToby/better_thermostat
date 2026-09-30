@@ -44,12 +44,15 @@ a stale one.
 
 ## The controllers
 
-MPC, MPC v2, TPI, and PID are deterministic, state-threading helpers in
+MPC, MPC v2, TPI, and PID are state-threading helpers in
 `utils/calibration/` (`compute_mpc`, `compute_mpc_v2`, `compute_tpi`,
 `compute_pid`). Each takes the measurements, its parameters and the
 caller-owned controller state, and returns its output together with
 that state; PID also returns a debug record, as
-`(percent, PIDDebugInfo, PIDState)`. The returned state is the object
+`(percent, PIDDebugInfo, PIDState)`. The clock is their one other
+input: TPI, PID and MPC v2 read it unless the caller passes `now`, and
+MPC always reads `time()`, so two identical calls repeat exactly only
+for TPI, PID and MPC v2 with the same `now`. The returned state is the object
 passed in, mutated in place, and standby paths such as PID's
 `observe_standby()` update it the same way. MPC, TPI and PID require a
 state; `compute_mpc_v2` also accepts `state=None`, in which case it

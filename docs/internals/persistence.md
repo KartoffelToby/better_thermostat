@@ -75,7 +75,8 @@ layers:
 
    The copy is an attempt, not a guarantee. It counts once it loads back
    from disk as the payload. When the write fails or does not read back,
-   load still falls back to defaults, but the payload is held and every
+   whatever load discarded still falls back to defaults, the rest of the
+   store keeps its loaded values, but the payload is held and every
    save is skipped, so the live store keeps it. The copy is tried again
    before each explicit save and, from the delayed save, after a backoff
    that starts at 60 seconds and doubles up to one hour. While Home
