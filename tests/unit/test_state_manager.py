@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -2442,3 +2443,40 @@ class TestAFailedCopyThatRecovers:
         assert tried_before_the_flush == 1
         assert disk["attempts"] == 2
         assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+
+    async def test_a_copy_that_lands_after_close_schedules_no_save(
+        self, hass, hass_storage, freezer
+    ):
+        """A timed copy still under way when the entity goes schedules nothing.
+
+        ``flush()`` makes the final write; a save queued by the copy after
+        ``close()`` would write into a store the next entity owns by then.
+        """
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        write = storage.Store._async_write_data
+
+        async def _gated(store, data):
+            if ".corrupt" in store.key:
+                entered.set()
+                await release.wait()
+            await write(store, data)
+
+        with self._disk(disk):
+            manager = await self._loaded(hass, hass_storage)
+            manager.mark_dirty()
+            disk["full"] = False
+        with patch.object(storage.Store, "_async_write_data", _gated):
+            freezer.tick(timedelta(seconds=61))
+            async_fire_time_changed(hass, dt_util.utcnow())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+
+            manager.close()
+            release.set()
+            await hass.async_block_till_done(wait_background_tasks=True)
+            await self._advance(hass, freezer, 2 * 3600)
+
+        assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] == self._PAYLOAD
+        assert manager.dirty is True

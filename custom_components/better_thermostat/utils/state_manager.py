@@ -1329,7 +1329,8 @@ class StateManager:
         """Stop trying the copy on a timer; call when the entity is removed.
 
         ``flush()`` and ``save()`` still try the copy, but no timer is left
-        behind to write into a store another entity may own by then.
+        behind, and a copy already under way schedules no save, to write
+        into a store another entity may own by then.
         """
         self._copy_retry_timed = False
         self._held_save = None
@@ -1398,13 +1399,15 @@ class StateManager:
 
         The save scheduled is the last one skipped while the copy was
         pending; with none skipped, a manager marked dirty saves without a
-        ``pre_save``, and one that is not saves nothing.
+        ``pre_save``, and one that is not saves nothing. A manager closed
+        while the copy was under way schedules nothing: ``flush()`` makes
+        its final write.
         """
         try:
             await self._retry_awaited_copy()
         finally:
             self._copy_retry_running = False
-        if self._payload_awaiting_copy is not None:
+        if self._payload_awaiting_copy is not None or not self._copy_retry_timed:
             return
         held = self._held_save
         if held is not None:
