@@ -164,8 +164,42 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     return _make_json_safe(data)
 
 
-def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
-    """Deserialize a single MPC state dict into an MpcState dataclass."""
+def _finite_float(value: Any) -> float:
+    """Parse one stored float; a non-finite number cannot be used."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{number} is not a finite number")
+    return number
+
+
+def _report_unreadable_field(attr: str, kind: str, key: str | None) -> None:
+    """Name a stored field that keeps its default because it cannot be read.
+
+    Past the load path the field carries the default a first start leaves
+    there, and a value the store lost looks exactly like one it never
+    held, so this is the only place that can still say so.
+    """
+    _LOGGER.warning(
+        "better_thermostat: stored %s state for %s has an unusable %s, "
+        "continuing without it",
+        kind,
+        key or "an unnamed state entry",
+        attr,
+        exc_info=True,
+    )
+
+
+def deserialize_mpc(raw: dict[str, Any], *, key: str | None = None) -> MpcState:
+    """Deserialize a single MPC state dict into an MpcState dataclass.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
         if attr not in raw:
@@ -189,25 +223,35 @@ def deserialize_mpc(raw: dict[str, Any]) -> MpcState:
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                number = float(value)
-                if not math.isfinite(number):
-                    continue
-                setattr(state, attr, number)
+                setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "mpc", key)
             continue
     return state
 
 
-def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
-    """Deserialize a single MPC v2 state dict into MpcV2StateData."""
+def deserialize_mpc_v2(
+    raw: dict[str, Any], *, key: str | None = None
+) -> MpcV2StateData:
+    """Deserialize a single MPC v2 state dict into MpcV2StateData.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    """
     state = MpcV2StateData()
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
         value = raw.get(attr)
         if value is None:
             continue
         try:
-            setattr(state, attr, float(value))
+            setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "mpc_v2", key)
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
@@ -216,8 +260,17 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
     return state
 
 
-def deserialize_pid(raw: dict[str, Any]) -> PIDState:
-    """Deserialize a single PID state dict into a PIDState dataclass."""
+def deserialize_pid(raw: dict[str, Any], *, key: str | None = None) -> PIDState:
+    """Deserialize a single PID state dict into a PIDState dataclass.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    """
     state = PIDState()
     for attr in PIDState.__dataclass_fields__:
         if attr not in raw:
@@ -232,17 +285,24 @@ def deserialize_pid(raw: dict[str, Any]) -> PIDState:
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
-                number = float(value)
-                if not math.isfinite(number):
-                    continue
-                setattr(state, attr, number)
+                setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "pid", key)
             continue
     return state
 
 
-def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
-    """Deserialize a single TPI state dict into a TpiState dataclass."""
+def deserialize_tpi(raw: dict[str, Any], *, key: str | None = None) -> TpiState:
+    """Deserialize a single TPI state dict into a TpiState dataclass.
+
+    Parameters
+    ----------
+    raw : dict[str, Any]
+        the stored entry to read
+    key : str | None
+        names the state entry, so a report about a value that cannot be read
+        can point at the room rather than at nothing
+    """
     state = TpiState()
     for attr in TpiState.__dataclass_fields__:
         if attr not in raw:
@@ -252,72 +312,109 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
             setattr(state, attr, None)
             continue
         try:
-            number = float(value)
-            if not math.isfinite(number):
-                continue
-            setattr(state, attr, number)
+            setattr(state, attr, _finite_float(value))
         except TypeError, ValueError, OverflowError:
+            _report_unreadable_field(attr, "tpi", key)
             continue
     return state
+
+
+def _stored_section(raw: dict[str, Any], section: str) -> Mapping[str, Any] | None:
+    """Return one section of the store, or ``None`` when it has none.
+
+    A section of any other shape than a mapping is dropped and named: past
+    the load path its entries start from defaults, like on a first start.
+    """
+    value = raw.get(section, {})
+    if isinstance(value, Mapping):
+        return value
+    _LOGGER.warning(
+        "better_thermostat: stored %s section is not a mapping; its entries "
+        "start from defaults",
+        section,
+    )
+    return None
+
+
+def _stored_entries(
+    raw: dict[str, Any], section: str
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return the entries of one keyed section that are mappings.
+
+    An entry of any other shape is dropped and named with its key.
+    """
+    entries: list[tuple[str, dict[str, Any]]] = []
+    for key, entry in (_stored_section(raw, section) or {}).items():
+        if isinstance(entry, dict):
+            entries.append((key, entry))
+            continue
+        _LOGGER.warning(
+            "better_thermostat: stored %s entry for %s is not a mapping; "
+            "it starts from defaults",
+            section,
+            key,
+        )
+    return entries
+
+
+def _stored_optional_number(
+    values: Mapping[str, Any], section: str, attr: str
+) -> float | None:
+    """Return one optional number of an unkeyed section, naming an unusable one.
+
+    A missing value and a stored null are a value never learned and pass
+    as ``None`` silently. Anything else that is not a finite number is
+    dropped as well, and named, since past the load path it looks like one
+    never learned.
+    """
+    value = values.get(attr)
+    if value is None:
+        return None
+    try:
+        return _finite_float(value)
+    except TypeError, ValueError, OverflowError:
+        _LOGGER.warning(
+            "better_thermostat: stored %s section has an unusable %s, "
+            "continuing without it",
+            section,
+            attr,
+        )
+        return None
 
 
 def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     """Reconstruct a RuntimeState from a raw dict (loaded from Store)."""
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
 
-    mpc_raw = raw.get("mpc", {})
-    if isinstance(mpc_raw, Mapping):
-        for key, state_dict in mpc_raw.items():
-            if isinstance(state_dict, dict):
-                state.mpc[key] = deserialize_mpc(state_dict)
+    for key, entry in _stored_entries(raw, "mpc"):
+        state.mpc[key] = deserialize_mpc(entry, key=key)
 
-    mpc_v2_raw = raw.get("mpc_v2", {})
-    if isinstance(mpc_v2_raw, Mapping):
-        for key, state_dict in mpc_v2_raw.items():
-            if isinstance(state_dict, dict):
-                state.mpc_v2[key] = deserialize_mpc_v2(state_dict)
+    for key, entry in _stored_entries(raw, "mpc_v2"):
+        state.mpc_v2[key] = deserialize_mpc_v2(entry, key=key)
 
-    pid_raw = raw.get("pid", {})
-    if isinstance(pid_raw, Mapping):
-        for key, state_dict in pid_raw.items():
-            if isinstance(state_dict, dict):
-                state.pid[key] = deserialize_pid(state_dict)
+    for key, entry in _stored_entries(raw, "pid"):
+        state.pid[key] = deserialize_pid(entry, key=key)
 
-    tpi_raw = raw.get("tpi", {})
-    if isinstance(tpi_raw, Mapping):
-        for key, state_dict in tpi_raw.items():
-            if isinstance(state_dict, dict):
-                state.tpi[key] = deserialize_tpi(state_dict)
+    for key, entry in _stored_entries(raw, "tpi"):
+        state.tpi[key] = deserialize_tpi(entry, key=key)
 
-    thermal_raw = raw.get("thermal", {})
-    if isinstance(thermal_raw, dict):
-        heating_power = thermal_raw.get("heating_power")
-        heat_loss_rate = thermal_raw.get("heat_loss_rate")
-        try:
-            heating_power = float(heating_power) if heating_power is not None else None
-            if heating_power is not None and not math.isfinite(heating_power):
-                heating_power = None
-        except TypeError, ValueError, OverflowError:
-            heating_power = None
-        try:
-            heat_loss_rate = (
-                float(heat_loss_rate) if heat_loss_rate is not None else None
-            )
-            if heat_loss_rate is not None and not math.isfinite(heat_loss_rate):
-                heat_loss_rate = None
-        except TypeError, ValueError, OverflowError:
-            heat_loss_rate = None
+    thermal_raw = _stored_section(raw, "thermal")
+    if thermal_raw is not None:
         state.thermal = ThermalStats(
-            heating_power=heating_power, heat_loss_rate=heat_loss_rate
+            heating_power=_stored_optional_number(
+                thermal_raw, "thermal", "heating_power"
+            ),
+            heat_loss_rate=_stored_optional_number(
+                thermal_raw, "thermal", "heat_loss_rate"
+            ),
         )
 
-    presets_raw = raw.get("presets", {})
-    if isinstance(presets_raw, dict):
-        for name, temp in presets_raw.items():
-            try:
-                state.presets[str(name)] = float(temp)
-            except TypeError, ValueError, OverflowError:
-                continue
+    presets_raw = _stored_section(raw, "presets")
+    if presets_raw is not None:
+        for name in presets_raw:
+            number = _stored_optional_number(presets_raw, "presets", name)
+            if number is not None:
+                state.presets[str(name)] = number
 
     return state
 
