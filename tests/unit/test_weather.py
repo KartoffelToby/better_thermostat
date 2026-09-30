@@ -13,6 +13,7 @@ The module has three public coroutines plus a helper class:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 import logging
 from types import SimpleNamespace
@@ -728,6 +729,51 @@ class TestCheckAmbientAirTemperature:
         assert query.await_count == 2
         assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
         assert bt.call_for_heat is True
+
+    async def test_check_during_history_refresh_keeps_the_live_fallback(self):
+        """A check that starts during a history refresh waits for it.
+
+        The refresh finds no usable history, so its verdict falls back to the
+        live reading. A second check arriving while the recorder is read must
+        not replace that reading with the expired cached mean first.
+        """
+        clock = FakeMonotonic()
+        bt = self._recorder_bt(reading="5.0")
+        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        responses = iter([{OUTDOOR_ID: cold}, {OUTDOOR_ID: []}])
+
+        async def query(*_args):
+            response = next(responses)
+            if response[OUTDOOR_ID]:
+                return response
+            refresh_started.set()
+            await release_refresh.wait()
+            return response
+
+        with (
+            patch(f"{WEATHER_MOD}.get_instance") as gi,
+            patch(f"{WEATHER_MOD}.monotonic", side_effect=clock.monotonic),
+        ):
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            assert bt.outdoor_history_mean == pytest.approx(2.0)
+            clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+            bt.hass.states.get = MagicMock(
+                return_value=make_state(
+                    state="20.0", attrs={"unit_of_measurement": "°C"}
+                )
+            )
+            refreshing = asyncio.create_task(check_ambient_air_temperature(bt))
+            await refresh_started.wait()
+            overlapping = asyncio.create_task(check_ambient_air_temperature(bt))
+            await asyncio.sleep(0)
+            release_refresh.set()
+            await asyncio.gather(refreshing, overlapping)
+        assert bt.outdoor_history_mean is None
+        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
+        assert bt.call_for_heat is False
 
 
 # ===========================================================================
