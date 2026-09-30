@@ -1,8 +1,9 @@
 """Tests for the config-entry diagnostics."""
 
 import copy
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock
 
+from homeassistant.core import State
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -15,11 +16,9 @@ from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SE
 
 def _hass():
     hass = MagicMock()
-    trv_state = Mock()
-    trv_state.name = "TRV"
-    trv_state.state = "heat"
-    trv_state.attributes = {"temperature": 21.0}
-    hass.states.get.return_value = trv_state
+    hass.states.get.return_value = State(
+        "climate.trv", "heat", {"friendly_name": "TRV", "temperature": 21.0}
+    )
     return hass
 
 
