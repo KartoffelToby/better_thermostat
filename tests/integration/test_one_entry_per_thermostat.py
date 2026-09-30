@@ -229,3 +229,65 @@ async def test_the_overlap_issue_names_only_the_entries_that_remain(hass, device
     await hass.async_block_till_done()
 
     assert _shared_issues(hass) == {}
+
+
+async def _finish(hass, flows, flow_id: str) -> dict:
+    """Submit the defaults on every form ``flows`` shows until it ends."""
+    result = await flows.async_configure(flow_id, {})
+    while result["type"] is FlowResultType.FORM and result["step_id"] != "user":
+        result = await flows.async_configure(flow_id, {})
+    return result
+
+
+async def test_two_create_flows_cannot_both_take_one_thermostat(hass, devices):
+    """The flow that finishes second is refused, although both passed the check."""
+    flows = hass.config_entries.flow
+    first = await flows.async_init(DOMAIN, context={"source": "user"})
+    first = await flows.async_configure(first["flow_id"], _user_step("Room A", TRV_ID))
+    second = await flows.async_init(DOMAIN, context={"source": "user"})
+    second = await flows.async_configure(
+        second["flow_id"], _user_step("Room B", TRV_ID)
+    )
+    assert first["step_id"] == second["step_id"] == "advanced"
+
+    first = await _finish(hass, flows, first["flow_id"])
+    assert first["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    second = await _finish(hass, flows, second["flow_id"])
+
+    assert second["type"] is FlowResultType.ABORT
+    assert second["reason"] == "trv_in_use"
+    assert second["description_placeholders"] == {"trv": TRV_ID, "entry": "Room A"}
+    assert [entry.title for entry in hass.config_entries.async_entries(DOMAIN)] == [
+        "Room A"
+    ]
+
+
+async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
+    hass, devices
+):
+    """Another entry takes the thermostat while the advanced form is open."""
+    room_b = _entry("Room B", SPARE_ID)
+    await _set_up(hass, room_b)
+    options = hass.config_entries.options
+    result = await options.async_init(room_b.entry_id)
+    result = await options.async_configure(
+        result["flow_id"], _user_step("Room B", SPARE_ID, TRV_ID)
+    )
+    assert result["step_id"] == "advanced"
+
+    flows = hass.config_entries.flow
+    other = await flows.async_init(DOMAIN, context={"source": "user"})
+    other = await flows.async_configure(other["flow_id"], _user_step("Room C", TRV_ID))
+    other = await _finish(hass, flows, other["flow_id"])
+    assert other["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    result = await _finish(hass, options, result["flow_id"])
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {CONF_HEATER: "trv_in_use"}
+    assert result["description_placeholders"]["trv"] == TRV_ID
+    assert result["description_placeholders"]["entry"] == "Room C"
+    assert [bundle["trv"] for bundle in room_b.data[CONF_HEATER]] == [SPARE_ID]
