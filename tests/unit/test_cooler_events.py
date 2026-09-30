@@ -50,7 +50,9 @@ def mock_bt():
     # A bare MagicMock would hand out a truthy contact_open.
     bt.contact_open = False
     bt.async_write_ha_state = MagicMock()
-    bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
+    bt._enforce_heat_below_cool = lambda **kwargs: (
+        BetterThermostat._enforce_heat_below_cool(bt, **kwargs)
+    )
     bt._clamp_inbound_cool_target = lambda v: (
         BetterThermostat._clamp_inbound_cool_target(bt, v)
     )

@@ -37,11 +37,14 @@ def mean_trv_target(
 ) -> float | None:
     """Mean of the valid TRV target temperatures, each converted to Celsius.
 
+    A TRV that advertises a temperature range publishes its heating setpoint
+    as ``target_temp_low`` and no ``temperature``; that value is its target.
+
     Returns ``None`` when no TRV exposes a usable target temperature.
     """
     temps: list[float] = []
     for state in states:
-        raw = state.attributes.get(ATTR_TEMPERATURE)
+        raw = saved_heating_target(state.attributes)
         if raw is None:
             continue
         unit = state_temperature_unit(state.attributes, system_unit)

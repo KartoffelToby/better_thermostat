@@ -136,7 +136,9 @@ def mock_bt():
     bt._enforce_cool_above_heat = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(bt, **kwargs)
     )
-    bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
+    bt._enforce_heat_below_cool = lambda **kwargs: (
+        BetterThermostat._enforce_heat_below_cool(bt, **kwargs)
+    )
     bt._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         bt, value
     )

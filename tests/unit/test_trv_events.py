@@ -3597,8 +3597,8 @@ class TestDualRoleEntityReports:
         mock_bt._clamp_inbound_cool_target = lambda v: (
             BetterThermostat._clamp_inbound_cool_target(mock_bt, v)
         )
-        mock_bt._enforce_heat_below_cool = lambda: (
-            BetterThermostat._enforce_heat_below_cool(mock_bt)
+        mock_bt._enforce_heat_below_cool = lambda **kwargs: (
+            BetterThermostat._enforce_heat_below_cool(mock_bt, **kwargs)
         )
         return mock_bt
 

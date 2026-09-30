@@ -188,7 +188,7 @@ HEATING_TARGET_BESIDE_A_COOLER = Setting(
     configure=_configure_the_temperature_range,
     read=_read("target_temp_low"),
     expected=HEATING_TARGET_OF_THE_PAIR,
-    default=5.0,
+    default=20.0,
     room=SEPARATE_COOLER,
 )
 
@@ -207,7 +207,7 @@ SETTINGS = [
         configure=_configure_target,
         read=_read("temperature"),
         expected=23.5,
-        default=5.0,
+        default=20.0,
     ),
     Setting(
         name="hvac_mode",

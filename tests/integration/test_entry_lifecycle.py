@@ -319,28 +319,27 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         bt = await wait_for_startup(hass, entry)
 
     # The premise of the parametrization, read off this very startup: the
-    # reconciler is the only five-minute handler that can re-send, so a
-    # re-send comes from nowhere else. Claimed as the whole set, because any
-    # other handler on that interval would be an equally good suspect. The
-    # availability tick shares the interval but only advances the degradation
-    # ladder and re-reads the critical entities, queueing no control cycle,
-    # so it heals nothing.
-    assert sorted(_on_the_five_minute_tick(registered)) == [
-        "_availability_tick",
-        "_reconcile_tick",
-    ]
+    # reconciler is the only five-minute handler, so a re-send comes from
+    # nowhere else. Claimed as the whole set, because any other handler on
+    # that interval would be an equally good suspect. The ladder tick runs
+    # more often but only advances the degradation ladder and re-reads the
+    # critical entities; with the room sensor steady it commits no rung and
+    # queues no control cycle, so it heals nothing.
+    assert _on_the_five_minute_tick(registered) == ["_reconcile_tick"]
 
     assert_profile_adopted(bt, fake_trv.profile)
     assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
 
     with patch(WRITE_BUDGET, 0.0):
-        # The device drops the write for the new target.
+        # The device drops the write for the new target. The target sits
+        # below the room reading: a room below its target already has the
+        # head on its maximum, so a higher target would command nothing new.
         fake_trv.drop_next_setpoint_write = True
         baseline_calls = len(fake_trv.set_temperature_calls)
         await hass.services.async_call(
             "climate",
             "set_temperature",
-            {"entity_id": BT_ENTITY, "temperature": 23.0},
+            {"entity_id": BT_ENTITY, "temperature": 16.0},
             blocking=True,
         )
         assert await wait_for(
@@ -363,6 +362,54 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
 
     assert fake_trv.set_temperature_calls[-1] == lost
     assert fake_trv._attr_target_temperature == lost
+
+
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        replace(
+            GENERIC_HEAT_TRV,
+            name=f"generic_heat_trv_{mode.value}",
+            calibration_mode=mode.value,
+        )
+        for mode in CalibrationMode
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_a_quiet_room_does_not_trip_the_control_watchdog(hass, fake_trv, caplog):
+    """An hour without a reason to control is not a stalled control loop.
+
+    A room holding its temperature publishes no state change, and a
+    calibration mode without the five-minute recompute queues no cycle of
+    its own, so in such a room no control cycle may run for an hour. The
+    devices still hold the intent, so the watchdog has no hang to report
+    and no cycle to force, whichever calibration mode the room runs.
+    """
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.better_thermostat.core.clock import FakeClock
+
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    # The periodic ticks are registered at the very end of startup.
+    await hass.async_block_till_done()
+
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    start = dt_util.utcnow()
+    caplog.clear()
+    elapsed = 0
+    while elapsed < 3600:
+        clock.advance(30)
+        elapsed += 30
+        async_fire_time_changed(hass, start + timedelta(seconds=elapsed))
+        await hass.async_block_till_done()
+
+    assert [r.message for r in caplog.records if "control watchdog" in r.message] == []
 
 
 @pytest.mark.parametrize("fake_trv", [GENERIC_HEAT_TRV], indirect=True, ids=profile_id)
