@@ -95,6 +95,7 @@ import ast
 from dataclasses import dataclass
 import itertools
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -115,6 +116,8 @@ MARKER_MIN_LENGTH = 16
 MARKERS_PER_COMMIT = 12
 MIN_MARKERS = 3
 HIT_RATE_THRESHOLD = 0.5
+# Spellings tried for one marker; bounds the work a line full of aliases costs.
+SPELLINGS_PER_MARKER = 256
 
 # Suffixes whose content is line-oriented text worth comparing. Translations
 # are `.json` and blueprints are `.yaml`, so both carry markers.
@@ -528,14 +531,36 @@ def _renames(ref: str) -> dict[str, tuple[str, ...]]:
 
 
 def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
-    """Return the marker as written plus every spelling the glossary renames it to."""
-    aliases = sorted({name for name in IDENTIFIER.findall(marker) if name in renames})
+    """Return the marker as written plus every spelling the glossary renames it to.
+
+    Each occurrence of an alias is spelled on its own, as written or as any
+    name replacing it, so one line can carry an alias renamed in one place
+    and kept or renamed differently in another. Past ``SPELLINGS_PER_MARKER``
+    combinations every occurrence of an alias takes the same spelling, and
+    no more than that many spellings are returned.
+    """
+    occurrences = [
+        match for match in IDENTIFIER.finditer(marker) if match[0] in renames
+    ]
+    options = [(match[0], *renames[match[0]]) for match in occurrences]
+    if math.prod(len(choices) for choices in options) > SPELLINGS_PER_MARKER:
+        aliases = sorted({match[0] for match in occurrences})
+        options = [(alias, *renames[alias]) for alias in aliases]
+        option_of = [aliases.index(match[0]) for match in occurrences]
+    else:
+        option_of = list(range(len(occurrences)))
     spellings = [marker]
-    for choice in itertools.product(*((alias, *renames[alias]) for alias in aliases)):
-        spelled = dict(zip(aliases, choice, strict=True))
-        renamed = IDENTIFIER.sub(lambda name: spelled.get(name[0], name[0]), marker)
+    for choice in itertools.product(*options):
+        pieces: list[str] = []
+        end = 0
+        for match, index in zip(occurrences, option_of, strict=True):
+            pieces.extend((marker[end : match.start()], choice[index]))
+            end = match.end()
+        renamed = "".join(pieces) + marker[end:]
         if renamed != marker:
             spellings.append(renamed)
+        if len(spellings) >= SPELLINGS_PER_MARKER:
+            break
     return spellings
 
 

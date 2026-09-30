@@ -753,6 +753,59 @@ def test_a_line_renamed_onto_the_glossary_is_found(lines, develop_spelling):
     assert commit.hits == 4
 
 
+TWICE_SPELLING = "trv_data.compare_the_heads(heater_entity_id, heater_entity_id, {i})"
+
+
+@pytest.mark.parametrize(
+    "develop_spelling",
+    [
+        "trv.compare_the_heads(entity_id, entity_id_of_the_head, {i})",
+        "trv.compare_the_heads(entity_id_of_the_head, entity_id, {i})",
+        "trv.compare_the_heads(entity_id, heater_entity_id, {i})",
+        "trv_data.compare_the_heads(heater_entity_id, entity_id_of_the_head, {i})",
+    ],
+    ids=["two-terms", "two-terms-swapped", "one-kept", "only-second-renamed"],
+)
+def test_each_occurrence_of_a_rejected_name_is_renamed_on_its_own(
+    lines, develop_spelling
+):
+    """An alias written twice in one statement can end up spelled twice apart.
+
+    The glossary gives one alias two replacements, and the development line
+    may use both in one statement or keep the alias in one place only.
+    """
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=GLOSSARY,
+        develop_spelling=develop_spelling,
+        maintenance_spelling=TWICE_SPELLING,
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == 4
+
+
+def test_the_spellings_of_one_marker_are_bounded(lines):
+    """A line full of aliases costs at most the cap, and still spells them all.
+
+    Past the cap every occurrence of an alias takes the same spelling, so the
+    consistent rename stays among the spellings tried.
+    """
+    script, _ = lines
+    marker = " + ".join(["old"] * 12)
+    renames = {"old": ("first", "second")}
+
+    spellings = script._spellings(marker, renames)
+
+    assert len(spellings) <= script.SPELLINGS_PER_MARKER
+    assert spellings[0] == marker
+    assert " + ".join(["first"] * 12) in spellings
+    assert " + ".join(["second"] * 12) in spellings
+
+
 @pytest.mark.parametrize(
     ("glossary", "maintenance_spelling", "develop_spelling"),
     [
