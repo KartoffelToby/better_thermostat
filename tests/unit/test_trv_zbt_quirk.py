@@ -9,6 +9,7 @@ device's own controller, so Better Thermostat must never write one of them.
 import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.model_fixes import model_quirks as quirks
@@ -57,12 +58,11 @@ def _make_self(selector_state="internal"):
     mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRV-ZBT")}
     mock_self._registry = make_entity_registry(*_trv_zbt_entries())
 
-    selector = MagicMock()
-    selector.state = selector_state
-    selector.attributes = {
-        "options": ["internal", "external", "external_2", "external_3"]
-    }
-    mock_self.hass.states.get.return_value = selector
+    mock_self.hass.states.get.return_value = State(
+        SENSOR_SELECT,
+        selector_state,
+        {"options": ["internal", "external", "external_2", "external_3"]},
+    )
     return mock_self
 
 
