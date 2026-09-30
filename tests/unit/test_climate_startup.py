@@ -3216,6 +3216,29 @@ class TestATrvThatArrivesAfterStartup:
         request.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_maintenance_that_starts_mid_pass_stops_the_next_setup(self, bt):
+        """A TRV next in line is not set up once maintenance has started.
+
+        Setting up one TRV takes a while, and valve maintenance can start
+        meanwhile. The TRVs after it in the same pass stay marked and are set
+        up when maintenance ends.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt.real_trvs[TRV_ID].awaiting_initialization = True
+
+        async def maintenance_starts_during_setup(entity_ids):
+            bt.in_maintenance = True
+            return set()
+
+        bt._initialize_trvs = AsyncMock(side_effect=maintenance_starts_during_setup)
+
+        with patch(f"{_CLIMATE}.request_control_cycle"):
+            await BetterThermostat._initialize_arrived_trvs(bt)
+
+        bt._initialize_trvs.assert_awaited_once_with([TRV_ID])
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+
+    @pytest.mark.asyncio
     async def test_a_report_during_valve_maintenance_sets_nothing_up(self, bt):
         """A TRV that reports back during valve maintenance is not written to."""
         _room_with_a_trv_left_behind(bt, available=True)
