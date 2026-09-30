@@ -151,6 +151,15 @@ def _valve_number_candidates(
     or ``None`` when the TRV is no Sonoff model or has no registry entry.
     """
     model = str(self.real_trvs[entity_id].model or "")
+    # The TRV-ZBT's valve numbers configure its own controller and position
+    # nothing, so it is ruled out before the Sonoff match below takes it in.
+    if _TRV_ZBT_MODEL in model.lower():
+        _LOGGER.debug(
+            "better_thermostat %s: TRVZB valve lookup skipped for the TRV-ZBT (model=%s)",
+            self.device_name,
+            model,
+        )
+        return None
     # Only attempt for Sonoff TRVZB
     if not ("sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"):
         _LOGGER.debug(
