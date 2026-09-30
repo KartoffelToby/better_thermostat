@@ -116,10 +116,8 @@ async def get_battery_status(self, entity):
 
     A battery entity that is itself unavailable, or that has not published a
     level yet, has nothing worth storing: the placeholder would take the place
-    of a reading, and since a stored reading is what stops later passes from
-    asking again, the level would never be read again. The stored slot is left
-    untouched in that case and the read is retried once
-    ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
+    of a reading. The stored slot is left untouched in that case and the read
+    is retried once ``BATTERY_REREAD_DELAY_SECONDS`` have passed.
 
     Parameters
     ----------
@@ -150,10 +148,11 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
     """Queue a battery read for an available entity, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
-    a background task plus an entity state write. A battery value is only
-    ever new on the first pass after startup, while it is still unpopulated,
-    or when the entity has just come back from an outage, so those are the
-    passes that read it.
+    a background task plus an entity state write. A pass therefore reads the
+    battery only on the first pass after startup, while it is still
+    unpopulated, when the entity has just come back from an outage, or when
+    the battery entity reports a level other than the stored one. Comparing
+    against that level is an in-memory state lookup.
 
     An unpopulated reading can also mean that the battery entity itself had
     nothing to report, which would otherwise put a read on every pass, so
@@ -187,7 +186,14 @@ def schedule_battery_refresh(self, entity, *, recovered: bool) -> None:
             if monotonic() < retry_at:
                 return
         elif info.get("battery") is not None:
-            return
+            # A stored level stays current only as long as the battery entity
+            # agrees with it, and it ages while its device stays available.
+            # A battery entity with no level to offer leaves the stored one
+            # standing.
+            battery_state = self.hass.states.get(info["battery_id"])
+            level = None if battery_state is None else battery_state.state
+            if level == info["battery"] or level in UNAVAILABLE_STATES + UNKNOWN_STATES:
+                return
 
     self.hass.async_create_background_task(
         get_battery_status(self, entity), name=f"bt_battery_status_{entity}"
