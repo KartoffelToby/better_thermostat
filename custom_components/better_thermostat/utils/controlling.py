@@ -183,6 +183,11 @@ FAILED_CYCLE_BACKOFF_MAX_S = 300.0
 # between go to the debug log. A device that refuses for good would otherwise
 # leave the same warning every few minutes all day.
 FAILED_CYCLE_WARNING_INTERVAL_S = 3600.0
+# Pause at the end of a TRV's control call while its state events are still
+# ignored, so the device's reports of what was just written land inside that
+# window instead of being taken as a change made at the device.
+TRV_STATE_SETTLE_S = 3.0
+
 # How long a write channel waits for the device to confirm a command
 # before its watchdog releases the in-flight flag and assumes the command
 # applied. Shared by the mode, setpoint and calibration watchdogs, so a
@@ -2507,7 +2512,7 @@ async def control_trv(
         _stamp_heartbeat(self)
 
         # Let TRV state updates propagate before accepting new state events
-        await asyncio.sleep(3)
+        await asyncio.sleep(TRV_STATE_SETTLE_S)
         return True
     finally:
         if _suppression_owned:

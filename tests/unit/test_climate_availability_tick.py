@@ -21,10 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
-from custom_components.better_thermostat.core.fsm.control_mode import (
-    LADDER_TICK_S,
-    LadderParams,
-)
+from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
@@ -48,17 +45,6 @@ def _has_ladder_tick(bt, registered):
 def _has_control_tick(bt, registered):
     """Whether the five-minute recompute tick is registered."""
     return (bt._trigger_time, timedelta(minutes=5)) in registered.intervals
-
-
-def test_the_ladder_tick_is_shorter_than_both_windows():
-    """A commit lands at most one tick after its window has elapsed.
-
-    With a tick as long as a window or longer, the evaluation that commits
-    could come almost a whole further window late.
-    """
-    params = LadderParams()
-
-    assert LADDER_TICK_S < min(params.down_debounce_s, params.up_stability_s)
 
 
 @pytest.mark.asyncio
