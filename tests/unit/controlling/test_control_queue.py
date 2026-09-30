@@ -745,9 +745,9 @@ class TestControlQueueOnADualRoleEntity:
             what marks the cycle under test as finished. A cycle whose TRV
             controls all succeed marks the queued item done and puts nothing
             back, so ``Queue.join`` returns exactly when it completes and None
-            selects that wait. A cycle that re-queues itself for a retry keeps
-            the queue permanently unfinished, so those cases pass a predicate
-            over what the assertions read instead.
+            selects that wait. A cycle that fails schedules a retry that puts
+            the item back, so those cases pass a predicate over what the
+            assertions read instead.
 
         Returns
         -------
@@ -769,6 +769,33 @@ class TestControlQueueOnADualRoleEntity:
                     await queue_task
                 except asyncio.CancelledError:
                     pass
+
+    @pytest.mark.parametrize(
+        ("awaiting", "cooler_passes"),
+        [
+            pytest.param(True, 0, id="awaiting"),
+            pytest.param(False, 1, id="initialised"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_cooler_awaiting_initialization_is_not_controlled(
+        self, awaiting, cooler_passes
+    ):
+        """A cooler that is also a TRV still being set up gets no cooling pass.
+
+        The cooling channel writes a mode and a setpoint to the same device the
+        heating channel leaves alone until its initialisation is done.
+        """
+        mock_self = self._make_self(hvac_mode_decided="heat")
+        mock_self.real_trvs[self.SHARED_ID].awaiting_initialization = awaiting
+
+        with (
+            patch(f"{self._CTRL}.control_cooler", new=AsyncMock()) as control_cooler,
+            patch(f"{self._CTRL}.control_trv", new=AsyncMock(return_value=True)),
+        ):
+            await self._run_one_cycle(mock_self)
+
+        assert control_cooler.await_count == cooler_passes
 
     @pytest.mark.asyncio
     async def test_the_heating_channel_stands_down_while_cooling_owns_the_device(self):
@@ -856,10 +883,9 @@ class TestControlQueueOnADualRoleEntity:
             ),
             caplog.at_level("ERROR"),
         ):
-            # The cycle fails its only dispatched control, then backs off and
-            # re-queues itself before it marks the taken item done, so the
-            # queue never drains and the first pass is what the assertions
-            # below are about.
+            # The cycle fails its only dispatched control and schedules its own
+            # retry, so the wait ends on the first failure report and the first
+            # pass is what the assertions below are about.
             await self._run_one_cycle(mock_self, until=lambda: bool(_errors()))
 
         errors = _errors()

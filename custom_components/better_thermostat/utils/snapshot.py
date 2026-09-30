@@ -78,9 +78,13 @@ def build_snapshot(self) -> WorldSnapshot:
     WorldSnapshot
         Immutable observation used by the core control cycle.
     """
+    # A TRV that startup has not initialised yet carries none of the values
+    # a decision reads, and boost would address it even while unreachable,
+    # so it is not part of the room until its initialisation has completed.
     trvs = {
         entity_id: _build_trv_reported(self, entity_id, trv)
         for entity_id, trv in self.real_trvs.items()
+        if not trv.awaiting_initialization
     }
 
     is_day, solar_intensity = _get_solar_context(self)

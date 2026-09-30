@@ -39,7 +39,8 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -63,7 +64,9 @@
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
-      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
+      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant",
+      "already_configured": "En Better Thermostat med dette navn styrer allerede disse termostater.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat; fjern den der først."
     }
   },
   "options": {
@@ -93,7 +96,8 @@
           "calibration": "Den slags kalibrering",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "cooler": "Køleenhed (valgfri)"
         },
         "data_description": {
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
@@ -109,7 +113,8 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
@@ -120,7 +125,9 @@
     },
     "error": {
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
-      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen."
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
+      "no_sensor": "Vælg venligst en rumtemperatursensor.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat."
     }
   },
   "issues": {
@@ -150,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ugyldig ekstern temperatur",
       "description": "Den eksterne temperaturføler for Better Thermostat {name} rapporterede en usandsynlig værdi: {value}.\n\nAflæsningen lå uden for det sandsynlige interval og blev ignoreret. Kontroller din temperaturfølerkonfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} styres af mere end én Better Thermostat",
+      "description": "Termostaten {trv} hører til disse Better Thermostats: {entries}. De skriver konkurrerende måltemperaturer og tilstande til den. Fjern den fra alle undtagen én i deres indstillinger; denne meddelelse forsvinder derefter af sig selv."
     }
   },
   "services": {
@@ -438,6 +449,7 @@
           "window_close": "genoptog opvarmning fordi et vindue blev lukket",
           "summer_mode_on": "slukket fordi udendørstemperaturen er for høj",
           "summer_mode_off": "genoptog opvarmning fordi udendørstemperaturen faldt",
+          "weather_forecast_missing": "genoptog opvarmning fordi vejrudsigten ikke er tilgængelig",
           "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
           "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige",
           "door_open": "turned off because a door was opened",

@@ -39,7 +39,8 @@
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Typ kalibrácie",
           "calibration_mode": "Režim kalibrácie",
-          "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C."
+          "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C.",
+          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
         },
         "data_description": {
           "protect_overheating": "Niektoré termostatické ventily úplne neuzatvoria ventil po dosiahnutí požadovanej teploty. Alebo má radiátor veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -63,7 +64,9 @@
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
-      "no_devices_found": "Nenašiel sa žiadny subjekt termostatu, uistite sa, že máte v domácom asistentovi subjekt klímy"
+      "no_devices_found": "Nenašiel sa žiadny subjekt termostatu, uistite sa, že máte v domácom asistentovi subjekt klímy",
+      "already_configured": "Better Thermostat s týmto názvom už ovláda tieto termostaty.",
+      "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat; najprv ho odstráňte tam."
     }
   },
   "options": {
@@ -93,7 +96,8 @@
           "calibration": "Druh kalibrácie",
           "heat_auto_swapped": "Ak auto znamená teplo pre váš TRV a chcete ho vymeniť",
           "child_lock": "Ignorovať všetky vstupy na TRV ako detský zámok",
-          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu"
+          "homematicip": "Ak používate HomematicIP, mali by ste túto funkciu povoliť, aby ste spomalili požiadavky a zabránili tak pracovnému cyklu",
+          "cooler": "Chladiace zariadenie (voliteľné)"
         },
         "data_description": {
           "presets": "Vyberte predvoľby, ktoré chcete mať k dispozícii pre tento termostat."
@@ -109,7 +113,8 @@
           "valve_maintenance": "Ak váš termostat nemá vlastný režim údržby, môžete použiť tento režim",
           "calibration": "Druh kalibrácie, ktorý chcete použiť",
           "calibration_mode": "Režim kalibrácie",
-          "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C."
+          "no_off_system_mode": "Ak váš TRV nedokáže pracovať v režime vypnutia, môžete namiesto toho povoliť použitie cieľovej teploty 5 °C.",
+          "mpc_v2_plant_preset": "MPC v2 veľkosť miestnosti"
         },
         "data_description": {
           "protect_overheating": "Niektoré TRV nezatvárajú ventil úplne, keď sa dosiahne požadovaná teplota. Alebo je v radiátore veľa zvyškového tepla. To môže spôsobiť prehriatie. Táto možnosť tomu môže zabrániť.",
@@ -120,7 +125,9 @@
     },
     "error": {
       "no_heater": "Vyberte prosím aspoň jeden skutočný termostat.",
-      "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu."
+      "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
+      "no_sensor": "Vyberte snímač izbovej teploty.",
+      "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat."
     }
   },
   "issues": {
@@ -150,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - neplatná vonkajšia teplota",
       "description": "Snímač vonkajšej teploty pre Better Thermostat {name} nahlásil nepravdepodobnú hodnotu: {value}.\n\nNameraná hodnota bola mimo pravdepodobného rozsahu a bola ignorovaná. Skontrolujte konfiguráciu snímača teploty."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} ovláda viac ako jeden Better Thermostat",
+      "description": "Termostat {trv} patrí týmto Better Thermostat: {entries}. Zapisujú doň konkurenčné cieľové teploty a režimy. V ich nastaveniach ho odstráňte zo všetkých okrem jedného; potom tento problém sám zmizne."
     }
   },
   "services": {
@@ -438,6 +449,7 @@
           "window_close": "vykurovanie obnovené, pretože bolo zatvorené okno",
           "summer_mode_on": "vypnuté, pretože vonkajšia teplota je príliš vysoká",
           "summer_mode_off": "vykurovanie obnovené, pretože vonkajšia teplota klesla",
+          "weather_forecast_missing": "vykurovanie obnovené, pretože predpoveď počasia nie je dostupná",
           "degraded_mode_entered": "vstúpil do núdzového režimu, pretože niektoré senzory sú nedostupné",
           "degraded_mode_resolved": "ukončil núdzový režim, pretože všetky senzory sú dostupné",
           "door_open": "turned off because a door was opened",
