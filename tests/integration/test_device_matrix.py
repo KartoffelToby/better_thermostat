@@ -246,7 +246,7 @@ async def test_setpoint_rounds_to_the_device_grid(
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     assert_profile_adopted(bt, fake_trv.profile)
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    await hass.async_block_till_done()
 
     with patch(WRITE_BUDGET, 0.0):
         baseline = len(fake_trv.set_temperature_calls)

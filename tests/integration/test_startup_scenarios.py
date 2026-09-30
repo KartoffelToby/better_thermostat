@@ -17,11 +17,12 @@ from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
-from homeassistant.core import Context, SupportsResponse
+from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
@@ -50,7 +51,9 @@ from .conftest import (
     DOMAIN,
     SENSOR_ID,
     WINDOW_ID,
+    WRITE_BUDGET,
     assert_profile_adopted,
+    assert_write_is,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -102,8 +105,8 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     A cloud-backed valve is routinely still unavailable by the time Home
     Assistant has finished starting, so a repair issue here would be a false
     one. The thermostat holds in startup, says nothing, and comes up as soon
-    as the device does — with the device's own capabilities read, which is the
-    proof that it waited for the real thing rather than guessing.
+    as the device does — with the device's own capabilities and setpoint read,
+    which is the proof that it waited for the real thing rather than guessing.
     """
     set_room_sensor(hass, 19.0)
     fake_trv.set_available(False)
@@ -122,7 +125,7 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     assert bt_issues(hass) == []
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert_profile_adopted(bt, fake_trv.profile)
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    assert bt.bt_target_temp == fake_trv.profile.target_temperature
 
 
 async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes(
@@ -456,6 +459,16 @@ async def start_without_room_sensor(hass, fake_trv, state: str | None = None):
     return bt
 
 
+async def set_room_target(hass: HomeAssistant, value: float) -> None:
+    """Set a room target the TRV does not hold, so reaching it takes a write."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": value},
+        blocking=True,
+    )
+
+
 @pytest.mark.parametrize("sensor_state", [None, "unavailable", "unknown"])
 async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     hass, fake_trv, sensor_state
@@ -467,7 +480,9 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     hour later, and an hour later the room controls on the TRV's internal
     temperature. Once the grace window has closed, startup does the same:
     the room comes up, controls on the TRV temperature from the first cycle
-    and names the missing sensor.
+    and names the missing sensor. With the room on the TRV temperature there
+    is no offset between the two, so a new room target reaches the TRV as
+    it is.
     """
     trv_temperature = fake_trv.profile.current_temperature
 
@@ -480,7 +495,13 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == (
         trv_temperature
     )
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    writes_before = len(fake_trv.set_temperature_calls)
+    with patch(WRITE_BUDGET, 0.0):
+        await set_room_target(hass, 22.0)
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > writes_before
+        )
+    assert_write_is(fake_trv.set_temperature_calls[-1], 22.0, fake_trv.profile)
     assert bt.unavailable_sensors == [SENSOR_ID]
     assert await wait_for(hass, lambda: degraded_issue_sensors(hass, bt))
     assert degraded_issue_sensors(hass, bt) == SENSOR_ID
