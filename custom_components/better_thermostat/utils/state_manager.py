@@ -32,6 +32,7 @@ One-time data migration from the four legacy Store files is handled by
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -587,6 +588,8 @@ class StateManager:
         self._copy_retry_at = 0.0
         self._copy_retry_s = COPY_RETRY_FIRST_S
         self._copy_retry_running = False
+        # The background task of the latest timed try; flush() waits for it.
+        self._copy_retry_task: asyncio.Task[None] | None = None
         # The timer that tries the copy at ``_copy_retry_at`` on its own, and
         # whether the manager still starts one; after close() it does not.
         self._copy_retry_timer: CALLBACK_TYPE | None = None
@@ -818,7 +821,7 @@ class StateManager:
         if self._payload_awaiting_copy is None or self._copy_retry_running:
             return
         self._copy_retry_running = True
-        self._hass.async_create_background_task(
+        self._copy_retry_task = self._hass.async_create_background_task(
             self._retry_copy_then_save(), name=f"bt_state_copy_{self._entry_id}"
         )
 
@@ -1048,7 +1051,14 @@ class StateManager:
         """Flush unsaved changes -- call when the entity stops or is removed.
 
         Unlike :meth:`save_if_dirty`, this tries again to set aside a stored
-        payload still waiting for its copy.
+        payload still waiting for its copy. A timed copy already under way is
+        awaited first, so the final write sees its outcome instead of trying
+        the copy beside it: a copy that lands after :meth:`close` saves
+        nothing of its own. The wait is not bounded, like the Store write in
+        :meth:`save` it consists of.
         """
+        copy = self._copy_retry_task
+        if copy is not None and not copy.done():
+            await asyncio.wait({copy})
         if self._dirty:
             await self.save()

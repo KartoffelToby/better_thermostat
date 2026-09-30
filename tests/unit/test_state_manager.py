@@ -1631,6 +1631,52 @@ class TestAFailedCopyThatRecovers:
         stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
         assert mgr.dirty is True
 
+    @pytest.mark.asyncio
+    async def test_the_final_flush_waits_for_a_copy_under_way(self, hass, freezer):
+        """A flush during a timed copy saves the state once that copy lands.
+
+        A second try beside the running one may fail where the first one
+        succeeds; the running copy then saves nothing after ``close()``, so
+        the flush has to wait for it and write the state itself.
+        """
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        with _stores_by_key() as stores:
+            mgr, copy = await self._loaded_on(hass, stores, disk)
+            mgr.mark_dirty()
+            kept = _saved_into(copy)
+            gated_writes = {"count": 0}
+
+            async def _gated(data):
+                gated_writes["count"] += 1
+                if gated_writes["count"] > 1:
+                    raise OSError("disk busy")
+                entered.set()
+                await release.wait()
+                kept(data)
+
+            copy.async_save.side_effect = _gated
+            freezer.tick(timedelta(seconds=61))
+            async_fire_time_changed(hass, dt_util.utcnow())
+            await asyncio.wait_for(entered.wait(), timeout=5)
+
+            mgr.close()
+            flush = hass.async_create_task(mgr.flush())
+            for _ in range(20):
+                await asyncio.sleep(0)
+            release.set()
+            await asyncio.wait_for(flush, timeout=5)
+            saved_by_the_flush = stores[_LIVE_STORE_KEY].async_save.await_count
+
+            await hass.async_block_till_done(wait_background_tasks=True)
+            await self._advance(hass, freezer, 2 * 3600)
+
+        assert copy.async_load.return_value == self._PAYLOAD
+        assert saved_by_the_flush == 1
+        assert stores[_LIVE_STORE_KEY].async_save.await_count == 1
+        assert mgr.dirty is False
+
 
 class TestEveryDistinctPayloadIsKept:
     """Each distinct unreadable payload gets a copy before the store is written.
