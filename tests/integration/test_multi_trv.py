@@ -701,6 +701,16 @@ async def boot_with_heads_gone(
     return hass.data[DOMAIN][entry.entry_id]["climate"], entry
 
 
+async def set_room_target(hass, value: float) -> None:
+    """Set a room target the heads do not hold, so reaching them takes a write."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": value},
+        blocking=True,
+    )
+
+
 def has_adopted(bt, profile) -> bool:
     """Whether Better Thermostat has read this device's capabilities."""
     try:
@@ -730,6 +740,7 @@ async def test_a_room_booting_with_a_head_gone_starts_once_the_grace_window_clos
         await wait_for_startup(hass, entry)
 
     assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
+    await set_room_target(hass, 22.0)
     assert await wait_for(
         hass, lambda: all(head.set_temperature_calls for head in present)
     ), {head.entity_id: head.set_temperature_calls for head in present}
@@ -798,6 +809,7 @@ async def test_a_room_with_every_head_gone_keeps_waiting_after_the_grace_window(
 
     assert hass.states.get(BT_ENTITY).state == HVACMode.HEAT
     assert_profile_adopted(bt, first.profile)
+    await set_room_target(hass, 22.0)
     assert await wait_for(hass, lambda: first.set_temperature_calls)
 
 
@@ -843,6 +855,7 @@ async def test_a_head_that_arrives_after_the_room_started_follows_the_room(
     assert absent.set_temperature_calls == []
 
     with patch(WRITE_BUDGET, 0.0):
+        await set_room_target(hass, 22.0)
         absent.set_available(True)
         assert await wait_for(hass, lambda: absent.set_temperature_calls)
         assert_write_is(
