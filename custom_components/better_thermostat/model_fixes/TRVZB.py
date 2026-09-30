@@ -23,6 +23,11 @@ _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 
+# The Sonoff TRV Gen2 reports model_id "TRV-ZBT", which neither Sonoff match
+# below takes in. It shares the external temperature input and the sensor
+# selector with the TRVZB, but not the valve numbers.
+_TRV_ZBT_MODEL = "trv-zbt"
+
 # Some users report that the TRVZB motor can occasionally lose its calibration and
 # fail to fully close the valve when commanded to very small openings.
 #
@@ -621,12 +626,15 @@ async def maybe_set_external_temperature(
     -------
     bool
         True when the input was written, False when the device is not a
-        TRVZB, names no such input, or the value is not a number.
+        TRVZB or TRV-ZBT, names no such input, or the value is not a number.
     """
     try:
         model = str(self.real_trvs[entity_id].model or "")
         if not (
-            "sonoff" in model.lower() or "trvzb" in model.lower() or model == "TRVZB"
+            "sonoff" in model.lower()
+            or "trvzb" in model.lower()
+            or model == "TRVZB"
+            or _TRV_ZBT_MODEL in model.lower()
         ):
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature skipped (model=%s)",
