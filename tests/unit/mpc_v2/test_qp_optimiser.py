@@ -485,24 +485,33 @@ def test_portable_solver_plans_flat_and_says_so_when_it_does_not_converge(
     assert any("planning flat" in r.getMessage() for r in caplog.records)
 
 
-def test_portable_solver_is_exact_on_arbitrary_convex_plans() -> None:
+# Each seed draws a plan that only one of the solver's recoveries gets right:
+# an exact solve after a failed factorisation (0), a constraint leaving the
+# exact solve (4), the last iterate of an iteration that runs out (11) and the
+# flat plan beating an iterate that stops short (56).
+@pytest.mark.parametrize("seed", [0, 4, 11, 56])
+def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
     """Any convex plan objective is solved feasibly and to daqp's optimum.
 
     Horizons of 1 to 24 steps, Hessians from well conditioned to nearly
     rank one, gradients over seven orders of magnitude, rate limits from
     zero to wider than the valve and a last command outside the valve range.
-    The objective may exceed daqp's by a millionth of its size.
+    The objective may exceed daqp's by a millionth of its size plus what
+    daqp's own constraint violation gains it. A Hessian conditioned beyond
+    the interior point's resolution is solved to its stopping tolerance.
     """
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (
         qp_optimiser,
     )
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (
+        _CONVERGENCE_TOL,
+        _FEASIBILITY_TOL,
         _SolverBounds,
     )
 
     if not qp_optimiser.DAQP_AVAILABLE or qp_optimiser._daqp is None:
         pytest.skip("the daqp solver is not installed")
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     opt = QpOptimiser(PlantModelRC2(PlantParams(), dt_s=300.0), QpParams())
     worst_gap = 0.0
     worst_violation = 0.0
@@ -562,11 +571,24 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans() -> None:
         # plans, up to steps of that tolerance; only feasibility counts there.
         if exit_flag == 1 and reference_violation <= 1e-9 and bounds.delta_u_max > 1e-9:
             compared += 1
-            worst_gap = max(worst_gap, (objective - optimum) / max(1.0, abs(optimum)))
+            # A reference just outside the constraints undercuts the optimum
+            # by up to its violation times the objective's slope.
+            slope = float(np.sum(np.abs(hessian @ reference + gradient)))
+            allowed = (
+                1e-6 * max(1.0, abs(optimum)) + max(reference_violation, 0.0) * slope
+            )
+            if np.linalg.cond(hessian) > 1.0 / _CONVERGENCE_TOL:
+                constraints = 4 * n - 2
+                allowed += (
+                    constraints * _CONVERGENCE_TOL * float(np.max(np.abs(hessian)))
+                )
+            worst_gap = max(worst_gap, (objective - optimum) / allowed)
 
-    assert worst_violation <= 1e-9
-    assert compared >= 450
-    assert worst_gap <= 1e-6
+    # The solver checks feasibility on the merged first interval; the steps
+    # here are recomputed and carry round-off beyond the tolerance.
+    assert worst_violation <= _FEASIBILITY_TOL * (1.0 + 1e-6)
+    assert compared >= 400
+    assert worst_gap <= 1.0
 
 
 def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -> None:

@@ -115,15 +115,16 @@ def _polish(
 ) -> FloatArray | None:
     """Solve exactly on the constraints the interior point ends on.
 
-    A constraint starts out active where its multiplier exceeds its slack,
-    and a constraint the exact solution breaks joins the set, for as many
-    rounds as there are constraints. The result is returned only once it is
-    feasible and every multiplier is non-negative, which makes it the
-    optimum; otherwise ``None``.
+    A constraint starts out active where its multiplier exceeds its slack.
+    A constraint the exact solution breaks joins the set, and the one with
+    the most negative multiplier leaves it, for twice as many rounds as
+    there are constraints. The result is returned only once it is feasible
+    and every multiplier is non-negative, which makes it the optimum;
+    otherwise ``None``.
     """
     size = hessian.shape[0]
     active = [int(i) for i in np.flatnonzero(dual > slack)]
-    for _ in range(rows.shape[0]):
+    for _ in range(2 * rows.shape[0]):
         count = len(active)
         normals = rows[active]
         kkt = np.block([[hessian, normals.T], [normals, np.zeros((count, count))]])
@@ -142,7 +143,8 @@ def _polish(
             continue
         largest = max(1.0, float(np.max(np.abs(multipliers)))) if count else 1.0
         if count and float(np.min(multipliers)) < -_FEASIBILITY_TOL * largest:
-            return None
+            del active[int(np.argmin(multipliers))]
+            continue
         return exact
     return None
 
@@ -415,7 +417,7 @@ class QpOptimiser:
         stalls an active-set search meets on ties; the constraints it ends
         on then define an equality problem whose exact solution replaces the
         iterate when it is feasible and its multipliers have the right sign.
-        Against daqp the first command agrees to 1e-4 percentage points in
+        A plan the best flat plan beats is replaced by it. Against daqp the first command agrees to 1e-4 percentage points in
         the tests, over every plant and weight setting drawn there.
 
         When the plan space collapses (no rate or box width), or the
@@ -470,7 +472,13 @@ class QpOptimiser:
                 level, "MPC v2 NumPy solver found no feasible optimum; planning flat"
             )
             return flat
-        return plan
+
+        # An iteration that ends short of the optimum can leave a plan the
+        # best flat plan beats; the better of the two is planned.
+        def objective(x: FloatArray) -> float:
+            return float(0.5 * x @ hessian @ x + gradient @ x)
+
+        return flat if objective(flat) < objective(plan) else plan
 
     @staticmethod
     def _interior_point(
@@ -480,10 +488,12 @@ class QpOptimiser:
         limits: FloatArray,
         start: FloatArray,
     ) -> FloatArray | None:
-        """Return the optimum of ``½xᵀHx + gᵀx`` s.t. ``rows·x ≤ limits``, or None.
+        """Return the optimum of ``½xᵀHx + gᵀx`` s.t. ``rows·x ≤ limits``.
 
-        The objective is scaled to a unit Hessian entry first, so the
-        tolerances mean the same for every weight setting.
+        An iteration that stops short of the optimum returns its last
+        iterate, and a zero Hessian returns None. The objective is scaled to
+        a unit Hessian entry first, so the tolerances mean the same for every
+        weight setting.
         """
         count = rows.shape[0]
         scale = float(np.max(np.abs(hessian)))
@@ -516,7 +526,8 @@ class QpOptimiser:
                 # Near the optimum the weights span many orders of magnitude
                 # and the Newton matrix can lose definiteness to round-off;
                 # the exact solve finishes the iterate when it can.
-                return _polish(h, g, rows, limits, slack, dual)
+                exact = _polish(h, g, rows, limits, slack, dual)
+                return x if exact is None else exact
 
             residuals = (dual_residual, primal_residual)
             dx, d_slack, d_dual = _newton_direction(
@@ -541,7 +552,8 @@ class QpOptimiser:
             x = x + step * dx
             slack = slack + step * d_slack
             dual = dual + step * d_dual
-        return None
+        exact = _polish(h, g, rows, limits, slack, dual)
+        return x if exact is None else exact
 
     def _steady_input_for(
         self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
