@@ -6,6 +6,7 @@ non-safety writes to one TRV keep a minimum spacing.
 
 import asyncio
 from dataclasses import replace
+import logging
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import HVACMode
@@ -15,6 +16,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
+from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
@@ -364,6 +366,65 @@ async def _run_setpoint_cycle(bt, target):
         conv.return_value = {"temperature": target, "system_mode": HVACMode.HEAT}
         await control_trv(bt, "climate.trv")
     return set_temp
+
+
+class TestControlWatchdog:
+    """The reconcile tick reports a stalled loop, not a quiet one."""
+
+    @staticmethod
+    def _stalled(bt):
+        """Put the last completed cycle well beyond the watchdog's age."""
+        bt.kernel_state = replace(bt.kernel_state, last_control_monotonic=1_000.0)
+        bt.clock.monotonic_value = 1_000.0 + WATCHDOG_MAX_AGE_S + 60.0
+        return bt
+
+    @pytest.mark.asyncio
+    async def test_a_diverged_device_behind_a_stalled_loop_is_reported(self, caplog):
+        """Work is outstanding and no cycle has run for longer than the age.
+
+        That is the silent hang the watchdog exists for: it is logged as an
+        error and a cycle is queued.
+        """
+        bt = self._stalled(_make_bt(reported_target=18.0, commanded=21.0))
+
+        with caplog.at_level(logging.ERROR):
+            await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_called_once()
+        assert any("control watchdog" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_a_converged_room_is_quiet_however_long_ago_the_last_cycle_ran(
+        self, caplog
+    ):
+        """A room whose devices hold the intent has nothing for a cycle to do.
+
+        Without a calibration mode that recomputes, a room holding its
+        temperature produces no cycle at all, and the age of the last one
+        says nothing about the loop.
+        """
+        bt = self._stalled(_make_bt(reported_target=21.0, commanded=21.0))
+
+        with caplog.at_level(logging.ERROR):
+            await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_not_called()
+        assert not any("control watchdog" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_a_diverged_device_behind_a_recent_cycle_is_not_reported(
+        self, caplog
+    ):
+        """A divergence with a recent cycle is ordinary reconciliation."""
+        bt = _make_bt(reported_target=18.0, commanded=21.0)
+        bt.kernel_state = replace(bt.kernel_state, last_control_monotonic=1_000.0)
+        bt.clock.monotonic_value = 1_060.0
+
+        with caplog.at_level(logging.ERROR):
+            await reconcile_tick(bt)
+
+        bt.control_queue_task.put_nowait.assert_called_once()
+        assert not any("control watchdog" in r.message for r in caplog.records)
 
 
 class TestBudgetRetry:
