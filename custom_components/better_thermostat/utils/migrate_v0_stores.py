@@ -66,17 +66,17 @@ def _import_legacy_data(
     if mpc_data:
         for key, state_dict in mpc_data.items():
             if isinstance(state_dict, dict):
-                state_mgr.set_mpc(key, deserialize_mpc(state_dict))
+                state_mgr.set_mpc(key, deserialize_mpc(state_dict, key=key))
 
     if pid_data:
         for key, state_dict in pid_data.items():
             if isinstance(state_dict, dict):
-                state_mgr.set_pid(key, deserialize_pid(state_dict))
+                state_mgr.set_pid(key, deserialize_pid(state_dict, key=key))
 
     if tpi_data:
         for key, state_dict in tpi_data.items():
             if isinstance(state_dict, dict):
-                state_mgr.set_tpi(key, deserialize_tpi(state_dict))
+                state_mgr.set_tpi(key, deserialize_tpi(state_dict, key=key))
 
     if thermal_data and isinstance(thermal_data, dict):
         heating_power = thermal_data.get("heating_power")
