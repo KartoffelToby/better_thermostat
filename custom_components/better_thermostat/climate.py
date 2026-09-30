@@ -1047,13 +1047,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_on_remove(async_at_started(self.hass, _async_startup))
 
     async def _trigger_check_weather(self, event=None):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         await check_weather(self)
         if self._last_call_for_heat != self.call_for_heat:
             self._last_call_for_heat = self.call_for_heat
@@ -1063,13 +1058,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self.control_queue_task.put(self)
 
     async def _trigger_time(self, event=None):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: periodic tick skipped (valve maintenance running)",
@@ -1093,13 +1083,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ``call_for_heat`` actually flips, so frequent outdoor readings that
         stay on the same side of the threshold do not spam the queue.
         """
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
             return
         await check_ambient_air_temperature(self)
@@ -1127,13 +1112,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 await self.control_queue_task.put(self)
 
     async def _trigger_temperature_change(self, event):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1228,13 +1208,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
 
     async def _trigger_humidity_change(self, event):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1248,13 +1223,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
@@ -1274,13 +1244,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _trigger_contact_change(self, event, contact_id, trigger_fn, task_label):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
@@ -1303,13 +1268,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _trigger_cooler_change(self, event):
-        # The degraded-mode annunciation updates first: it has to keep
-        # reporting a lost room sensor even while an unavailable TRV aborts
-        # the rest of the handler.
         await check_and_update_degraded_mode(self)
-        _check = await check_critical_entities(self)
-        if _check is False:
-            return
+        await check_critical_entities(self)
         self.async_set_context(event.context)
         if (event.data.get("new_state")) is None:
             return
