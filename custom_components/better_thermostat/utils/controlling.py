@@ -324,10 +324,13 @@ def _schedule_budget_retry(
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
     """Queue one control cycle for an offline TRV's next retry window.
 
-    Consumes the reachability region's ``retry_at``: the cycle re-probes
-    the device, and while it stays offline the region's step advances
-    the exponential backoff. Availability events still trigger an
-    immediate cycle when the device returns by itself.
+    Consumes the reachability region's ``retry_at``: the cycle re-reads
+    the device's state without actively probing it. If the TRV is
+    reachable when the cycle runs, normal control resumes and may write
+    to it. If it stays offline, the kernel does not address it outside
+    boost heating, and the region's step advances the exponential
+    backoff. Availability events still trigger an immediate cycle when
+    the device returns by itself.
     """
     region = self.kernel_state.reachability.get(entity_id)
     if region is None or region.online or region.retry_at is None:

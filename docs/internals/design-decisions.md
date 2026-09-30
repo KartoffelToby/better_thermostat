@@ -20,10 +20,11 @@ deterministic. An event-maintained snapshot would buy nothing (the
 write path is serialized anyway) and cost torn reads.
 
 **Regions are not persisted.** Window, maintenance, lifecycle, mode,
-ladder, reachability all re-derive from live observations within one
-debounce window. A persisted region could only pin stale conclusions
-whose inputs are gone after a restart. Only state with learning value
-(controller models, thermal stats, filters) persists.
+ladder, reachability all re-derive from live observations, at the
+latest within one debounce window. A persisted region could only pin
+stale conclusions whose inputs are gone after a restart. Only state
+with learning value (controller models, thermal stats, filters)
+persists.
 
 **Standby is tracking, never learning.** Entity-level estimates keep
 converging while heating is suppressed; controllers neither integrate
@@ -46,12 +47,19 @@ ready" gate would prevent them from ever warming up. The controllers
 gate themselves (standby skips, gap resets), and capability/health is
 annunciation.
 
-**Reachability is diagnosis, not control law.** In Home Assistant,
-availability is push-based: writing to an unavailable entity does
-nothing, and the device's return triggers events that resume control.
-A write-backoff consumer would model a polling world that does not
-exist here; flapping churn is already bounded by the write budget. The
-region's value is the flight-recorder trail during outage analysis.
+**Reachability filters addresses and paces re-checks; it does not
+retry writes.** An unreachable TRV is dropped from the addressed set
+(boost excepted), because in Home Assistant writing to an unavailable
+entity does nothing. Availability is push-based: a returning device
+normally queues a control cycle through its own state event. The
+region adds a re-check for the return that queues none: each cycle that
+skips an offline TRV queues one cycle for the region's `retry_at`, 30 s
+after the TRV went offline and doubling up to 600 s. That cycle only
+re-observes; it sends nothing to the offline TRV. The doubling keeps a
+long outage from queuing a cycle every 30 s, and the cap bounds how
+long a silent return can go unnoticed to ten minutes. Flapping write
+churn stays bounded by the write budget, and `offline_since` /
+`retry_count` in the flight recorder serve outage analysis.
 
 **HOLD keeps the last commanded state instead of handing over to the
 TRV.** With no usable temperature anywhere, both options are blind;
@@ -71,13 +79,14 @@ but freezes the occupant on every dead battery.
 | Value | What | The two pressures | Anchor / revisit trigger |
 |---|---|---|---|
 | **30 s** | write budget per TRV and channel | battery & radio load ↔ worst-case latency of a fine-tuning write | TRVs are battery devices on contended radio; write bursts are a real failure cause. 30 s caps a channel at ~120 writes/h while keeping deferred writes promptly delivered (safety writes bypass entirely). Faster budgets mainly buy more radio traffic rather than better control; room dynamics are far slower. |
-| **5 min** | calibration tick (controller modes) | control freshness without events ↔ pointless wake-ups | Room thermal time constants are tens of minutes; 5 min samples the plant several times per time constant. A faster tick could not act faster anyway, since actuation is bounded by the 30 s budget. |
+| **10 min** | write budget per channel with the HomematicIP option enabled | radio duty cycle ↔ latency of following the user | Anchored: a HomematicIP head shares its access point's 1 % duty cycle (36 s of airtime an hour) with every other HomematicIP device, and it reads its own temperature every ten minutes. The first setpoint write after a user change of target or mode goes out at the 30 s pace. |
+| **5 min** | periodic tick (Default, controller and balance modes) | control freshness without events ↔ pointless wake-ups | Room thermal time constants are tens of minutes; 5 min samples the plant several times per time constant. A faster tick could not act faster anyway, since actuation is bounded by the 30 s budget. |
 | **5 min** | reconciler tick | healing latency for lost writes ↔ cost of observe+decide per tick | Lost writes are rare and not safety-relevant (those bypass and confirm); healing within minutes suffices. |
 | **2 min / 5 min** | ladder down-debounce / up-stability | reacting to real outages ↔ flapping on sensor blips | Asymmetric on purpose: degrade quickly enough to matter, re-promote only after sustained recovery, which is classic reversionary-mode hysteresis. |
 | **15 min** | watchdog stall threshold | catching a silent hang ↔ false alarms | Anchored: the 5-minute ticks guarantee a cycle at least every 5 minutes, so 15 minutes = three missed ticks = a real hang, not jitter. |
 | **1 h** | maintenance max runtime | letting a slow valve exercise finish ↔ a dead run blocking control forever | A valve exercise takes minutes per TRV; an hour means the run died. The bound exists so maintenance can never block control permanently. |
 | **3 s** | post-write propagation wait | reading the device echo as confirmation ↔ misreading it as an external change | Typical Zigbee/MQTT echo latency; without the wait, BT would treat its own write's echo as a user action. |
-| **0.05 K + half device step** | reconcile setpoint tolerance | detecting lost writes ↔ fighting device quantization | Anchored: a device snapping a value onto its own grid moves it at most half a step; below that is float noise. Fighting quantization would re-send every 5 minutes and drain batteries. |
+| **max(0.05 K, half device step)** | reconcile setpoint tolerance | detecting lost writes ↔ fighting device quantization | Anchored: a device snapping a value onto its own grid moves it at most half a step; below that is float noise. Fighting quantization would re-send every 5 minutes and drain batteries. |
 | **5 points** | reconcile valve tolerance | detecting lost valve writes ↔ fighting device-side modulation | Real lost writes look like 0 vs 80, not 77 vs 80. |
 | **4 reversals / ≥20-point swings / 10 samples** | oscillation detector | catching thrash ↔ false positives | Biased toward quiet (annunciation-only makes a miss cheap and a false alarm noisy). To be tightened against benchmark data. |
 | **Per-gain plausibility bands** | runaway-gain reset (PID auto-tune) | never clipping a legitimate tune ↔ catching divergence | Each gain has a fixed min–max band (`PIDParams` in `utils/calibration/pid.py`), the same limits the auto-tuner clamps its own steps to, so a legitimate tune cannot leave them; a stored gain outside its band resets the gains to defaults. The bands are generous; tighten them once benchmark/telemetry data justifies it. |
