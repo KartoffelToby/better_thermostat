@@ -1828,6 +1828,41 @@ class TestRestoreState:
         assert bt.cur_temp_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param((0.012345, 0.001234), (0.012345, 0.001234), id="store"),
+            pytest.param((None, None), (0.0123, 0.00123), id="attributes"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_store_keeps_the_learned_rates_at_full_precision(
+        self, bt, stored, expected
+    ):
+        """The rates the store holds win over the rounded state attributes.
+
+        The attributes publish the rates rounded for display; they fill in
+        only for an entry whose store carries none yet.
+        """
+        old = State(
+            "climate.bt_test",
+            "heat",
+            {
+                ATTR_STATE_HEATING_POWER: 0.0123,
+                ATTR_STATE_HEAT_LOSS: 0.00123,
+                ATTR_TEMPERATURE: 21.0,
+            },
+        )
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+        bt.state_mgr = MagicMock()
+        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.heating_power, bt.heat_loss_rate = stored
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert (bt.heating_power, bt.heat_loss_rate) == expected
+
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
         """A restored target below the minimum comes back as the minimum."""
