@@ -39,7 +39,8 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione",
           "calibration_mode": "Modalità di calibrazione",
-          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target",
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -63,7 +64,9 @@
     },
     "abort": {
       "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
-      "no_devices_found": "Nessuna entità termostato trovata. Assicurati di avere un’entità climate nel tuo Home Assistant"
+      "no_devices_found": "Nessuna entità termostato trovata. Assicurati di avere un’entità climate nel tuo Home Assistant",
+      "already_configured": "Un Better Thermostat con questo nome controlla già questi termostati.",
+      "trv_in_use": "{trv} è già controllato dal Better Thermostat {entry}. Un termostato può appartenere a un solo Better Thermostat; rimuovilo prima da lì."
     }
   },
   "options": {
@@ -93,7 +96,8 @@
           "calibration": "Tipo di calibrazione",
           "heat_auto_swapped": "Se 'auto' indica riscaldamento per il tuo TRV e vuoi invertirlo",
           "child_lock": "Ignora tutti gli input sul TRV come un blocco bambini",
-          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro"
+          "homematicip": "Se usi HomematicIP, abilita questa opzione per rallentare le richieste e prevenire il ciclo di lavoro",
+          "cooler": "Il dispositivo di raffreddamento (opzionale)"
         },
         "data_description": {
           "presets": "Seleziona i preset che vuoi rendere disponibili per questo termostato."
@@ -109,7 +113,8 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione che vuoi usare",
           "calibration_mode": "Modalità di calibrazione",
-          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target",
+          "mpc_v2_plant_preset": "MPC v2 dimensione della stanza"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
@@ -120,7 +125,9 @@
     },
     "error": {
       "no_heater": "Seleziona almeno un vero termostato.",
-      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima."
+      "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
+      "no_sensor": "Seleziona un sensore di temperatura ambiente.",
+      "trv_in_use": "{trv} è già controllato dal Better Thermostat {entry}. Un termostato può appartenere a un solo Better Thermostat."
     }
   },
   "issues": {
@@ -150,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - temperatura esterna non valida",
       "description": "Il sensore di temperatura esterna per Better Thermostat {name} ha riportato un valore non plausibile: {value}.\n\nLa lettura era al di fuori dell'intervallo plausibile ed è stata ignorata. Controlla la configurazione del sensore di temperatura."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} è controllato da più di un Better Thermostat",
+      "description": "Il termostato {trv} appartiene a questi Better Thermostat: {entries}. Gli inviano temperature obiettivo e modalità in conflitto. Rimuovilo da tutti tranne uno nelle loro impostazioni; poi questo problema scompare da solo."
     }
   },
   "services": {

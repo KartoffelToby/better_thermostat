@@ -8,6 +8,7 @@ the TRV really is. An answer that identifies nothing leaves a model the entry
 already carries alone, because the migration runs once.
 """
 
+import copy
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_NAME
@@ -18,8 +19,11 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_HEATER,
+    CONF_NO_SYSTEM_MODE_OFF,
     CONF_PROTECT_OVERHEATING,
     CONF_SENSOR,
+    CONF_WINDOW_TIMEOUT,
+    CONF_WINDOW_TIMEOUT_AFTER,
     GENERIC_MODEL,
     CalibrationMode,
     CalibrationType,
@@ -174,3 +178,109 @@ class TestMigrationToVersion18:
         update = hass.config_entries.async_update_entry.call_args
         written_trvs = update.kwargs["data"][CONF_HEATER]
         assert written_trvs[0]["model"] == GENERIC_MODEL
+
+
+def _make_legacy_entry(version, trvs, **top_level):
+    """Return an entry at ``version`` with the keys an entry of that age carries."""
+    entry = _make_entry(trvs)
+    entry.version = version
+    entry.data = {**entry.data, **top_level}
+    return entry
+
+
+def _legacy_trv(entity_id, **advanced):
+    """Return a ``CONF_HEATER`` bundle as the early versions stored it."""
+    return {"trv": entity_id, "advanced": {CONF_CALIBRATION: 0, **advanced}}
+
+
+class TestMigrationChain:
+    """An entry of any older version passes every step written after it."""
+
+    @pytest.mark.parametrize("version", [1, 2, 3, 4, 5])
+    async def test_every_later_step_reaches_an_old_entry(
+        self, version, patched_get_device_model
+    ):
+        """The entry ends up with every key the steps from its version on add."""
+        stored_delay = {} if version <= 2 else {CONF_WINDOW_TIMEOUT: 30}
+        hass = _make_hass()
+        entry = _make_legacy_entry(
+            version, [_legacy_trv("climate.kinderzimmer")], **stored_delay
+        )
+
+        assert await async_migrate_entry(hass, entry) is True
+
+        update = hass.config_entries.async_update_entry.call_args
+        assert update.kwargs["version"] == 18
+        written = update.kwargs["data"]
+        advanced = written[CONF_HEATER][0]["advanced"]
+        expected_delay = 0 if version <= 2 else 30
+        assert written[CONF_WINDOW_TIMEOUT] == expected_delay
+        assert written[CONF_WINDOW_TIMEOUT_AFTER] == expected_delay
+        if version <= 3:
+            assert advanced[CONF_CALIBRATION_MODE] == CalibrationMode.MPC_CALIBRATION
+        else:
+            assert CONF_CALIBRATION_MODE not in advanced
+        if version <= 4:
+            assert advanced[CONF_NO_SYSTEM_MODE_OFF] is False
+        else:
+            assert CONF_NO_SYSTEM_MODE_OFF not in advanced
+        assert written[CONF_HEATER][0]["model"] == DETECTED_MODEL
+
+    @pytest.mark.parametrize("version", [2, 3])
+    async def test_fixed_calibration_becomes_the_aggressive_mode(
+        self, version, patched_get_device_model
+    ):
+        """A TRV set to fixed calibration keeps it as the aggressive mode."""
+        stored_delay = {} if version <= 2 else {CONF_WINDOW_TIMEOUT: 0}
+        hass = _make_hass()
+        entry = _make_legacy_entry(
+            version,
+            [
+                _legacy_trv(
+                    "climate.kinderzimmer",
+                    **{CalibrationMode.AGGRESIVE_CALIBRATION: True},
+                )
+            ],
+            **stored_delay,
+        )
+
+        assert await async_migrate_entry(hass, entry) is True
+
+        written = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        advanced = written[CONF_HEATER][0]["advanced"]
+        assert advanced[CONF_CALIBRATION_MODE] == CalibrationMode.AGGRESIVE_CALIBRATION
+
+    @pytest.mark.parametrize("version", [1, 5, 17])
+    async def test_the_stored_entry_stays_untouched_until_it_is_written(
+        self, version, patched_get_device_model
+    ):
+        """The migration builds a new mapping; the entry changes only on update."""
+        hass = _make_hass()
+        entry = _make_legacy_entry(
+            version, [_legacy_trv("climate.kinderzimmer")], **{CONF_WINDOW_TIMEOUT: 0}
+        )
+        before = copy.deepcopy(dict(entry.data))
+
+        assert await async_migrate_entry(hass, entry) is True
+
+        assert dict(entry.data) == before
+
+    @pytest.mark.parametrize("version", [1, 5, 17])
+    async def test_an_entry_from_before_the_device_bundles_asks_to_be_re_added(
+        self, version, patched_get_device_model, caplog
+    ):
+        """A thermostat stored as a bare entity id fails with the re-add hint."""
+        hass = _make_hass()
+        entry = _make_legacy_entry(
+            version, [], **{CONF_WINDOW_TIMEOUT: 0, CONF_HEATER: "climate.a"}
+        )
+        before = copy.deepcopy(dict(entry.data))
+
+        assert await async_migrate_entry(hass, entry) is False
+
+        hass.config_entries.async_update_entry.assert_not_called()
+        assert dict(entry.data) == before
+        errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert len(errors) == 1
+        assert ENTRY_NAME in errors[0]
+        assert "add it again" in errors[0]

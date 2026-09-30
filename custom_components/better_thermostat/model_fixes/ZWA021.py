@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
@@ -41,6 +42,10 @@ _MANUFACTURER_SPECIFIC_MODE = "31"
 # device exposes no writable valve *number* helper.
 _MULTILEVEL_SWITCH_COMMAND_CLASS = 38
 _VALVE_MAX = 99
+
+# Key in the TRV record's ``extra`` mapping: set once the valve mode was
+# written and went through.
+_VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
 
 
 def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
@@ -107,6 +112,21 @@ async def override_set_hvac_mode(
         # Let the standard off path close the device / drive the valve to 0.
         return False
 
+    # The climate entity reads ``unknown`` for as long as the device stays in
+    # the manufacturer-specific mode. Once this quirk engaged the mode, that
+    # reading says it still holds, and writing it again would only cost the
+    # battery device a radio message per control cycle. A device that left
+    # the mode reports a standard one and is written again.
+    extra = self.real_trvs[entity_id].extra
+    state = self.hass.states.get(entity_id)
+    if (
+        extra.get(_VALVE_MODE_ENGAGED)
+        and state is not None
+        and state.state == STATE_UNKNOWN
+    ):
+        return True
+    extra.pop(_VALVE_MODE_ENGAGED, None)
+
     _LOGGER.debug(
         "better_thermostat %s: TRV %s ZWA021 manufacturer-specific valve mode",
         self.device_name,
@@ -137,6 +157,7 @@ async def override_set_hvac_mode(
             ex,
         )
         return False
+    extra[_VALVE_MODE_ENGAGED] = True
     return True
 
 

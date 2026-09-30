@@ -132,7 +132,6 @@ def bt():
     mock.contact_open = None
     mock.last_main_hvac_mode = None
     mock.call_for_heat = None
-    mock._saved_temperature = None
     mock.heating_power = 0.01
     mock.heat_loss_rate = 0.01
     from custom_components.better_thermostat.utils.preset_manager import PresetManager
@@ -145,6 +144,7 @@ def bt():
     mock.preset_modes = ["none", "comfort", "eco"]
     mock.version = "1.0.0"
     mock.startup_running = True
+    mock.in_maintenance = False
     # The seed is the one collaborator whose effect on the instance the cooler
     # assertions read back, so it runs for real while staying observable, and so
     # do the two rules it delegates to.
@@ -161,6 +161,9 @@ def bt():
         mock, value
     )
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
+    mock._first_plausible_trv_temperature = lambda: (
+        BetterThermostat._first_plausible_trv_temperature(mock)
+    )
     return mock
 
 
@@ -189,6 +192,7 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt.is_removed = False
     bt._owned_tasks = set()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     # Production holds Trv objects here. A MagicMock in their place answers
@@ -714,22 +718,30 @@ class TestOwnedBackgroundTasks:
 class TestCheckEntitiesReady:
     """Tests for _check_entities_ready."""
 
-    def test_sensor_none_returns_false(self, bt):
-        """Return False when sensor state is None."""
-        result = BetterThermostat._check_entities_ready(bt, None)
-        assert result is False
+    @pytest.mark.parametrize(
+        "sensor",
+        [
+            None,
+            State(SENSOR_ID, STATE_UNAVAILABLE),
+            State(SENSOR_ID, STATE_UNKNOWN),
+            State(SENSOR_ID, "not a number", {"unit_of_measurement": "°C"}),
+            State(SENSOR_ID, "126.5", {"unit_of_measurement": "°C"}),
+        ],
+        ids=["absent", "unavailable", "unknown", "non-numeric", "implausible"],
+    )
+    def test_a_missing_room_sensor_is_waited_for_inside_the_grace_window(
+        self, bt, sensor
+    ):
+        """A sensor without a usable reading is not replaced inside the window.
 
-    def test_sensor_unavailable_returns_false(self, bt):
-        """Return False when sensor is unavailable."""
-        sensor = State(SENSOR_ID, STATE_UNAVAILABLE)
-        result = BetterThermostat._check_entities_ready(bt, sensor)
-        assert result is False
+        A slow sensor looks exactly like a dead one at boot, and one that
+        turns up in time, or settles on a plausible value, is the one the
+        room should start on.
+        """
+        _arm_grace(bt, remaining=timedelta(seconds=30))
+        bt.hass.states.get.return_value = _make_trv_state()
 
-    def test_sensor_unknown_returns_false(self, bt):
-        """Return False when sensor state is unknown."""
-        sensor = State(SENSOR_ID, STATE_UNKNOWN)
-        result = BetterThermostat._check_entities_ready(bt, sensor)
-        assert result is False
+        assert BetterThermostat._check_entities_ready(bt, sensor) is False
 
     def test_trv_none_returns_false(self, bt):
         """Return False when TRV state is None."""
@@ -843,10 +855,67 @@ class TestCheckEntitiesReady:
 
         assert BetterThermostat._check_entities_ready(bt, sensor) is False
 
-    def test_a_missing_room_sensor_is_waited_for_after_the_grace_window(self, bt):
-        """The grace window lets startup go ahead without a TRV, not the sensor."""
+    @pytest.mark.parametrize(
+        "sensor",
+        [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
+        ids=["absent", "unavailable", "unknown"],
+    )
+    def test_a_missing_room_sensor_lets_startup_go_ahead_after_the_grace_window(
+        self, bt, caplog, sensor
+    ):
+        """Past the grace window a TRV temperature stands in for the sensor.
+
+        The room controls on the TRV's internal temperature when its sensor
+        drops out at runtime, so a sensor that is already gone at boot must
+        not keep it from starting at all. The missing sensor is named.
+        """
         _arm_grace(bt, remaining=timedelta(seconds=-1))
         bt.hass.states.get.return_value = _make_trv_state()
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, sensor)
+
+        assert result is True
+        assert SENSOR_ID in caplog.text
+
+    @pytest.mark.parametrize(
+        "current_temperature", [None, 126.5], ids=["no_reading", "implausible"]
+    )
+    def test_a_missing_room_sensor_without_a_trv_temperature_keeps_waiting(
+        self, bt, current_temperature
+    ):
+        """Without the sensor, a room needs a TRV temperature to control on.
+
+        Starting on no reading at all would regulate the room on a made-up
+        default temperature.
+        """
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        bt.hass.states.get.return_value = _make_trv_state(
+            attrs={"current_temperature": current_temperature}
+        )
+
+        assert BetterThermostat._check_entities_ready(bt, None) is False
+
+    def test_a_missing_room_sensor_ignores_the_reading_of_an_unavailable_trv(self, bt):
+        """Only a TRV that is there can stand in for the room sensor.
+
+        The reachable TRV reports no temperature, and the one that does is
+        unavailable, so there is nothing live to control on.
+        """
+        _arm_grace(bt, remaining=timedelta(seconds=-1))
+        bt.real_trvs = {
+            TRV_ID: Trv(entity_id=TRV_ID),
+            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+        }
+        _install_states(
+            bt,
+            {
+                TRV_ID: _make_trv_state(TRV_ID, state=STATE_UNAVAILABLE),
+                TRV_ID_2: _make_trv_state(
+                    TRV_ID_2, attrs={"current_temperature": None}
+                ),
+            },
+        )
 
         assert BetterThermostat._check_entities_ready(bt, None) is False
 
@@ -2409,7 +2478,7 @@ class TestCoolerTargetReadAtListenerRegistration:
     async def test_cooler_online_by_now_seeds_the_cool_target(self, bt):
         """The state the startup seed could not see is read here."""
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         await _run_finalize_startup(bt)
@@ -2473,7 +2542,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         cooling side.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         bt.bt_target_temp = 21.0
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 19.0})})
 
@@ -2509,7 +2578,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         is currently cooling.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         _install_states(
             bt,
             {
@@ -2943,7 +3012,7 @@ class TestFinalizeStartupOnADualRoleEntity:
     def _make_shared_bt(bt):
         """Name the tracked thermostat as the cooler as well."""
         bt.cooler_entity_id = TRV_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         bt._preset_cool_temperatures = {PRESET_NONE: 24.0}
         return bt
 
@@ -2985,7 +3054,7 @@ class TestFinalizeStartupOnADualRoleEntity:
     async def test_a_distinct_cooler_still_registers_its_own_subscription(self, bt):
         """A cooler of its own keeps the handler written for it."""
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt.bt_hvac_mode = HVACMode.HEAT
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         tracked = await self._run_capturing_subscriptions(bt)
@@ -3195,6 +3264,61 @@ def _late_setup_warnings(caplog) -> list[str]:
 
 class TestATrvThatArrivesAfterStartup:
     """A TRV startup went ahead without is set up once it is back."""
+
+    @pytest.mark.asyncio
+    async def test_it_is_left_alone_while_valve_maintenance_runs(self, bt):
+        """No TRV is set up, and so none written to, during valve maintenance.
+
+        Its initialisation writes to the TRV's device, and maintenance holds
+        the devices for the exercise. The TRV stays marked and is set up
+        afterwards.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt.in_maintenance = True
+
+        with patch(f"{_CLIMATE}.request_control_cycle") as request:
+            await BetterThermostat._initialize_arrived_trvs(bt)
+
+        bt._initialize_trvs.assert_not_awaited()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+        request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_maintenance_that_starts_mid_pass_stops_the_next_setup(self, bt):
+        """A TRV next in line is not set up once maintenance has started.
+
+        Setting up one TRV takes a while, and valve maintenance can start
+        meanwhile. The TRVs after it in the same pass stay marked and are set
+        up when maintenance ends.
+        """
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt.real_trvs[TRV_ID].awaiting_initialization = True
+
+        async def maintenance_starts_during_setup(entity_ids):
+            bt.in_maintenance = True
+            return set()
+
+        bt._initialize_trvs = AsyncMock(side_effect=maintenance_starts_during_setup)
+
+        with patch(f"{_CLIMATE}.request_control_cycle"):
+            await BetterThermostat._initialize_arrived_trvs(bt)
+
+        bt._initialize_trvs.assert_awaited_once_with([TRV_ID])
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
+
+    @pytest.mark.asyncio
+    async def test_a_report_during_valve_maintenance_sets_nothing_up(self, bt):
+        """A TRV that reports back during valve maintenance is not written to."""
+        _room_with_a_trv_left_behind(bt, available=True)
+        bt._initialize_arrived_trvs = lambda: BetterThermostat._initialize_arrived_trvs(
+            bt
+        )
+
+        with patch(f"{_CLIMATE}.request_control_cycle"):
+            await _report_from(bt, TRV_ID_2, [], in_maintenance=True)
+
+        bt._initialize_trvs.assert_not_awaited()
+        assert bt.real_trvs[TRV_ID_2].awaiting_initialization is True
 
     @pytest.mark.asyncio
     async def test_it_is_initialised_and_joins_the_room(self, bt):
@@ -3445,6 +3569,7 @@ class TestATrvThatArrivesAfterStartup:
         _room_with_a_trv_left_behind(bt, available=True)
         order = []
         bt._initialize_arrived_trvs = AsyncMock()
+        bt._hand_over_room_sensor_state = AsyncMock()
         bt._spawn_owned = MagicMock(
             side_effect=lambda coro, name: (order.append("read"), coro.close())
         )
@@ -3455,9 +3580,9 @@ class TestATrvThatArrivesAfterStartup:
         assert order == ["ladder", "critical"]
 
 
-async def _report_from(bt, entity_id, order):
+async def _report_from(bt, entity_id, order, *, in_maintenance=False):
     """Deliver one state report of ``entity_id`` to the TRV trigger."""
-    bt.in_maintenance = False
+    bt.in_maintenance = in_maintenance
     bt._async_unsub_state_changed = MagicMock()
     event = MagicMock()
     event.data = {

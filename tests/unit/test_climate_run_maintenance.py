@@ -5,6 +5,7 @@ ignore_states MUST always be released (even on error), otherwise the control
 loop can stall.  Also covers the re-entry guard, reschedule, and control kick.
 """
 
+import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 import logging
@@ -173,3 +174,73 @@ async def test_failing_control_kick_does_not_mask_the_run(bt):
         pytest.raises(ValueError, match="unreachable TRV"),
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True], ids=["completed", "raised"])
+async def test_a_trv_that_returned_during_maintenance_is_looked_for_after_it(bt, fails):
+    """Returned TRVs are looked for once maintenance has ended.
+
+    A TRV startup went ahead without that came back during maintenance was
+    left alone then, and it does not necessarily report again soon.
+    """
+    maintenance_when_looked = []
+
+    async def look():
+        maintenance_when_looked.append(
+            bt.kernel_state.maintenance.is_blocking(bt.clock.monotonic())
+        )
+
+    bt._initialize_arrived_trvs = look
+    spawned = []
+    bt._spawn_owned = lambda coro, name: spawned.append(coro)
+    exercise = AsyncMock(side_effect=RuntimeError("boom") if fails else None)
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", exercise),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        try:
+            await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+        except RuntimeError:
+            assert fails
+    for coro in spawned:
+        await coro
+
+    assert maintenance_when_looked == [False]
+
+
+@pytest.mark.asyncio
+async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
+    """A setpoint the exercise writes goes out only once the control lock is free.
+
+    A control cycle that was already running when maintenance started reads
+    back the value its own setpoint write sent. A maintenance write landing
+    in that window would be taken for the control write and watched as such.
+    """
+    bt._temp_lock = asyncio.Lock()
+    writes = []
+
+    async def _record(_bt, entity_id, temp):
+        writes.append((entity_id, temp))
+
+    async def _exercise(infos, *, set_temperature_fn, **kwargs):
+        await set_temperature_fn("climate.trv", 30.0)
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _record),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        async with bt._temp_lock:
+            run = asyncio.create_task(
+                BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+            )
+            for _ in range(5):
+                await asyncio.sleep(0)
+            written_while_held = list(writes)
+        await run
+
+    assert written_while_held == []
+    assert writes == [("climate.trv", 30.0)]

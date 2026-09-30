@@ -8,8 +8,9 @@ gone, whether two heads of different models each get what they can express,
 and how one room-level valve command is split between them.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 import time
 from unittest.mock import MagicMock, patch
@@ -70,8 +71,10 @@ from .device_profiles import (
     GROUP_OF_THREE,
     GROUP_SCENARIOS,
     MIXED_GRID_GROUP,
+    MQTT_OFFSET_TRV,
     ROOM_AC_COOLER,
     VALVE_GROUP,
+    GroupScenario,
 )
 
 
@@ -869,3 +872,151 @@ async def test_a_head_that_arrives_after_the_room_started_follows_the_room(
 
     for head in trv_group.entities:
         assert_write_is(head.set_temperature_calls[-1], 23.0, head.profile)
+
+
+MAINTENANCE_EXERCISE = (
+    "custom_components.better_thermostat.climate.run_valve_maintenance"
+)
+
+OFFSET_GROUP = GroupScenario(
+    name="offset_number_group",
+    profiles=tuple(
+        replace(
+            MQTT_OFFSET_TRV,
+            name=f"offset_group_{letter}",
+            entity_id=f"climate.offset_group_{letter}",
+            entity_name=f"offset group {letter}",
+        )
+        for letter in ("a", "b")
+    ),
+)
+"""Two Zigbee2MQTT heads whose calibration is a number entity on the device.
+
+Setting such a head up writes to its device: the calibration number is put
+back to zero before Better Thermostat takes the calibration over.
+"""
+
+
+@pytest.mark.parametrize(
+    "trv_group", [*GROUP_SCENARIOS, OFFSET_GROUP], indirect=True, ids=profile_id
+)
+async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
+    hass, trv_group
+):
+    """A head that arrives while valve maintenance runs is set up after it.
+
+    Setting a head up writes to its device, and maintenance holds the room's
+    devices for the exercise, so nothing is set up and nothing is written
+    until maintenance has ended. The head is set up then without having to
+    report again, and takes the room's target.
+    """
+    absent = trv_group[-1]
+    present = [head for head in trv_group.entities if head is not absent]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+
+    exercising = asyncio.Event()
+    release = asyncio.Event()
+
+    async def held_exercise(*_args, **_kwargs):
+        exercising.set()
+        await release.wait()
+
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+    with patch(MAINTENANCE_EXERCISE, held_exercise), patch(WRITE_BUDGET, 0.0):
+        # Not a Home Assistant task: waiting for the loop to settle must not
+        # wait for the exercise, which is held open on purpose.
+        run = asyncio.ensure_future(
+            bt._run_valve_maintenance([head.entity_id for head in present])
+        )
+        await exercising.wait()
+        absent.set_available(True)
+        for _ in range(20):
+            await hass.async_block_till_done()
+
+        during = (
+            bt.in_maintenance,
+            has_adopted(bt, absent.profile),
+            [(e.data["domain"], e.data["service"]) for e in events],
+        )
+
+        release.set()
+        await run
+        assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
+        assert await wait_for(hass, lambda: absent.set_temperature_calls)
+        assert_write_is(
+            absent.set_temperature_calls[-1], bt.bt_target_temp, absent.profile
+        )
+
+    assert during == (True, False, [])
+
+
+ADAPTER_INIT = "custom_components.better_thermostat.climate.init"
+MAINTENANCE_CYCLE_SLEEP = (
+    "custom_components.better_thermostat.utils.valve_maintenance.asyncio.sleep"
+)
+
+
+@pytest.mark.parametrize("setup", ["failed_once", "in_progress"])
+@pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True, ids=profile_id)
+async def test_valve_maintenance_leaves_a_head_that_is_not_set_up_alone(
+    hass, trv_group, setup
+):
+    """Maintenance exercises only the heads that are set up.
+
+    A head that came back and whose setup failed or has not completed is
+    still waiting for it, and nothing about it is known that the exercise
+    relies on. Maintenance leaves it out, and the setup it is waiting for
+    brings it into the room.
+    """
+    absent = trv_group[-1]
+    present = [head for head in trv_group.entities if head is not absent]
+    with patch(CRITICAL_GRACE, NO_GRACE):
+        bt, entry = await boot_with_heads_gone(hass, trv_group, [absent])
+        bt = await wait_for_startup(hass, entry)
+
+    setting_up = asyncio.Event()
+    release = asyncio.Event()
+
+    async def failing_setup(_bt, _entity_id):
+        setting_up.set()
+        raise RuntimeError("adapter")
+
+    async def slow_setup(_bt, _entity_id):
+        setting_up.set()
+        await release.wait()
+
+    with patch(ADAPTER_INIT, failing_setup if setup == "failed_once" else slow_setup):
+        absent.set_available(True)
+        await setting_up.wait()
+        if setup == "failed_once":
+            assert await wait_for(
+                hass,
+                lambda: bt.real_trvs[absent.entity_id].failed_initialization_attempts,
+            )
+    assert bt.real_trvs[absent.entity_id].awaiting_initialization
+    assert bt.real_trvs[absent.entity_id].failed_initialization_attempts == (
+        1 if setup == "failed_once" else 0
+    )
+
+    real_sleep = asyncio.sleep
+
+    async def no_cycle_wait(_seconds):
+        await real_sleep(0)
+
+    events = async_capture_events(hass, EVENT_CALL_SERVICE)
+    with patch(MAINTENANCE_CYCLE_SLEEP, no_cycle_wait), patch(WRITE_BUDGET, 0.0):
+        await bt._run_valve_maintenance([head.entity_id for head in trv_group.entities])
+        exercised = sorted(
+            {
+                event.data["service_data"]["entity_id"]
+                for event in events
+                if event.data["domain"] == CLIMATE_DOMAIN
+            }
+        )
+        release.set()
+        assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
+
+    assert exercised == sorted(head.entity_id for head in present)
