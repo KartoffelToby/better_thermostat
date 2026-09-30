@@ -1072,7 +1072,7 @@ def _make_startup_bt():
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
     mock.hvac_mode = HVACMode.HEAT_COOL
-    mock.bt_hvac_mode = HVACMode.HEAT_COOL
+    mock.bt_hvac_mode = HVACMode.HEAT
     mock._check_entities_ready.return_value = True
     mock._enforce_cool_above_heat = lambda **kwargs: (
         BetterThermostat._enforce_cool_above_heat(mock, **kwargs)
@@ -1320,7 +1320,7 @@ def _make_finalize_bt():
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
     mock.hvac_mode = HVACMode.HEAT_COOL
-    mock.bt_hvac_mode = HVACMode.HEAT_COOL
+    mock.bt_hvac_mode = HVACMode.HEAT
     mock.control_queue_task = AsyncMock()
     # Plain MagicMocks so the un-awaited coroutines handed to the background
     # task mock do not raise "coroutine was never awaited" warnings.

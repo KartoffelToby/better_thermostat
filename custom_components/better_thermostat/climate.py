@@ -159,6 +159,7 @@ from .utils.helpers import (
     normalize_step,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
+    room_mode_intent,
     state_temperature_unit,
 )
 from .utils.hvac_action import (
@@ -682,6 +683,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp = DEFAULT_TARGET_TEMP
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
+        # The room's intent, not a device spelling: HEAT means "on" in every
+        # room, with or without a cooler. room_mode_intent() maps every mode
+        # the room is switched into onto it; get_hvac_bt_mode() publishes it
+        # and mode_remap() spells it for each device.
         self.bt_hvac_mode: HVACMode | None = None
         # Track min/max encountered target temps (initialize to default span)
         self.min_target_temp = 18.0
@@ -1849,7 +1854,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if old_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN, None):
                 try:
-                    self.bt_hvac_mode = HVACMode(old_state.state)
+                    self.bt_hvac_mode = room_mode_intent(HVACMode(old_state.state))
                 except ValueError:
                     _LOGGER.warning(
                         "better_thermostat %s: restored an unrecognised hvac mode %s; "
@@ -3255,7 +3260,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         hvac_mode_norm = normalize_hvac_mode(hvac_mode)
         if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            self.bt_hvac_mode = HVACMode(get_hvac_bt_mode(self, hvac_mode_norm))
+            self.bt_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
         else:
             _LOGGER.error(
                 "better_thermostat %s: Unsupported hvac_mode %s",
@@ -3670,7 +3675,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 else None
             )
             if hvac_mode_norm in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                self.bt_hvac_mode = hvac_mode_norm
+                self.bt_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
             else:
                 _LOGGER.error(
                     "better_thermostat %s: Unsupported hvac_mode %s",
