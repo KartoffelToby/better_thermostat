@@ -3,10 +3,11 @@
 The rungs:
 
 * OPTIMAL — the room sensor delivers; the control law works as configured.
-* SENSOR_FALLBACK — the room sensor is unavailable but at least one TRV
-  reports an internal temperature: after a short debounce the
-  calibration substitutes the mean of the available TRV-internal
-  temperatures for the room temperature. Controlling on a hot-valve
+* SENSOR_FALLBACK — the room sensor is unavailable or reports no
+  plausible temperature, but at least one TRV reports an internal
+  temperature: after a short debounce the calibration substitutes the
+  mean of the available TRV-internal temperatures for the room
+  temperature. Controlling on a hot-valve
   sensor is worse than on a room sensor, but strictly better than
   controlling on a silently stale reading.
 * HOLD — neither room sensor nor any TRV temperature is usable: the
@@ -20,7 +21,11 @@ restored for ``up_stability_s`` (hysteresis against flapping sensors).
 The region is not persisted across restarts: the ladder starts at
 OPTIMAL and re-derives its rung from live observations within one
 debounce window. A persisted rung could only pin stale degradation —
-the observations it was derived from are gone after a restart.
+the observations it was derived from are gone after a restart. The one
+exception is a room sensor that has no plausible reading when startup goes
+ahead: startup puts the ladder on SENSOR_FALLBACK directly, because a
+missing sensor has already been missing for longer than the debounce and
+an implausible reading gives the room nothing else to start on.
 """
 
 from __future__ import annotations
@@ -198,6 +203,16 @@ def _advance_window(
             return committed
         return _pend_toward(committed, deeper, now, target)
     return _pend_toward(state, deeper, since, commit_rung)
+
+
+def start_on_rung(state: ControlModeState, mode: ControlMode) -> ControlModeState:
+    """Put the ladder on ``mode`` without running a debounce window.
+
+    For an observation that outlasted the window before the ladder was
+    evaluated for the first time. Any pending window is dropped, and the
+    annunciation half is kept as it is.
+    """
+    return _with_mode(state, mode)
 
 
 def _with_mode(state: ControlModeState, mode: ControlMode) -> ControlModeState:
