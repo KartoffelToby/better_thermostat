@@ -123,10 +123,9 @@ convention = "numpy"
 #
 # This is about case alone. The vocabulary half is judged by
 # `scripts/check_naming.py` against `glossary.toml`, which rejects `delta_T`
-# and the `_K` and `_C` suffixes in these paths as well and charges them to
-# `.naming-budget.json`. Nothing here excuses them; a separate change decides
-# whether the glossary gains an exception for the notation or the names come
-# out.
+# in these paths as well and charges it to `.naming-budget.json`. Nothing here
+# excuses it; a separate change decides whether the glossary gains an exception
+# for the notation or the name comes out.
 "custom_components/better_thermostat/utils/calibration/**" = ["N803", "N806", "N815"]
 "tests/benchmark/**" = ["N802", "N803", "N806", "N815"]
 "tests/unit/mpc_v2/**" = ["N803", "N806"]
