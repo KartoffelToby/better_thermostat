@@ -28,7 +28,7 @@ or click on the button below:
 
 **Humidity sensor** This is an optional field. For now, the humidity is only used to display it in the UI. In the future, it will be used to make a better calculation of the temperature or set it up to a *feels-like* temperature.
 
-**Outdoor temperature sensor** This field is optional. If you have an outdoor sensor you can use it to get the outdoor temperature, which turns the thermostat on or off against the outdoor temperature threshold (see below). BT uses the mean of the sensor's readings over the last 2 days. It checks at startup, every morning at 5:00 AM and whenever the outdoor sensor reports a new value.
+**Outdoor temperature sensor** This field is optional. If you have an outdoor sensor you can use it to get the outdoor temperature, which turns the thermostat on or off against the outdoor temperature threshold (see below). BT averages the sensor's readings per calendar day for today and yesterday, then takes the mean of those daily averages, so a day with many readings does not outweigh a day with few. Without recorded history it uses the current reading. It checks at startup, every morning at 5:00 AM and whenever the outdoor sensor reports a new value.
 
 **Window Sensor** This is an optional field. If you have a window sensor you can use it to turn off the thermostat if the window is open and turn it on again when the window is closed. If you have more than one window in a room, you can also select window groups (see the example below).
 

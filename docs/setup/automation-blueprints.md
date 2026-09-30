@@ -84,7 +84,7 @@ A combined blueprint with two optional alerts:
 - **Device error** – fires when Better Thermostat records at least one device
   error, which happens when one of its TRVs becomes unavailable.
 - **Target temperature reached** – fires after the room temperature has stayed
-  above the setpoint for a configurable number of minutes.
+  at or above the setpoint for a configurable number of minutes.
 
 | Input | Description | Default |
 |---|---|---|
@@ -215,7 +215,7 @@ Better Thermostat climate entity:
 | `humidity_high` | `current_humidity` attribute exceeds configured threshold |
 | `battery_low` | Minimum TRV battery drops below configured threshold |
 | `device_error` | `errors` attribute contains at least one error |
-| `target_temp_reached` | Current temperature is above the target temperature |
+| `target_temp_reached` | Current temperature is at or above the target temperature |
 
 Three more triggers are available for your own automations:
 
@@ -224,6 +224,9 @@ Three more triggers are available for your own automations:
 | `hvac_mode_changed` | The HVAC mode changes |
 | `current_temperature_changed` | The current temperature changes |
 | `current_humidity_changed` | The current humidity changes |
+
+`humidity_high` and `current_humidity_changed` appear only for a thermostat
+configured with a humidity sensor.
 
 You can also use these triggers directly in your own automations via the
 **Automation editor → Add trigger → Device**. Select your Better Thermostat

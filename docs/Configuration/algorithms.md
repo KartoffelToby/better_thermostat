@@ -108,12 +108,12 @@ Auto-tuning is on by default.
 
 - **At the start:** The controller starts with default values (Kp=60, Ki=0.01, Kd=2000) and begins learning your room's behavior. You may notice slight temperature oscillations as it adjusts.
 
-- **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only after it has seen one of these:
-  - **Overshoot detection:** If temperature overshoots target, it decreases Kp (makes it less aggressive), increases Kd (improves damping) and decreases Ki
-  - **Sluggish response:** If heating is too slow, it increases Ki (improves steady-state accuracy) and Kp
-  - **Steady-state drift:** If temperature drifts near target, it decreases Ki (prevents accumulation)
+- **While tuning:** The algorithm adjusts the gains at most every 5 minutes, and only when one of these conditions holds (the "target band" is 0.1 °C either side of the target):
+  - **Arriving at the target:** The room was outside the target band on the previous cycle and is inside it now, from either side. It decreases Kp (less aggressive), increases Kd (more damping) and decreases Ki
+  - **Sluggish response:** The room is more than 0.1 °C below the target, its temperature changes by less than 0.005 °C per minute (0.3 °C per hour) and the valve output is below 95 %. It increases Ki and Kp
+  - **Steady state:** The room is inside the target band and the valve output is below 20 %. It decreases Ki
 
-- **Settled:** Once the room stops overshooting, rising slowly or drifting, the gains stop changing. How many heating cycles that takes depends on the room; the code sets no fixed period.
+- **Settled:** Kp and Kd stop changing once the room no longer arrives at the target band or heats up too slowly. While the room holds the target with a small valve output, Ki keeps shrinking every 5 minutes until it reaches its lower limit of 0.001. How many heating cycles that takes depends on the room; the code sets no fixed period.
 
 **What to expect:**
 
