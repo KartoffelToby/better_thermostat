@@ -66,10 +66,12 @@ A cycle runs on:
   mode (the service path requests the cycle directly),
 - **the five-minute ticks** — the periodic tick and the
   [reconciler](/internals/writes-and-reconciliation/). The periodic tick
-  requests a cycle when a TRV runs a balance mode or the Default, MPC,
-  MPC v2, TPI or PID calibration mode; in every other configuration it
-  is an availability tick that advances the fail-soft ladder without
-  requesting a cycle,
+  requests a cycle when a TRV runs a balance mode or the `default`
+  (external sensor offset only), MPC, MPC v2, TPI or PID calibration
+  mode; in every other configuration it is an availability tick that
+  advances the fail-soft ladder without requesting a cycle. A new
+  configuration starts in the time-based mode, so it gets the
+  availability tick unless a balance mode is set,
 - **the follow-ups** the shell schedules for itself: a budget-deferred
   write queues a cycle for the moment the budget reopens, and a skipped
   offline TRV queues one on the reachability region's retry backoff.

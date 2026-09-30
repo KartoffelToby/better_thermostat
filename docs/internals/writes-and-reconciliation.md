@@ -45,10 +45,12 @@ Non-safety writes to one TRV keep a minimum spacing of 30 seconds,
 cannot starve another's slot. A TRV with the HomematicIP option enabled
 gets ten minutes instead, since its head shares the access point's 1 %
 radio duty cycle; the first setpoint write after the user changes the
-target or mode still goes out at the 30-second pace. Safety-relevant
-writes (OFF for an open window or absent heat demand, frost-floor
-rewrites, closing the valve) always bypass the budget but still stamp
-the slot, so the spacing stays accurate.
+target or mode still goes out at the 30-second pace. HVAC-mode
+commands, OFF included, do not go through the budget at all.
+Safety-relevant writes on a budgeted channel (the minimum setpoint
+that stands in for OFF on a TRV without an off mode, frost-floor rewrites, closing the valve) always
+bypass the budget but still stamp the slot, so the spacing stays
+accurate.
 
 A deferred write is not dropped on any of the three channels: the
 defer path schedules one coalesced control cycle for the moment the

@@ -45,8 +45,9 @@ values come back once the climate entity has loaded the store.
 the climate entity's target/mode and the user inputs on the preset,
 valve max opening and child-lock helpers. The legacy attribute fallback in the
 restore path stays as a migration window for installations that predate
-the store; it reads old entity attributes only when the store has
-nothing.
+the store. It works per field: each old entity attribute (temperature
+EMA, slope, heating power, heat loss) is read only when the store holds
+no value for that field.
 
 ## Poison resistance
 
