@@ -356,15 +356,36 @@ def entity_uses_mpc_calibration(bt: _CalibrationModeHost, entity_id: str) -> boo
 
 
 def get_hvac_bt_mode(self: BetterThermostat, mode: str) -> str:
-    """Return the main HVAC mode mapping for the Better Thermostat.
+    """Return the mode Better Thermostat publishes for a room mode.
 
-    The function handles simple mapping from HVACMode.HEAT to configured
-    internal modes used by the integration.
+    Either spelling of "on" is published in the spelling the instance's own
+    mode list carries, HEAT_COOL for a room with a cooler and HEAT otherwise.
     """
-    if mode == HVACMode.HEAT:
-        mode = self.map_on_hvac_mode
-    elif mode == HVACMode.HEAT_COOL:
-        mode = HVACMode.HEAT
+    if mode in (HVACMode.HEAT, HVACMode.HEAT_COOL):
+        return self.map_on_hvac_mode
+    return mode
+
+
+def room_mode_intent(mode: HVACMode) -> HVACMode:
+    """Return the mode a room holds for a mode it is switched into.
+
+    A room with a cooler publishes "on" as HEAT_COOL and a room without one
+    as HEAT, and a device may call its heating mode either. The room itself
+    holds one intent for both, HEAT; the published state and each device's
+    command are derived from it at their own edge.
+
+    Parameters
+    ----------
+    mode : HVACMode
+        the mode the room is switched into, in any of its spellings
+
+    Returns
+    -------
+    HVACMode
+        HEAT for either spelling of "on", the mode unchanged otherwise
+    """
+    if mode == HVACMode.HEAT_COOL:
+        return HVACMode.HEAT
     return mode
 
 

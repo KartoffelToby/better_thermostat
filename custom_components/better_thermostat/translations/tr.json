@@ -39,7 +39,8 @@
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
           "calibration": "Kalibrasyon Türü",
           "calibration_mode": "Kalibrasyon modu",
-          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz",
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -63,7 +64,9 @@
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
-      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun"
+      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun",
+      "already_configured": "Bu ada sahip bir Better Thermostat bu termostatları zaten kontrol ediyor.",
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir; önce oradan kaldırın."
     }
   },
   "options": {
@@ -93,7 +96,8 @@
           "calibration": "Kalibrasyon türü",
           "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
           "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
-          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz"
+          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz",
+          "cooler": "Soğutma cihazı (isteğe bağlı)"
         },
         "data_description": {
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
@@ -109,7 +113,8 @@
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
           "calibration": "Kullanmak istediğiniz kalibrasyon türü",
           "calibration_mode": "Kalibrasyon modu",
-          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz",
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
@@ -120,7 +125,9 @@
     },
     "error": {
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
-      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır."
+      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
+      "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin.",
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir."
     }
   },
   "issues": {
@@ -150,6 +157,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - geçersiz dış ortam sıcaklığı",
       "description": "Better Thermostat {name} için dış ortam sıcaklık sensörü mantıksız bir değer bildirdi: {value}.\n\nOkunan değer makul aralığın dışındaydı ve yok sayıldı. Lütfen sıcaklık sensörü yapılandırmanızı kontrol edin."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} birden fazla Better Thermostat tarafından kontrol ediliyor",
+      "description": "{trv} termostatı şu Better Thermostat’lara ait: {entries}. Ona çakışan hedef sıcaklıklar ve modlar yazıyorlar. Ayarlarından biri hariç hepsinden kaldırın; bu sorun ardından kendiliğinden kaybolur."
     }
   },
   "services": {

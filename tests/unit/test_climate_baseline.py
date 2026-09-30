@@ -145,7 +145,9 @@ def mock_bt():
     )
     bt._configured_target_temp_step = None
     bt._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(bt, value)
-    bt._preset_target = lambda value: BetterThermostat._preset_target(bt, value)
+    bt._preset_target = lambda value, **kwargs: BetterThermostat._preset_target(
+        bt, value, **kwargs
+    )
     return bt
 
 
@@ -282,7 +284,7 @@ class TestComputeHvacAction:
     def test_heat_cool_cooling_above_cooltemp(self, mock_bt):
         """HEAT_COOL, cur > cooltemp + tol → COOLING."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.cur_temp = 27.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_cooltemp = 26.0
@@ -952,6 +954,28 @@ class TestAsyncSetPresetMode:
         assert mock_bt.preset_mgr.mode == PRESET_COMFORT
 
     @pytest.mark.asyncio
+    async def test_a_cooling_preset_is_rounded_onto_the_step(self, mock_bt):
+        """A cooling preset lands on the configured step like its heating target.
+
+        Comfort cools to the 77.5 °F a user typed, 25.28 °C; the configured
+        0.5 °C step puts the cooling target on 25.5 °C, the value setting the
+        same target directly gives.
+        """
+        mock_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        mock_bt.preset_mgr.mode = PRESET_NONE
+        mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 21.0
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
+        mock_bt.cooler_entity_id = "switch.ac"
+        mock_bt._preset_cool_temperatures = {PRESET_NONE: 24.0, PRESET_COMFORT: 25.28}
+        mock_bt.min_temp = mock_bt.bt_min_temp
+        mock_bt.max_temp = mock_bt.bt_max_temp
+        mock_bt._configured_target_temp_step = 0.5
+
+        await self._call(mock_bt, PRESET_COMFORT)
+
+        assert mock_bt.bt_target_cooltemp == 25.5
+
+    @pytest.mark.asyncio
     async def test_a_preset_rounded_onto_the_step_stays_inside_the_range(self, mock_bt):
         """A preset at a bound between two steps is not rounded past the bound.
 
@@ -1261,7 +1285,7 @@ class TestAsyncSetTemperature:
     async def test_heat_cool_low_high_setpoints(self, mock_bt):
         """HEAT_COOL with low/high setpoints."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
@@ -1275,7 +1299,7 @@ class TestAsyncSetTemperature:
     async def test_cool_target_enforced_above_heat(self, mock_bt):
         """Cool target adjusted to be above heat target in HEAT_COOL mode."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
