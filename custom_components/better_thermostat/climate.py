@@ -1000,6 +1000,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._last_call_for_heat = None
         self.weather_verdict_missing_since: float | None = None
         self.weather_fallback_active = False
+        self.outdoor_history_mean: float | None = None
+        self.outdoor_history_read_at: float | None = None
+        self.outdoor_history_failing = False
         self._available = False
         self.context = None
         self.attr_hvac_action = None

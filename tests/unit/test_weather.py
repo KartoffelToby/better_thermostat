@@ -23,10 +23,12 @@ from homeassistant.components.weather import WeatherEntityFeature
 from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
+    OUTDOOR_HISTORY_REFRESH,
     DailyHistory,
     check_ambient_air_temperature,
     check_weather,
@@ -75,6 +77,9 @@ def make_bt(hass, **kw):
         clock=FakeClock(),
         weather_verdict_missing_since=None,
         weather_fallback_active=False,
+        outdoor_history_mean=None,
+        outdoor_history_read_at=None,
+        outdoor_history_failing=False,
     )
     for k, v in kw.items():
         setattr(bt, k, v)
@@ -652,6 +657,148 @@ class TestCheckAmbientAirTemperature:
             )
             await check_ambient_air_temperature(bt)
         assert bt.last_avg_outdoor_temp == pytest.approx(21.0)
+        assert bt.call_for_heat is False
+
+    def _recorder_bt(self, reading="5.0", off_temperature=10.0):
+        """Build a BT whose outdoor sensor reads ``reading`` with a recorder."""
+        states = {
+            OUTDOOR_ID: make_state(state=reading, attrs={"unit_of_measurement": "°C"})
+        }
+        hass = make_hass(states=states, components={"recorder"})
+        return make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=off_temperature)
+
+    async def test_update_within_refresh_interval_reuses_history(self):
+        """A second update inside the refresh interval does not read the recorder.
+
+        The two-day mean it produced keeps deciding the verdict.
+        """
+        bt = self._recorder_bt()
+        warm = [self._hist_item("20.0", datetime(2024, 1, 1, 12))]
+        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            query = AsyncMock(side_effect=[{OUTDOOR_ID: warm}, {OUTDOOR_ID: cold}])
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds() - 1)
+            await check_ambient_air_temperature(bt)
+        assert query.await_count == 1
+        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
+        assert bt.call_for_heat is False
+
+    async def test_update_after_refresh_interval_reads_history_again(self):
+        """Once the refresh interval has passed, the next update re-reads history."""
+        bt = self._recorder_bt()
+        warm = [self._hist_item("20.0", datetime(2024, 1, 1, 12))]
+        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            query = AsyncMock(side_effect=[{OUTDOOR_ID: warm}, {OUTDOOR_ID: cold}])
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+            await check_ambient_air_temperature(bt)
+        assert query.await_count == 2
+        assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
+        assert bt.call_for_heat is True
+
+    async def test_cached_empty_history_follows_the_current_reading(self):
+        """Without usable history, each update still decides on the live reading."""
+        bt = self._recorder_bt(reading="5.0")
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            query = AsyncMock(return_value={OUTDOOR_ID: []})
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            assert bt.call_for_heat is True
+            bt.hass.states.get = MagicMock(
+                return_value=make_state(
+                    state="18.0", attrs={"unit_of_measurement": "°C"}
+                )
+            )
+            await check_ambient_air_temperature(bt)
+        assert query.await_count == 1
+        assert bt.last_avg_outdoor_temp == pytest.approx(18.0)
+        assert bt.call_for_heat is False
+
+    async def test_history_query_failure_does_not_propagate(self, caplog):
+        """A failing recorder query leaves the check running on the live reading.
+
+        The failure is reported once, not on every update that meets it.
+        """
+        bt = self._recorder_bt(reading="18.0")
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            query = AsyncMock(
+                side_effect=OperationalError(
+                    "SELECT", {}, Exception("database is locked")
+                )
+            )
+            gi.return_value.async_add_executor_job = query
+            with caplog.at_level(logging.WARNING, logger=WEATHER_MOD):
+                await check_ambient_air_temperature(bt)
+                bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+                await check_ambient_air_temperature(bt)
+        assert query.await_count == 2
+        assert bt.last_avg_outdoor_temp == pytest.approx(18.0)
+        assert bt.call_for_heat is False
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+
+    async def test_history_query_failure_keeps_the_last_history_verdict(self):
+        """A failed re-read keeps the mean of the last successful read."""
+        bt = self._recorder_bt(reading="18.0")
+        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            query = AsyncMock(
+                side_effect=[
+                    {OUTDOOR_ID: cold},
+                    RuntimeError("database connection has not been established"),
+                ]
+            )
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+            await check_ambient_air_temperature(bt)
+        assert query.await_count == 2
+        assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
+        assert bt.call_for_heat is True
+
+    async def test_check_during_history_refresh_keeps_the_live_fallback(self):
+        """A check that starts during a history refresh waits for it.
+
+        The refresh finds no usable history, so its verdict falls back to the
+        live reading. A second check arriving while the recorder is read must
+        not replace that reading with the expired cached mean first.
+        """
+        bt = self._recorder_bt(reading="5.0")
+        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        responses = iter([{OUTDOOR_ID: cold}, {OUTDOOR_ID: []}])
+
+        async def query(*_args):
+            response = next(responses)
+            if response[OUTDOOR_ID]:
+                return response
+            refresh_started.set()
+            await release_refresh.wait()
+            return response
+
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            assert bt.outdoor_history_mean == pytest.approx(2.0)
+            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+            bt.hass.states.get = MagicMock(
+                return_value=make_state(
+                    state="20.0", attrs={"unit_of_measurement": "°C"}
+                )
+            )
+            refreshing = asyncio.create_task(check_ambient_air_temperature(bt))
+            await refresh_started.wait()
+            overlapping = asyncio.create_task(check_ambient_air_temperature(bt))
+            await asyncio.sleep(0)
+            release_refresh.set()
+            await asyncio.gather(refreshing, overlapping)
+        assert bt.outdoor_history_mean is None
+        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
         assert bt.call_for_heat is False
 
 
