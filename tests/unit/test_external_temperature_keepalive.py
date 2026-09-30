@@ -8,6 +8,7 @@ so the periodic re-send is what holds such a device on the external
 value while the room is settled.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -30,6 +31,9 @@ def _bt_with_two_trvs(quirks):
     bt = MagicMock()
     bt.device_name = "Test BT"
     bt.cur_temp = ROOM_TEMPERATURE
+    # A MagicMock attribute would stand in for the filter lock and serialise
+    # nothing; the tick runs under the real one.
+    bt._temperature_filter_lock = None
     bt.real_trvs = {
         TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
         TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
@@ -186,3 +190,30 @@ async def test_a_trv_that_refuses_the_write_does_not_cost_the_others_their_tick(
         (TRV_ID, ROOM_TEMPERATURE),
         (TRV_ID_2, ROOM_TEMPERATURE),
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_trv_that_never_answers_does_not_hold_the_tick():
+    """A write that does not return in time is given up, and the next TRV is served.
+
+    The tick holds the filter lock while it writes, so an unbounded wait on
+    one device would also hold back every later room reading.
+    """
+    written = []
+
+    async def _write(_bt, trv_id, value):
+        if trv_id == TRV_ID:
+            await asyncio.Event().wait()
+        written.append((trv_id, value))
+        return True
+
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = _write
+    bt = _bt_with_two_trvs(quirks)
+
+    with patch(f"{_CLIMATE}.EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S", 0.01):
+        await asyncio.wait_for(
+            BetterThermostat._external_temperature_keepalive(bt), timeout=5
+        )
+
+    assert written == [(TRV_ID_2, ROOM_TEMPERATURE)]

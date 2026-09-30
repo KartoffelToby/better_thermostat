@@ -60,6 +60,10 @@ def _room(*, one_head_gone: bool) -> MagicMock:
     bt._trigger_contact_change = lambda *args: BetterThermostat._trigger_contact_change(
         bt, *args
     )
+    bt._handle_temperature_reading = lambda event: (
+        BetterThermostat._handle_temperature_reading(bt, event)
+    )
+    bt._temperature_filter_lock = None
 
     states = {
         GONE_ID: State(GONE_ID, "unavailable" if one_head_gone else "heat"),
