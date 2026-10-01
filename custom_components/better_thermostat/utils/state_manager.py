@@ -972,7 +972,8 @@ class StateManager:
         self._copy_retry_at = 0.0
         self._copy_retry_s = COPY_RETRY_FIRST_S
         self._copy_retry_running = False
-        # The background task of the latest try; flush() waits for it.
+        # The background task of the latest try, or of the latest
+        # save_unless_closed(); flush() waits for it.
         self._copy_retry_task: asyncio.Task[None] | None = None
         # The timer that tries the copy at ``_copy_retry_at`` on its own, and
         # whether the manager still starts one; after close() it does not.
@@ -1580,6 +1581,43 @@ class StateManager:
             len(self._state.pid),
             len(self._state.tpi),
         )
+
+    async def save_unless_closed(self) -> None:
+        """Save now, as the task ``flush()`` waits for, unless closed by then.
+
+        For a save that can run beside the entity's removal, such as the
+        startup migration. A copy still pending is tried inside that task,
+        so a flush waits for its outcome instead of trying the copy beside
+        it, and a manager closed in the meantime writes nothing: ``flush()``
+        makes the final write. A copy that fails again leaves the state
+        dirty, and the timed retry saves it once the copy exists.
+        """
+        running = self._copy_retry_task
+        if running is not None and not running.done():
+            await asyncio.wait({running})
+        if not self._copy_retry_timed:
+            return
+        task = self._hass.async_create_background_task(
+            self._copy_then_save_unless_closed(), name=f"bt_state_save_{self._entry_id}"
+        )
+        self._copy_retry_task = task
+        # Waited for without being cancelled with the caller: flush() waits
+        # for the same task.
+        await asyncio.wait({task})
+        task.result()
+
+    async def _copy_then_save_unless_closed(self) -> None:
+        """Try a pending copy, then save unless the copy failed or close() ran."""
+        if self._payload_awaiting_copy is not None:
+            self._copy_retry_running = True
+            try:
+                await self._retry_awaited_copy()
+            finally:
+                self._copy_retry_running = False
+            if self._payload_awaiting_copy is not None:
+                return
+        if self._copy_retry_timed:
+            await self.save()
 
     async def save_if_dirty(self) -> None:
         """Persist current state only if it has been modified since last save."""
