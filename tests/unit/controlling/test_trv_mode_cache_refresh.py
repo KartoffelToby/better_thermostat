@@ -79,6 +79,8 @@ def thermostat(reported_states):
     bt.bt_update_lock = False
     bt.in_maintenance = False
     bt.ignore_states = False
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_due = False
     bt.cooler_entity_id = None
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()

@@ -338,10 +338,15 @@ def _schedule_room_sensor_fallback(self) -> None:
         return
 
     async def _enter_fallback(_now):
-        self.room_sensor_fallback_cancel = None
         # The room temperature changes source in the same turn the sensor
         # readings take, so a reading that is being applied finishes first.
         async with temperature_filter_lock(self):
+            # The handle stays set while the callback waits for the lock. A
+            # reading that ended the outage in the meantime cleared it, and an
+            # outage that started after that waits a delay of its own.
+            if self.room_sensor_fallback_cancel is not timer:
+                return
+            self.room_sensor_fallback_cancel = None
             if self.is_removed:
                 return
             sensor_state = self.hass.states.get(self.sensor_entity_id)
@@ -371,9 +376,8 @@ def _schedule_room_sensor_fallback(self) -> None:
             # temperature the sensor last sent.
             queue_control_cycle(self)
 
-    self.room_sensor_fallback_cancel = async_call_later(
-        self.hass, ROOM_SENSOR_FALLBACK_DELAY_S, _enter_fallback
-    )
+    timer = async_call_later(self.hass, ROOM_SENSOR_FALLBACK_DELAY_S, _enter_fallback)
+    self.room_sensor_fallback_cancel = timer
 
 
 async def _resume_room_sensor(self, temperature: float) -> None:
