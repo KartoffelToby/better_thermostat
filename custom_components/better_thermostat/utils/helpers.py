@@ -1136,6 +1136,20 @@ def on_cooler_grid(self, cooler_state, value):
     holds whole degrees on a Fahrenheit system, Home Assistant's precision
     for that unit, and on a Celsius system is rounded onto the step its
     reports are compared with.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    cooler_state : State
+            the cooler's state carrying the reported ``target_temp_step``
+    value : float
+            the setpoint in °C
+
+    Returns
+    -------
+    float
+            the setpoint in °C on the cooler's grid
     """
     step = convert_to_float(
         str(cooler_state.attributes.get("target_temp_step")),
