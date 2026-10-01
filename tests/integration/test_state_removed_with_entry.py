@@ -153,3 +153,118 @@ async def test_removal_waits_for_the_final_copy(hass, hass_storage, fake_trv):
         patcher.stop()
 
     assert _stored_keys(hass_storage, entry) == []
+
+
+class _HeldWrites:
+    """Hold the state writes of one entry until they are released.
+
+    Each write waits on a gate of its own, in the order the writes start,
+    so a test can let one write land while the next one is still held.
+    Once :meth:`stop_holding` ran, later writes are no longer held, and
+    :meth:`release_all` lets the held ones land.
+    """
+
+    def __init__(self, entry) -> None:
+        self._entry_id = entry.entry_id
+        self.gates: list[asyncio.Event] = []
+        self._holding = True
+        self._write = storage.Store._async_write_data
+
+    def patch(self):
+        held = self
+
+        async def _held_write(store, data):
+            if held._entry_id in store.key and held._holding:
+                gate = asyncio.Event()
+                held.gates.append(gate)
+                await gate.wait()
+            await held._write(store, data)
+
+        return patch.object(storage.Store, "_async_write_data", _held_write)
+
+    async def wait_for_write(self, count: int) -> None:
+        """Wait until *count* writes are held."""
+        for _ in range(200):
+            if len(self.gates) >= count:
+                return
+            await asyncio.sleep(0)
+        raise AssertionError(f"{count} writes expected, {len(self.gates)} held")
+
+    def stop_holding(self) -> None:
+        self._holding = False
+
+    def release_all(self) -> None:
+        self.stop_holding()
+        for gate in self.gates:
+            gate.set()
+
+
+async def _let_the_loop_run(rounds: int = 50) -> None:
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+
+
+async def test_removal_waits_for_a_runtime_save_under_way(hass, hass_storage, fake_trv):
+    """A runtime save still writing when the entry is removed is not left behind.
+
+    The final save writes through the same Store, whose write lock puts it
+    behind the runtime write, so the removal that waits for the final save
+    also follows the runtime write.
+    """
+    entry = make_entry()
+    bt = await _started_with_a_saved_value(hass, hass_storage, entry)
+    held = _HeldWrites(entry)
+    with held.patch():
+        bt.heating_power = CHANGED
+        bt.state_mgr.mark_dirty()
+        runtime_save = hass.async_create_task(bt.state_mgr.save_if_dirty())
+        await held.wait_for_write(1)
+        held.stop_holding()
+
+        removal = hass.async_create_task(
+            hass.config_entries.async_remove(entry.entry_id)
+        )
+        await asyncio.wait({removal}, timeout=1)
+        held.release_all()
+        await removal
+        await runtime_save
+        await hass.async_block_till_done()
+
+    assert _stored_keys(hass_storage, entry) == []
+
+
+async def test_removal_waits_for_a_second_runtime_save_under_way(
+    hass, hass_storage, fake_trv
+):
+    """A save queued behind another one does not land after the removal.
+
+    The first save clears the unsaved mark once it lands, while the second
+    one is still writing. The removal marks the state unsaved again, so the
+    final save writes through the same Store and lands after the second.
+    """
+    entry = make_entry()
+    bt = await _started_with_a_saved_value(hass, hass_storage, entry)
+    held = _HeldWrites(entry)
+    with held.patch():
+        bt.heating_power = CHANGED
+        bt.state_mgr.mark_dirty()
+        first = hass.async_create_task(bt.state_mgr.save_if_dirty())
+        await held.wait_for_write(1)
+        second = hass.async_create_task(bt.state_mgr.save_if_dirty())
+        await _let_the_loop_run()
+        held.gates[0].set()
+        await first
+        await held.wait_for_write(2)
+        assert bt.state_mgr.dirty is False
+        held.stop_holding()
+
+        removal = hass.async_create_task(
+            hass.config_entries.async_remove(entry.entry_id)
+        )
+        await asyncio.wait({removal}, timeout=1)
+        held.release_all()
+        await removal
+        await second
+        await hass.async_block_till_done()
+
+    assert _stored_keys(hass_storage, entry) == []
