@@ -301,9 +301,15 @@ class IndirectTrvAdapter:
             p_gain = max(self.params.internal_p_gain, 1e-6)
             desired_setpoint = ctx.current_temp_C + bt_valve_pct / p_gain
 
-        # Quantise to TRV's setpoint resolution.
-        step = max(self.params.setpoint_step_K, 1e-6)
-        quantised = round(desired_setpoint / step) * step
+        # Quantise to TRV's setpoint resolution. ``_production_setpoint``
+        # already rounds with production's direction and then clamps to the
+        # TRV's range, as the safety hull does; rounding a clamped edge off
+        # the grid again would push it out of that range.
+        if production:
+            quantised = desired_setpoint
+        else:
+            step = max(self.params.setpoint_step_K, 1e-6)
+            quantised = round(desired_setpoint / step) * step
 
         # Hysteresis band on the *quantised* setpoint — TRV ignores micro-
         # changes inside the band.

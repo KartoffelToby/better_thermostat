@@ -162,7 +162,7 @@ By default the wrapper maps the valve intent onto a setpoint the way
 `calibration.py` does for the controller modes
 (`setpoint_mapping="production"`): `T_trv + (T_max − T_trv)·u`, a
 setpoint below the TRV's reading at `u = 0`, rounded up while heating
-and down while idle. The TRV's own sensor reads
+and down while idle, then clamped to the TRV's range. The TRV's own sensor reads
 `T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
 the inner controller sees that reading as its TRV temperature. The
 fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the

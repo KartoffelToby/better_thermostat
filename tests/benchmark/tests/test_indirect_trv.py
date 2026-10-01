@@ -400,6 +400,27 @@ def test_production_setpoint_stays_inside_the_trv_range():
     assert out.diagnostics["indirect_setpoint_C"] >= 4.8
 
 
+@pytest.mark.parametrize(
+    ("demand", "low", "high", "expected"),
+    [
+        pytest.param(100.0, 5.0, 30.3, 30.3, id="max-off-grid"),
+        pytest.param(0.0, 4.6, 30.0, 4.6, id="min-off-grid"),
+    ],
+)
+def test_production_setpoint_holds_an_off_grid_range_edge(
+    demand: float, low: float, high: float, expected: float
+):
+    """The TRV receives a setpoint inside its range when an edge lies off the grid."""
+    # 30.3 and 4.6 round to the nearest 0.5 K step at 30.5 and 4.5, both
+    # outside the range.
+    params = replace(_PRODUCTION, min_setpoint=low, max_setpoint=high)
+    adapter = IndirectTrvAdapter(_FakeValveAdapter(demand), params)
+    out = adapter.step(_plant_ctx(target=6.0, room=20.0, rad=20.0))
+    setpoint = out.diagnostics["indirect_setpoint_C"]
+    assert params.min_setpoint <= setpoint <= params.max_setpoint
+    assert setpoint == pytest.approx(expected)
+
+
 def test_production_inner_controller_sees_its_own_previous_command():
     """Without a reported position, the previous valve is BT's own command."""
     inner = _RecordingValveAdapter(40.0)
