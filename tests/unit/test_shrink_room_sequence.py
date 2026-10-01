@@ -100,8 +100,8 @@ def test_a_sequence_that_needs_every_event_is_kept_whole():
     ]
 
 
-def test_the_empty_sequence_is_never_offered():
-    """A sequence without events replays nothing, so it is never a candidate."""
+def test_the_empty_sequence_is_not_a_candidate():
+    """The empty sequence is not offered: it replays nothing."""
     offered = []
 
     def still_breaks(events):
