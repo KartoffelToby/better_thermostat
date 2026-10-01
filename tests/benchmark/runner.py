@@ -338,7 +338,13 @@ def _drive_adapter(
         )
 
         out = adapter.step(ctx)
-        valve_pct = out.valve_percent if out.valve_percent is not None else 0.0
+        # Better Thermostat turns every TRV off while a window is open,
+        # whatever the calibration mode: the kernel's window region decides
+        # that above the controller. The controller still runs and sees the
+        # open window, but the plant gets a closed valve.
+        valve_pct = (
+            0.0 if window_open or out.valve_percent is None else out.valve_percent
+        )
         last_valve_pct = valve_pct
 
         t_s_list.append(t)

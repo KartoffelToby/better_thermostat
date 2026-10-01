@@ -26,11 +26,11 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
-  mpc_v2                0.874  0.115    0.930  0.148     0.736  0.299    0.937  0.161   37
-  pid                   0.785  0.144    0.850  0.209     0.577  0.355    0.936  0.159   37
-  tpi                   0.783  0.155    0.680  0.230     0.870  0.223    0.911  0.158   37
-  mpc                   0.709  0.151    0.864  0.181     0.315  0.378    0.912  0.157   37
-  bangbang              0.567  0.151    0.760  0.193     0.129  0.301    0.740  0.175   37
+  mpc_v2                0.880  0.117    0.932  0.148     0.755  0.303    0.936  0.161   37
+  tpi                   0.795  0.154    0.693  0.234     0.889  0.218    0.910  0.158   37
+  pid                   0.787  0.144    0.850  0.209     0.583  0.359    0.936  0.159   37
+  mpc                   0.716  0.153    0.864  0.181     0.339  0.399    0.911  0.158   37
+  bangbang              0.576  0.156    0.760  0.193     0.159  0.308    0.740  0.175   37
 ```
 
 Higher is better. Each dimension is **oracle-normalised**: `1.0` matches
@@ -113,10 +113,10 @@ a controller wins.
   normalises against the Oracle, so it scores itself 1.0 on every
   scenario, including the permanent-disturbance ones (diurnal outdoor,
   multi-day weather) where the disturbance cancels on both sides.
-* **BangBang ≈ 0.57** — noise floor. A deliberately naive on/off
+* **BangBang ≈ 0.58** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.68–0.78, `mpc_v2` ≈ 0.87.** That band is the realistic operating
+  0.71–0.80, `mpc_v2` ≈ 0.88.** That band is the realistic operating
   range. A controller above 0.80 is beating most of the field; near the
   BangBang floor means a clear weakness in at least one dimension.
 
