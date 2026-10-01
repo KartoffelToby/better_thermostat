@@ -31,9 +31,7 @@ _BARE_MOCKS = frozenset(
 _REMAINING = {
     "tests/test_aggressive_calibration.py": 1,
     "tests/test_calibration_default_mode.py": 1,
-    "tests/unit/controlling/test_control_queue.py": 20,
-    "tests/unit/controlling/test_control_trv.py": 7,
-    "tests/unit/controlling/test_trv_mode_cache_refresh.py": 1,
+
     "tests/unit/test_calibration_cooling_gates.py": 1,
     "tests/unit/test_calibration_heating_power.py": 1,
     "tests/unit/test_calibration_mode_default.py": 1,

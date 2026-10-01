@@ -3,20 +3,47 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
+from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.recorder import FlightRecorder
+from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.controlling import (
     TaskManager,
     control_queue,
 )
+from tests.factories import ThermostatStandIn
 
 
 def _tracked_trv(entity_id: str) -> Trv:
     """Build the record the entity keeps for one controlled TRV."""
     return Trv.from_legacy_dict(entity_id, {})
+
+
+def _thermostat() -> ThermostatStandIn:
+    """Build a heating room at rest that one control cycle can observe."""
+    bt = ThermostatStandIn()
+    bt.clock = FakeClock()
+    bt.kernel_state = running_kernel_state()
+    bt.flight_recorder = FlightRecorder()
+    bt.bt_hvac_mode = HVACMode.HEAT
+    bt.bt_target_temp = 21.0
+    bt.bt_target_cooltemp = None
+    bt.bt_min_temp = 5.0
+    bt.bt_max_temp = 30.0
+    bt.cur_temp = 20.0
+    bt.cur_temp_filtered = None
+    bt.temp_slope = None
+    bt.call_for_heat = True
+    bt.preset_mode = None
+    bt.tolerance = 0.3
+    bt.outdoor_sensor = None
+    bt.weather_entity = None
+    bt.calculate_heat_loss = AsyncMock()
+    return bt
 
 
 class TestControlQueue:
@@ -25,13 +52,13 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_creates_task_manager_if_not_exists(self):
         """Test that TaskManager is created if it doesn't exist."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
         mock_self.startup_running = False
         mock_self.device_name = "test_thermostat"
-        # A Mock answers every attribute; deleting it makes the entity start
-        # without one, which is the case under test.
+        # The stand-in answers ``task_manager`` with a mock; deleting it makes
+        # the entity start without one, which is the case under test.
         del mock_self.task_manager
 
         # Create a queue that will cancel the loop after first iteration
@@ -62,7 +89,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_skips_when_in_maintenance(self):
         """Test that control loop skips when in_maintenance is True."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = True
         mock_self.ignore_states = False
@@ -91,7 +118,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_skips_when_ignore_states_true(self):
         """Test that control loop skips when ignore_states is True."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = True
@@ -115,7 +142,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_skips_when_startup_running_true(self):
         """Test that control loop skips when startup_running is True."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -139,7 +166,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_processes_task_from_queue(self):
         """Test that tasks are processed from queue."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -171,7 +198,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_calls_calculate_heating_power(self):
         """Test that calculate_heating_power is called during processing."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -198,7 +225,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_handles_calculate_heating_power_exception(self):
         """Test that exceptions from calculate_heating_power are caught."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -228,7 +255,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_calls_control_cooler_when_exists(self):
         """Test that control_cooler is called when cooler_entity_id exists."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -254,16 +281,15 @@ class TestControlQueue:
             except asyncio.CancelledError:
                 pass
 
-            # Should have called control_cooler
-            # The cooler runs on the cycle's snapshot (None here: the
-            # mocked compute_control_cycle yielded no cycle).
+            # The cooler runs on the cycle's snapshot.
             mock_control_cooler.assert_called_once()
             assert mock_control_cooler.call_args.args[0] is mock_self
+            assert isinstance(mock_control_cooler.call_args.args[1], WorldSnapshot)
 
     @pytest.mark.asyncio
     async def test_handles_control_cooler_exception(self):
         """Test that exceptions from control_cooler are caught."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -294,7 +320,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_runs_control_trv_in_parallel(self):
         """Test that control_trv is called for each TRV in parallel."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -333,7 +359,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_handles_control_trv_exceptions(self):
         """Test that exceptions from control_trv are caught and handled."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -384,7 +410,7 @@ class TestControlQueue:
         to schedule a retry.  We verify by counting how many times
         control_trv is called (>1 means the retry was re-queued and consumed).
         """
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -433,7 +459,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_handles_queue_full_when_retrying(self):
         """Test that QueueFull is handled gracefully when retrying."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -479,7 +505,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_sets_ignore_states_during_processing(self):
         """Test that ignore_states is set to True during processing."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -516,7 +542,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_resets_ignore_states_after_processing(self):
         """Test that ignore_states is reset to False after processing."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -544,7 +570,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_finally_block_resets_ignore_states(self):
         """Test that finally block always resets ignore_states."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = True  # Start as True
@@ -568,7 +594,7 @@ class TestControlQueue:
     @pytest.mark.asyncio
     async def test_does_not_reset_ignore_states_if_in_maintenance(self):
         """Test that ignore_states is not reset if in_maintenance is True."""
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.ignore_states = True
         mock_self.startup_running = False
@@ -608,7 +634,7 @@ class TestControlQueue:
         it, and ``join`` is what reads that count. An item that asks for no
         control pass still has to be acknowledged, or the count never clears.
         """
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -649,7 +675,7 @@ class TestControlQueue:
             started.set()
             await asyncio.Event().wait()
 
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -712,7 +738,7 @@ class TestControlQueueOnADualRoleEntity:
 
     @classmethod
     def _make_self(cls, *, hvac_mode_decided, real_trvs=None):
-        mock_self = Mock()
+        mock_self = _thermostat()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
         mock_self.ignore_states = False
@@ -727,10 +753,6 @@ class TestControlQueueOnADualRoleEntity:
         )
         mock_self._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
         mock_self.control_queue_task = asyncio.Queue()
-        # The heartbeat the cycle stamps replaces a field of the kernel state,
-        # so it has to be the real immutable value, not a stand-in.
-        mock_self.kernel_state = running_kernel_state()
-        mock_self.clock = FakeClock()
         return mock_self
 
     @classmethod

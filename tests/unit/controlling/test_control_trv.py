@@ -35,6 +35,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.fsm.reachability import ReachabilityState
 from custom_components.better_thermostat.core.fsm.window import WindowPhase, WindowState
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
@@ -53,7 +54,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -127,7 +128,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_hass.services = Mock()
     mock_hass.services.async_call = AsyncMock()
 
-    mock_self = Mock()
+    mock_self = ThermostatStandIn()
     mock_self.hass = mock_hass
     mock_self.device_name = "test_thermostat"
     mock_self._temp_lock = asyncio.Lock()
@@ -143,6 +144,8 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.ignore_states = kwargs.pop("ignore_states", False)
     mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     mock_self.clock = FakeClock()
+    mock_self.flight_recorder = FlightRecorder()
+    mock_self.control_queue_task = asyncio.Queue(maxsize=1)
     mock_self.startup_running = False
     mock_self.in_maintenance = False
     mock_self.degraded_mode = False
@@ -1604,7 +1607,7 @@ class TestBoostModeSafetyOverride:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -1619,6 +1622,7 @@ class TestBoostModeSafetyOverride:
         mock_self.task_manager = Mock()
         mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
         mock_self.clock = FakeClock()
+        mock_self.flight_recorder = FlightRecorder()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -1860,7 +1864,7 @@ class TestBoostModeSafetyOverride:
         coro, _name = retries[0]
         with patch("asyncio.sleep", new=AsyncMock()):
             await coro
-        mock_self.control_queue_task.put_nowait.assert_called_once()
+        assert mock_self.control_queue_task.get_nowait() is mock_self
         assert mock_self.real_trvs["climate.trv1"].budget_retry_pending is False
 
         # Close any other captured coroutines to avoid RuntimeWarning.
@@ -1948,7 +1952,7 @@ class TestBoostModeSafetyOverride:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -1963,6 +1967,7 @@ class TestBoostModeSafetyOverride:
         mock_self.task_manager = Mock()
         mock_self.task_manager.create_task = Mock(side_effect=_close_coro)
         mock_self.clock = FakeClock()
+        mock_self.flight_recorder = FlightRecorder()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -2328,13 +2333,14 @@ class TestRaceConditionLockCoverage:
             mock_state_trv1 if entity_id == "climate.trv1" else mock_state_trv2
         )
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.hass = mock_hass
         mock_self.device_name = "test_grouped_thermostat"
         mock_self._temp_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
+        mock_self.flight_recorder = FlightRecorder()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -2528,13 +2534,14 @@ class TestRaceConditionLockCoverage:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
+        mock_self.flight_recorder = FlightRecorder()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -2644,13 +2651,14 @@ class TestRaceConditionLockCoverage:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
         mock_self.calculate_heating_power = AsyncMock()
         mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
         mock_self.clock = FakeClock()
+        mock_self.flight_recorder = FlightRecorder()
         mock_self.startup_running = False
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
@@ -2824,9 +2832,10 @@ class TestRaceConditionLockCoverage:
 @pytest.fixture
 def mock_bt_grouped():
     """Create a mock BetterThermostat instance for grouped TRV testing."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.clock = FakeClock()
+    bt.flight_recorder = FlightRecorder()
     bt.startup_running = False
     bt.in_maintenance = False
     bt.degraded_mode = False
@@ -4364,7 +4373,7 @@ class TestHomematicIPWritePacing:
         assert delays == [
             pytest.approx(HOMEMATICIP_MIN_WRITE_INTERVAL_S - MIN_WRITE_INTERVAL_S - 1)
         ]
-        mock_self.control_queue_task.put_nowait.assert_called()
+        assert mock_self.control_queue_task.get_nowait() is mock_self
 
         mock_self.clock.advance(delays[0])
         written.clear()

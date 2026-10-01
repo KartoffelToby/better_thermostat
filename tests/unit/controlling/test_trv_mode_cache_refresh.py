@@ -17,6 +17,9 @@ from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.events.trv import trigger_trv_change
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
@@ -30,6 +33,7 @@ from custom_components.better_thermostat.utils.controlling import (
     read_reports_held_during_cycle,
     refresh_cached_trv_modes,
 )
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
@@ -61,7 +65,7 @@ def reported_states() -> dict[str, State]:
 @pytest.fixture
 def thermostat(reported_states):
     """Build a Better Thermostat driving one TRV that heats."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     # Climate entities publish no unit attribute, so every temperature read off
     # a TRV state resolves through the system unit.
@@ -76,6 +80,10 @@ def thermostat(reported_states):
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
+    bt.cur_temp_filtered = None
+    bt.temp_slope = None
+    bt.call_for_heat = True
+    bt.preset_mode = None
     bt.tolerance = 0.3
     bt.window_open = False
     bt.contact_open = False
@@ -84,6 +92,10 @@ def thermostat(reported_states):
     bt.in_maintenance = False
     bt.ignore_states = False
     bt.cooler_entity_id = None
+    bt.clock = FakeClock()
+    bt.kernel_state = running_kernel_state()
+    bt.flight_recorder = FlightRecorder()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
     bt.calculate_heating_power = AsyncMock()
