@@ -74,6 +74,7 @@ TRIGGER_CASES = {
 # A threshold trigger fires on the crossing, not on the value, so the ones
 # whose quantity already sits on the far side have to be moved back first.
 TRIGGER_PRECONDITIONS = {
+    "heating_active": {ATTR_HVAC_ACTION: "idle"},
     "heating_stopped": {ATTR_HVAC_ACTION: "heating"},
     "window_closed": {"window_open": True},
     "target_temp_reached": {"current_temperature": 18.0, ATTR_TEMPERATURE: 22.0},
@@ -90,9 +91,21 @@ TRIGGER_EXTRA_FIELDS = {
     "current_humidity_changed": {"above": 65.0},
 }
 
+# Each case names the condition type, the fields the condition carries, the
+# state the thermostat has to be in, and the room temperature that drives it
+# there. The hvac action is driven through the room sensor rather than
+# republished: the thermostat publishes its own action on every state write,
+# and a write landing between a republished action and the check would put
+# the real one back.
 CONDITION_CASES = {
-    "is_hvac_mode": ({ATTR_HVAC_MODE: "heat"}, "heat", {}),
-    "is_hvac_action": ({ATTR_HVAC_ACTION: "idle"}, None, {ATTR_HVAC_ACTION: "idle"}),
+    "is_hvac_mode": ("is_hvac_mode", {ATTR_HVAC_MODE: "heat"}, "heat", None),
+    "is_hvac_action_idle": ("is_hvac_action", {ATTR_HVAC_ACTION: "idle"}, None, 22.0),
+    "is_hvac_action_heating": (
+        "is_hvac_action",
+        {ATTR_HVAC_ACTION: "heating"},
+        None,
+        17.0,
+    ),
 }
 
 
@@ -236,6 +249,8 @@ async def test_a_trigger_that_names_only_a_device_finds_the_entity(hass, fake_tr
         },
     )
 
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
 
     assert await wait_for(hass, lambda: calls)
@@ -253,17 +268,15 @@ async def test_the_device_offers_every_declared_condition(hass, fake_trv):
     assert ours == CONDITION_TYPES
 
 
-@pytest.mark.parametrize("condition_type", sorted(CONDITION_CASES), ids=str)
-async def test_each_condition_passes_on_the_state_it_names(
-    hass, fake_trv, condition_type
-):
+@pytest.mark.parametrize("case", sorted(CONDITION_CASES), ids=str)
+async def test_each_condition_passes_on_the_state_it_names(hass, fake_trv, case):
     """A condition built on each offered entry passes for the state it names.
 
     A condition that can never be true is worse than a missing one: the
     automation runs, the condition blocks it, and nothing anywhere says why.
     """
     _entry, device_id = await _entry_with_device(hass)
-    extra_fields, expected_state, attributes = CONDITION_CASES[condition_type]
+    condition_type, extra_fields, expected_state, room = CONDITION_CASES[case]
     condition = _offered(
         await async_get_device_automations(
             hass, DeviceAutomationType.CONDITION, device_id
@@ -283,7 +296,16 @@ async def test_each_condition_passes_on_the_state_it_names(
         },
     )
 
-    state = _republish(hass, **attributes) if attributes else hass.states.get(BT_ENTITY)
+    if room is not None:
+        _room_sensor(hass, str(room))
+        action = extra_fields[ATTR_HVAC_ACTION]
+        assert await wait_for(
+            hass,
+            lambda: (
+                hass.states.get(BT_ENTITY).attributes.get(ATTR_HVAC_ACTION) == action
+            ),
+        ), f"the thermostat never reported {action} at {room} °C"
+    state = hass.states.get(BT_ENTITY)
     if expected_state is not None:
         assert state.state == expected_state, (
             f"the thermostat is not in {expected_state}, so this proves nothing"
@@ -443,6 +465,8 @@ async def test_a_trigger_on_a_device_without_a_thermostat_is_refused(
     ), "the refusal did not name the device"
 
     # The thermostat that does exist changes; nothing is watching for it.
+    _republish(hass, **TRIGGER_PRECONDITIONS["heating_active"])
+    await hass.async_block_till_done()
     _republish(hass, **{ATTR_HVAC_ACTION: "heating"})
     await hass.async_block_till_done()
 
