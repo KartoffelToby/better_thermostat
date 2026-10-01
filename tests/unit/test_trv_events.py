@@ -3835,6 +3835,37 @@ class TestDualRoleEntityReports:
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("pressed", "adopted"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_shared_entity_reads_a_fahrenheit_cooling_write_on_whole_degrees(
+        self, shared_bt, pressed, adopted
+    ):
+        """A °F device that publishes no step holds the cooling write on whole °F.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        shared_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        shared_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=pressed, previous_temp=75.0
+        )
+
+        assert shared_bt.bt_target_temp == 20.0
+        if adopted:
+            assert shared_bt.bt_target_cooltemp == pytest.approx(24.44, abs=0.01)
+        else:
+            assert shared_bt.bt_target_cooltemp == 24.0
+
     @pytest.mark.asyncio
     async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(
         self, mock_bt
