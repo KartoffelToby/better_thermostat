@@ -1547,6 +1547,14 @@ async def control_trv(self, heater_entity_id=None):
                             ),
                             name=f"bt_check_target_temp_{heater_entity_id}",
                         )
+                else:
+                    # The device already holds what the room wants, whoever
+                    # put it there: a knob turned while the room was off can
+                    # land on the setpoint the room asks for once it heats
+                    # again. That value is BT's own from here on.
+                    self.real_trvs[heater_entity_id].remember_setpoint_held(
+                        _temperature
+                    )
 
             # Let TRV state updates propagate before accepting new state events
             await asyncio.sleep(3)

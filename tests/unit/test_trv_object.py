@@ -294,3 +294,19 @@ class TestEchoSetpoints:
         trv.remember_setpoint_written(23.0)
         trv.remember_setpoint_adopted(22.0)
         assert trv.echo_setpoint_values() == [23.0]
+
+    def test_a_held_setpoint_becomes_one_bt_wrote(self):
+        """20.0 turned at the device and wanted by the room is BT's own now."""
+        trv = _make()
+        awaited = trv.remember_setpoint_written(22.0)
+        trv.last_temperature = 22.0
+        trv.remember_setpoint_confirmed(22.0, awaited)
+        trv.remember_setpoint_held(20.0)
+        assert (trv.last_temperature, trv.confirmed_setpoint) == (20.0, 20.0)
+
+    def test_a_held_setpoint_keeps_the_writes_in_flight(self):
+        """23.0 went out unanswered, so it may still land after the match."""
+        trv = _make()
+        trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_held(20.0)
+        assert trv.echo_setpoint_values() == [23.0]
