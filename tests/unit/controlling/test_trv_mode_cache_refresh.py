@@ -471,6 +471,7 @@ class TestReportsHeldDuringACycle:
             pytest.param(None, False, id="nothing_moved"),
             pytest.param(("bt_target_temp", 23.0), True, id="target_adopted"),
             pytest.param(("bt_hvac_mode", HVACMode.OFF), True, id="mode_adopted"),
+            pytest.param(("cur_temp", 21.0), True, id="room_temperature_moved"),
         ],
     )
     async def test_a_cycle_is_requested_only_for_what_a_cycle_acts_on(
@@ -494,6 +495,32 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         assert (thermostat.control_queue_task.qsize() == 1) is requested
+
+    @pytest.mark.asyncio
+    async def test_an_internal_temperature_reported_during_a_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A TRV's new internal temperature reported inside a cycle is acted on.
+
+        Outside a cycle the new reading requests one. Inside a cycle it is
+        taken as it arrives, so the report read again at the end of the cycle
+        carries nothing new, and the reading would wait for some other event.
+        """
+        warmer = State(
+            ENTITY_ID,
+            "heat",
+            attributes={
+                **_reported_state("heat").attributes,
+                "current_temperature": 19.5,
+            },
+        )
+
+        cycles = await _run_one_cycle(
+            thermostat, reported_states, warmer, handled_inside=True
+        )
+
+        assert thermostat.real_trvs[ENTITY_ID].current_temperature == 19.5
+        assert cycles == 2
 
     @pytest.mark.asyncio
     async def test_a_routine_report_during_the_cycle_requests_no_further_cycle(

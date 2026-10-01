@@ -5,6 +5,7 @@ ignore_states MUST always be released (even on error), otherwise the control
 loop can stall.  Also covers the re-entry guard, reschedule, and control kick.
 """
 
+import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -120,6 +121,42 @@ async def test_maintenance_setpoint_writes_stay_out_of_the_echo_list(bt):
     assert trv.adapter.set_temperature.await_count == 3
     assert trv.last_temperature == 21.0
     assert trv.echo_setpoint_values() == [21.0]
+
+
+@pytest.mark.asyncio
+async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
+    """A setpoint the exercise writes goes out only once the control lock is free.
+
+    A control cycle that was already running when maintenance started reads
+    back the value its own setpoint write sent. A maintenance write landing
+    in that window would be taken for the control write and watched as such.
+    """
+    bt._temp_lock = asyncio.Lock()
+    writes = []
+
+    async def _record(_bt, entity_id, temp):
+        writes.append((entity_id, temp))
+
+    async def _exercise(infos, *, set_temperature_fn, **kwargs):
+        await set_temperature_fn("climate.trv", 30.0)
+
+    with (
+        patch(f"{_CLIMATE}.build_trv_snapshots", _snapshots()),
+        patch(f"{_CLIMATE}.run_valve_maintenance", _exercise),
+        patch(f"{_CLIMATE}.adapter_set_temperature", _record),
+        patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
+    ):
+        async with bt._temp_lock:
+            run = asyncio.create_task(
+                BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
+            )
+            for _ in range(5):
+                await asyncio.sleep(0)
+            written_while_held = list(writes)
+        await run
+
+    assert written_while_held == []
+    assert writes == [("climate.trv", 30.0)]
 
 
 @pytest.mark.asyncio
