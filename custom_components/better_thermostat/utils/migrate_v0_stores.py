@@ -143,9 +143,10 @@ async def migrate_v0_stores(
 
     Skips silently when the unified store already contains data (i.e. the
     migration has already run or the user started fresh).  After a
-    successful import the unified store is saved immediately.  The legacy
-    files are **not** deleted so that a rollback to the previous version
-    remains possible.
+    successful import the unified store is saved immediately, unless the
+    entity was removed in the meantime and its final flush saves it.  The
+    legacy files are **not** deleted so that a rollback to the previous
+    version remains possible.
 
     Parameters
     ----------
@@ -224,7 +225,7 @@ async def migrate_v0_stores(
         pass
 
     if any_imported:
-        await state_mgr.save()
+        await state_mgr.save_unless_closed()
         _LOGGER.info(
             "better_thermostat [%s]: migrated v0 stores to unified state",
             config_entry_id,
