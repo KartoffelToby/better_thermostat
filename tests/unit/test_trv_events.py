@@ -6,6 +6,7 @@ and the convert_inbound_states / convert_outbound_states helpers.
 """
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +17,7 @@ from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
 
+from custom_components.better_thermostat.calibration import effective_room_temp
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.trv import (
@@ -906,6 +908,59 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
             )
 
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "recovered",
+        [
+            pytest.param(21.0, id="same_as_stored"),
+            pytest.param(21.5, id="inside_debounce_window"),
+        ],
+    )
+    async def test_a_reading_turning_plausible_again_controls_the_room_anew(
+        self, mock_bt, recovered
+    ):
+        """A TRV whose marker report turns usable again rejoins the mean."""
+        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        mock_bt.real_trvs[PEER_ID] = replace(
+            trv, entity_id=PEER_ID, current_temperature=19.0
+        )
+        peer_state = State(
+            PEER_ID,
+            "heat",
+            attributes={"current_temperature": 19.0, "temperature": 19.0},
+        )
+        live = _make_state(attributes={"current_temperature": 21.0})
+        marker = _make_state(attributes={"current_temperature": 127.0})
+        back = _make_state(attributes={"current_temperature": recovered})
+        reported = {PEER_ID: peer_state, ENTITY_ID: live}
+        mock_bt.hass.states.get.side_effect = reported.get
+        put_nowait = mock_bt.control_queue_task.put_nowait
+
+        async def report(new_state, old_state):
+            reported[ENTITY_ID] = new_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+
+        assert effective_room_temp(mock_bt) == 20.0
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await report(marker, live)
+            assert put_nowait.call_count == 1
+            assert effective_room_temp(mock_bt) == 19.0
+
+            await report(back, marker)
+            assert put_nowait.call_count == 2
+            assert effective_room_temp(mock_bt) == 20.0
+
+            await report(back, back)
+            assert put_nowait.call_count == 2
 
 
 class TestHvacActionAndValvePosition:
