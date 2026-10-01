@@ -44,10 +44,12 @@ from custom_components.better_thermostat.utils.helpers import (
     is_reasonable_temperature,
     mode_remap,
     normalize_step,
+    published_in_whole_fahrenheit,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     room_mode_intent,
+    setpoint_at_minimum,
     setpoint_echo_window,
 )
 
@@ -518,8 +520,8 @@ async def trigger_trv_change(
             _reported_setpoint,
             trv.last_temperature,
         )
-        # The no_off OFF detection compares against the device's true min_temp,
-        # so it uses the reported value, not one the clamp may have raised into
+        # The no_off OFF detection compares against the TRV's minimum, so it
+        # uses the reported value, not one the clamp may have raised into
         # [bt_min_temp, bt_max_temp].
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
@@ -657,7 +659,14 @@ async def trigger_trv_change(
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
             _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
-            if _raw_heating_setpoint == trv.min_temp:
+            if setpoint_at_minimum(
+                _raw_heating_setpoint,
+                trv.min_temp,
+                step=trv.target_temp_step,
+                whole_degrees=published_in_whole_fahrenheit(
+                    new_state, self.hass.config.units.temperature_unit
+                ),
+            ):
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
                 # off heating - and only

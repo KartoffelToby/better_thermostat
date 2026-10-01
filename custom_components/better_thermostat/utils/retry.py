@@ -9,10 +9,24 @@ import logging
 import random
 from typing import ParamSpec, TypeVar
 
+from homeassistant.exceptions import ServiceNotFound, ServiceValidationError
+
 _LOGGER = logging.getLogger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+# Failures that repeating the call cannot fix. ``ServiceValidationError`` is
+# Home Assistant refusing the payload itself (a setpoint outside the entity's
+# range, a mode it does not offer), which the same payload meets again on
+# every attempt. They surface on the first attempt instead of being hidden
+# behind the full backoff budget.
+UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (ServiceValidationError,)
+
+# Unrecoverable by type, yet momentary: Home Assistant raises
+# ``ServiceNotFound`` for a service whose integration is still loading or
+# reloading, and the service is back a few seconds later.
+RETRYABLE_DESPITE_TYPE: tuple[type[Exception], ...] = (ServiceNotFound,)
 
 
 def async_retry(
@@ -26,6 +40,10 @@ def async_retry(
     identifier: str = "",
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
+
+    Exceptions in :data:`UNRECOVERABLE_EXCEPTIONS`, other than those in
+    :data:`RETRYABLE_DESPITE_TYPE`, are re-raised on the first attempt even
+    when ``exceptions`` covers them.
 
     Args:
         retries: Number of retries before giving up
@@ -56,6 +74,16 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
+                    if isinstance(e, UNRECOVERABLE_EXCEPTIONS) and not isinstance(
+                        e, RETRYABLE_DESPITE_TYPE
+                    ):
+                        log_message = (
+                            f"{log_prefix}{func.__name__} hit an error that "
+                            f"retrying cannot fix: {e}{entity_suffix}"
+                        )
+                        _LOGGER.exception(log_message)
+                        raise
+
                     if attempt >= retries:
                         log_message = (
                             f"{log_prefix}{func.__name__} failed after "
