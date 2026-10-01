@@ -23,11 +23,12 @@ from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
+from tests.factories import ThermostatStandIn
 
 
 def _make_bt() -> MagicMock:
     """Return a fully populated BetterThermostat stand-in."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.clock = FakeClock(
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
     )

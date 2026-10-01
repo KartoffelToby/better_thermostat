@@ -18,6 +18,7 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecycleState,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 
 def _answers_with(value):
@@ -43,7 +44,7 @@ def mock_hass():
 @pytest.fixture
 def mock_bt_instance(mock_hass):
     """Create a mock BetterThermostat instance."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = "sensor.room_temp"

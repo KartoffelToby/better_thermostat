@@ -18,6 +18,7 @@ from custom_components.better_thermostat.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
+from tests.factories import ThermostatStandIn
 
 
 def _snapshot() -> WorldSnapshot:
@@ -87,7 +88,7 @@ async def test_diagnostics_exports_the_flight_recorder():
     desired, _ = decide(_snapshot(), running_kernel_state())
     recorder.record(_snapshot(), running_kernel_state(), desired)
 
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.flight_recorder = recorder
 
     diagnostics = await async_get_config_entry_diagnostics(_hass(bt), _config_entry())

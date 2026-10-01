@@ -8,10 +8,11 @@ claims.
 from unittest.mock import MagicMock, patch
 
 from custom_components.better_thermostat.calibration import _get_solar_context
+from tests.factories import ThermostatStandIn
 
 
 def _bt(sun_state):
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     state = MagicMock()
     state.state = sun_state
     bt.hass.states.get.return_value = state

@@ -8,7 +8,7 @@ them, and the control kicks.
 
 import asyncio
 from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -20,13 +20,14 @@ from custom_components.better_thermostat.events.door import (
     trigger_door_change,
 )
 from custom_components.better_thermostat.utils.const import DOMAIN
+from tests.factories import ThermostatStandIn
 
 _CONTACT = "custom_components.better_thermostat.events.contact"
 _LOGBOOK = f"{_CONTACT}.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", door_open=False, open_delay=0, close_delay=0):
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.door_id = "binary_sensor.door"
     bt.door_open = door_open
