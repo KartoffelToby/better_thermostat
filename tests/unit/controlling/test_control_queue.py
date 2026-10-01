@@ -396,9 +396,17 @@ class TestControlQueue:
             trv_call_count += 1
             return False
 
-        with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv",
-            new=AsyncMock(side_effect=_trv_side_effect),
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.controlling.control_trv",
+                new=AsyncMock(side_effect=_trv_side_effect),
+            ),
+            # The failed-cycle backoff is collapsed so the retry lands
+            # inside the window this test waits for.
+            patch(
+                "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
+                0,
+            ),
         ):
             queue_task = asyncio.create_task(control_queue(mock_self))
             await asyncio.sleep(0.1)
@@ -415,7 +423,11 @@ class TestControlQueue:
 
     @pytest.mark.asyncio
     async def test_handles_queue_full_when_retrying(self):
-        """Test that QueueFull is handled gracefully when retrying."""
+        """A retry that finds the queue full is dropped, and the loop goes on.
+
+        A request that arrived while the failing cycle ran already fills the
+        queue and runs on the newest state, so it stands in for the retry.
+        """
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
         mock_self.in_maintenance = False
@@ -425,26 +437,76 @@ class TestControlQueue:
         mock_self.cooler_entity_id = None
         mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
 
-        # Create queue with maxsize=1
         queue = asyncio.Queue(maxsize=1)
+        mock_self.control_queue_task = queue
+        await queue.put(mock_self)
+        calls = 0
+
+        async def _control_trv(_self, _entity_id):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                queue.put_nowait(mock_self)
+                return False
+            return True
+
+        with (
+            patch(
+                "custom_components.better_thermostat.utils.controlling.control_trv",
+                side_effect=_control_trv,
+            ) as mock_control_trv,
+            # The failed-cycle backoff is collapsed so the retry lands
+            # inside the window this test waits for.
+            patch(
+                "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
+                0,
+            ),
+        ):
+            queue_task = asyncio.create_task(control_queue(mock_self))
+            try:
+                await asyncio.wait_for(queue.join(), timeout=5)
+            finally:
+                queue_task.cancel()
+                try:
+                    await queue_task
+                except asyncio.CancelledError:
+                    pass
+
+        assert mock_control_trv.await_count == 2
+        assert queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_a_persistently_failing_trv_does_not_spin_the_queue(self):
+        """A cycle that keeps failing is retried after a pause, not at once."""
+        mock_self = Mock()
+        mock_self.device_name = "test_thermostat"
+        mock_self.in_maintenance = False
+        mock_self.ignore_states = False
+        mock_self.startup_running = False
+        mock_self.calculate_heating_power = AsyncMock()
+        mock_self.calculate_heat_loss = AsyncMock()
+        mock_self.cooler_entity_id = None
+        mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
+
+        queue = asyncio.Queue(maxsize=10)
         mock_self.control_queue_task = queue
         await queue.put(mock_self)
 
         with patch(
-            "custom_components.better_thermostat.utils.controlling.control_trv"
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(return_value=False),
         ) as mock_control_trv:
-            mock_control_trv.return_value = False
-
             queue_task = asyncio.create_task(control_queue(mock_self))
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.3)
             queue_task.cancel()
-
             try:
                 await queue_task
             except asyncio.CancelledError:
                 pass
 
-            # Should not crash despite queue being full
+        # The failed cycle waits out its backoff before it is queued again,
+        # so the window holds the one failed attempt and no retry.
+        assert mock_control_trv.await_count == 1
 
     @pytest.mark.asyncio
     async def test_sets_ignore_states_during_processing(self):
@@ -619,7 +681,9 @@ class TestControlQueueOnADualRoleEntity:
         mock_self.calculate_heat_loss = AsyncMock()
         mock_self.cooler_entity_id = cls.SHARED_ID
         mock_self.real_trvs = (
-            {cls.SHARED_ID: Mock()} if real_trvs is None else real_trvs
+            {cls.SHARED_ID: _tracked_trv(cls.SHARED_ID)}
+            if real_trvs is None
+            else real_trvs
         )
         mock_self.last_cooler_mode_decided = last_cooler_mode_decided
         mock_self.control_queue_task = asyncio.Queue()
@@ -728,7 +792,10 @@ class TestControlQueueOnADualRoleEntity:
         radiator = "climate.radiator"
         mock_self = self._make_self(
             last_cooler_mode_decided="cool",
-            real_trvs={self.SHARED_ID: Mock(), radiator: Mock()},
+            real_trvs={
+                self.SHARED_ID: _tracked_trv(self.SHARED_ID),
+                radiator: _tracked_trv(radiator),
+            },
         )
 
         def _errors():
@@ -755,7 +822,8 @@ class TestControlQueueOnADualRoleEntity:
     async def test_a_distinct_cooler_leaves_every_trv_dispatched(self):
         """An installation without the overlap dispatches every thermostat."""
         mock_self = self._make_self(
-            last_cooler_mode_decided="cool", real_trvs={"climate.radiator": Mock()}
+            last_cooler_mode_decided="cool",
+            real_trvs={"climate.radiator": _tracked_trv("climate.radiator")},
         )
         mock_self.cooler_entity_id = "climate.split_unit"
 
@@ -791,3 +859,142 @@ class TestControlQueueOnADualRoleEntity:
         mock_self._commit_hvac_action.assert_called_once_with(
             mock_self._compute_hvac_action_pure.return_value
         )
+
+
+@pytest.mark.asyncio
+async def test_a_cycle_cancelled_during_its_backoff_is_still_acknowledged():
+    """Cancelling the loop in the failed-cycle pause leaves no unfinished item.
+
+    The entity cancels the loop when it is removed, and whatever waits on the
+    queue with ``join()`` afterwards would otherwise wait for good.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.calculate_heat_loss = AsyncMock()
+    mock_self.cooler_entity_id = None
+    mock_self.real_trvs = {"climate.trv1": _tracked_trv("climate.trv1")}
+    mock_self.control_queue_task = asyncio.Queue()
+    await mock_self.control_queue_task.put(mock_self)
+    failed = asyncio.Event()
+
+    async def _control_trv(_self, _entity_id):
+        failed.set()
+        return False
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            side_effect=_control_trv,
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
+            60,
+        ),
+    ):
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        await asyncio.wait_for(failed.wait(), timeout=5)
+        await asyncio.sleep(0)
+        queue_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queue_task
+
+    await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_a_trv_awaiting_initialization_is_not_controlled():
+    """A TRV startup went ahead without is not addressed before it is set up.
+
+    Its capabilities, bounds and setpoint have not been read yet, and boost
+    addresses a TRV whatever its availability, so skipping it for being
+    unavailable would still let a boost write reach it.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.calculate_heat_loss = AsyncMock()
+    mock_self.cooler_entity_id = None
+    mock_self.real_trvs = {
+        entity_id: _tracked_trv(entity_id)
+        for entity_id in ("climate.trv1", "climate.trv2")
+    }
+    mock_self.real_trvs["climate.trv2"].awaiting_initialization = True
+    mock_self.control_queue_task = asyncio.Queue()
+    await mock_self.control_queue_task.put(mock_self)
+
+    with patch(
+        "custom_components.better_thermostat.utils.controlling.control_trv",
+        new=AsyncMock(return_value=True),
+    ) as mock_control_trv:
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        try:
+            await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=5)
+        finally:
+            queue_task.cancel()
+            try:
+                await queue_task
+            except asyncio.CancelledError:
+                pass
+
+    assert [call.args[1] for call in mock_control_trv.await_args_list] == [
+        "climate.trv1"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("awaiting", "cooler_passes"),
+    [pytest.param(True, 0, id="awaiting"), pytest.param(False, 1, id="initialised")],
+)
+@pytest.mark.asyncio
+async def test_a_cooler_awaiting_initialization_is_not_controlled(
+    awaiting, cooler_passes
+):
+    """A cooler that is also a TRV still being set up gets no cooling pass.
+
+    The cooling channel writes a mode and a setpoint to the same device the
+    heating channel leaves alone until its initialisation is done.
+    """
+    mock_self = Mock()
+    mock_self.device_name = "test_thermostat"
+    mock_self.in_maintenance = False
+    mock_self.ignore_states = False
+    mock_self.startup_running = False
+    mock_self.calculate_heating_power = AsyncMock()
+    mock_self.calculate_heat_loss = AsyncMock()
+    mock_self.cooler_entity_id = "climate.ac"
+    mock_self.real_trvs = {
+        entity_id: _tracked_trv(entity_id)
+        for entity_id in ("climate.trv1", "climate.ac")
+    }
+    mock_self.real_trvs["climate.ac"].awaiting_initialization = awaiting
+    mock_self.control_queue_task = asyncio.Queue()
+    await mock_self.control_queue_task.put(mock_self)
+
+    with (
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_trv",
+            new=AsyncMock(return_value=True),
+        ),
+        patch(
+            "custom_components.better_thermostat.utils.controlling.control_cooler",
+            new=AsyncMock(),
+        ) as mock_control_cooler,
+    ):
+        queue_task = asyncio.create_task(control_queue(mock_self))
+        try:
+            await asyncio.wait_for(mock_self.control_queue_task.join(), timeout=5)
+        finally:
+            queue_task.cancel()
+            try:
+                await queue_task
+            except asyncio.CancelledError:
+                pass
+
+    assert mock_control_cooler.await_count == cooler_passes

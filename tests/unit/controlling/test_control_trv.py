@@ -19,8 +19,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
@@ -30,9 +31,15 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    WRITE_CONFIRM_TIMEOUT_S,
     check_calibration,
+    check_system_mode,
     check_target_temperature,
     control_trv,
+)
+from custom_components.better_thermostat.utils.helpers import (
+    TRV_SETPOINT_KEYS,
+    resolve_inbound_setpoint,
 )
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
@@ -215,7 +222,9 @@ class TestEchoSetpointsAcrossWrites:
 
         reported["temperature"] = 26.0
         with patch("asyncio.sleep", new=AsyncMock()):
-            await check_target_temperature(mock_self, "climate.trv1")
+            await check_target_temperature(
+                mock_self, "climate.trv1", trv.last_setpoint_write_id, 26.0
+            )
         assert trv.confirmed_setpoint == 26.0
         assert trv.echo_setpoint_values() == []
 
@@ -249,6 +258,77 @@ class TestEchoSetpointsAcrossWrites:
         assert trv.last_setpoint_write_id > awaited_write_id
 
     @pytest.mark.asyncio
+    async def test_a_write_made_while_a_watchdog_waits_is_watched_on_its_own(self):
+        """Every setpoint write starts a watchdog for the value it sent.
+
+        The first write's watchdog is still waiting when the next cycle writes
+        again; the second write gets a watchdog of its own, carrying its own
+        id and value, rather than being left to the watchdog of a write it
+        replaced.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": _default_trv_config(target_temp_received=True)},
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        watched: list[tuple[int, float | None]] = []
+
+        def _watch(self, entity_id, write_id, setpoint):
+            watched.append((write_id, setpoint))
+            return Mock()
+
+        with patch(f"{_CTRL}.check_target_temperature", new=_watch):
+            with _setpoint_cycle(23.0):
+                await control_trv(mock_self, "climate.trv1")
+            first_write = trv.last_setpoint_write_id
+            assert trv.target_temp_received is False
+
+            with _setpoint_cycle(24.0):
+                await control_trv(mock_self, "climate.trv1")
+
+        assert watched == [(first_write, 23.0), (trv.last_setpoint_write_id, 24.0)]
+        assert trv.last_setpoint_write_id > first_write
+
+    @pytest.mark.asyncio
+    async def test_a_write_whose_call_fails_is_still_watched(self):
+        """A setpoint write that raises still gets a watchdog of its own.
+
+        The device may have taken the value although the call failed. Its
+        write id is the newest, so the watchdog of the earlier write steps
+        aside; without a watchdog for the failed write, the channel would
+        stay closed and every knob turn would be refused.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={"climate.trv1": _default_trv_config(target_temp_received=True)},
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+        watched: list[tuple[int, float | None]] = []
+
+        def _watch(self, entity_id, write_id, setpoint):
+            watched.append((write_id, setpoint))
+            return Mock()
+
+        with patch(f"{_CTRL}.check_target_temperature", new=_watch):
+            with _setpoint_cycle(23.0):
+                await control_trv(mock_self, "climate.trv1")
+            with (
+                _setpoint_cycle(24.0),
+                patch(
+                    _PATCHES["set_temperature"],
+                    new=AsyncMock(side_effect=HomeAssistantError("timeout")),
+                ),
+                pytest.raises(HomeAssistantError),
+            ):
+                await control_trv(mock_self, "climate.trv1")
+
+        assert watched[-1] == (trv.last_setpoint_write_id, 24.0)
+        assert len(watched) == 2
+        assert trv.target_temp_received is False
+
+    @pytest.mark.asyncio
     async def test_the_intent_and_the_rounded_value_sent_are_both_remembered(self):
         """Intent 20.7 on a 0.5 step goes out as 20.5; the device may echo either."""
         mock_self = _delegate_driven_self(**_seed_pending(20.0))
@@ -262,6 +342,62 @@ class TestEchoSetpointsAcrossWrites:
         )
         assert trv.last_temperature == 20.5
         assert trv.echo_setpoint_values() == [20.0, 20.7, 20.5]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("intent", "sent"),
+        [
+            pytest.param(20.7, 20.5, id="rounded_onto_the_grid"),
+            pytest.param(27.0, 25.0, id="clamped_to_the_device_maximum"),
+        ],
+    )
+    async def test_the_value_a_failed_write_sent_is_remembered(self, intent, sent):
+        """The value the delegate put on the wire is an echo even when the call raised.
+
+        The device may have taken that value although the call failed, so a
+        later report of it, after the next write went out, is Better
+        Thermostat's write coming back, not a knob turn.
+        """
+        mock_self = _delegate_driven_self(**_seed_pending(20.0))
+        trv = mock_self.real_trvs["climate.trv1"]
+        trv.max_temp = 25.0
+        trv.adapter.set_temperature = AsyncMock(
+            side_effect=HomeAssistantError("timeout")
+        )
+
+        with (
+            _setpoint_cycle(intent, through_delegate=True),
+            pytest.raises(HomeAssistantError),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_temperature == sent
+        assert trv.echo_setpoint_values() == [20.0, intent, sent]
+
+        # The next write goes out; the device then reports the failed one.
+        trv.adapter.set_temperature = AsyncMock(return_value=True)
+        with _setpoint_cycle(21.0, through_delegate=True):
+            await control_trv(mock_self, "climate.trv1")
+
+        room = MagicMock()
+        room.device_name = "test_thermostat"
+        room.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        room.bt_min_temp = 5.0
+        room.bt_max_temp = 30.0
+        report = resolve_inbound_setpoint(
+            room,
+            State("climate.trv1", HVACMode.HEAT, {"temperature": sent}),
+            keys=TRV_SETPOINT_KEYS,
+            known_values=(
+                trv.last_temperature,
+                trv.confirmed_setpoint,
+                *trv.echo_setpoint_values(),
+            ),
+            step=0.5,
+            log_source="test",
+        )
+        assert report is not None
+        assert report.is_echo is True
 
     @pytest.mark.asyncio
     async def test_a_direct_delegate_write_is_not_remembered(self):
@@ -752,20 +888,32 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_available_trv_convert_fails_returns_false(self):
-        """Test that convert failure returns False for available TRV."""
+        """Test that convert failure returns False for available TRV.
+
+        The failing worker must not back off under the TRV lock: every
+        other TRV of the cycle contends for it, so a sleep taken here
+        stalls the whole cycle on the one device that failed.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
         )
 
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
         ):
             mock_convert.return_value = "ERROR"
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is False
+            # No sleep on this path ran while holding the lock.
+            assert not any(lock_held_during_sleep)
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_in_available_path(self):
@@ -814,6 +962,62 @@ class TestControlTrvAvailablePath:
             mock_set_valve.assert_called_once()
             args = mock_set_valve.call_args[0]
             assert args[2] == 100
+
+    @pytest.mark.parametrize(
+        ("valve_answer", "expected"),
+        [
+            pytest.param(True, True, id="written"),
+            pytest.param(None, True, id="no_channel"),
+            pytest.param(False, False, id="attempts_spent"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_valve_write_that_failed_fails_the_cycle(
+        self, valve_answer, expected
+    ):
+        """Only a valve write that spent its attempts asks for another cycle.
+
+        A device without a valve channel has nothing to retry, so it leaves
+        the cycle successful.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], new=AsyncMock(return_value=valve_answer)),
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_window.return_value = HVACMode.HEAT
+
+            assert await control_trv(mock_self, "climate.trv1") is expected
 
     @pytest.mark.asyncio
     async def test_grouped_trv_calibration_fix(self):
@@ -986,6 +1190,65 @@ class TestControlTrvAvailablePath:
 
             # Task should be created for check_system_mode
             mock_self.task_manager.create_task.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_a_mode_command_the_room_took_back_ends_its_wait(self):
+        """A device already holding the mode the room wants again settles the channel.
+
+        The room switched off and straight back on before the slow device took
+        the off command. The device holds heat, which is what the room wants,
+        so no command goes out; the off command is remembered as withdrawn for
+        the confirmation window, and the mode watchdog ends on the mode the
+        device holds instead of waiting out its timeout.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    last_hvac_mode=HVACMode.OFF, system_mode_received=False
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with (
+            _setpoint_cycle(20.0),
+            patch(f"{_CTRL}.set_hvac_mode", new=AsyncMock()) as set_mode,
+            patch(f"{_CTRL}.monotonic", return_value=1000.0),
+        ):
+            await control_trv(mock_self, "climate.trv1")
+
+        set_mode.assert_not_awaited()
+        assert trv.last_hvac_mode == HVACMode.HEAT
+        assert trv.withdrawn_hvac_mode == HVACMode.OFF
+        assert trv.withdrawn_hvac_mode_until == 1000.0 + WRITE_CONFIRM_TIMEOUT_S
+
+        with patch("asyncio.sleep", new=AsyncMock()) as sleep:
+            await check_system_mode(mock_self, "climate.trv1")
+
+        assert trv.system_mode_received is True
+        assert sleep.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_settled_device_holding_the_wanted_mode_records_no_withdrawal(self):
+        """With no command on the wire, nothing is withdrawn."""
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    last_hvac_mode=HVACMode.OFF, system_mode_received=True
+                )
+            },
+        )
+        trv = mock_self.real_trvs["climate.trv1"]
+
+        with _setpoint_cycle(20.0):
+            await control_trv(mock_self, "climate.trv1")
+
+        assert trv.last_hvac_mode == HVACMode.HEAT
+        assert trv.withdrawn_hvac_mode is None
 
     @pytest.mark.asyncio
     async def test_lock_usage(self):
@@ -2192,7 +2455,7 @@ class TestControlTrvOnADualRoleEntity:
             trv_state=HVACMode.OFF,
             trv_attrs={"temperature": 21.0},
             real_trvs={cls.SHARED_ID: trv},
-            bt_hvac_mode=HVACMode.HEAT_COOL,
+            bt_hvac_mode=HVACMode.HEAT,
             cooler_entity_id=cls.SHARED_ID,
             bt_target_temp=21.0,
         )
@@ -2224,10 +2487,11 @@ class TestControlTrvOnADualRoleEntity:
 
     @pytest.mark.asyncio
     async def test_dual_role_entity_is_sent_heat_not_heat_cool(self):
-        """An air conditioner that advertises heat_cool receives heat.
+        """An air conditioner that advertises heat_cool receives heat in a heating cycle.
 
-        Its own thermostat would otherwise run the room against its own pair of
-        setpoints for the whole cycle the heating channel owns it.
+        The room is on, which a room with a cooler publishes as heat_cool. The
+        device's own thermostat would otherwise run the room against its own
+        pair of setpoints for the whole cycle the heating channel owns it.
         """
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
@@ -2258,15 +2522,19 @@ class TestControlTrvOnADualRoleEntity:
         )
 
     @pytest.mark.asyncio
-    async def test_a_distinct_trv_still_receives_the_raw_mode(self):
-        """A radiator that is not the cooler receives the mode BT holds."""
+    async def test_a_distinct_trv_offering_heat_cool_receives_heat(self):
+        """A radiator that is not the cooler is sent heat in a heat_cool room.
+
+        A radiator that offers heat_cool as well would run its own thermostat
+        in it, so it is driven in the mode it heats in.
+        """
         mock_self = self._make_shared_self(
             [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
         )
         mock_self.cooler_entity_id = "climate.split_unit"
 
         assert await self._outbound_system_mode(mock_self, self.SHARED_ID) == (
-            HVACMode.HEAT_COOL
+            HVACMode.HEAT
         )
 
 

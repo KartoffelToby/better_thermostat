@@ -17,15 +17,15 @@ async def async_get_config_entry_diagnostics(
         trv = hass.states.get(trv_id["trv"])
         if trv is None:
             continue
-        trv_id["adapter"] = trv_id["integration"]
-        if trv_id["adapter"] is None:
-            trv_id["adapter"] = "unknown"
+        adapter = trv_id["integration"]
+        if adapter is None:
+            adapter = "unknown"
         trvs[trv_id["trv"]] = {
             "name": trv.name,
             "state": trv.state,
             "attributes": trv.attributes,
             "bt_config": trv_id["advanced"],
-            "bt_adapter": trv_id["adapter"],
+            "bt_adapter": adapter,
             "bt_integration": trv_id["integration"],
             "model": trv_id["model"],
         }
