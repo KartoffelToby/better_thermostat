@@ -1116,7 +1116,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_known_external_temp = None
         self._slope_periodic_last_ts = None
 
-        # Anti-flicker state
+        # Anti-flicker state; the timer applies a pending reading later, at
+        # the end of a plateau or of the debounce interval.
         self.plateau_timer_cancel = None
         self.last_change_direction = 0
         self.prev_stable_temp = None

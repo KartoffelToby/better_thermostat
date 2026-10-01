@@ -40,6 +40,12 @@ PEER_ID = "climate.test_trv_peer"
 # ---------------------------------------------------------------------------
 
 
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the task manager instead of running it."""
+    coro.close()
+    return MagicMock()
+
+
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
@@ -67,6 +73,8 @@ def mock_bt():
     bt.tolerance = 0.3
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
+    # Background work the handler schedules is not run here.
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_close_coro))
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
