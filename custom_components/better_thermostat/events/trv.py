@@ -58,7 +58,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def accepts_user_setpoint(
-    trv: Trv, *, is_echo: bool, child_lock: bool | None, contact_open: bool
+    trv: Trv,
+    *,
+    is_echo: bool,
+    child_lock: bool | None,
+    contact_open: bool,
+    was_off: bool,
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
 
@@ -77,6 +82,10 @@ def accepts_user_setpoint(
         option and reads as not locked.
     contact_open
         Whether a window or door contact of the room is open.
+    was_off
+        Whether the device was off before this report. A report that
+        switches it on carries a setpoint turned while it was off, which is
+        no more a press than one reported while it is still off.
 
     Returns
     -------
@@ -90,6 +99,7 @@ def accepts_user_setpoint(
         and trv.target_temp_received is True
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
+        and not was_off
         and contact_open is False
         and not trv.ignore_trv_states
     )
@@ -336,6 +346,7 @@ async def trigger_trv_change(
     except Exception:
         pass
 
+    _was_off = trv.hvac_mode == HVACMode.OFF
     if (
         mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL)
         and not mode_settled
@@ -468,7 +479,11 @@ async def trigger_trv_change(
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
         _accept_user_setpoint = accepts_user_setpoint(
-            trv, is_echo=_is_echo, child_lock=child_lock, contact_open=self.contact_open
+            trv,
+            is_echo=_is_echo,
+            child_lock=child_lock,
+            contact_open=self.contact_open,
+            was_off=_was_off,
         )
         if _accept_user_setpoint:
             if _setpoint.clamped:
