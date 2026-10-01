@@ -101,7 +101,7 @@ Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision h
 ### Other important toggles
 
 - **Overheating protection?**: On by default. Helps if your room keeps getting too hot even after reaching the target temperature (often happens if radiators stay hot for a long time). It only acts in the AI Time Based and Aggressive modes.
-- **If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead**: Some devices don't have a proper "Off" switch. This sends them their lowest supported target temperature instead to keep them off safely.
+- **Use the minimum temperature instead of 'off'**: Sends the TRV its lowest supported target temperature instead of switching it off, and treats a TRV at that temperature as off; the room switches off once every TRV in it is off and no window or door is open. A TRV that lists no "Off" mode gets the minimum temperature automatically, but counts as off at that temperature only with this option; enable the option when the "Off" mode your TRV lists does not work, or when turning the knob of a TRV without one should switch BT on and off.
 - **If 'auto' means 'heat' for your TRV and you want to swap it**: Fixes a quirk with some specific thermostat brands where the modes are mixed up in Home Assistant.
 - **If your thermostat has no own maintenance mode, you can use this one**: Adds a maintenance mode (like opening the valve fully to prevent it from getting stuck in summer) if your device lacks one.
 - **Ignore all inputs on the TRV like a child lock**: Acts like a child lock. Changes made directly on the physical radiator valve will be ignored.
