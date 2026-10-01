@@ -264,7 +264,7 @@ class TestRoomSensorFallbackHandover:
         await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=report))
 
         assert mock_bt.cur_temp == 21.0
-        assert mock_bt.control_queue_task.qsize() == 1
+        assert mock_bt.real_trvs[ENTITY_ID].temperature_moved_while_held is True
 
     @pytest.mark.asyncio
     async def test_offset_confirmation_during_a_control_cycle_does_not_control(
@@ -288,6 +288,7 @@ class TestRoomSensorFallbackHandover:
             await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=report))
 
         assert mock_bt.cur_temp == 21.0
+        assert trv.temperature_moved_while_held is False
         assert mock_bt.control_queue_task.qsize() == 0
 
 
@@ -324,7 +325,10 @@ class TestDueFallbackStart:
 
         assert mock_bt.room_sensor_fallback is True
         assert mock_bt.cur_temp == 21.0
-        assert mock_bt.control_queue_task.qsize() == 1
+        if cycle_running:
+            assert trv.temperature_moved_while_held is True
+        else:
+            assert mock_bt.control_queue_task.qsize() == 1
 
 
 class TestTriggerTrvChangeGuards:

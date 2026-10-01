@@ -23,7 +23,6 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.temperature import (
-    queue_control_cycle,
     refresh_room_temperature_from_trvs,
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -298,12 +297,13 @@ async def trigger_trv_change(
 
     if self.ignore_states:
         # A control cycle is running and the rest of the report is held
-        # for its end. A room temperature it changed during the room sensor
-        # fallback still needs a cycle of its own; the confirmation of an
-        # offset write, which cleared _main_change, does not.
+        # for its end. An internal temperature it took, and with it a room
+        # temperature it changed during the room sensor fallback, asks the
+        # end of the cycle for one more; the confirmation of an offset
+        # write, which cleared _main_change, does not.
         _hold_report(self, trv, old_state, new_state)
-        if _room_temperature_changed and _main_change:
-            queue_control_cycle(self)
+        if _main_change:
+            trv.temperature_moved_while_held = True
         return
 
     # The offered HVAC modes change at runtime on devices whose heating /
