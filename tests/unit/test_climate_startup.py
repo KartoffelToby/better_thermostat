@@ -173,6 +173,9 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_cancel = None
+    bt.room_sensor_fallback_due = False
     bt.is_removed = False
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
@@ -304,6 +307,7 @@ class TestStartupUnloadBailout:
         bt._window_task = None
         bt._door_task = None
         bt.plateau_timer_cancel = None
+        bt.room_sensor_fallback_cancel = None
         bt.startup_running = True
 
         await BetterThermostat.async_will_remove_from_hass(bt)
@@ -1368,6 +1372,7 @@ async def _run_finalize_startup(bt):
         patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{climate}.await_optional_sensors", AsyncMock()),
         patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
+        patch(f"{climate}.reconcile_room_sensor", AsyncMock()),
         patch(f"{climate}.asyncio.sleep", AsyncMock()),
         patch(f"{climate}.async_track_time_interval"),
         patch(f"{climate}.async_track_state_change_event"),
@@ -1408,6 +1413,7 @@ class TestStartupStopsOnceTheEntityIsGone:
             patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
             patch(f"{climate}.await_optional_sensors", removed_during_the_wait),
             patch(f"{climate}.check_and_update_degraded_mode", degraded),
+            patch(f"{climate}.reconcile_room_sensor", AsyncMock()),
             patch(f"{climate}.asyncio.sleep", AsyncMock()),
             patch(f"{climate}.async_track_time_interval"),
             patch(f"{climate}.async_track_state_change_event"),
@@ -2684,6 +2690,7 @@ class TestFinalizeStartupOnADualRoleEntity:
             patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
             patch(f"{climate}.await_optional_sensors", AsyncMock()),
             patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{climate}.reconcile_room_sensor", AsyncMock()),
             patch(f"{climate}.asyncio.sleep", AsyncMock()),
             patch(f"{climate}.async_track_time_interval"),
             patch(f"{climate}.async_track_time_change"),

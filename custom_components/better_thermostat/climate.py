@@ -79,6 +79,7 @@ from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
     EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
+    reconcile_room_sensor,
     temperature_filter_lock,
     trigger_temperature_change,
 )
@@ -834,6 +835,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.flicker_unignore_cancel = None
         self.flicker_candidate = None
         self.plateau_timer_cancel = None
+        # TRV-internal temperature standing in for a lost room sensor
+        self.room_sensor_fallback = False
+        # The sensor stayed lost past the delay, but no TRV had a usable
+        # temperature to take over with yet
+        self.room_sensor_fallback_due = False
+        self.room_sensor_fallback_cancel = None
         self.last_change_direction = 0
         self.prev_stable_temp = None
         self.accum_delta = 0.0
@@ -2739,6 +2746,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 timedelta(minutes=1),
             )
         )
+        # The room sensor's changes were not handled while startup ran.
+        await reconcile_room_sensor(self)
         _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
         self.async_write_ha_state()
         await self.async_update_ha_state(force_refresh=True)
@@ -4410,14 +4419,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Terminate the startup retry loop so an entity whose dependencies
         # never became available does not keep polling after unload.
         self.startup_running = False
-        # The plateau timer is scheduled on hass, not on the entity, so a
-        # pending one outlives the unload and would write the external
-        # temperature to TRVs this entity no longer drives. Awaiting the
-        # workers below yields to the loop, which is long enough for a due
-        # timer to fire, so it goes first.
+        # The plateau and room sensor fallback timers are scheduled on hass,
+        # not on the entity, so a pending one outlives the unload and would
+        # write the external temperature to TRVs this entity no longer drives,
+        # or queue a control cycle for it. Awaiting the workers below yields
+        # to the loop, which is long enough for a due timer to fire, so they
+        # go first.
         if self.plateau_timer_cancel is not None:
             self.plateau_timer_cancel()
             self.plateau_timer_cancel = None
+        if self.room_sensor_fallback_cancel is not None:
+            self.room_sensor_fallback_cancel()
+            self.room_sensor_fallback_cancel = None
         # The owned tasks are cancelled before anything is awaited, for the same
         # reason: several of them write to TRVs, and awaiting the workers below
         # hands the loop back long enough for a ready one to take its turn. The

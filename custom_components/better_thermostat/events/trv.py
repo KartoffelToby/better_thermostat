@@ -22,6 +22,10 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
+from custom_components.better_thermostat.events.temperature import (
+    queue_control_cycle,
+    refresh_room_temperature_from_trvs,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
     trv_state_unknown_as_available,
@@ -199,6 +203,7 @@ async def trigger_trv_change(
     if self.bt_update_lock:
         return
     _main_change = False
+    _room_temperature_changed = False
     resolved_event = resolve_state_change_event(self, event, "TRV")
     if resolved_event is None:
         return
@@ -240,6 +245,11 @@ async def trigger_trv_change(
             # The next valid reading is the first live data after the
             # outage and must not be dropped by the debounce below.
             trv.accept_next_internal_temp = True
+        # During the room sensor fallback the room is taken from a TRV that
+        # still reports, and a room temperature that moves is controlled on.
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
+            queue_control_cycle(self)
         return
 
     advanced = trv.advanced or {}
@@ -284,6 +294,24 @@ async def trigger_trv_change(
     _new_current_temp = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
+    # Only a report that carries no readable internal temperature invalidates
+    # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
+    # below and leaves the stored reading in place.
+    _reports_no_temp = _new_current_temp is None
+    # The room sensor fallback takes the room from the first TRV whose report
+    # carries a plausible temperature. A report that turns a marker value back
+    # into a plausible reading puts the TRV back into that choice while the
+    # stored reading it carries is unchanged or held back by the debounce.
+    _previous_temp = attr_to_celsius(
+        self, old_state, "current_temperature", None, "TRV_previous_temp"
+    )
+    _marker_cleared = (
+        self.room_sensor_fallback
+        and _new_current_temp is not None
+        and _previous_temp is not None
+        and is_reasonable_temperature(_new_current_temp)
+        and not is_reasonable_temperature(_previous_temp)
+    )
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -303,7 +331,25 @@ async def trigger_trv_change(
     # not hold back the internal temperature of the other valves in the room.
     _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
-    if (
+    _internal_temp_taken = False
+    if _reports_no_temp:
+        # A report without an internal temperature leaves no live value to
+        # keep: the stored one would otherwise feed the calibration for as
+        # long as the device keeps reporting without it.
+        if trv.current_temperature is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s reports no internal "
+                "temperature; invalidating %s",
+                self.device_name,
+                entity_id,
+                trv.current_temperature,
+            )
+            trv.current_temperature = None
+            # The next valid reading is the first live data after the gap
+            # and must not be dropped by the debounce below.
+            trv.accept_next_internal_temp = True
+            _main_change = True
+    elif (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
         and (
@@ -313,6 +359,7 @@ async def trigger_trv_change(
             or (trv.calibration_received is False and trv.calibration != 1)
         )
     ):
+        _internal_temp_taken = True
         _old_temp = trv.current_temperature
         trv.current_temperature = _new_current_temp
         _LOGGER.debug(
@@ -324,6 +371,9 @@ async def trigger_trv_change(
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
+        _room_temperature_changed = refresh_room_temperature_from_trvs(self)
+        if _room_temperature_changed:
+            self.async_write_ha_state()
 
         # async def in controlling? (left as note)
         if trv.calibration_received is False:
@@ -337,7 +387,31 @@ async def trigger_trv_change(
             if trv.calibration == 0:
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
+        # A room temperature the room sensor fallback takes from the report,
+        # including the one that starts a due fallback, is controlled on
+        # even when the report also confirms an offset write.
+        if _room_temperature_changed:
+            _main_change = True
+
+    # The room sensor fallback reads the TRVs' live reports, so a due
+    # fallback starts on the first report that carries a usable temperature,
+    # and an active one moves off a TRV whose report carries none, whether or
+    # not the stored internal temperature changed. A usable reading that the
+    # debounce held back moves the active fallback no more than the TRV,
+    # unless the report is the one that clears a marker value.
+    if not _internal_temp_taken and (
+        self.room_sensor_fallback_due or _new_current_temp is None or _marker_cleared
+    ):
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
+            _main_change = True
+
     if self.ignore_states:
+        # A control cycle is running and the rest of the report is held
+        # for its end. An internal temperature it took, and with it a room
+        # temperature it changed during the room sensor fallback, asks the
+        # end of the cycle for one more; the confirmation of an offset
+        # write, which cleared _main_change, does not.
         _hold_report(self, trv, old_state, new_state)
         if _main_change:
             trv.temperature_moved_while_held = True

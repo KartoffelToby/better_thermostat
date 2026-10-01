@@ -82,6 +82,8 @@ def thermostat(reported_states):
     bt.bt_update_lock = False
     bt.in_maintenance = False
     bt.ignore_states = False
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_due = False
     bt.cooler_entity_id = None
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
@@ -481,6 +483,7 @@ class TestReportsHeldDuringACycle:
             pytest.param(None, False, id="nothing_moved"),
             pytest.param(("bt_target_temp", 23.0), True, id="target_adopted"),
             pytest.param(("bt_hvac_mode", HVACMode.OFF), True, id="mode_adopted"),
+            pytest.param(("cur_temp", 21.0), True, id="room_temperature_moved"),
         ],
     )
     async def test_a_cycle_is_requested_only_for_what_a_cycle_acts_on(

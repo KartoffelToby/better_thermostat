@@ -526,18 +526,18 @@ async def read_reports_held_during_cycle(self) -> None:
 
     A control cycle is requested only when the report moved what the next
     cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran.
-    The handler takes that reading as it arrives, as it does outside a cycle,
-    unless it came too soon after the previous one; such a reading is taken
-    here once that interval has passed, and asks for a cycle all the same. A
-    head switched on inside the cycle asks for one as well, as its mode
-    change does outside a cycle: the cache already holds the commanded mode,
-    so the report moves nothing, yet the setpoint it was not adopted for has
-    to be driven back to the room target. A child-locked device holding a
-    setpoint or mode it was not sent requests one too, since the cycle is
-    what turns it back. A device answering inside every cycle with a report
-    that carries nothing new would otherwise keep one cycle following the
-    next.
+    to hold, the room temperature the room sensor fallback takes from it, or
+    the internal temperature it reported while the cycle ran. The handler
+    takes that reading as it arrives, as it does outside a cycle, unless it
+    came too soon after the previous one; such a reading is taken here once
+    that interval has passed, and asks for a cycle all the same. A head
+    switched on inside the cycle asks for one as well, as its mode change
+    does outside a cycle: the cache already holds the commanded mode, so the
+    report moves nothing, yet the setpoint it was not adopted for has to be
+    driven back to the room target. A child-locked device holding a setpoint
+    or mode it was not sent requests one too, since the cycle is what turns
+    it back. A device answering inside every cycle with a report that carries
+    nothing new would otherwise keep one cycle following the next.
 
     Parameters
     ----------
@@ -654,6 +654,7 @@ def _held_report_control_inputs(self, trv) -> tuple:
         self.bt_hvac_mode,
         trv.hvac_mode,
         trv.current_temperature,
+        self.cur_temp,
     )
 
 
