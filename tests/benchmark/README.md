@@ -148,7 +148,9 @@ A wrapper that mediates the controller's valve-% intent through an
 offset-mode TRV (Tado, Bosch BTH-RA, Sonoff TRVZB offset-mode, Tuya
 TS0601). The TRV runs its own internal P-loop and only accepts a
 quantised setpoint; the score reflects what physically reaches the room,
-not what the controller intended.
+not what the controller intended. While a window is open, or when the
+controller stands down, the wrapper closes the valve instead of mapping
+a zero intent onto a setpoint, as BT turns the TRV off.
 
 Each row aggregates the four vendor presets × all single-TRV
 scenarios. The vendor parameters are heuristic operating points based

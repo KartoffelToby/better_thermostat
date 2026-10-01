@@ -270,6 +270,13 @@ class IndirectTrvAdapter:
             )
         bt_valve_pct = inner_out.valve_percent
         self._last_inner_valve_pct = bt_valve_pct
+        if ctx.window_open or inner_out.diagnostics.get("early_exit"):
+            # An open window turns the TRV off, and an inner controller that
+            # stood down asks for a closed valve. Either way BT pushes no
+            # setpoint: a zero intent mapped through the TRV's own loop would
+            # still heat a room below its target. The setpoint cache and the
+            # latency queue stay as they were.
+            return BenchmarkOutput(valve_percent=0.0, diagnostics=inner_out.diagnostics)
 
         # Map BT's "heat intent" (0-100 % valve) onto a TRV setpoint.
         #

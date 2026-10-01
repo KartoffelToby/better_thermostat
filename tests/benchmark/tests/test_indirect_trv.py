@@ -7,9 +7,16 @@ tests verify each of those stages in isolation.
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
 import pytest
 
-from tests.benchmark.adapters.base import BenchmarkContext, BenchmarkOutput
+from tests.benchmark.adapters.base import (
+    BenchmarkContext,
+    BenchmarkOutput,
+    ControllerFamily,
+)
 from tests.benchmark.adapters.indirect_trv import (
     BOSCH_PARAMS,
     SONOFF_TRVZB_PARAMS,
@@ -19,25 +26,29 @@ from tests.benchmark.adapters.indirect_trv import (
     IndirectTrvParams,
 )
 from tests.benchmark.adapters.pid_adapter import PidAdapter
+from tests.benchmark.runner import ADAPTER_FACTORIES
 
 
 class _FakeValveAdapter:
     """Inner adapter whose valve demand is controlled by the test."""
 
     name = "fake"
-    family = "valve"
+    family: ControllerFamily = "valve"
 
-    def __init__(self, pct: float) -> None:
+    def __init__(self, pct: float, *, early_exit: bool = False) -> None:
         self.pct = pct
+        self.early_exit = early_exit
 
-    def reset(self, prior=None) -> None:
+    def reset(self, prior: dict[str, Any] | None = None) -> None:
         _ = prior
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         _ = ctx
+        if self.early_exit:
+            return BenchmarkOutput(valve_percent=0.0, diagnostics={"early_exit": True})
         return BenchmarkOutput(valve_percent=self.pct)
 
-    def export_state(self) -> dict:
+    def export_state(self) -> dict[str, Any]:
         return {}
 
 
@@ -424,3 +435,45 @@ def test_indirect_rejects_missing_inner_valve():
     wrapper = IndirectTrvAdapter(_FakeOffsetAdapter(), TADO_PARAMS)
     with pytest.raises(ValueError):
         wrapper.step(_ctx())
+
+
+def test_inner_early_exit_closes_the_valve_below_target():
+    """An inner early exit closes the valve though the room is below target."""
+    adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0, early_exit=True), TADO_PARAMS)
+    out = adapter.step(_ctx(target=22.0, current=18.0))
+    assert out.valve_percent == 0.0
+    assert out.diagnostics["early_exit"] is True
+
+
+def test_open_window_closes_the_valve_on_a_zero_intent():
+    """An open window closes the valve even without an inner early exit."""
+    adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0), TADO_PARAMS)
+    out = adapter.step(replace(_ctx(target=22.0, current=18.0), window_open=True))
+    assert out.valve_percent == 0.0
+
+
+def test_inner_early_exit_keeps_the_trv_setpoint_cache():
+    """A stood-down step pushes no setpoint, so the TRV cache stays put."""
+    inner = _FakeValveAdapter(50.0)
+    adapter = IndirectTrvAdapter(inner, BOSCH_PARAMS)
+    adapter.step(_ctx(target=22.0, current=18.0))
+    last = adapter._last_quantised_setpoint_C
+    pending = list(adapter._pending_setpoints)
+    inner.early_exit = True
+    adapter.step(_ctx(target=22.0, current=18.0))
+    assert adapter._last_quantised_setpoint_C == last
+    assert adapter._pending_setpoints == pending
+
+
+@pytest.mark.parametrize(
+    "name", sorted(n for n in ADAPTER_FACTORIES if "+indirect_" in n)
+)
+def test_indirect_variants_do_not_heat_while_the_window_is_open(name: str):
+    """Every indirect registration closes the valve on an open window."""
+    adapter = ADAPTER_FACTORIES[name]()
+    out = adapter.step(
+        replace(
+            _ctx(target=22.0, current=18.0), window_open=True, last_valve_percent=60.0
+        )
+    )
+    assert out.valve_percent == 0.0
