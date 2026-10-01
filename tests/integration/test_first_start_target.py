@@ -30,6 +30,7 @@ from .conftest import (
     wait_for_startup,
 )
 from .device_profiles import (
+    DUAL_ROLE,
     FAHRENHEIT_TRV,
     GENERIC_HEAT_TRV,
     GROUP_OF_THREE,
@@ -213,3 +214,44 @@ async def test_a_no_off_head_parked_at_its_minimum_does_not_set_the_room_target(
     bt = await wait_for_startup(hass, entry)
 
     assert bt.bt_target_temp == 21.0
+
+
+_DUAL_ROLE_COOLING = replace(
+    DUAL_ROLE.trv, hvac_mode=HVACMode.COOL, target_temperature=26.0
+)
+_DUAL_ROLE_ON_A_RANGE = replace(
+    DUAL_ROLE.trv,
+    hvac_modes=(HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL, HVACMode.OFF),
+    hvac_mode=HVACMode.HEAT_COOL,
+    target_temperature=None,
+    target_temperature_low=21.0,
+    target_temperature_high=25.0,
+    supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
+    | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+    | ClimateEntityFeature.TURN_OFF
+    | ClimateEntityFeature.TURN_ON,
+)
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+@pytest.mark.parametrize(
+    ("profile", "expected"),
+    [
+        pytest.param(_DUAL_ROLE_COOLING, DEFAULT_TARGET_TEMP, id="cooling"),
+        pytest.param(_DUAL_ROLE_ON_A_RANGE, 21.0, id="range"),
+    ],
+)
+async def test_a_shared_head_that_cools_does_not_set_the_room_target(
+    hass, profile, expected, stored
+):
+    """A device that is both head and cooler hands over only a heating setpoint.
+
+    Cooling at 26 °C, its setpoint is a cooling target and leaves the room on
+    the default. On a heat/cool range, the lower bound is its heating
+    setpoint and becomes the room target.
+    """
+    scenario = replace(DUAL_ROLE, trv=profile)
+
+    bt = await _start(hass, scenario, stored, profile)
+
+    assert bt.bt_target_temp == expected
