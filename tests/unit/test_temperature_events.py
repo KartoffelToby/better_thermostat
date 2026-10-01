@@ -65,7 +65,6 @@ def mock_bt():
     # Accumulation state
     bt.accum_delta = 0.0
     bt.accum_dir = 0
-    bt.accum_since = dt_util.now()
 
     # Pending / plateau state
     bt.pending_temp = None
