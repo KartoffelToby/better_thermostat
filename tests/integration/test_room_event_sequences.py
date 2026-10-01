@@ -341,13 +341,6 @@ async def test_a_room_converges_on_the_users_latest_word(hass, seed):
 SINGLE_HEAD = GroupScenario(name="single_head", profiles=(GENERIC_HEAT_TRV,))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a turn back to the setpoint Better Thermostat last confirmed on the "
-    "head is read as that write's echo: adopting the turn in between leaves "
-    "confirmed_setpoint and last_temperature on the old value, so the room "
-    "keeps the earlier turn and writes it back over the head",
-)
 async def test_a_head_turned_back_to_its_last_confirmed_setpoint_is_adopted(hass):
     """A knob turned up and back down again ends where the user left it.
 
