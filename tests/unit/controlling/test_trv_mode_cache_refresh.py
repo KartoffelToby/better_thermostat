@@ -538,6 +538,34 @@ class TestReportsHeldDuringACycle:
 
         assert cycles == 1
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("commanded", ["heat", None])
+    async def test_a_head_switched_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states, commanded
+    ):
+        """A head switched on inside a cycle does not bring a setpoint turned while off.
+
+        The head is off while the room heats, and the report that switches it
+        on carries a setpoint turned while it was off. Read outside a cycle,
+        that setpoint is not a press. The end of the cycle settles the mode
+        cache on the mode Better Thermostat commanded before it reads the held
+        report, and the report is still judged against the mode the head was
+        in before it.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = commanded
+        reported_states[ENTITY_ID] = _reported_state("off")
+
+        await _run_one_cycle(
+            thermostat,
+            reported_states,
+            _reported_state("heat", setpoint=23.0),
+            handled_inside=True,
+        )
+
+        assert thermostat.bt_target_temp == 19.0
+
 
 class TestHeldReportAgainstThePreviousState:
     """A report read at cycle end is judged against the state it replaced."""

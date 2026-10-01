@@ -302,6 +302,12 @@ async def read_reports_held_during_cycle(self) -> None:
     one reporting ``unknown`` unless its model reads that as operating, the
     way the handler reads it.
 
+    The setpoint such a state carries is judged against the mode the device
+    was cached in before the held report, not the mode
+    ``refresh_cached_trv_modes`` settled since, so a head switched on inside
+    the cycle does not bring a setpoint turned while it was off, as it does
+    not outside a cycle.
+
     A control cycle is requested only when the report moved what the next
     cycle acts on: the room's targets or mode, the mode the device is known
     to hold, or the internal temperature it reported while the cycle ran,
@@ -320,6 +326,8 @@ async def read_reports_held_during_cycle(self) -> None:
         trv.report_unread = False
         previous = trv.state_before_held_report
         trv.state_before_held_report = None
+        prior_hvac_mode = trv.hvac_mode_before_held_report
+        trv.hvac_mode_before_held_report = None
         temperature_moved = trv.temperature_moved_while_held
         trv.temperature_moved_while_held = False
         state = self.hass.states.get(entity_id)
@@ -346,6 +354,7 @@ async def read_reports_held_during_cycle(self) -> None:
                 held_report,
                 mode_settled=trv.system_mode_received is False,
                 request_cycle=False,
+                prior_hvac_mode=prior_hvac_mode,
             )
         except Exception:
             _LOGGER.exception(
