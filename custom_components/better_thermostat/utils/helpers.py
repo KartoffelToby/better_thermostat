@@ -741,7 +741,14 @@ def member_counts_as_off(self, entity_id: str, state: State) -> bool:
         min_temp = attr_to_celsius(
             self, state, "min_temp", None, "member_counts_as_off()"
         )
-    return setpoint is not None and min_temp is not None and setpoint <= min_temp
+    return setpoint_at_minimum(
+        setpoint,
+        min_temp,
+        step=member.target_temp_step,
+        whole_degrees=published_in_whole_fahrenheit(
+            state, self.hass.config.units.temperature_unit
+        ),
+    )
 
 
 def group_all_members_off(self) -> bool:
@@ -969,6 +976,11 @@ def celsius_to_system_temperature(hass: HomeAssistant, temperature: float) -> fl
     works in Celsius internally, while ``climate`` service payloads must
     carry the system unit. On Fahrenheit installs the value is converted
     and rounded to one decimal; otherwise it is returned unchanged.
+
+    Temperatures are held at full precision inside and rounded once, at the
+    edge, onto the grid of whoever receives them: here the tenth of a degree
+    Fahrenheit a setpoint is written in, as the entity publishes its own
+    temperatures in tenths too.
 
     Parameters
     ----------
@@ -1586,6 +1598,94 @@ def attr_to_celsius(
     )
 
 
+# The grids Home Assistant publishes a climate entity's temperatures on,
+# coarsest first: whole degrees, halves and tenths.
+_PUBLISHED_GRIDS = (1.0, 0.5, 0.1)
+
+# A published value this close to a point of a grid is on it: it only carries
+# the float noise of convert_to_float's 0.01 grid.
+_ON_GRID_TOLERANCE = 1e-6
+
+
+def _published_grid(value: float) -> float | None:
+    """Return the coarsest published grid ``value`` lies on, or None."""
+    for grid in _PUBLISHED_GRIDS:
+        if abs(value / grid - round(value / grid)) < _ON_GRID_TOLERANCE:
+            return grid
+    return None
+
+
+def read_bound_celsius(
+    self, state: State | None, key: str, *, lower: bool, context: str = ""
+) -> float | None:
+    """Read a setpoint bound from a foreign state and return it in °C.
+
+    The bound becomes the limit every setpoint is clamped to, and Home
+    Assistant checks a setpoint against the device's own, unrounded bound, so
+    a bound read outward of it lets a refused setpoint through.
+
+    A bound in Celsius is read as published. On a Fahrenheit system Home
+    Assistant converts a device's bound and rounds it to the entity's
+    precision (whole degrees unless the integration states halves or tenths),
+    so the published value may lie up to half a published step outside the
+    device's bound. The bound is read half of the coarsest step its value
+    fits inward, which puts it inside the device's range whatever precision
+    the integration stated, and then inward onto the tenth of a degree the
+    thermostat publishes its own range in and writes setpoints in: a bound
+    between two tenths would be rounded outward again at that edge.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    state : State | None
+            the source state to read from, or None when it is unavailable
+    key : str
+            the attribute holding the bound (``"min_temp"`` or ``"max_temp"``)
+    lower : bool
+            True for a lower bound, which moves up; False for an upper one
+    context : str
+            calling context, forwarded for logging
+
+    Returns
+    -------
+    float | None
+            the bound in Celsius, or None when the state publishes none
+    """
+    attributes = state.attributes if state is not None else {}
+    unit = state_temperature_unit(attributes, self.hass.config.units.temperature_unit)
+    return bound_to_celsius(
+        str(attributes.get(key)),
+        unit,
+        lower=lower,
+        instance_name=self.device_name,
+        context=context,
+    )
+
+
+def bound_to_celsius(
+    value: str | int | float | None,
+    unit: str | None,
+    *,
+    lower: bool,
+    instance_name: str,
+    context: str = "",
+) -> float | None:
+    """Convert a published setpoint bound to Celsius; see :func:`read_bound_celsius`."""
+    bound = convert_to_float(value, instance_name, context)
+    if bound is None or unit != UnitOfTemperature.FAHRENHEIT:
+        return bound
+    grid = _published_grid(bound)
+    if grid is not None:
+        bound += grid / 2 if lower else -grid / 2
+    # Rounded first, so float noise cannot tip a tenth over the edge.
+    tenths = round(bound * 10, 6)
+    bound = (math.ceil(tenths) if lower else math.floor(tenths)) / 10
+    return TemperatureConverter.convert(
+        bound, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+    )
+
+
 def get_current_set_temperatures(
     self, state: State | None, log_source: str
 ) -> set[float]:
@@ -1671,6 +1771,62 @@ def matches_any_setpoint(
     return any(abs(value - setpoint) <= tolerance for setpoint in setpoints)
 
 
+# Half a whole degree Fahrenheit, in Kelvin: how far a setpoint Home
+# Assistant published in whole degrees may lie above the one the device holds.
+_HALF_FAHRENHEIT_DEGREE = 5.0 / 18.0
+
+# The temperatures a climate state publishes at the precision of its entity.
+_PRECISION_ATTRIBUTES = ("min_temp", "max_temp", "current_temperature")
+
+
+def published_in_whole_fahrenheit(state: State | None, system_unit: str | None) -> bool:
+    """Whether Home Assistant publishes this climate state in whole degrees Fahrenheit.
+
+    The state does not name the precision it was rounded to, so it is read
+    off the temperatures published with it: every one of them a whole
+    degree. An entity that states halves or tenths shows a finer value in
+    at least one of them nearly always.
+    """
+    if system_unit != UnitOfTemperature.FAHRENHEIT or state is None:
+        return False
+    values = [
+        convert_to_float(str(state.attributes.get(key)), "", "published precision")
+        for key in _PRECISION_ATTRIBUTES
+    ]
+    present = [value for value in values if value is not None]
+    return bool(present) and all(_published_grid(value) == 1.0 for value in present)
+
+
+def setpoint_at_minimum(
+    setpoint: float | None,
+    min_temp: float | None,
+    *,
+    step: float | None,
+    whole_degrees: bool,
+) -> bool:
+    """Whether a setpoint a device reports sits at the thermostat's minimum.
+
+    ``min_temp`` is the lowest setpoint Better Thermostat writes to the
+    device, and the device holds the first point of its ``step`` grid at or
+    above it: that is where it is parked. It reports that back on the 0.01
+    grid of a reading. On a Fahrenheit system the minimum lies inward of the
+    device's own, so a device turned down to its end stop reports less than
+    it. And a device Home Assistant publishes in whole degrees Fahrenheit
+    (``whole_degrees``) may report a parked setpoint up to half a degree
+    above the one it holds. All of these are the device at its minimum; a
+    setpoint any higher is one the user chose.
+    """
+    if setpoint is None or min_temp is None:
+        return False
+    parked = min_temp
+    if step:
+        parked = max(min_temp, round_by_step(min_temp, step, rounding.up) or min_temp)
+    slack = SETPOINT_MATCH_TOLERANCE
+    if whole_degrees:
+        slack += _HALF_FAHRENHEIT_DEGREE
+    return setpoint <= parked + slack
+
+
 class rounding:
     """Rounding helpers for stable step-based rounding.
 
@@ -1694,12 +1850,25 @@ class rounding:
         return round(x - 0.0001)
 
 
+# A value closer than this to a point of the step grid is on it.
+# Temperatures are read on a 0.01 grid and a Fahrenheit step is held to four
+# decimals, so a value meant to sit on the grid misses it by up to half a
+# reading step, and rounding it up or down would move it a whole step. A
+# value a full reading step away is a different reading and keeps its
+# direction.
+_STEP_GRID_SNAP = 0.005
+
+
 def round_by_step(
     value: float | None,
     step: float | None,
     f_rounding: Callable[[float], float] = rounding.nearest,
 ) -> float | None:
     """Round the value based on the allowed decimal 'step' size.
+
+    A value closer than ``_STEP_GRID_SNAP`` to a grid point is taken as that
+    point whatever the rounding direction; on a step too fine for that, a
+    quarter of the step stands in for it.
 
     Parameters
     ----------
@@ -1722,7 +1891,11 @@ def round_by_step(
     if f_rounding is None:
         f_rounding = rounding.nearest
     # convert to integer number of steps for rounding, then convert back to decimal
-    return f_rounding(value / step) * step
+    steps = value / step
+    nearest = round(steps)
+    if abs(steps - nearest) * step < min(_STEP_GRID_SNAP, step / 4):
+        return nearest * step
+    return f_rounding(steps) * step
 
 
 def check_float(potential_float):

@@ -61,7 +61,7 @@ async def _write_zero_calibration(self, calibration_entity, state):
             "select",
             "select_option",
             {"entity_id": calibration_entity, "option": _zero_offset_option(state)},
-            blocking=False,
+            blocking=True,
             context=self.context,
         )
         return
@@ -69,7 +69,7 @@ async def _write_zero_calibration(self, calibration_entity, state):
         "number",
         SERVICE_SET_VALUE,
         {"entity_id": calibration_entity, "value": 0},
-        blocking=False,
+        blocking=True,
         context=self.context,
     )
 

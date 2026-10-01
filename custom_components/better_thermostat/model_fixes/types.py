@@ -43,8 +43,31 @@ class _ServicesLike(Protocol):
         ...
 
 
+class _UnitSystemLike(Protocol):
+    """Minimal ``hass.config.units`` surface read by the model fixes."""
+
+    @property
+    def temperature_unit(self) -> str:
+        """Unit the system's climate entities report temperatures in."""
+        ...
+
+
+class _ConfigLike(Protocol):
+    """Minimal ``hass.config`` surface read by the model fixes."""
+
+    @property
+    def units(self) -> _UnitSystemLike:
+        """The configured unit system."""
+        ...
+
+
 class _HassLike(Protocol):
     """Minimal Home Assistant core surface read by the model fixes."""
+
+    @property
+    def config(self) -> _ConfigLike:
+        """Core configuration, carrying the unit system."""
+        ...
 
     @property
     def states(self) -> _StatesLike:
