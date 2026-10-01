@@ -12,8 +12,10 @@ from pathlib import Path
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -21,7 +23,12 @@ from pytest_homeassistant_custom_component.common import (
     setup_test_component_platform,
 )
 
-from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
+from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION_MODE,
+    CONF_HEATER,
+    CONF_SENSOR,
+    CalibrationMode,
+)
 
 from .conftest import (
     DOMAIN,
@@ -33,6 +40,8 @@ from .conftest import (
 )
 
 SPARE_ID = "climate.spare_trv"
+# Both thermostats run the default calibration, so this submission changes it.
+PID_SUBMISSION = {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION}
 CATALOGS = sorted(
     (
         Path(__file__).parents[2]
@@ -247,12 +256,27 @@ async def test_the_overlap_issue_names_only_the_entries_that_remain(hass, device
     assert _shared_issues(hass) == {}
 
 
-async def _finish(hass, flows, flow_id: str) -> dict:
-    """Submit the defaults on every form ``flows`` shows until it ends."""
-    result = await flows.async_configure(flow_id, {})
+async def _finish(hass, flows, flow_id: str, advanced: dict | None = None) -> dict:
+    """Submit ``advanced`` on every form ``flows`` shows until it ends.
+
+    Without ``advanced`` every form keeps its defaults.
+    """
+    result = await flows.async_configure(flow_id, advanced or {})
     while result["type"] is FlowResultType.FORM and result["step_id"] != "user":
-        result = await flows.async_configure(flow_id, {})
+        result = await flows.async_configure(flow_id, advanced or {})
     return result
+
+
+def _record_config_changes(hass, entry: MockConfigEntry) -> list[dict]:
+    """Return the payloads of the calibration-change signal sent for ``entry``."""
+    received: list[dict] = []
+
+    @callback
+    def _receive(payload: dict) -> None:
+        received.append(payload)
+
+    async_dispatcher_connect(hass, f"bt_config_changed_{entry.entry_id}", _receive)
+    return received
 
 
 async def test_two_create_flows_cannot_both_take_one_thermostat(hass, devices):
@@ -299,7 +323,9 @@ async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
     assert other["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
 
-    result = await _finish(hass, options, result["flow_id"])
+    config_changes = _record_config_changes(hass, room_b)
+    result = await _finish(hass, options, result["flow_id"], PID_SUBMISSION)
+    await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
@@ -307,3 +333,28 @@ async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room C"
     assert [bundle["trv"] for bundle in room_b.data[CONF_HEATER]] == [SPARE_ID]
+    assert config_changes == []
+
+
+async def test_saved_settings_that_change_the_calibration_signal_the_change(
+    hass, devices
+):
+    """A save that switches the calibration algorithm sends the change signal."""
+    room_b = _entry("Room B", SPARE_ID)
+    await _set_up(hass, room_b)
+    options = hass.config_entries.options
+    result = await options.async_init(room_b.entry_id)
+    result = await options.async_configure(
+        result["flow_id"], _user_step("Room B", SPARE_ID)
+    )
+    assert result["step_id"] == "advanced"
+
+    config_changes = _record_config_changes(hass, room_b)
+    result = await _finish(hass, options, result["flow_id"], PID_SUBMISSION)
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert [
+        bundle["advanced"][CONF_CALIBRATION_MODE] for bundle in room_b.data[CONF_HEATER]
+    ] == [CalibrationMode.PID_CALIBRATION]
+    assert config_changes == [{"entry_id": room_b.entry_id}]

@@ -1249,9 +1249,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.updated_config.get(CONF_HEATER),
             )
 
-            # Check for calibration mode changes to trigger entity cleanup
-            await self._check_calibration_changes()
-
             # Another entry can have taken a thermostat this one gains while
             # the forms were open, so the check runs again with nothing
             # awaited before the write.
@@ -1264,12 +1261,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     self.updated_config, {CONF_HEATER: "trv_in_use"}, in_use
                 )
 
+            # The comparison reads the entry's data, so it runs before the
+            # write; the signal goes out only once the write has happened.
+            algorithms_changed = self._calibration_algorithms_changed()
+
             # The whole configuration lives in the entry's data. Options are
             # emptied in the same update, so an entry that still carries them
             # is written — and so reloaded — once rather than twice.
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config, options={}
             )
+            if algorithms_changed:
+                # Dynamic entity management adds and removes algorithm sensors.
+                signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
+                dispatcher_send(
+                    self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+                )
             self._active_trv_config = None
             # The entry is written above and nothing reads its options.
             return self.async_create_entry(title=self.updated_config["name"], data={})
@@ -1422,8 +1429,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             },
         )
 
-    async def _check_calibration_changes(self) -> None:
-        """Check for calibration mode changes and signal for entity cleanup."""
+    def _calibration_algorithms_changed(self) -> bool:
+        """Return whether the update changes the set of calibration algorithms."""
         old_config = self._config_entry.data
         new_config = self.updated_config
 
@@ -1447,12 +1454,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     for alg in algorithms_removed
                 ],
             )
-
-            # Signal configuration change for dynamic entity management
-            signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
-            dispatcher_send(
-                self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
-            )
+            return True
+        return False
 
     def _get_active_algorithms(self, config: Mapping[str, Any]) -> set:
         """Get set of calibration algorithms currently in use by any TRV."""
