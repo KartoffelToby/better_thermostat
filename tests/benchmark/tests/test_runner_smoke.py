@@ -154,3 +154,58 @@ def test_open_window_overrides_the_valve_only_while_open():
     # The valve applied at minutes 4, 5, 9 and 10.
     applied = [seen[m + 1].last_valve_percent for m in (4, 5, 9, 10)]
     assert applied == [60.0, 0.0, 0.0, 60.0]
+
+
+class _RecordingActuator(Actuator):
+    """Records the flow each ``apply`` hands to the plant."""
+
+    def __init__(self, params: ActuatorParams) -> None:
+        super().__init__(params)
+        self.flows: list[float] = []
+
+    def apply(self, cmd_pct: float) -> float:
+        flow = super().apply(cmd_pct)
+        self.flows.append(flow)
+        return flow
+
+
+class _ScheduledValveAdapter(_ConstantValveAdapter):
+    """Commands 60 % for two minutes, 5 % for two, 8 % until minute 10, then 3 %."""
+
+    def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
+        self.seen.append(ctx)
+        minute = ctx.t / 60.0
+        if minute < 2:
+            return BenchmarkOutput(valve_percent=60.0)
+        if minute < 4:
+            return BenchmarkOutput(valve_percent=5.0)
+        if minute < 10:
+            return BenchmarkOutput(valve_percent=8.0)
+        return BenchmarkOutput(valve_percent=3.0)
+
+
+def test_open_window_closes_the_plant_valve_through_actuator_hysteresis():
+    """The window close reaches the plant when hysteresis would hold the valve.
+
+    With a 10 % band, the valve moves from 60 % to 5 % and then holds 5 %
+    against the 8 % command. Closing for the window is inside that band
+    too, yet the plant must get 0 %, not the held 5 %. After the window,
+    3 % lies inside the band around the closed valve, so it stays closed.
+    """
+    scenario = replace(
+        _COLD_ROOM_WINDOW_OPEN,
+        window_open_schedule=schedules.pulse_bool(5 * 60.0, 10 * 60.0),
+    )
+    adapter = _ScheduledValveAdapter(0.0)
+    plant = TwoStatePlant(scenario.plant, PlantState(T_room_C=17.0, T_rad_C=17.0))
+    actuator = _RecordingActuator(ActuatorParams(hysteresis_pct=10.0))
+    facade = _SingleTrvFacade(plant, actuator)
+
+    _drive_adapter(
+        adapter, facade, scenario, 60.0, 15 * 60.0, handle_controller_restart=False
+    )
+
+    # One entry per minute, minutes 0 to 15.
+    window = [ctx.window_open for ctx in adapter.seen]
+    assert window == [False] * 5 + [True] * 5 + [False] * 6
+    assert actuator.flows == [0.6] * 2 + [0.05] * 3 + [0.0] * 11
