@@ -3,7 +3,11 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import (
+    PRESET_NONE,
+    ClimateEntityFeature,
+    HVACMode,
+)
 from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError
 import pytest
@@ -25,7 +29,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
@@ -37,13 +41,19 @@ def _mock_cooler_state(state=HVACMode.COOL):
 
 
 def _mock_bt():
-    """Build a bare Better Thermostat mock with the contact pinned shut.
-
-    An attribute a ``Mock`` was never given is a truthy child mock, so
-    ``contact_open`` has to be pinned or every cycle reads as an airing.
-    """
-    mock_self = Mock()
+    """Build a Better Thermostat stand-in with the contact shut."""
+    mock_self = ThermostatStandIn()
     mock_self.contact_open = False
+    mock_self.cur_temp_filtered = None
+    mock_self.temp_slope = None
+    mock_self.call_for_heat = True
+    mock_self.bt_min_temp = None
+    mock_self.bt_max_temp = None
+    mock_self.bt_target_temp_step = None
+    mock_self.window_id = None
+    mock_self.preset_mode = PRESET_NONE
+    mock_self.outdoor_sensor = None
+    mock_self.weather_entity = None
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
     mock_self.real_trvs = {}
@@ -78,7 +88,10 @@ class TestControlCooler:
         mock_self.weather_entity = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
+        mock_self.cur_temp = 25.0
         mock_self.bt_target_cooltemp = 24.0
+        mock_self.bt_target_temp = 20.0
+        mock_self.tolerance = 0.5
         mock_self.context = None
 
         await control_cooler(mock_self)
@@ -109,6 +122,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
+        mock_self.clock = FakeClock()
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.tolerance = 0.5
         mock_self.context = None
@@ -289,6 +303,10 @@ class TestControlCooler:
         mock_self.weather_entity = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
+        mock_self.cur_temp = 25.0
+        mock_self.bt_target_cooltemp = 24.0
+        mock_self.bt_target_temp = 20.0
+        mock_self.tolerance = 0.5
         mock_self.context = mock_context
 
         await control_cooler(mock_self)

@@ -32,7 +32,6 @@ _REMAINING = {
     "tests/factories.py": 1,
     "tests/test_aggressive_calibration.py": 1,
     "tests/test_calibration_default_mode.py": 1,
-    "tests/unit/controlling/test_control_cooler.py": 1,
     "tests/unit/controlling/test_control_queue.py": 20,
     "tests/unit/controlling/test_control_trv.py": 7,
     "tests/unit/controlling/test_trv_mode_cache_refresh.py": 1,
