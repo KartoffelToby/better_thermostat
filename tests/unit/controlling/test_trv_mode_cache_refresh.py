@@ -135,8 +135,9 @@ async def _run_one_cycle(
     """Drive one control cycle, with the device publishing inside it.
 
     ``published_inside`` is the state the TRV publishes while the cycle holds
-    it, which is the window in which an event from that TRV is dropped.
-    ``None`` stands for a device that publishes no state at all. With
+    it, which is the window in which an event from that TRV is dropped, or a
+    list of states it publishes in turn. ``None`` stands for a device that
+    publishes no state at all. With
     ``handled_inside`` the publication reaches the inbound handler as the
     event it is, the way Home Assistant delivers it during the cycle.
 
@@ -156,12 +157,18 @@ async def _run_one_cycle(
             return True
         if published_inside is None:
             reported_states.pop(ENTITY_ID)
-        else:
+            return True
+        publications = (
+            published_inside
+            if isinstance(published_inside, list)
+            else [published_inside]
+        )
+        for published in publications:
             old_state = reported_states[ENTITY_ID]
-            reported_states[ENTITY_ID] = published_inside
+            reported_states[ENTITY_ID] = published
             if handled_inside:
                 await trigger_trv_change(
-                    thermostat, _device_event(old_state, published_inside)
+                    thermostat, _device_event(old_state, published)
                 )
         return True
 
@@ -603,6 +610,30 @@ class TestReportsHeldDuringACycle:
             thermostat,
             reported_states,
             _reported_state("heat", setpoint=23.0),
+            handled_inside=True,
+        )
+
+        assert thermostat.bt_target_temp == 19.0
+        assert cycles == 2
+
+    @pytest.mark.asyncio
+    async def test_a_head_switched_off_and_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A later report that switches the head on is judged as a switch-on.
+
+        The head heats, is switched off inside the cycle, and is switched on
+        again with a setpoint turned while it was off, all before the cycle
+        ends. Outside a cycle the first report caches the head as off, so the
+        second is read as a switch-on and its setpoint is not adopted. Read
+        at the end of the cycle, the reports are judged the same way, and the
+        switch-on asks for the cycle that drives the head back to the room
+        target.
+        """
+        cycles = await _run_one_cycle(
+            thermostat,
+            reported_states,
+            [_reported_state("off"), _reported_state("heat", setpoint=23.0)],
             handled_inside=True,
         )
 
