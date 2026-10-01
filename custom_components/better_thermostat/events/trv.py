@@ -579,6 +579,7 @@ async def trigger_trv_change(
                     _adopted_heating_setpoint,
                 )
                 self.bt_target_temp = _adopted_heating_setpoint
+                trv.remember_setpoint_adopted(_raw_heating_setpoint)
                 # The clamp leaves the cooling target alone, so this only settles
                 # the degenerate case where no heating value below the cooling
                 # target exists inside the range: at a cooling target within one

@@ -287,6 +287,24 @@ class TestEchoSetpoints:
         assert trv.confirmed_setpoint is None
         assert trv.echo_setpoint_values() == [26.0]
 
+    def test_an_adopted_turn_takes_the_place_of_the_confirmed_command(self):
+        """After a turn to 22.0, the 20.5 BT confirmed earlier is no longer held."""
+        trv = _make()
+        awaited = trv.remember_setpoint_written(20.5)
+        trv.last_temperature = 20.5
+        trv.remember_setpoint_confirmed(20.5, awaited)
+        trv.remember_setpoint_adopted(22.0)
+        assert trv.confirmed_setpoint == 22.0
+        assert trv.last_temperature == 22.0
+        assert 20.5 not in trv.echo_setpoint_values()
+
+    def test_an_adopted_turn_keeps_the_writes_in_flight(self):
+        """23.0 went out unanswered, so it may still land after the turn."""
+        trv = _make()
+        trv.remember_setpoint_written(23.0)
+        trv.remember_setpoint_adopted(22.0)
+        assert trv.echo_setpoint_values() == [23.0]
+
     def test_from_legacy_dict_fills_the_writes_from_the_dict(self):
         """The list is a typed field like the rest, with its own default."""
         seeded = Trv.from_legacy_dict(
