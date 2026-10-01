@@ -37,7 +37,7 @@ _CTRL = "custom_components.better_thermostat.utils.controlling"
 OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
 
 
-def _reported_state(mode: str, setpoint: float = 19.0) -> State:
+def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
     """Build the state one TRV publishes."""
     return State(
         ENTITY_ID,
@@ -135,8 +135,9 @@ async def _run_one_cycle(
     """Drive one control cycle, with the device publishing inside it.
 
     ``published_inside`` is the state the TRV publishes while the cycle holds
-    it, which is the window in which an event from that TRV is dropped.
-    ``None`` stands for a device that publishes no state at all. With
+    it, which is the window in which an event from that TRV is dropped, or a
+    list of states it publishes in turn. ``None`` stands for a device that
+    publishes no state at all. With
     ``handled_inside`` the publication reaches the inbound handler as the
     event it is, the way Home Assistant delivers it during the cycle.
 
@@ -156,12 +157,18 @@ async def _run_one_cycle(
             return True
         if published_inside is None:
             reported_states.pop(ENTITY_ID)
-        else:
+            return True
+        publications = (
+            published_inside
+            if isinstance(published_inside, list)
+            else [published_inside]
+        )
+        for published in publications:
             old_state = reported_states[ENTITY_ID]
-            reported_states[ENTITY_ID] = published_inside
+            reported_states[ENTITY_ID] = published
             if handled_inside:
                 await trigger_trv_change(
-                    thermostat, _device_event(old_state, published_inside)
+                    thermostat, _device_event(old_state, published)
                 )
         return True
 
@@ -577,6 +584,94 @@ class TestReportsHeldDuringACycle:
         )
 
         assert cycles == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("commanded", ["heat", None])
+    async def test_a_head_switched_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states, commanded
+    ):
+        """A head switched on inside a cycle does not bring a setpoint turned while off.
+
+        The head is off while the room heats, and the report that switches it
+        on carries a setpoint turned while it was off. Read outside a cycle,
+        that setpoint is not a press. The end of the cycle settles the mode
+        cache on the mode Better Thermostat commanded before it reads the held
+        report, and the report is still judged against the mode the head was
+        in before it. As outside a cycle, switching the head on asks for a
+        cycle, which drives the head back to the room target the setpoint
+        was not adopted for.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = commanded
+        reported_states[ENTITY_ID] = _reported_state("off")
+
+        cycles = await _run_one_cycle(
+            thermostat,
+            reported_states,
+            _reported_state("heat", setpoint=23.0),
+            handled_inside=True,
+        )
+
+        assert thermostat.bt_target_temp == 19.0
+        assert cycles == 2
+
+    @pytest.mark.asyncio
+    async def test_a_head_switched_off_and_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A later report that switches the head on is judged as a switch-on.
+
+        The head heats, is switched off inside the cycle, and is switched on
+        again with a setpoint turned while it was off, all before the cycle
+        ends. Outside a cycle the first report caches the head as off, so the
+        second is read as a switch-on and its setpoint is not adopted. Read
+        at the end of the cycle, the reports are judged the same way, and the
+        switch-on asks for the cycle that drives the head back to the room
+        target.
+        """
+        cycles = await _run_one_cycle(
+            thermostat,
+            reported_states,
+            [_reported_state("off"), _reported_state("heat", setpoint=23.0)],
+            handled_inside=True,
+        )
+
+        assert thermostat.bt_target_temp == 19.0
+        assert cycles == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("off_setpoint", [19.0, None])
+    @pytest.mark.parametrize("switched_off_in_cycle", [True, False])
+    async def test_a_press_after_a_switch_on_during_a_cycle_is_adopted(
+        self, thermostat, reported_states, off_setpoint, switched_off_in_cycle
+    ):
+        """A setpoint pressed after a switch-on inside a cycle is adopted.
+
+        The head is off, or is switched off inside the cycle, and is switched
+        on with a setpoint turned while it was off; then the setpoint is
+        pressed again while it is on. Outside a cycle the switch-on is not
+        adopted, and the press that follows is read against the head being on
+        and is adopted. Read at the end of the cycle, the reports are judged
+        the same way, whether or not the off state carries a setpoint.
+        """
+        switched_off = _reported_state("off", setpoint=off_setpoint)
+        published = [
+            _reported_state("heat", setpoint=23.0),
+            _reported_state("heat", setpoint=24.0),
+        ]
+        if switched_off_in_cycle:
+            published.insert(0, switched_off)
+        else:
+            thermostat.real_trvs[ENTITY_ID].hvac_mode = "off"
+            reported_states[ENTITY_ID] = switched_off
+
+        cycles = await _run_one_cycle(
+            thermostat, reported_states, published, handled_inside=True
+        )
+
+        assert thermostat.bt_target_temp == 24.0
+        assert cycles == 2
 
 
 class TestHeldReportAgainstThePreviousState:
