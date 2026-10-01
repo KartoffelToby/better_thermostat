@@ -238,6 +238,10 @@ async def trigger_trv_change(
     _new_current_temp = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
+    # Only a report that carries no readable internal temperature invalidates
+    # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
+    # below and leaves the stored reading in place.
+    _reports_no_temp = _new_current_temp is None
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -257,7 +261,25 @@ async def trigger_trv_change(
     # not hold back the internal temperature of the other valves in the room.
     _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
-    if (
+    _internal_temp_taken = False
+    if _reports_no_temp:
+        # A report without an internal temperature leaves no live value to
+        # keep: the stored one would otherwise feed the calibration for as
+        # long as the device keeps reporting without it.
+        if trv.current_temperature is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s reports no internal "
+                "temperature; invalidating %s",
+                self.device_name,
+                entity_id,
+                trv.current_temperature,
+            )
+            trv.current_temperature = None
+            # The next valid reading is the first live data after the gap
+            # and must not be dropped by the debounce below.
+            trv.accept_next_internal_temp = True
+            _main_change = True
+    elif (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
         and (
@@ -267,6 +289,7 @@ async def trigger_trv_change(
             or (trv.calibration_received is False and trv.calibration != 1)
         )
     ):
+        _internal_temp_taken = True
         _old_temp = trv.current_temperature
         trv.current_temperature = _new_current_temp
         _LOGGER.debug(
@@ -298,6 +321,18 @@ async def trigger_trv_change(
         # including the one that starts a due fallback, is controlled on
         # even when the report also confirms an offset write.
         if _room_temperature_changed:
+            _main_change = True
+
+    # The room sensor fallback reads the TRVs' live reports, so a due
+    # fallback starts on the first report that carries a usable temperature,
+    # and an active one moves off a TRV whose report carries none, whether or
+    # not the stored internal temperature changed. A usable reading that the
+    # debounce held back moves the active fallback no more than the TRV.
+    if not _internal_temp_taken and (
+        self.room_sensor_fallback_due or _new_current_temp is None
+    ):
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
             _main_change = True
 
     if self.ignore_states:

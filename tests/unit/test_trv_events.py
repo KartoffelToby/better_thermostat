@@ -437,6 +437,122 @@ class TestDueFallbackStart:
             assert mock_bt.control_queue_task.qsize() == 1
 
 
+class TestFallbackOnReportsWithoutAUsableTemperature:
+    """The fallback follows what the TRVs report, not what the cache last took."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("unusable", ["unknown", 127.0])
+    async def test_due_fallback_starts_on_the_reading_held_before_the_gap(
+        self, mock_bt, unusable
+    ):
+        """A report repeating the stored reading after a gap completes the handover."""
+        mock_bt.room_sensor_fallback_due = True
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        gap = _make_state(attributes={"current_temperature": unusable})
+        report = _make_state(attributes={"current_temperature": 21.0})
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            mock_bt.hass.states.get.return_value = gap
+            await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=gap))
+            assert mock_bt.room_sensor_fallback is False
+
+            mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+            mock_bt.hass.states.get.return_value = report
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=report, old_state=gap)
+            )
+
+        assert mock_bt.room_sensor_fallback is True
+        assert mock_bt.room_sensor_fallback_due is False
+        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_report_without_a_temperature_clears_the_stored_one(self, mock_bt):
+        """A TRV still in heat that reports no temperature keeps no live value."""
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        gap = _make_state(attributes={"current_temperature": "unknown"})
+        mock_bt.hass.states.get.return_value = gap
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=gap))
+
+        assert trv.current_temperature is None
+        assert trv.accept_next_internal_temp is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cycle_running", [False, True])
+    async def test_supplying_trv_without_a_reading_hands_the_room_to_another(
+        self, mock_bt, cycle_running
+    ):
+        """A supplier that stays in heat but loses its reading is replaced."""
+        _add_homematicip_peer(mock_bt)
+        mock_bt.room_sensor_fallback = True
+        mock_bt.ignore_states = cycle_running
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        mock_bt.cur_temp = 21.0
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 21.0
+        peer_state = State(
+            PEER_ID,
+            "heat",
+            attributes={"current_temperature": 19.0, "temperature": 19.0},
+        )
+        gap = _make_state(attributes={"current_temperature": "unknown"})
+        mock_bt.hass.states.get.side_effect = lambda entity_id: (
+            peer_state if entity_id == PEER_ID else gap
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=gap))
+
+        assert mock_bt.cur_temp == 19.0
+        if cycle_running:
+            assert mock_bt.real_trvs[ENTITY_ID].temperature_moved_while_held is True
+        else:
+            assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_active_fallback_keeps_the_internal_temperature_debounce(
+        self, mock_bt
+    ):
+        """A reading inside the debounce window moves neither the TRV nor the room."""
+        mock_bt.room_sensor_fallback = True
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        mock_bt.cur_temp = 21.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        report = _make_state(attributes={"current_temperature": 21.5})
+        mock_bt.hass.states.get.return_value = report
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, _make_event(mock_bt, new_state=report))
+
+        assert trv.current_temperature == 21.0
+        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.control_queue_task.qsize() == 0
+
+
 class TestTriggerTrvChangeGuards:
     """Guard-clause tests for trigger_trv_change()."""
 
