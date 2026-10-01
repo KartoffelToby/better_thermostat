@@ -19,6 +19,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
@@ -321,6 +322,11 @@ async def trigger_trv_change(
                     )
                     return
                 trv.last_calibration = await get_current_offset(self, entity_id)
+
+        # Under SENSOR_FALLBACK the TRV readings are the room temperature,
+        # so a new one is controlled on even when it confirms an offset write.
+        if self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK:
+            _main_change = True
 
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)
