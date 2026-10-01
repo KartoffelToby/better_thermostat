@@ -42,6 +42,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
@@ -130,6 +131,14 @@ def bt():
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
+    # The range is resolved before the state is restored, so the bounds the
+    # entity reports are the configured ones.
+    type(mock).min_temp = property(lambda self: self.bt_min_temp)
+    type(mock).max_temp = property(lambda self: self.bt_max_temp)
+    mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
+        mock, value
+    )
+    mock._preset_target = lambda value: BetterThermostat._preset_target(mock, value)
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     return mock
 
@@ -1999,6 +2008,47 @@ class TestRestoreState:
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
         assert bt.bt_target_cooltemp == 25.5
+
+    @pytest.mark.asyncio
+    async def test_a_restored_preset_off_the_step_applies_the_targets_it_applied_before(
+        self, bt
+    ):
+        """A preset stored between two steps comes back as the targets it applied.
+
+        Comfort heats to the 72 °F a user typed, 22.22 °C, and cools to
+        77.5 °F, 25.28 °C. Selecting it puts both on the configured 0.5 °C
+        step, 22 °C and 25.5 °C. After a restart the restored preset applies
+        those same two targets, not the stored values beneath them.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt._configured_target_temp_step = 0.5
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
+        bt._preset_cool_temperature = None
+        bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+        bt.control_queue_task = None
+
+        await BetterThermostat.async_set_preset_mode(bt, "comfort")
+        selected = (bt.bt_target_temp, bt.bt_target_cooltemp)
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected[0],
+            "preset_mode": "comfort",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+            ),
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+        bt.bt_target_cooltemp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == (22.0, 25.5)
+        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == selected
+        assert bt.preset_mgr.mode == "comfort"
 
     def _cooling_bt(self, bt, minimum, maximum):
         """Configure *bt* with a cooling channel and a real ordering method."""
