@@ -252,6 +252,20 @@ async def trigger_trv_change(
             _new_current_temp,
         )
         _new_current_temp = None
+        # The stored reading stays, but SENSOR_FALLBACK counts a TRV only
+        # while its report confirms it. A report that turns a plausible
+        # reading into a marker value takes the TRV out of the mean and so
+        # moves the room temperature the control law reads.
+        if (
+            self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+            and trv.current_temperature is not None
+            and is_reasonable_temperature(
+                attr_to_celsius(
+                    self, old_state, "current_temperature", None, "TRV_previous_temp"
+                )
+            )
+        ):
+            _main_change = True
 
     # A HomematicIP valve is radio-duty-cycle limited and is therefore read
     # far apart; every other integration only needs the short anti-flicker
