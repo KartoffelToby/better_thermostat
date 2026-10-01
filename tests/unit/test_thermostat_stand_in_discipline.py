@@ -48,8 +48,6 @@ _REMAINING = {
     "tests/unit/test_mqtt_adapter_init.py": 2,
     "tests/unit/test_reconciler.py": 1,
     "tests/unit/test_standby_contract.py": 1,
-    "tests/unit/test_temperature_events.py": 1,
-    "tests/unit/test_trv_events.py": 2,
 }
 
 

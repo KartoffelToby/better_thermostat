@@ -19,7 +19,11 @@ import pytest
 
 from custom_components.better_thermostat.calibration import effective_room_temp
 from custom_components.better_thermostat.climate import BetterThermostat
-from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.events.trv import (
     convert_inbound_states,
     convert_outbound_states,
@@ -32,6 +36,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.helpers import mode_remap
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
@@ -45,7 +50,8 @@ PEER_ID = "climate.test_trv_peer"
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = running_kernel_state()
     bt.hass = MagicMock()
     # climate entities publish no unit attribute, so every temperature read off
     # a TRV state resolves through the system unit.
@@ -116,6 +122,11 @@ def mock_bt():
         )
     }
     return bt
+
+
+def _set_control_mode(bt, mode):
+    """Put the control-mode region of ``bt`` on ``mode``."""
+    bt.kernel_state = replace(bt.kernel_state, control_mode=ControlModeState(mode=mode))
 
 
 def _make_state(state_str="heat", attributes=None):
@@ -678,7 +689,7 @@ class TestInternalTemperatureChange:
         new reading changes what the next cycle controls on even when it also
         confirms an offset write.
         """
-        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
         mock_bt.ignore_states = cycle_running
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.calibration_received = False
@@ -859,7 +870,7 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
         self, mock_bt, cycle_running
     ):
         """A TRV whose report turns into a marker value drops out of the mean."""
-        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
         mock_bt.ignore_states = cycle_running
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.current_temperature = 21.0
@@ -892,7 +903,7 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
         self, mock_bt, mode, previous
     ):
         """Only the report that takes the reading out of the mean moves the room."""
-        mock_bt.kernel_state.control_mode.mode = mode
+        _set_control_mode(mock_bt, mode)
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.current_temperature = 21.0
         before = _make_state(attributes={"current_temperature": previous})
@@ -921,7 +932,7 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
         self, mock_bt, recovered
     ):
         """A TRV whose marker report turns usable again rejoins the mean."""
-        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.current_temperature = 21.0
         trv.last_internal_sensor_change = dt_util.now()
@@ -3429,7 +3440,8 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     Mirrors the single-TRV ``mock_bt`` fixture but with an arbitrary number of
     members so the group-quorum logic can be exercised.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = running_kernel_state()
     bt.hass = MagicMock()
     # climate entities publish no unit attribute, so every temperature read off
     # a TRV state resolves through the system unit.
@@ -4057,6 +4069,8 @@ def _prepare_outage_room(bt, *, with_peer: bool):
     bt.devices_errors = []
     bt.devices_states = {}
     bt._critical_grace_until = None
+    # The entity has subscribed to its TRVs' state changes.
+    bt._async_unsub_state_changed = MagicMock()
     # The listener looks for TRVs startup went ahead without before it reads
     # the report; every head here was set up by startup.
     bt._trvs_initializing = set()
