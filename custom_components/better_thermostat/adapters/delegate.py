@@ -262,8 +262,21 @@ async def set_valve(self, entity_id, valve) -> bool | None:
     retried; only once the attempts are spent is it reported and answered
     ``False``, which tells the caller to try the cycle again.
 
-    Returns True when a position was put on the wire, False when a write was
-    attempted and failed, and None when no channel took the position.
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Entity id of the TRV to write the valve position to.
+    valve : int
+        Requested valve position in percent.
+
+    Returns
+    -------
+    bool | None
+        True when a position was put on the wire, False when a write was
+        attempted and failed after its retries, and None when no channel took
+        the position.
     """
     try:
         target_pct = int(valve)
