@@ -233,69 +233,92 @@ async def set_offset(self, entity_id, offset) -> bool:
     return True
 
 
-@async_retry(retries=5)
-async def set_valve(self, entity_id, valve):
-    """Set new target valve.
+async def set_valve(self, entity_id, valve) -> bool | None:
+    """Set a new valve position and record the value that went out.
 
-    Prefers adapter/number entity if available; otherwise, falls back to model quirks
-    override_set_valve. Records last_valve_percent and last_valve_method accordingly.
-    Returns True on handled write, False otherwise.
+    A model quirk's ``override_set_valve`` owns the valve channel where
+    one exists and is asked first; a quirk that answers it did not take
+    the position falls through to the adapter's helper entity, which is
+    written only when it is known to be writable. Whichever wrote records
+    ``last_valve_percent`` and ``last_valve_method``.
+
+    A device with no valve channel, or whose channels all decline the
+    position, is not a failure and is answered ``None`` without a single
+    attempt. A write that raises is an infrastructure failure and is
+    retried; only once the attempts are spent is it reported and answered
+    ``False``, which tells the caller to try the cycle again.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance.
+    entity_id : str
+        Entity id of the TRV to write the valve position to.
+    valve : int
+        Requested valve position in percent.
+
+    Returns
+    -------
+    bool | None
+        True when a position was put on the wire, False when a write was
+        attempted and failed after its retries, and None when no channel took
+        the position.
     """
     try:
         target_pct = int(valve)
     except Exception:
         target_pct = valve
-    try:
-        trv_state = self.real_trvs.get(entity_id)
+    trv_state = self.real_trvs.get(entity_id)
 
-        # Check if the override_set_valve method is implemented in the model quirks of the trv
-        # This takes precedence over the standard adapter set_valve
-        _override_set_valve = getattr(
-            trv_state.model_quirks if trv_state is not None else None,
-            "override_set_valve",
-            None,
-        )
-        if _override_set_valve is not None:
-            ok = await _override_set_valve(self, entity_id, target_pct)
-            if ok:
-                try:
-                    self.real_trvs[entity_id].last_valve_percent = int(target_pct)
-                    self.real_trvs[entity_id].last_valve_method = "override"
-                except Exception:
-                    _LOGGER.exception(
-                        "better_thermostat %s: Failed to set last_valve_percent or last_valve_method for %s in override",
-                        getattr(self, "device_name", "unknown"),
-                        entity_id,
-                    )
-                return True
+    # Each channel carries whether its own answer decides the outcome: a quirk
+    # reports whether it took the position, while an adapter call that returns
+    # is the write.
+    channels = []
+    _override_set_valve = getattr(
+        trv_state.model_quirks if trv_state is not None else None,
+        "override_set_valve",
+        None,
+    )
+    if _override_set_valve is not None:
+        channels.append(("override", _override_set_valve, True))
+    valve_entity = trv_state.valve_position_entity if trv_state is not None else None
+    valve_writable = (
+        trv_state.valve_position_writable if trv_state is not None else None
+    )
+    # Only write to a helper entity when we know it's writable.
+    if valve_entity and valve_writable is True:
+        channels.append(("adapter", trv_state.adapter.set_valve, False))
 
-        valve_entity = (
-            trv_state.valve_position_entity if trv_state is not None else None
-        )
-        valve_writable = (
-            trv_state.valve_position_writable if trv_state is not None else None
-        )
+    @async_retry(
+        retries=5,
+        identifier=f"{getattr(self, 'device_name', 'unknown')} valve {entity_id}",
+    )
+    async def write_position(write):
+        return await write(self, entity_id, target_pct)
 
-        # Only write to a helper entity when we know it's writable.
-        if valve_entity and valve_writable is True:
-            await self.real_trvs[entity_id].adapter.set_valve(
-                self, entity_id, target_pct
+    for method, write, answer_decides in channels:
+        try:
+            answer = await write_position(write)
+        except Exception:
+            _LOGGER.warning(
+                "better_thermostat %s: valve position %s%% for %s could not be "
+                "written; will retry on the next cycle",
+                getattr(self, "device_name", "unknown"),
+                target_pct,
+                entity_id,
             )
-            try:
-                self.real_trvs[entity_id].last_valve_percent = int(target_pct)
-                self.real_trvs[entity_id].last_valve_method = "adapter"
-            except Exception as exc:
-                _LOGGER.debug(
-                    "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
-                    getattr(self, "device_name", "unknown"),
-                    entity_id,
-                    exc,
-                )
-            return True
-    except Exception:
-        _LOGGER.debug(
-            "better_thermostat %s: delegate.set_valve failed for %s",
-            getattr(self, "device_name", "unknown"),
-            entity_id,
-        )
-    return False
+            return False
+        if answer_decides and not answer:
+            continue
+        try:
+            trv_state.last_valve_percent = int(target_pct)
+            trv_state.last_valve_method = method
+        except Exception as exc:
+            _LOGGER.debug(
+                "better_thermostat %s: Failed to record last_valve_percent/method for %s: %s",
+                getattr(self, "device_name", "unknown"),
+                entity_id,
+                exc,
+            )
+        return True
+    return None
