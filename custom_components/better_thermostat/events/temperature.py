@@ -382,6 +382,11 @@ async def _resume_room_sensor(self, temperature: float) -> None:
     The TRV value only stood in for the sensor, so the reading takes over
     without waiting for the debounce the sensor's readings otherwise go
     through.
+
+    During the outage the minute tick kept feeding the filter the last
+    reading from before it, which says nothing about the room since. The
+    filter therefore starts over from the returning reading, and the slope
+    the tick derives from the filter starts from it as well.
     """
     _cancel_room_sensor_fallback_timer(self)
     self.room_sensor_fallback = False
@@ -391,6 +396,8 @@ async def _resume_room_sensor(self, temperature: float) -> None:
         self.device_name,
         self.sensor_entity_id,
     )
+    self.external_temp_ema = None
+    self._external_temp_ema_ts = None
     await _commit_temperature_update(self, round(temperature, 2))
 
 
