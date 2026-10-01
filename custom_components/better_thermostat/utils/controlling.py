@@ -312,7 +312,10 @@ async def read_reports_held_during_cycle(self) -> None:
     cycle acts on: the room's targets or mode, the mode the device is known
     to hold, or the internal temperature it reported while the cycle ran,
     which the handler takes as it arrives, as it does outside a cycle. A
-    device answering inside every cycle with a report that carries nothing
+    head switched on inside the cycle asks for one as well, as its mode
+    change does outside a cycle: the cache already holds the commanded mode,
+    so the report moves nothing, yet the setpoint it was not adopted for
+    has to be driven back to the room target. A device answering inside every cycle with a report that carries nothing
     new would otherwise keep one cycle following the next.
 
     Parameters
@@ -364,8 +367,10 @@ async def read_reports_held_during_cycle(self) -> None:
                 entity_id,
             )
             continue
+        switched_on = prior_hvac_mode == HVACMode.OFF and state.state != HVACMode.OFF
         if (
             temperature_moved
+            or switched_on
             or _held_report_control_inputs(self, trv) != acted_on_before
         ):
             try:
