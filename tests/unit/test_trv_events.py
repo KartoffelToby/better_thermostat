@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.trv import (
     convert_inbound_states,
     convert_outbound_states,
@@ -660,6 +661,41 @@ class TestInternalTemperatureChange:
             await trigger_trv_change(mock_bt, event)
 
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cycle_running", [False, True])
+    async def test_calibration_received_under_sensor_fallback_still_controls(
+        self, mock_bt, cycle_running
+    ):
+        """A confirmation that moves the fallback room temperature requests a cycle.
+
+        Under SENSOR_FALLBACK the TRV readings are the room temperature, so a
+        new reading changes what the next cycle controls on even when it also
+        confirms an offset write.
+        """
+        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        mock_bt.ignore_states = cycle_running
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = 1
+        trv.current_temperature = 18.0
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.calibration_received is True
+        assert trv.current_temperature == 20.0
+        if cycle_running:
+            assert trv.temperature_moved_while_held is True
+        else:
+            mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
     @pytest.mark.asyncio
     async def test_calibration_zero_fetches_offset(self, mock_bt):
