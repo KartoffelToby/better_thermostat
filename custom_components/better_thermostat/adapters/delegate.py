@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import datetime
 import logging
+import time
+from typing import Any, Final
 
 from homeassistant.helpers.importlib import async_import_module
+from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.utils.helpers import (
     round_by_step,
@@ -90,7 +96,6 @@ async def get_max_offset(self, entity_id):
     return await self.real_trvs[entity_id].adapter.get_max_offset(self, entity_id)
 
 
-@async_retry(retries=5)
 async def set_temperature(self, entity_id, temperature):
     """Set new target temperature.
 
@@ -164,17 +169,172 @@ async def set_temperature(self, entity_id, temperature):
             e,
         )
 
-    return await self.real_trvs[entity_id].adapter.set_temperature(
-        self, entity_id, rounded
+    return await _write_on_channel(
+        self,
+        entity_id,
+        "temperature",
+        f"setpoint {rounded}",
+        self.real_trvs[entity_id].adapter.set_temperature,
+        rounded,
     )
 
 
-@async_retry(retries=5)
-async def set_hvac_mode(self, entity_id, hvac_mode):
-    """Set new target hvac mode."""
-    return await self.real_trvs[entity_id].adapter.set_hvac_mode(
-        self, entity_id, hvac_mode
+async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
+    """Set a new hvac mode on the TRV.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    hvac_mode : str
+        The mode to switch the TRV to
+
+    Returns
+    -------
+    bool
+        True when the mode went out, False when every attempt raised
+    """
+    try:
+        await _write_on_channel(
+            self,
+            entity_id,
+            "hvac_mode",
+            f"hvac mode {hvac_mode}",
+            self.real_trvs[entity_id].adapter.set_hvac_mode,
+            hvac_mode,
+        )
+    except Exception:
+        return False
+    return True
+
+
+# How often an outage that goes on is named again in the log.
+OUTAGE_REPORT_INTERVAL_S: Final = 3600.0
+
+
+@dataclass
+class WriteOutage:
+    """A write channel of one TRV whose last write spent every attempt.
+
+    Attributes
+    ----------
+    since : datetime
+        When the attempts were spent.
+    reported_at : float
+        Monotonic time the outage was last named at WARNING.
+    """
+
+    since: datetime
+    reported_at: float
+
+
+async def _write_on_channel(
+    self,
+    entity_id: str,
+    channel: str,
+    what: str,
+    write: Callable[..., Awaitable[Any]],
+    value: Any,
+) -> Any:
+    """Put one value on one write channel of the TRV and answer the write's answer.
+
+    The write runs under the room's control lock, so every attempt it
+    makes is time the other TRVs of the room wait. A channel whose writes
+    have been going through gets the retry chain, which covers a dropped
+    message within the cycle. A channel whose last write spent that chain
+    and still raised gets one attempt: the device is out of reach, the next
+    cycle asks again anyway, and the chain would cost the room its backoff
+    on every cycle. Only a write that goes through ends the outage. A TRV
+    that keeps dropping out and coming back, or that takes a write while
+    raising, keeps costing one attempt per write rather than a chain per
+    return. The outage is named at WARNING when it begins, once an hour
+    while it lasts, and at INFO when it ends.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+    entity_id : str
+        Entity ID of the TRV to write to
+    channel : str
+        Name of the write channel, the key its reachability is kept under
+    what : str
+        The command as the log names it
+    write : Callable
+        The adapter or quirk write, called as ``write(self, entity_id, value)``
+    value : Any
+        The value to write
+
+    Returns
+    -------
+    Any
+        What the write answered
+
+    Raises
+    ------
+    Exception
+        The write's own exception, once the attempts it gets are spent
+    """
+    trv = self.real_trvs.get(entity_id)
+    found = getattr(trv, "unreachable_write_channels", None)
+    outages: dict[str, WriteOutage] = found if isinstance(found, dict) else {}
+    device_name = getattr(self, "device_name", "unknown")
+    outage = outages.get(channel)
+
+    async def write_to_device(host, target, payload):
+        return await write(host, target, payload)
+
+    attempt = (
+        write_to_device
+        if outage is not None
+        else async_retry(retries=5, identifier=f"{device_name} {channel}")(
+            write_to_device
+        )
     )
+    try:
+        answer = await attempt(self, entity_id, value)
+    except Exception:
+        now = time.monotonic()
+        if outage is None:
+            outages[channel] = WriteOutage(since=dt_util.utcnow(), reported_at=now)
+            _LOGGER.warning(
+                "better_thermostat %s: %s for %s could not be written; each "
+                "following cycle tries it once until a write goes through",
+                device_name,
+                what,
+                entity_id,
+            )
+        elif now - outage.reported_at >= OUTAGE_REPORT_INTERVAL_S:
+            outage.reported_at = now
+            _LOGGER.warning(
+                "better_thermostat %s: %s for %s is still out of reach, as it "
+                "has been since %s",
+                device_name,
+                what,
+                entity_id,
+                outage.since.isoformat(timespec="seconds"),
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: %s for %s is still out of reach",
+                device_name,
+                what,
+                entity_id,
+                exc_info=True,
+            )
+        raise
+    if outage is not None:
+        del outages[channel]
+        _LOGGER.info(
+            "better_thermostat %s: %s for %s went through, the channel is back "
+            "in reach",
+            device_name,
+            what,
+            entity_id,
+        )
+    return answer
 
 
 async def set_offset(self, entity_id, offset) -> bool:
@@ -210,7 +370,7 @@ async def set_offset(self, entity_id, offset) -> bool:
     bool
         True when the adapter put the offset on the wire, False when the
         device has no offset channel, its calibration entity is disabled,
-        or every retry raised.
+        or every attempt raised.
     """
     calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
     if calibration_entity is not None and sibling_disabled_at_write(
@@ -218,21 +378,16 @@ async def set_offset(self, entity_id, offset) -> bool:
     ):
         return False
 
-    @async_retry(retries=5)
-    async def inner():
-        return await self.real_trvs[entity_id].adapter.set_offset(
-            self, entity_id, offset
-        )
-
     try:
-        wrote = await inner()
-    except Exception:
-        _LOGGER.warning(
-            "better_thermostat %s: set_local_temperature_calibration for %s failed; "
-            "will retry on the next cycle",
-            getattr(self, "device_name", "unknown"),
+        wrote = await _write_on_channel(
+            self,
             entity_id,
+            "offset",
+            "calibration offset",
+            self.real_trvs[entity_id].adapter.set_offset,
+            offset,
         )
+    except Exception:
         return False
     if wrote is not True:
         _LOGGER.debug(
@@ -257,10 +412,11 @@ async def set_valve(self, entity_id, valve) -> bool | None:
     ``last_valve_method``.
 
     A device with no valve channel, or whose channels all decline the
-    position, is not a failure and is answered ``None`` without a single
-    attempt. A write that raises is an infrastructure failure and is
-    retried; only once the attempts are spent is it reported and answered
-    ``False``, which tells the caller to try the cycle again.
+    position, is not a failure and is answered ``None``. A write that raises
+    is an infrastructure failure and is retried as :func:`_write_on_channel`
+    describes; a channel whose attempts are spent leaves the position to the
+    next channel. Only once no channel took it and one of them raised is it
+    answered ``False``, which tells the caller to try the cycle again.
 
     Parameters
     ----------
@@ -310,25 +466,22 @@ async def set_valve(self, entity_id, valve) -> bool | None:
     ):
         channels.append(("adapter", trv_state.adapter.set_valve, False))
 
-    @async_retry(
-        retries=5,
-        identifier=f"{getattr(self, 'device_name', 'unknown')} valve {entity_id}",
-    )
-    async def write_position(write):
-        return await write(self, entity_id, target_pct)
-
+    # A channel that raised leaves the position to the next channel, as one
+    # that declined it does.
+    write_failed = False
     for method, write, answer_decides in channels:
         try:
-            answer = await write_position(write)
-        except Exception:
-            _LOGGER.warning(
-                "better_thermostat %s: valve position %s%% for %s could not be "
-                "written; will retry on the next cycle",
-                getattr(self, "device_name", "unknown"),
-                target_pct,
+            answer = await _write_on_channel(
+                self,
                 entity_id,
+                f"valve {method}",
+                f"valve position {target_pct}% through the {method} channel",
+                write,
+                target_pct,
             )
-            return False
+        except Exception:
+            write_failed = True
+            continue
         if answer_decides and not answer:
             continue
         try:
@@ -342,4 +495,4 @@ async def set_valve(self, entity_id, valve) -> bool | None:
                 exc,
             )
         return True
-    return None
+    return False if write_failed else None

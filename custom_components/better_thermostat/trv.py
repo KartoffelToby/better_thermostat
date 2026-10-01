@@ -130,6 +130,11 @@ class Trv:
     # judges the device's state against it, so a device that came back from
     # ``unavailable`` inside the cycle is read as a return, not as a press.
     state_before_held_report: State | None = None
+    # The mode cached for the device when that state was replaced. The end of
+    # the cycle settles the cache before it reads the held report, so the
+    # report is judged against this mode, as the handler judges it against the
+    # cache outside a cycle.
+    hvac_mode_before_held_report: str | None = None
     # A held report whose internal temperature was taken while the cycle ran.
     # The value is applied as it arrives, so reading the report again at the
     # end of the cycle finds nothing new; this is what still asks for a cycle.
@@ -154,6 +159,11 @@ class Trv:
     # in Home Assistant, so the warning is logged once per entity while it
     # stays disabled instead of per lookup or write.
     disabled_siblings_logged: set[str] = field(default_factory=set)
+    # Write channels whose last write spent every attempt and still raised,
+    # keyed by channel, each with the delegate's record of the outage. The
+    # next write on such a channel gets one attempt instead of the retry
+    # chain, which runs under the room's control lock, until the outage ends.
+    unreachable_write_channels: dict[str, Any] = field(default_factory=dict)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None

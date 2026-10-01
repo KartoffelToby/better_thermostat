@@ -68,7 +68,7 @@ async def check_operation_mode(self, entity_id, goal: str = "1"):
         en = (ent.entity_id or "").lower()
         uid = (ent.unique_id or "").lower()
         name = (getattr(ent, "original_name", None) or "").lower()
-        if "_trv_mode" in en or "_trv_mode" in uid or "Trv mode" in name:
+        if "_trv_mode" in en or "_trv_mode" in uid or "trv mode" in name:
             target_entity = ent.entity_id
     if target_entity is None:
         _LOGGER.debug(
