@@ -242,6 +242,20 @@ async def trigger_trv_change(
     # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
     # below and leaves the stored reading in place.
     _reports_no_temp = _new_current_temp is None
+    # The room sensor fallback takes the room from the first TRV whose report
+    # carries a plausible temperature. A report that turns a marker value back
+    # into a plausible reading puts the TRV back into that choice while the
+    # stored reading it carries is unchanged or held back by the debounce.
+    _previous_temp = attr_to_celsius(
+        self, old_state, "current_temperature", None, "TRV_previous_temp"
+    )
+    _marker_cleared = (
+        self.room_sensor_fallback
+        and _new_current_temp is not None
+        and _previous_temp is not None
+        and is_reasonable_temperature(_new_current_temp)
+        and not is_reasonable_temperature(_previous_temp)
+    )
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -327,9 +341,10 @@ async def trigger_trv_change(
     # fallback starts on the first report that carries a usable temperature,
     # and an active one moves off a TRV whose report carries none, whether or
     # not the stored internal temperature changed. A usable reading that the
-    # debounce held back moves the active fallback no more than the TRV.
+    # debounce held back moves the active fallback no more than the TRV,
+    # unless the report is the one that clears a marker value.
     if not _internal_temp_taken and (
-        self.room_sensor_fallback_due or _new_current_temp is None
+        self.room_sensor_fallback_due or _new_current_temp is None or _marker_cleared
     ):
         if refresh_room_temperature_from_trvs(self):
             self.async_write_ha_state()
