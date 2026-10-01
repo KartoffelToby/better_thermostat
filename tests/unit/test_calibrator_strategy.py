@@ -180,6 +180,7 @@ class TestStrategyRegistry:
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
         bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
         bt.cur_temp = None
         bt.bt_target_temp = 21.0
         bt.kernel_state = make_state(

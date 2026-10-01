@@ -2836,6 +2836,7 @@ def mock_bt_grouped():
     bt.hass = MagicMock()
     bt.clock = FakeClock()
     bt.flight_recorder = FlightRecorder()
+    bt.preset_mode = None
     bt.startup_running = False
     bt.in_maintenance = False
     bt.degraded_mode = False

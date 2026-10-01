@@ -43,6 +43,8 @@ def _mock_cooler_state(state=HVACMode.COOL):
 def _mock_bt():
     """Build a Better Thermostat stand-in with the contact shut."""
     mock_self = ThermostatStandIn()
+    mock_self.device_name = "Test BT"
+    mock_self.heating_power_normalized = None
     mock_self.contact_open = False
     mock_self.cur_temp_filtered = None
     mock_self.temp_slope = None

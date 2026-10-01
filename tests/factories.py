@@ -123,11 +123,13 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
 
 
 def _thermostat_state_names() -> frozenset[str]:
-    """Return the state a BetterThermostat holds: attributes and settable properties.
+    """Return the state a BetterThermostat holds.
 
-    The attributes are the ones the class assigns on ``self``; a settable
-    property stands for state just the same. Methods and read-only
-    properties are left out, since a mock may answer those.
+    That is every attribute the class assigns on ``self`` without a class
+    default, every name its body declares without a value, and every
+    property it defines. Each property derives from the entity's state,
+    so a mock cannot answer one any more truthfully than the state itself.
+    Methods and what Home Assistant's base classes define are left out.
     """
     source = Path(inspect.getfile(BetterThermostat)).read_text(encoding="utf-8")
     cls = next(
@@ -135,7 +137,15 @@ def _thermostat_state_names() -> frozenset[str]:
         for node in ast.parse(source).body
         if isinstance(node, ast.ClassDef) and node.name == BetterThermostat.__name__
     )
-    assigned: set[str] = set()
+    names: set[str] = set()
+    for node in cls.body:
+        if isinstance(node, ast.AnnAssign) and node.value is None:
+            if isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+        elif isinstance(node, ast.FunctionDef) and isinstance(
+            inspect.getattr_static(BetterThermostat, node.name, None), property
+        ):
+            names.add(node.name)
     for node in ast.walk(cls):
         if isinstance(node, ast.Assign):
             targets = node.targets
@@ -143,22 +153,14 @@ def _thermostat_state_names() -> frozenset[str]:
             targets = [node.target]
         else:
             continue
-        assigned.update(
+        names.update(
             target.attr
             for target in targets
             if isinstance(target, ast.Attribute)
             and isinstance(target.value, ast.Name)
             and target.value.id == "self"
+            and not hasattr(BetterThermostat, target.attr)
         )
-    names: set[str] = set()
-    for name in assigned:
-        try:
-            on_class = inspect.getattr_static(BetterThermostat, name)
-        except AttributeError:
-            names.add(name)
-            continue
-        if isinstance(on_class, property) and on_class.fset is not None:
-            names.add(name)
     return frozenset(names)
 
 
@@ -171,8 +173,10 @@ class ThermostatStandIn(MagicMock):
     A plain ``MagicMock`` answers an attribute nobody set with a truthy
     mock, so a missing ``in_maintenance`` reads as maintenance running and
     the test exercises a branch it never meant to. This stand-in raises
-    for any state attribute the test did not set and still answers
-    methods with mocks. Its children are plain ``MagicMock``s, so
+    for any state attribute or property the test did not set and still
+    answers methods with mocks. Production that reads through
+    ``getattr(bt, name, default)`` or ``hasattr`` gets the default
+    instead of an error. Its children are plain ``MagicMock``s, so
     ``bt.hass.config`` stays as permissive as before.
     """
 
@@ -262,7 +266,9 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
         The entity mock with every attribute the property touches.
     """
     bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
     bt.window_open = False
+    bt.heating_power_normalized = None
     bt.call_for_heat = True
     bt.last_change = datetime(2026, 5, 18, tzinfo=UTC)
     bt._current_humidity = None

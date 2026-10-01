@@ -86,6 +86,7 @@ def thermostat(reported_states):
     bt.preset_mode = None
     bt.tolerance = 0.3
     bt.window_open = False
+    bt.door_open = False
     bt.contact_open = False
     bt.startup_running = False
     bt.bt_update_lock = False

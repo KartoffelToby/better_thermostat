@@ -51,6 +51,8 @@ def test_make_snapshot_and_state_run_through_the_kernel():
         "kernel_state",  # assigned in __init__
         "real_trvs",  # assigned in __init__
         "call_for_heat",  # a property with a setter
+        "in_maintenance",  # a read-only property
+        "task_manager",  # declared in the class body without a value
     ],
 )
 def test_the_stand_in_refuses_state_it_was_not_given(name):
@@ -68,15 +70,14 @@ def test_the_stand_in_answers_state_it_was_given():
     assert bt.call_for_heat is False
 
 
-def test_the_stand_in_still_mocks_methods_and_read_only_properties():
-    """Methods and computed properties are not state, so a mock answers them."""
+def test_the_stand_in_still_mocks_methods():
+    """A method is behaviour, not state, so a mock answers it."""
     bt = ThermostatStandIn()
 
     bt.async_write_ha_state()
 
     bt.async_write_ha_state.assert_called_once_with()
     assert "async_write_ha_state" not in THERMOSTAT_STATE
-    assert isinstance(bt.hvac_mode, MagicMock)
 
 
 def test_the_stand_ins_children_stay_permissive():

@@ -29,6 +29,7 @@ from tests.factories import ThermostatStandIn
 def _make_bt() -> MagicMock:
     """Return a fully populated BetterThermostat stand-in."""
     bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
     bt.clock = FakeClock(
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
     )

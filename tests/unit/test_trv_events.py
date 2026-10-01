@@ -71,6 +71,7 @@ def mock_bt():
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.window_open = False
+    bt.door_open = False
     bt.contact_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
@@ -3458,6 +3459,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.window_open = False
+    bt.door_open = False
     bt.contact_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
