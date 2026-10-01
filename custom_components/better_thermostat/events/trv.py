@@ -127,6 +127,7 @@ def _hold_report(
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
     if not trv.report_unread or returned or moved_after_return:
         trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = trv.hvac_mode
     trv.report_unread = True
 
 
@@ -136,7 +137,12 @@ def _held_setpoint(self, state: State | None) -> float | None:
 
 
 async def trigger_trv_change(
-    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+    self,
+    event,
+    *,
+    mode_settled: bool = False,
+    request_cycle: bool = True,
+    prior_hvac_mode: str | None = None,
 ):
     """Trigger a change in the trv state.
 
@@ -144,6 +150,9 @@ async def trigger_trv_change(
     has already settled, so the mode it carries is left to the device's next
     report. ``request_cycle=False`` reads the report without requesting a
     control cycle for it, for a caller that decides that itself.
+    ``prior_hvac_mode`` is the mode the device was cached in before the
+    report, for a caller whose cache has moved since; without it the cache
+    is that mode.
     """
     if self.startup_running:
         return
@@ -389,7 +398,9 @@ async def trigger_trv_change(
             str(val_pos), self.device_name, "trv_event"
         )
 
-    _was_off = trv.hvac_mode == HVACMode.OFF
+    _was_off = (
+        prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode
+    ) == HVACMode.OFF
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT) and not mode_settled:
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode
