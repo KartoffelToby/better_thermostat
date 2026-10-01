@@ -24,10 +24,14 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.better_thermostat.adapters.delegate import (
+    set_temperature as delegate_set_temperature,
+)
 from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
@@ -86,6 +90,7 @@ def bt():
             advanced={},
         )
     }
+    mock.state_mgr = None
     mock.cooler_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
@@ -1900,6 +1905,97 @@ class TestInitializeTrvSetpointSeed:
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 
+_real_asyncio_sleep = asyncio.sleep
+
+
+class _AdvancingClock:
+    """An event-loop clock that a sleep moves forward instead of waiting.
+
+    A retry ladder spends tens of seconds of backoff, and a deadline
+    around it reads the loop's clock. Handing the loop this clock and this
+    sleep lets both happen in test time: the sleep hands control back at
+    once and charges its delay to the clock the deadline is measured on.
+    """
+
+    def __init__(self, loop):
+        self._loop_time = loop.time
+        self._elapsed = 0.0
+
+    def time(self) -> float:
+        return self._loop_time() + self._elapsed
+
+    async def sleep(self, delay, result=None):
+        if delay and delay > 0:
+            self._elapsed += delay
+        await _real_asyncio_sleep(0)
+        return result
+
+
+def _trv_refusing_every_write(attempts: list[str]):
+    """A thermostat whose only TRV raises on every setpoint write."""
+    trv = MagicMock(spec=Trv)
+    trv.target_temp_step = 0.5
+    trv.min_temp = 5.0
+    trv.max_temp = 30.0
+
+    async def refuse(_self, entity_id, _temperature):
+        attempts.append(entity_id)
+        raise HomeAssistantError("TRV is not reachable")
+
+    trv.adapter = MagicMock()
+    trv.adapter.set_temperature = refuse
+
+    thermostat = MagicMock()
+    thermostat.device_name = "Test BT"
+    thermostat.bt_target_temp_step = None
+    thermostat.real_trvs = {TRV_ID: trv}
+    return thermostat
+
+
+class TestInitializeTrvControlBudget:
+    """The startup sync gives an unreachable TRV its whole write ladder."""
+
+    @pytest.mark.asyncio
+    async def test_a_write_spends_its_retries(self, bt, caplog):
+        """A TRV that is out of reach gets every attempt the write ladder has.
+
+        An unreachable device in the first seconds after a restart is what
+        those retries exist for, so the startup budget has to outlast their
+        backoff. The write runs against a clock this test advances, so the
+        ladder's delays elapse for the budget without costing wall time.
+        """
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = "°C"
+        bt.hass.states.get.return_value = _make_trv_state(
+            attrs={"temperature": 21.0, "current_temperature": 20.0}
+        )
+        loop = asyncio.get_running_loop()
+        clock = _AdvancingClock(loop)
+        attempts: list[str] = []
+        writer = _trv_refusing_every_write(attempts)
+
+        async def control_by_writing(_self, entity_id):
+            return await delegate_set_temperature(writer, entity_id, 21.0)
+
+        with (
+            patch.object(loop, "time", clock.time),
+            patch("asyncio.sleep", clock.sleep),
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                control_by_writing,
+            ),
+            caplog.at_level(logging.ERROR),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+        assert len(attempts) == 6
+        assert "Timeout controlling TRV" not in caplog.text
+
+
 class TestRestoreState:
     """Tests for _restore_state."""
 
@@ -1922,6 +2018,39 @@ class TestRestoreState:
         assert bt.external_temp_ema == 20.5
         assert bt.cur_temp_filtered == 20.5
         assert bt.temp_slope == 0.0012
+
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param((0.012345, 0.001234), (0.012345, 0.001234), id="store"),
+            pytest.param((None, None), (0.0123, 0.00123), id="attributes"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_store_keeps_the_learned_rates_at_full_precision(
+        self, bt, stored, expected
+    ):
+        """The rates the store holds win over the rounded state attributes.
+
+        The attributes publish the rates rounded for display; they fill in
+        only for an entry whose store carries none yet.
+        """
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_STATE_HEATING_POWER: 0.0123,
+            ATTR_STATE_HEAT_LOSS: 0.00123,
+            ATTR_TEMPERATURE: 21.0,
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+        bt.state_mgr = MagicMock()
+        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.heating_power, bt.heat_loss_rate = stored
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert (bt.heating_power, bt.heat_loss_rate) == expected
 
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
@@ -2519,14 +2648,14 @@ class TestValidateHvacMode:
         # humidity should be re-read
         assert bt._current_humidity is not None
 
-    def test_humidity_sensor_none_sets_zero(self, bt):
-        """Test Humidity sensor none sets zero."""
+    def test_a_missing_humidity_sensor_leaves_the_humidity_unknown(self, bt):
+        """A humidity sensor with no state publishes no humidity, not 0 %."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
         bt.hass.states.get.return_value = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt._current_humidity == 0
+        assert bt._current_humidity is None
 
 
 class TestFinalizeStartupOnADualRoleEntity:

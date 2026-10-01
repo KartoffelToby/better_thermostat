@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import logging
 from time import monotonic
+from typing import Any
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import (
@@ -80,6 +82,20 @@ WRITE_CONFIRM_TIMEOUT_S = 360
 # it. The setpoint channel's read-back tolerance describes a different
 # comparison, so the offset channel carries its own floor.
 OFFSET_MATCH_TOLERANCE_K = 0.05
+# Pause before re-queueing a cycle in which a TRV reported failure, so a
+# persistently failing device cannot spin the control queue. Each further
+# failure of the same cycle doubles the pause.
+FAILED_CYCLE_BACKOFF_S = 2.0
+# Ceiling of that pause, the period of the periodic control tick. At that
+# distance a device that refuses every write costs a few hundred attempts a
+# day, while one that starts accepting the command again is still picked up
+# within minutes.
+FAILED_CYCLE_BACKOFF_MAX_S = 300.0
+# Once a run of failed cycles has reached that ceiling it is reported as a
+# warning at most this often, with how long it has lasted; the attempts in
+# between go to the debug log. A device that refuses for good would otherwise
+# leave the same warning every few minutes all day.
+FAILED_CYCLE_WARNING_INTERVAL_S = 3600.0
 
 
 def _is_boost_heating_active(self) -> bool:
@@ -157,12 +173,15 @@ class TaskManager:
     """Manages background asyncio tasks with automatic cleanup.
 
     Tracks created tasks and automatically removes them from the set when they complete.
+    The entity cancels what is still running when it is removed; from then on
+    the manager starts nothing.
     """
 
     def __init__(self, hass=None):
         """Initialize the task manager with an empty task set."""
         self.tasks = set()
         self.hass = hass
+        self.closed = False
 
     def create_task(self, coro, name=None):
         """Create and track an asyncio task with automatic cleanup on completion.
@@ -176,9 +195,12 @@ class TaskManager:
 
         Returns
         -------
-        asyncio.Task
-            The created task
+        asyncio.Task or None
+            The created task, or None once the manager is closed
         """
+        if self.closed:
+            coro.close()
+            return None
         if self.hass is not None:
             task = self.hass.async_create_background_task(
                 coro, name=name or "bt_task_manager_task"
@@ -188,6 +210,198 @@ class TaskManager:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
         return task
+
+    def cancel_all(self):
+        """Cancel every tracked task and close the manager to new ones.
+
+        Returns
+        -------
+        list[asyncio.Task]
+            The cancelled tasks, for the caller to await
+        """
+        self.closed = True
+        tasks = list(self.tasks)
+        self.tasks.clear()
+        for task in tasks:
+            task.cancel()
+        return tasks
+
+
+@dataclass
+class _FailedCycleRun:
+    """Consecutive control cycles that failed while the user's targets stood.
+
+    ``intent`` is the room targets the user had set at the time and the whole
+    of what tells one run from the next. ``failing`` holds the TRVs that
+    failed during the run and ``reported`` the failures already logged with
+    their traceback, as the TRV and the kind of error,
+    ``wait_s`` the pause the run has reached, ``started_at`` when its first
+    failure happened, ``warned_at`` when a failure at the ceiling was last
+    reported as a warning and ``retry`` the pending re-queue.
+
+    A TRV that starts failing during a run joins it and inherits its pause,
+    up to the ceiling, for the retry of its own write. The periodic control
+    tick and the device's own reports queue cycles for it anyway, so that
+    write is not held back any longer than those already space it.
+    """
+
+    intent: tuple[Any, ...]
+    failing: frozenset[str]
+    reported: frozenset[tuple[str, str]]
+    count: int
+    wait_s: float
+    started_at: float
+    warned_at: float | None = None
+    retry: asyncio.Task[None] | None = None
+
+
+def _user_intent(self) -> tuple[Any, ...]:
+    """Return the room targets a user sets, as the failure pacing compares them."""
+    return (self.bt_target_temp, self.bt_target_cooltemp, self.bt_hvac_mode)
+
+
+async def _requeue_failed_cycle(self, delay_s: float) -> None:
+    """Queue a control cycle once a failed cycle's pause has passed."""
+    await asyncio.sleep(delay_s)
+    try:
+        self.control_queue_task.put_nowait(self)
+    except asyncio.QueueFull:
+        _LOGGER.debug(
+            "better_thermostat %s: control queue is full, discarding task",
+            self.device_name,
+        )
+
+
+def _controlled_cleanly(self, entity_id, dispatched) -> bool:
+    """Return whether a clean cycle controlled this TRV rather than skipping it.
+
+    A cycle leaves out a TRV the cooling channel drives and skips one that is
+    unavailable, and either way reports nothing wrong without having written
+    to it.
+    """
+    if entity_id not in dispatched:
+        return False
+    return not _skips_unavailable_trv(self, entity_id, self.hass.states.get(entity_id))
+
+
+def _skips_unavailable_trv(self, entity_id, trv_state) -> bool:
+    """Return whether a control cycle leaves this TRV alone as unavailable.
+
+    A TRV whose quirk runs it while its entity reports unknown is written to
+    in that state, and a boost that is heating writes even to an unavailable
+    one.
+    """
+    if trv_state is None:
+        return True
+    unknown_as_available = trv_state_unknown_as_available(self, entity_id)
+    return (
+        trv_state.state == STATE_UNAVAILABLE
+        or (not unknown_as_available and trv_state.state == STATE_UNKNOWN)
+    ) and not _is_boost_heating_active(self)
+
+
+def _pace_failed_cycle(self, run, failures, dispatched):
+    """Report a cycle's failures and schedule its retry; return the run.
+
+    A cycle that fails while the user's targets stand continues the run and
+    doubles the pause, up to its ceiling, whichever TRV failed and whatever
+    its error said: a refusal that numbers its messages, a payload the
+    calibration moves between cycles and devices failing in turn are all
+    still the same run. A failure after the user set new targets starts a
+    run at the base pause. The retry is a task of its own, so the queue goes
+    on serving requests while it waits: a new target reaches the devices at
+    once. Each TRV and kind of error is logged with its traceback the first
+    time it fails in a run, and in a single line after that.
+
+    A clean cycle ends the run once the retry has fired and it controlled
+    every TRV that failed in the run, or once the user has set new targets.
+    A clean cycle before the retry fired never tried the refused write again
+    and keeps the run, and so does one that skipped a failing TRV as
+    unavailable or left it to the cooling channel.
+    """
+    if not failures:
+        if run is None:
+            return None
+        if run.intent == _user_intent(self) and (
+            (run.retry is not None and not run.retry.done())
+            or not all(
+                _controlled_cleanly(self, entity_id, dispatched)
+                for entity_id in run.failing
+            )
+        ):
+            return run
+        if run.retry is not None:
+            run.retry.cancel()
+        return None
+
+    intent = _user_intent(self)
+    now = monotonic()
+    if run is not None and run.intent == intent:
+        count = run.count + 1
+        wait_s = min(run.wait_s * 2, FAILED_CYCLE_BACKOFF_MAX_S)
+        reported = run.reported
+        failing = run.failing | {entity_id for entity_id, _ in failures}
+        started_at = run.started_at
+        warned_at = run.warned_at
+    else:
+        count = 1
+        wait_s = FAILED_CYCLE_BACKOFF_S
+        reported = frozenset()
+        failing = frozenset(entity_id for entity_id, _ in failures)
+        started_at = now
+        warned_at = None
+    # At the ceiling the run is reported hourly; below it every failure is.
+    at_ceiling = wait_s >= FAILED_CYCLE_BACKOFF_MAX_S
+    warn_again = not at_ceiling or (
+        warned_at is None or now - warned_at >= FAILED_CYCLE_WARNING_INTERVAL_S
+    )
+    if run is not None and run.retry is not None:
+        run.retry.cancel()
+
+    for entity_id, outcome in failures:
+        if not isinstance(outcome, BaseException):
+            continue
+        kind = (entity_id, type(outcome).__name__)
+        if kind not in reported:
+            reported = reported | {kind}
+            _LOGGER.error(
+                "better_thermostat %s: ERROR controlling TRV %s: %s",
+                self.device_name,
+                entity_id,
+                outcome,
+                exc_info=outcome,
+            )
+        elif not at_ceiling:
+            _LOGGER.warning(
+                "better_thermostat %s: controlling TRV %s failed again (%d cycles "
+                "in a row): %s; retrying in %.0f s",
+                self.device_name,
+                entity_id,
+                count,
+                outcome,
+                wait_s,
+            )
+        else:
+            _LOGGER.log(
+                logging.WARNING if warn_again else logging.DEBUG,
+                "better_thermostat %s: controlling TRV %s still failing after %d "
+                "cycles in %.0f min: %s; retrying every %.0f s",
+                self.device_name,
+                entity_id,
+                count,
+                (now - started_at) / 60.0,
+                outcome,
+                wait_s,
+            )
+    if at_ceiling and warn_again:
+        warned_at = now
+    retry = asyncio.create_task(
+        _requeue_failed_cycle(self, wait_s),
+        name=f"bt_failed_cycle_retry_{self.device_name}",
+    )
+    return _FailedCycleRun(
+        intent, failing, reported, count, wait_s, started_at, warned_at, retry
+    )
 
 
 def advance_hvac_action(self) -> None:
@@ -300,9 +514,11 @@ async def read_reports_held_during_cycle(self) -> None:
     way the handler reads it.
 
     A control cycle is requested only when the report moved what the next
-    cycle acts on: the room's targets or mode, or the mode the device is
-    known to hold. A device answering inside every cycle with a report that
-    carries nothing new would otherwise keep one cycle following the next.
+    cycle acts on: the room's targets or mode, the mode the device is known
+    to hold, or the internal temperature it reported while the cycle ran,
+    which the handler takes as it arrives, as it does outside a cycle. A
+    device answering inside every cycle with a report that carries nothing
+    new would otherwise keep one cycle following the next.
 
     Parameters
     ----------
@@ -315,6 +531,8 @@ async def read_reports_held_during_cycle(self) -> None:
         trv.report_unread = False
         previous = trv.state_before_held_report
         trv.state_before_held_report = None
+        temperature_moved = trv.temperature_moved_while_held
+        trv.temperature_moved_while_held = False
         state = self.hass.states.get(entity_id)
         if (
             state is None
@@ -348,7 +566,10 @@ async def read_reports_held_during_cycle(self) -> None:
                 entity_id,
             )
             continue
-        if _held_report_control_inputs(self, trv) != acted_on_before:
+        if (
+            temperature_moved
+            or _held_report_control_inputs(self, trv) != acted_on_before
+        ):
             try:
                 self.control_queue_task.put_nowait(self)
             except asyncio.QueueFull:
@@ -389,6 +610,7 @@ async def control_queue(self):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    failed_run = None
     try:
         while True:
             if getattr(self, "in_maintenance", False):
@@ -400,125 +622,120 @@ async def control_queue(self):
                 continue
             else:
                 controls_to_process = await self.control_queue_task.get()
-                if controls_to_process is not None:
-                    self.ignore_states = True
+                try:
+                    if controls_to_process is not None:
+                        self.ignore_states = True
 
-                    # Calculate heating power once per cycle
-                    try:
-                        await self.calculate_heating_power()
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: ERROR calculating heating power",
-                            self.device_name,
-                        )
-
-                    # Calculate heat loss once per cycle (idle cooling)
-                    try:
-                        await self.calculate_heat_loss()
-                    except Exception:
-                        _LOGGER.exception(
-                            "better_thermostat %s: ERROR calculating heat loss",
-                            self.device_name,
-                        )
-
-                    # Handle cooler logic once per cycle. A cooler that is also
-                    # a TRV still awaiting its initialisation joins the cycles
-                    # only once that is done, like the heating channel.
-                    _cooler_pass_completed = False
-                    _cooler_trv = (
-                        self.real_trvs.get(self.cooler_entity_id)
-                        if self.cooler_entity_id is not None
-                        else None
-                    )
-                    if self.cooler_entity_id is not None and not (
-                        _cooler_trv is not None and _cooler_trv.awaiting_initialization
-                    ):
+                        # Calculate heating power once per cycle
                         try:
-                            await control_cooler(self)
+                            await self.calculate_heating_power()
                         except Exception:
                             _LOGGER.exception(
-                                "better_thermostat %s: ERROR controlling cooler",
+                                "better_thermostat %s: ERROR calculating heating power",
                                 self.device_name,
                             )
-                        else:
-                            _cooler_pass_completed = True
 
-                    # Create tasks for all TRVs to run in parallel. A device
-                    # that carries both roles takes one mode and one setpoint,
-                    # so the heating channel stands down for the cycles the
-                    # cooling channel drives it. A cooling pass that raised left
-                    # no decision to read, and the permissive default is the
-                    # heating channel keeping the device.
-                    _shared_entity_id = dual_role_entity_id(self)
-                    _cooling_owns_shared = (
-                        _shared_entity_id is not None
-                        and _cooler_pass_completed
-                        and cooling_owns_dual_role_device(self, _shared_entity_id)
-                    )
-                    tasks = []
-                    controlled_trvs = []
-                    for trv, trv_data in self.real_trvs.items():
-                        # A TRV startup went ahead without carries none of
-                        # the values a control decision reads, and boost
-                        # would address it even while it is unreachable.
-                        if trv_data.awaiting_initialization:
-                            continue
-                        if _cooling_owns_shared and trv == _shared_entity_id:
-                            _LOGGER.debug(
-                                "better_thermostat %s: %s is driven by the cooling "
-                                "channel this cycle, leaving the heating channel out",
-                                self.device_name,
-                                trv,
-                            )
-                            continue
-                        controlled_trvs.append(trv)
-                        tasks.append(control_trv(self, trv))
-
-                    if _cooling_owns_shared and not tasks:
-                        # The heating action and its hysteresis are advanced
-                        # inside control_trv, so a cycle whose only device went
-                        # to the cooling channel advances them here instead of
-                        # leaving the band on the state the previous cycle left.
-                        advance_hvac_action(self)
-
-                    # Run all TRV controls in parallel
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    result = True
-                    for i, res in enumerate(results):
-                        if isinstance(res, Exception):
-                            trv_id = controlled_trvs[i]
-                            _LOGGER.error(
-                                "better_thermostat %s: ERROR controlling TRV %s: %s",
-                                self.device_name,
-                                trv_id,
-                                res,
-                            )
-                            result = False
-                        elif res is False:
-                            result = False
-
-                    # Retry task if some TRVs failed. Discard the task if the queue is full
-                    # to avoid blocking and therefore deadlocking this function.
-                    if result is False:
+                        # Calculate heat loss once per cycle (idle cooling)
                         try:
-                            self.control_queue_task.put_nowait(self)
-                        except asyncio.QueueFull:
-                            _LOGGER.debug(
-                                "better_thermostat %s: control queue is full, discarding task",
+                            await self.calculate_heat_loss()
+                        except Exception:
+                            _LOGGER.exception(
+                                "better_thermostat %s: ERROR calculating heat loss",
                                 self.device_name,
                             )
 
+                        # Handle cooler logic once per cycle. A cooler that is also
+                        # a TRV still awaiting its initialisation joins the cycles
+                        # only once that is done, like the heating channel.
+                        _cooler_pass_completed = False
+                        _cooler_trv = (
+                            self.real_trvs.get(self.cooler_entity_id)
+                            if self.cooler_entity_id is not None
+                            else None
+                        )
+                        if self.cooler_entity_id is not None and not (
+                            _cooler_trv is not None
+                            and _cooler_trv.awaiting_initialization
+                        ):
+                            try:
+                                await control_cooler(self)
+                            except Exception:
+                                _LOGGER.exception(
+                                    "better_thermostat %s: ERROR controlling cooler",
+                                    self.device_name,
+                                )
+                            else:
+                                _cooler_pass_completed = True
+
+                        # Create tasks for all TRVs to run in parallel. A device
+                        # that carries both roles takes one mode and one setpoint,
+                        # so the heating channel stands down for the cycles the
+                        # cooling channel drives it. A cooling pass that raised left
+                        # no decision to read, and the permissive default is the
+                        # heating channel keeping the device.
+                        _shared_entity_id = dual_role_entity_id(self)
+                        _cooling_owns_shared = (
+                            _shared_entity_id is not None
+                            and _cooler_pass_completed
+                            and cooling_owns_dual_role_device(self, _shared_entity_id)
+                        )
+                        tasks = []
+                        controlled_trvs = []
+                        for trv, trv_data in self.real_trvs.items():
+                            # A TRV startup went ahead without carries none of
+                            # the values a control decision reads, and boost
+                            # would address it even while it is unreachable.
+                            if trv_data.awaiting_initialization:
+                                continue
+                            if _cooling_owns_shared and trv == _shared_entity_id:
+                                _LOGGER.debug(
+                                    "better_thermostat %s: %s is driven by the cooling "
+                                    "channel this cycle, leaving the heating channel out",
+                                    self.device_name,
+                                    trv,
+                                )
+                                continue
+                            controlled_trvs.append(trv)
+                            tasks.append(control_trv(self, trv))
+
+                        if _cooling_owns_shared and not tasks:
+                            # The heating action and its hysteresis are advanced
+                            # inside control_trv, so a cycle whose only device went
+                            # to the cooling channel advances them here instead of
+                            # leaving the band on the state the previous cycle left.
+                            advance_hvac_action(self)
+
+                        # Run all TRV controls in parallel
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                        failures = [
+                            (controlled_trvs[i], res)
+                            for i, res in enumerate(results)
+                            if isinstance(res, Exception) or res is False
+                        ]
+
+                        # Retry the cycle if some TRVs failed. The backoff sits
+                        # here rather than in the failing worker: a worker holds
+                        # the TRV lock and would stall the rest of the cycle with
+                        # it.
+                        failed_run = _pace_failed_cycle(
+                            self, failed_run, failures, controlled_trvs
+                        )
+
+                        if not getattr(self, "in_maintenance", False):
+                            # The inbound handler stood down for the whole
+                            # cycle, so a mode a device reported meanwhile
+                            # never reached it. Settle the caches before the
+                            # window closes, so the device's next report is
+                            # read as the change it carries.
+                            refresh_cached_trv_modes(self)
+                            self.ignore_states = False
+                            await read_reports_held_during_cycle(self)
+                finally:
+                    # One acknowledgement per item taken, including an item that
+                    # carries no cycle and one whose handling is cancelled, so a
+                    # later join() does not wait on an item nobody finishes.
                     self.control_queue_task.task_done()
-                    if not getattr(self, "in_maintenance", False):
-                        # The inbound handler stood down for the whole
-                        # cycle, so a mode a device reported meanwhile
-                        # never reached it. Settle the caches before the
-                        # window closes, so the device's next report is
-                        # read as the change it carries.
-                        refresh_cached_trv_modes(self)
-                        self.ignore_states = False
-                        await read_reports_held_during_cycle(self)
     except asyncio.CancelledError:
         _LOGGER.debug(
             "better_thermostat %s: control_queue task cancelled, cleaning up",
@@ -526,6 +743,8 @@ async def control_queue(self):
         )
         raise
     finally:
+        if failed_run is not None and failed_run.retry is not None:
+            failed_run.retry.cancel()
         # Ensure ignore_states is reset on any exit unless maintenance wants it suppressed.
         if not getattr(self, "in_maintenance", False):
             self.ignore_states = False
@@ -982,8 +1201,14 @@ async def control_trv(self, heater_entity_id=None):
     Returns
     -------
     bool
-        True if control succeeded or TRV was skipped (unavailable)
-        False if TRV not found in real_trvs or state conversion failed
+        True if control succeeded or the TRV was skipped (unavailable, or no
+        current calibration offset could be read).
+        False if heater_entity_id is missing or not in real_trvs, if
+        convert_outbound_states did not return a dict, or if a valve write
+        (the regular valve position or the boost safety reset to 0 %) spent
+        its attempts. The remaining writes of the cycle still go out in that
+        last case. control_queue counts a False result, like a raised
+        exception, as a failed cycle and retries it after its backoff.
     """
     # Guard against missing or invalid heater_entity_id
     if not heater_entity_id or heater_entity_id not in self.real_trvs:
@@ -992,24 +1217,17 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
+    # A valve write that spent its attempts fails the cycle, so the queue
+    # retries it after its backoff instead of leaving the valve at its old
+    # position until some later event.
+    _valve_write_failed = False
     async with self._temp_lock:
         self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
             advance_hvac_action(self)
             _trv = self.hass.states.get(heater_entity_id)
-            state_unknown_as_available = trv_state_unknown_as_available(
-                self, heater_entity_id
-            )
             # Check if TRV is available before attempting to control it
-            if _trv is None or (
-                (
-                    _trv.state == STATE_UNAVAILABLE
-                    or (
-                        (not state_unknown_as_available) and _trv.state == STATE_UNKNOWN
-                    )
-                )
-                and not _is_boost_heating_active(self)
-            ):
+            if _skips_unavailable_trv(self, heater_entity_id, _trv):
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s is unavailable, skipping control. "
                     "Control will resume when TRV becomes available.",
@@ -1035,7 +1253,6 @@ async def control_trv(self, heater_entity_id=None):
                     _remapped_states,
                     heater_entity_id,
                 )
-                await asyncio.sleep(2)
                 return False
 
             _temperature = _remapped_states.get("temperature", None)
@@ -1069,9 +1286,11 @@ async def control_trv(self, heater_entity_id=None):
                         _source,
                     )
                     ok = await set_valve(self, heater_entity_id, target_pct)
-                    if not ok:
+                    if ok is False:
+                        _valve_write_failed = True
+                    elif not ok:
                         _LOGGER.debug(
-                            "better_thermostat %s: delegate.set_valve returned False (target=%s%%, entity=%s, source=%s)",
+                            "better_thermostat %s: no valve channel took %s%% for %s (source=%s)",
                             self.device_name,
                             target_pct,
                             heater_entity_id,
@@ -1105,7 +1324,8 @@ async def control_trv(self, heater_entity_id=None):
                     "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
                     self.device_name,
                 )
-                await set_valve(self, heater_entity_id, 0)
+                if await set_valve(self, heater_entity_id, 0) is False:
+                    _valve_write_failed = True
 
             # Manage TRVs with no HVACMode.OFF
             # The cache holds the device's own spelling, so whether it offers OFF
@@ -1332,7 +1552,7 @@ async def control_trv(self, heater_entity_id=None):
             await asyncio.sleep(3)
         finally:
             self.real_trvs[heater_entity_id].ignore_trv_states = False
-    return True
+    return not _valve_write_failed
 
 
 def handle_contact_open(self, _remapped_states):

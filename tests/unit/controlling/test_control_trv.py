@@ -22,6 +22,7 @@ from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
@@ -56,6 +57,23 @@ _PATCHES = {
     "override_set_hvac_mode": f"{_CTRL}.override_set_hvac_mode",
     "override_set_temperature": f"{_CTRL}.override_set_temperature",
 }
+
+
+@pytest.fixture(autouse=True)
+def _no_helper_entity_is_disabled():
+    """The entity registry marks none of the TRVs' helper entities disabled.
+
+    The stand-in Home Assistant carries no registry of its own; an empty
+    one answers every helper lookup with "no entry", which the write path
+    treats as enabled.
+    """
+    registry = MagicMock(spec=er.EntityRegistry)
+    registry.async_get.return_value = None
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
 
 
 def _close_coro(coro, **kwargs):
@@ -888,20 +906,32 @@ class TestControlTrvAvailablePath:
 
     @pytest.mark.asyncio
     async def test_available_trv_convert_fails_returns_false(self):
-        """Test that convert failure returns False for available TRV."""
+        """Test that convert failure returns False for available TRV.
+
+        The failing worker must not back off under the TRV lock: every
+        other TRV of the cycle contends for it, so a sleep taken here
+        stalls the whole cycle on the one device that failed.
+        """
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT, trv_attrs={"temperature": 20.0}
         )
 
+        lock_held_during_sleep = []
+
+        async def record_lock_state(*args, **kwargs):
+            lock_held_during_sleep.append(mock_self._temp_lock.locked())
+
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock(side_effect=record_lock_state)),
         ):
             mock_convert.return_value = "ERROR"
 
             result = await control_trv(mock_self, "climate.trv1")
 
             assert result is False
+            # No sleep on this path ran while holding the lock.
+            assert not any(lock_held_during_sleep)
 
     @pytest.mark.asyncio
     async def test_boost_mode_sets_valve_in_available_path(self):
@@ -950,6 +980,62 @@ class TestControlTrvAvailablePath:
             mock_set_valve.assert_called_once()
             args = mock_set_valve.call_args[0]
             assert args[2] == 100
+
+    @pytest.mark.parametrize(
+        ("valve_answer", "expected"),
+        [
+            pytest.param(True, True, id="written"),
+            pytest.param(None, True, id="no_channel"),
+            pytest.param(False, False, id="attempts_spent"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_valve_write_that_failed_fails_the_cycle(
+        self, valve_answer, expected
+    ):
+        """Only a valve write that spent its attempts asks for another cycle.
+
+        A device without a valve channel has nothing to retry, so it leaves
+        the cycle successful.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            preset_mode=PRESET_BOOST,
+            cur_temp=18.0,
+            bt_target_temp=22.0,
+            real_trvs={
+                "climate.trv1": _default_trv_config(
+                    advanced={
+                        "calibration_mode": CalibrationMode.MPC_CALIBRATION,
+                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "no_off_system_mode": False,
+                    }
+                )
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_valve"], new=AsyncMock(return_value=valve_answer)),
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock()),
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_window.return_value = HVACMode.HEAT
+
+            assert await control_trv(mock_self, "climate.trv1") is expected
 
     @pytest.mark.asyncio
     async def test_grouped_trv_calibration_fix(self):

@@ -496,6 +496,32 @@ class TestReportsHeldDuringACycle:
         assert (thermostat.control_queue_task.qsize() == 1) is requested
 
     @pytest.mark.asyncio
+    async def test_an_internal_temperature_reported_during_a_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A TRV's new internal temperature reported inside a cycle is acted on.
+
+        Outside a cycle the new reading requests one. Inside a cycle it is
+        taken as it arrives, so the report read again at the end of the cycle
+        carries nothing new, and the reading would wait for some other event.
+        """
+        warmer = State(
+            ENTITY_ID,
+            "heat",
+            attributes={
+                **_reported_state("heat").attributes,
+                "current_temperature": 19.5,
+            },
+        )
+
+        cycles = await _run_one_cycle(
+            thermostat, reported_states, warmer, handled_inside=True
+        )
+
+        assert thermostat.real_trvs[ENTITY_ID].current_temperature == 19.5
+        assert cycles == 2
+
+    @pytest.mark.asyncio
     async def test_a_routine_report_during_the_cycle_requests_no_further_cycle(
         self, thermostat, reported_states
     ):

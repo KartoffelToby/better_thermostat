@@ -1802,10 +1802,23 @@ class TestBtSimpleAttributeSensor:
 
     def test_no_rounding_when_none(self):
         """No rounding when none."""
+
+        class _UnroundedHeatingPowerSensor(BetterThermostatHeatingPowerSensor):
+            _rounding = None
+
         bt = _make_bt_climate(heating_power=0.05123456)
-        sensor = BetterThermostatHeatingPowerSensor(bt)
+        sensor = _UnroundedHeatingPowerSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.05123456
+
+    def test_learned_rates_are_published_rounded(self):
+        """The learned rates reach the sensors rounded to their published grid."""
+        bt = _make_bt_climate(heating_power=0.05123456, heat_loss_rate=0.01234567)
+        power = BetterThermostatHeatingPowerSensor(bt)
+        loss = BetterThermostatHeatLossSensor(bt)
+        power._update_state()
+        loss._update_state()
+        assert (power._attr_native_value, loss._attr_native_value) == (0.0512, 0.01235)
 
     def test_none_attribute_gives_none(self):
         """None attribute gives none."""

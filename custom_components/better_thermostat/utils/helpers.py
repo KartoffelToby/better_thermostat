@@ -60,6 +60,85 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _shares_device(entry: er.RegistryEntry, device_id: str | None) -> bool:
+    """Whether ``entry`` belongs to the device ``device_id``.
+
+    ``None`` is no device: an entity that belongs to none shares a device
+    with nothing, although every other device-less entry carries the same
+    ``None``.
+    """
+    return device_id is not None and entry.device_id == device_id
+
+
+def is_sibling_entry(entry: er.RegistryEntry, device_id: str | None) -> bool:
+    """Whether ``entry`` is an entity Home Assistant runs on ``device_id``.
+
+    A disabled entry is not loaded: it has no state, and a service call
+    aimed at it is dropped, so it is no usable sibling.
+    """
+    return _shares_device(entry, device_id) and entry.disabled_by is None
+
+
+# Discovery runs when a Better Thermostat entry is set up, so an entity
+# enabled later is only picked up by the next setup.
+_ENABLE_AND_RELOAD: Final = (
+    "Better Thermostat picks it up once it is enabled and this Better "
+    "Thermostat entry is reloaded"
+)
+
+
+def _report_disabled_sibling(
+    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
+) -> None:
+    """Warn that the ``role`` entity of a TRV is disabled in Home Assistant.
+
+    The TRV record remembers the warning, so it is logged once per entity
+    while the entity stays disabled. A host without TRV records, such as
+    the config flow, warns on every call.
+    """
+    trvs = getattr(self, "real_trvs", None)
+    trv = trvs.get(trv_entity_id) if isinstance(trvs, dict) else None
+    if trv is not None:
+        if sibling_entity_id in trv.disabled_siblings_logged:
+            return
+        trv.disabled_siblings_logged.add(sibling_entity_id)
+    _LOGGER.warning(
+        "better_thermostat %s: %s, the %s entity of %s, is disabled in Home "
+        "Assistant; %s",
+        getattr(self, "device_name", "unknown"),
+        sibling_entity_id,
+        role,
+        trv_entity_id,
+        outcome,
+    )
+
+
+def sibling_disabled_at_write(
+    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str
+) -> bool:
+    """Whether a helper entity adopted for a TRV is disabled right now.
+
+    An entity disabled after discovery is still the TRV's adopted helper,
+    but Home Assistant drops a service call aimed at it. The caller does
+    not write, and the first such skip is logged as a warning. Once the
+    entity is enabled again its warning is re-armed.
+    """
+    entry = er.async_get(self.hass).async_get(sibling_entity_id)
+    if entry is None or entry.disabled_by is None:
+        trv = self.real_trvs.get(trv_entity_id)
+        if trv is not None:
+            trv.disabled_siblings_logged.discard(sibling_entity_id)
+        return False
+    _report_disabled_sibling(
+        self,
+        trv_entity_id,
+        sibling_entity_id,
+        role,
+        "nothing is written to it until it is enabled again",
+    )
+    return True
+
+
 def find_device_entity(
     entity_registry: er.EntityRegistry,
     device_id: str,
@@ -68,14 +147,14 @@ def find_device_entity(
 ) -> str | None:
     """Return the entity_id of the first matching entity on a device.
 
-    A match is any entity belonging to ``device_id`` whose domain is in
-    ``domains`` and whose name, unique_id or object-id contains any of
+    A match is any enabled entity belonging to ``device_id`` whose domain is
+    in ``domains`` and whose name, unique_id or object-id contains any of
     ``keywords`` (case-insensitive). Returns ``None`` if nothing matches.
     """
     domains = tuple(domains)
     keywords = tuple(k.lower() for k in keywords)
     for ent in entity_registry.entities.values():
-        if ent.device_id != device_id or ent.domain not in domains:
+        if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
             continue
         name = (getattr(ent, "original_name", "") or "").lower()
         uid = (ent.unique_id or "").lower()
@@ -1854,9 +1933,7 @@ async def find_valve_entity(self, entity_id):
 
     def _device_matches(candidate) -> bool:
         # Strong match: same device
-        if getattr(candidate, "device_id", None) == getattr(
-            reg_entity, "device_id", None
-        ):
+        if _shares_device(candidate, reg_entity.device_id):
             return True
         # Fallback: match by shared identifiers if device registry is available
         if dev_reg is None or not base_identifiers:
@@ -1933,6 +2010,7 @@ async def find_valve_entity(self, entity_id):
 
     best: dict[str, Any] | None = None
     best_score: tuple[int, int, int] = (-1, -1, -1)
+    disabled_match: str | None = None
 
     for entity in entity_entries:
         uid = entity.unique_id or ""
@@ -1948,6 +2026,9 @@ async def find_valve_entity(self, entity_id):
                 getattr(entity, "original_name", None) or "",
             )
         if reason is None:
+            continue
+        if entity.disabled_by is not None:
+            disabled_match = disabled_match or entity.entity_id
             continue
         domain = (entity.entity_id or "").split(".", 1)[0]
         writable = domain in preferred_domains
@@ -1983,6 +2064,10 @@ async def find_valve_entity(self, entity_id):
         )
         return readonly_candidate
 
+    if disabled_match is not None:
+        _report_disabled_sibling(
+            self, entity_id, disabled_match, "valve position", _ENABLE_AND_RELOAD
+        )
     _LOGGER.debug(
         "better thermostat: Could not find valve position entity for %s", entity_id
     )
@@ -2019,7 +2104,7 @@ async def find_battery_entity(self, entity_id, _visited=None):
         return None
 
     for entity in entity_registry.entities.values():
-        if entity.device_id == device_id and (
+        if is_sibling_entry(entity, device_id) and (
             entity.device_class == "battery"
             or entity.original_device_class == "battery"
         ):
@@ -2131,14 +2216,18 @@ async def find_local_calibration_entity(self, entity_id):
         return None
     entity_entries = async_entries_for_config_entry(entity_registry, config_entry_id)
     calibration_entity = None
+    disabled_match: str | None = None
     # First pass: match by translation_key (preferred, stable approach)
     for entity in entity_entries:
-        if entity.device_id != reg_entity.device_id:
+        if not _shares_device(entity, reg_entity.device_id):
             continue
         if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
             continue
         tk = getattr(entity, "translation_key", None)
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
+            if entity.disabled_by is not None:
+                disabled_match = disabled_match or entity.entity_id
+                continue
             _LOGGER.debug(
                 "better thermostat: Found local calibration entity %s for %s (translation_key=%s)",
                 entity.entity_id,
@@ -2155,7 +2244,7 @@ async def find_local_calibration_entity(self, entity_id):
     # iteration order, which is not guaranteed.
     if calibration_entity is None:
         for entity in entity_entries:
-            if entity.device_id != reg_entity.device_id:
+            if not _shares_device(entity, reg_entity.device_id):
                 continue
             if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
                 continue
@@ -2166,6 +2255,9 @@ async def find_local_calibration_entity(self, entity_id):
                 or "temperatur_offset" in descriptor
                 or "local_temperature" in descriptor
             ):
+                if entity.disabled_by is not None:
+                    disabled_match = disabled_match or entity.entity_id
+                    continue
                 _LOGGER.debug(
                     "better thermostat: Found local calibration entity %s for %s (string match)",
                     entity.entity_id,
@@ -2175,6 +2267,10 @@ async def find_local_calibration_entity(self, entity_id):
                 break
 
     if calibration_entity is None:
+        if disabled_match is not None:
+            _report_disabled_sibling(
+                self, entity_id, disabled_match, "local calibration", _ENABLE_AND_RELOAD
+            )
         _LOGGER.debug(
             "better thermostat: Could not find local calibration entity for %s",
             entity_id,
