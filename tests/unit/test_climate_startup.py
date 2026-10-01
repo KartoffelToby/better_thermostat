@@ -203,6 +203,7 @@ def plateau_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     # Production holds Trv objects here. A MagicMock in their place answers
     # every attribute read, so a member field the code under test asks for
@@ -346,6 +347,7 @@ class TestStartupUnloadBailout:
         bt._door_task = None
         bt.plateau_timer_cancel = None
         bt._owned_tasks = set()
+        bt._final_flush_task = None
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
@@ -486,6 +488,7 @@ def owned_task_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
@@ -717,6 +720,50 @@ class TestOwnedBackgroundTasks:
 
         assert readings == []
         state_mgr.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_removal_stops_the_timed_copy_retry_before_the_flush(
+        self, hass, owned_task_bt
+    ):
+        """No timed copy retry outlives the entity.
+
+        The flush still tries the copy once. A timer left running would
+        write into the store the next entity for the same entry reads.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_task_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        lifecycle = [
+            name
+            for name, _args, _kwargs in state_mgr.mock_calls
+            if name in {"close", "flush"}
+        ]
+        assert lifecycle == ["close", "flush"]
 
 
 # ---------------------------------------------------------------------------

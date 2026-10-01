@@ -1064,6 +1064,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         self._door_task = None
         self._owned_tasks: set[asyncio.Task[Any]] = set()
+        self._final_flush_task: asyncio.Task[None] | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
         self.is_removed = False
@@ -1286,11 +1287,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # pending delayed write when async_save runs.
             # This is the last write of the removal itself, so it is deliberately
             # not one of the entity's owned tasks: cancelling it would drop the
-            # state the next start reads back.
+            # state the next start reads back. async_will_remove_from_hass
+            # awaits it instead, so the unload, and a removal that deletes the
+            # stores after it, follow the write.
             if self.state_mgr is not None:
+                self.state_mgr.close()
                 try:
                     self._record_runtime_to_state()
-                    self.hass.async_create_background_task(
+                    self._final_flush_task = self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
                     )
@@ -4982,6 +4986,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 pass
         if owned_tasks:
             await asyncio.gather(*owned_tasks, return_exceptions=True)
+        # The final save started by the on_remove callback finishes before
+        # the unload does; removing the entry deletes the stores after the
+        # unload, and a write landing later would recreate them. The wait
+        # has no timeout of its own: Home Assistant cancels the background
+        # task when it starts to stop, which ends the wait.
+        final_flush = self._final_flush_task
+        if final_flush is not None and not final_flush.done():
+            await asyncio.wait({final_flush})
         await super().async_will_remove_from_hass()
 
 
