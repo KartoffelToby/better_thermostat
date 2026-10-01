@@ -217,6 +217,11 @@ from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
 
+# Modes in which a head's setpoint is no heating target.
+_MODES_WITHOUT_A_HEATING_SETPOINT = frozenset(
+    {HVACMode.COOL, HVACMode.DRY, HVACMode.FAN_ONLY}
+)
+
 # How often the room temperature is re-sent to TRVs that mirror it into an
 # input of their own. Such a device falls back to its own sensor after a fixed
 # silence, two hours on a Sonoff TRVZB, and BT's own writes are driven by
@@ -1719,11 +1724,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # A missing heating target falls back to the setpoints of the heads
         # that are on. A head that is off, including a no-off device parked at
         # its minimum, holds its off or frost setpoint, not a room target, and
-        # the cooler's setpoint belongs to the cooling channel.
+        # the cooler's setpoint belongs to the cooling channel. That includes
+        # a head that is also the cooler: in a mode that does not heat, its
+        # setpoint is a cooling target. On a heat/cool range it still hands
+        # over the lower bound as its heating setpoint.
         head_states = [
             state
             for state in states
             if state.entity_id in self.real_trvs
+            and state.state not in _MODES_WITHOUT_A_HEATING_SETPOINT
             and not member_counts_as_off(self, state.entity_id, state)
         ]
         if old_state is not None:

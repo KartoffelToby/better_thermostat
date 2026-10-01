@@ -263,3 +263,58 @@ async def test_a_no_off_head_parked_at_its_minimum_does_not_set_the_room_target(
     bt = await _start(hass, stored, *group, thermostat=trvs)
 
     assert bt.bt_target_temp == 21.0
+
+
+class _ReversibleAc(FakeTrvEntity):
+    """One air conditioner serving as the room's head and as its cooler."""
+
+    _attr_name = "reversible ac"
+    _attr_hvac_modes = [HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL, HVACMode.OFF]
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        | ClimateEntityFeature.TURN_OFF
+        | ClimateEntityFeature.TURN_ON
+    )
+
+    def __init__(self, mode):
+        super().__init__()
+        self._attr_hvac_mode = mode
+        self._attr_current_temperature = 24.0
+        self._attr_target_temperature_low = None
+        self._attr_target_temperature_high = None
+        if mode == HVACMode.HEAT_COOL:
+            self._attr_target_temperature = None
+            self._attr_target_temperature_low = 21.0
+            self._attr_target_temperature_high = 25.0
+        else:
+            self._attr_target_temperature = 26.0
+
+
+REVERSIBLE_AC_ID = "climate.reversible_ac"
+
+
+@pytest.mark.parametrize("stored", START_KINDS)
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param(HVACMode.COOL, DEFAULT_TARGET_TEMP, id="cooling"),
+        pytest.param(HVACMode.HEAT_COOL, 21.0, id="range"),
+    ],
+)
+async def test_a_shared_head_that_cools_does_not_set_the_room_target(
+    hass, mode, expected, stored
+):
+    """A device that is both head and cooler hands over only a heating setpoint.
+
+    Cooling at 26 °C, its setpoint is a cooling target and leaves the room on
+    the default. On a heat/cool range, the lower bound is its heating
+    setpoint and becomes the room target.
+    """
+    trvs = [{**_ENTRY_TRV, "trv": REVERSIBLE_AC_ID}]
+
+    bt = await _start(
+        hass, stored, _ReversibleAc(mode), thermostat=trvs, cooler=REVERSIBLE_AC_ID
+    )
+
+    assert bt.bt_target_temp == expected
