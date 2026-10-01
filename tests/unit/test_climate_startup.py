@@ -2063,7 +2063,7 @@ class TestRestoreState:
         bt.bt_min_temp = 20.28
         bt._configured_target_temp_step = 0.5
         bt.bt_hvac_mode = HVACMode.HEAT
-        bt.control_queue_task = AsyncMock()
+        bt.control_queue_task = asyncio.Queue()
 
         await BetterThermostat.async_set_preset_mode(bt, "eco")
         selected = bt.bt_target_temp
