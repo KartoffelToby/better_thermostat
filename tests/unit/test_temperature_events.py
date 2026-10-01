@@ -25,6 +25,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlModeState,
 )
 from custom_components.better_thermostat.events.temperature import (
+    _commit_pending_after,
     _commit_temperature_update,
     _update_external_temp_ema,
     temperature_filter_lock,
@@ -1451,3 +1452,73 @@ class TestKeepaliveTick:
             ("climate.trv2", 22.0),
         ]
         assert mock_bt.last_known_external_temp == 22.0
+
+
+class TestPendingReadingAfterTheDebounce:
+    """A reading turned away by the debounce interval alone is applied after it."""
+
+    def _arm(self, mock_bt, value=22.3):
+        """Leave ``value`` pending and arm its timer; return the timer callback."""
+        mock_bt.pending_temp = value
+        mock_bt.pending_since = dt_util.now()
+        armed = []
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            side_effect=lambda _hass, _delay, callback: armed.append(callback),
+        ):
+            _commit_pending_after(mock_bt, 5.0)
+        (callback,) = armed
+        return callback
+
+    @pytest.mark.asyncio
+    async def test_the_pending_reading_is_applied_when_the_interval_is_over(
+        self, mock_bt
+    ):
+        """The reading still pending when the timer fires is committed."""
+        callback = self._arm(mock_bt)
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await callback(dt_util.now())
+
+        commit.assert_awaited_once_with(mock_bt, 22.3)
+        assert mock_bt.plateau_timer_cancel is None
+
+    @pytest.mark.asyncio
+    async def test_a_reading_that_replaced_the_pending_one_is_left_alone(self, mock_bt):
+        """A timer that fired after the pending reading moved on applies nothing.
+
+        The reading that replaced it, or the commit that cleared it, took the
+        filter while the timer waited for its turn.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt.pending_temp = 21.0
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await callback(dt_util.now())
+
+        commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_removed_entity_applies_nothing(self, mock_bt):
+        """The timer is scheduled on hass and outlives an entity removed meanwhile."""
+        callback = self._arm(mock_bt)
+        mock_bt.is_removed = True
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await callback(dt_util.now())
+
+        commit.assert_not_awaited()
+
+    def test_arming_cancels_the_timer_already_pending(self, mock_bt):
+        """One timer per pending reading: arming replaces the one before."""
+        earlier = MagicMock()
+        mock_bt.plateau_timer_cancel = earlier
+        self._arm(mock_bt)
+
+        earlier.assert_called_once_with()
