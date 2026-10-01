@@ -781,8 +781,9 @@ class StateManager:
         """Stop trying the copy on a timer; call when the entity is removed.
 
         ``flush()`` and ``save()`` still try the copy, but no timer is left
-        behind, and a copy already under way saves nothing, to write into a
-        store another entity may own by then.
+        behind, and a copy already under way saves nothing afterwards, so it
+        cannot write into a store that removal deletes or another entity owns
+        by then.
         """
         self._copy_retry_timed = False
         self._cancel_copy_retry_timer()
