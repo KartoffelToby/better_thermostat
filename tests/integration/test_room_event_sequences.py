@@ -44,9 +44,10 @@ events and carries a ``BT_ROOM_REPLAY`` line that plays exactly those events
 again through ``test_a_replayed_sequence_keeps_every_rule``.
 ``scripts/shrink_room_sequence.py`` takes that line and drops events for as
 long as the same rule still breaks. A sequence worth keeping is pinned at the
-end of this module as a test of its own. A longer search is a manual run::
+end of this module as a test of its own. A longer search is a manual run, with more sequences, longer ones, or both::
 
-    BT_ROOM_SEQUENCES=500 uv run pytest tests/integration/test_room_event_sequences.py -n auto
+    BT_ROOM_SEQUENCES=500 BT_ROOM_STEPS=20 \\
+        uv run pytest tests/integration/test_room_event_sequences.py -n auto
 """
 
 from collections.abc import AsyncGenerator
@@ -105,7 +106,7 @@ from .device_profiles import (
 from .write_hold import holding_next_write, poll_until
 
 SEQUENCES = int(os.environ.get("BT_ROOM_SEQUENCES", "12"))
-STEPS = 8
+STEPS = int(os.environ.get("BT_ROOM_STEPS", "8"))
 REPLAY = os.environ.get("BT_ROOM_REPLAY")
 
 SINGLE_HEAD = GroupScenario(name="single_head", profiles=(GENERIC_HEAT_TRV,))
@@ -1091,4 +1092,26 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
     """
     async with running_room(hass, MIXED_GRID_GROUP) as room:
         for event in (RoomReads(22.5), TurnDuringCycle(0, 1, 23.0, 23.0)):
+            await step(room, event)
+
+
+async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(hass):
+    """A setpoint a head already holds when the room asks for it is the room's.
+
+    The room sensor reads two degrees above the head, so the head carries the
+    target two degrees down. With the window open the user turns the head to
+    exactly that corrected setpoint, which is not adopted. Once the window is
+    shut the room asks the head for the value it already holds and writes
+    nothing. The head's next report, which only moves its reading, carries
+    that value again; it is not a press, and the room keeps its target.
+    """
+    async with running_room(hass, SINGLE_HEAD) as room:
+        for event in (
+            RoomReads(21.5),
+            Window(open=True),
+            Command(22.0),
+            Turn(0, 20.0),
+            Window(open=False),
+            HeadReads(0, 19.4),
+        ):
             await step(room, event)
