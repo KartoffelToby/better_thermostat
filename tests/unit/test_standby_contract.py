@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate.const import HVACMode
 
 from custom_components.better_thermostat.calibration import _compute_pid_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
@@ -26,12 +27,13 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiState,
     compute_tpi,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.trv"
 
 
 def _pid_bt(*, window_open):
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.bt_target_temp = 21.0
     bt.cur_temp = 18.0
@@ -40,8 +42,10 @@ def _pid_bt(*, window_open):
     bt.door_open = False
     bt.contact_open = bool(window_open)
     bt.bt_hvac_mode = HVACMode.HEAT
-    bt.clock.monotonic.return_value = 5000.0
+    bt.clock = FakeClock(monotonic_value=5000.0)
+    bt.kernel_state = make_state()
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
+    bt.state_mgr = MagicMock()
     bt.state_mgr.get_pid.return_value = PIDState(
         pid_integral=12.0, pid_last_meas=19.6, pid_last_time=1000.0
     )

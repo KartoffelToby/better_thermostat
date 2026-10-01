@@ -29,18 +29,7 @@ _BARE_MOCKS = frozenset(
 
 # Bare stand-ins per file, as they stand. Lower a count, never raise it.
 _REMAINING = {
-    "tests/test_aggressive_calibration.py": 1,
-    "tests/test_calibration_default_mode.py": 1,
 
-    "tests/unit/test_calibration_cooling_gates.py": 1,
-    "tests/unit/test_calibration_heating_power.py": 1,
-    "tests/unit/test_calibration_mode_default.py": 1,
-    "tests/unit/test_calibration_mpc_state_manager.py": 1,
-    "tests/unit/test_calibration_pid_state_manager.py": 1,
-    "tests/unit/test_calibration_sensor_fallback.py": 1,
-    "tests/unit/test_calibration_tpi_state_manager.py": 1,
-    "tests/unit/test_calibrator_strategy.py": 3,
-    "tests/unit/test_standby_contract.py": 1,
 }
 
 
