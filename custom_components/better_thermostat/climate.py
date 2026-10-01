@@ -1497,7 +1497,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         would end up regulated on the older of the two.
         """
         async with temperature_filter_lock(self):
-            await check_and_update_degraded_mode(self)
+            await check_and_update_degraded_mode(self, event.data.get("new_state"))
             await check_critical_entities(self)
             self.async_set_context(event.context)
             await trigger_temperature_change(self, event)
