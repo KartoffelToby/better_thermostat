@@ -552,6 +552,91 @@ class TestFallbackOnReportsWithoutAUsableTemperature:
         assert mock_bt.cur_temp == 21.0
         assert mock_bt.control_queue_task.qsize() == 0
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("returning", [21.0, 21.4])
+    async def test_marker_report_turning_plausible_hands_the_room_back(
+        self, mock_bt, returning
+    ):
+        """A TRV leaving a marker value speaks for the room again at once.
+
+        The returning reading either equals the stored one or lies inside the
+        debounce window, so the stored value does not change on it.
+        """
+        _add_homematicip_peer(mock_bt)
+        mock_bt.room_sensor_fallback = True
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue()
+        mock_bt.cur_temp = 21.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        peer_state = State(
+            PEER_ID,
+            "heat",
+            attributes={"current_temperature": 19.0, "temperature": 19.0},
+        )
+        plausible = _make_state(attributes={"current_temperature": 21.0})
+        marker = _make_state(attributes={"current_temperature": 127.0})
+        back = _make_state(attributes={"current_temperature": returning})
+        live = {ENTITY_ID: plausible, PEER_ID: peer_state}
+        mock_bt.hass.states.get.side_effect = live.get
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            live[ENTITY_ID] = marker
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=marker, old_state=plausible)
+            )
+            assert mock_bt.cur_temp == 19.0
+            assert mock_bt.control_queue_task.qsize() == 1
+
+            live[ENTITY_ID] = back
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=back, old_state=marker)
+            )
+            assert trv.current_temperature == 21.0
+            assert mock_bt.cur_temp == returning
+            assert mock_bt.control_queue_task.qsize() == 2
+
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=back, old_state=back)
+            )
+            assert mock_bt.cur_temp == returning
+            assert mock_bt.control_queue_task.qsize() == 2
+
+    @pytest.mark.asyncio
+    async def test_marker_report_turning_plausible_during_a_cycle_asks_for_one(
+        self, mock_bt
+    ):
+        """A running cycle is asked for one more when a TRV leaves a marker value."""
+        _add_homematicip_peer(mock_bt)
+        mock_bt.room_sensor_fallback = True
+        mock_bt.ignore_states = True
+        mock_bt.in_maintenance = False
+        mock_bt.control_queue_task = asyncio.Queue()
+        mock_bt.cur_temp = 19.0
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        peer_state = State(
+            PEER_ID,
+            "heat",
+            attributes={"current_temperature": 19.0, "temperature": 19.0},
+        )
+        marker = _make_state(attributes={"current_temperature": 127.0})
+        back = _make_state(attributes={"current_temperature": 21.0})
+        mock_bt.hass.states.get.side_effect = {ENTITY_ID: back, PEER_ID: peer_state}.get
+
+        await trigger_trv_change(
+            mock_bt, _make_event(mock_bt, new_state=back, old_state=marker)
+        )
+
+        assert mock_bt.cur_temp == 21.0
+        assert trv.temperature_moved_while_held is True
+        assert mock_bt.control_queue_task.qsize() == 0
+
 
 class TestTriggerTrvChangeGuards:
     """Guard-clause tests for trigger_trv_change()."""
