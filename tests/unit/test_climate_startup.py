@@ -194,6 +194,7 @@ def plateau_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     # Production holds Trv objects here. A MagicMock in their place answers
     # every attribute read, so a member field the code under test asks for
@@ -337,6 +338,7 @@ class TestStartupUnloadBailout:
         bt._door_task = None
         bt.plateau_timer_cancel = None
         bt._owned_tasks = set()
+        bt._final_flush_task = None
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
@@ -477,6 +479,7 @@ def owned_task_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
