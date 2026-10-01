@@ -8,7 +8,6 @@ _restore_state, _validate_hvac_mode.
 import asyncio
 import contextlib
 from datetime import timedelta
-import inspect
 import json
 import logging
 from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
@@ -89,10 +88,6 @@ def _discard_background_work(coro, *, name):
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = ThermostatStandIn(spec=BetterThermostat)
-    # The stand-in builds plain children, so the coroutine methods are
-    # awaitable only when they are given as such.
-    for name, _ in inspect.getmembers(BetterThermostat, inspect.iscoroutinefunction):
-        setattr(mock, name, AsyncMock())
     # The coroutine handed over was created by the caller; a mock that drops
     # it leaves it unawaited.
     mock._spawn_owned = MagicMock(side_effect=_discard_background_work)

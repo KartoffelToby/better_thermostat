@@ -16,7 +16,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 import inspect
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.helpers import entity_registry as er
@@ -190,7 +190,13 @@ class ThermostatStandIn(MagicMock):
         return super().__getattr__(name)
 
     def _get_child_mock(self, **kw):
-        """Build children as plain mocks; only the thermostat itself is strict."""
+        """Build children as plain mocks; only the thermostat itself is strict.
+
+        Under a ``spec``, a coroutine method of the spec class stays
+        awaitable, as it does on a plain ``MagicMock(spec=...)``.
+        """
+        if kw.get("_new_name") in self.__dict__.get("_spec_asyncs", ()):
+            return AsyncMock(**kw)
         return MagicMock(**kw)
 
 

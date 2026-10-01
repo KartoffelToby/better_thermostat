@@ -1,6 +1,6 @@
 """Smoke tests: the shared factories work against production functions."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction
 import pytest
@@ -9,6 +9,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -87,3 +88,13 @@ def test_the_stand_ins_children_stay_permissive():
     assert "config" in THERMOSTAT_STATE
     assert not isinstance(bt.hass, ThermostatStandIn)
     assert isinstance(bt.hass.config, MagicMock)
+
+
+async def test_a_specced_stand_in_keeps_coroutine_methods_awaitable():
+    """Under a spec, a coroutine method is an AsyncMock as on a plain spec mock."""
+    bt = ThermostatStandIn(spec=BetterThermostat)
+
+    await bt.async_set_temperature(temperature=21.0)
+
+    bt.async_set_temperature.assert_awaited_once_with(temperature=21.0)
+    assert not isinstance(bt.async_write_ha_state, AsyncMock)
