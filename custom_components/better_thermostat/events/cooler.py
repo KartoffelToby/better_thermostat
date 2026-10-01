@@ -15,10 +15,10 @@ from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     device_setpoint_step,
     dual_role_entity_id,
+    on_cooler_grid,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
-    round_by_step,
     setpoint_echo_window,
     state_says_nothing,
 )
@@ -26,33 +26,35 @@ from custom_components.better_thermostat.utils.helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def cooling_writes_as_held(self, step: float) -> tuple[float | None, float | None]:
+def cooling_writes_as_held(self, state) -> tuple[float | None, float | None]:
     """Return the cooling channel's writes as the device holds them, in °C.
 
-    The cooling channel sends the cool target as it stands, and the device
-    holds it on its own grid. Compared unrounded, a target that sits off that
-    grid lies less than a step from the grid point a single press reaches, so
-    the press would read as the write coming back. The cool target stands for
-    a write whose service call has not returned yet, which the send cache
-    records only afterwards.
+    The cooling channel sends the cool target rounded onto the cooler's own
+    grid, which on a Fahrenheit system is whole degrees Fahrenheit unless the
+    cooler publishes a step of its own. A report is compared with those grid
+    points: rounded onto any other grid, a write of 75 °F lands half a
+    Fahrenheit degree off the value sent, and a press to 76 °F reads as that
+    write coming back. The cool target stands for a write whose service call
+    has not returned yet, which the send cache records only afterwards.
 
     Parameters
     ----------
     self :
         self instance of better_thermostat
-    step : float
-        the device's setpoint step in °C
+    state : State
+        the cooler's reported state, which carries its step
 
     Returns
     -------
     tuple[float | None, float | None]
-        the cool target and the last sent cooling setpoint on the device's
+        the cool target and the last sent cooling setpoint on the cooler's
         grid, each None while unknown
     """
-    return (
-        round_by_step(self.bt_target_cooltemp, step),
-        round_by_step(self.last_sent_cooler_temp, step),
-    )
+
+    def on_grid(value: float | None) -> float | None:
+        return None if value is None else on_cooler_grid(self, state, float(value))
+
+    return on_grid(self.bt_target_cooltemp), on_grid(self.last_sent_cooler_temp)
 
 
 @callback
@@ -98,7 +100,7 @@ async def trigger_cooler_change(self, event):
         self,
         new_state,
         keys=COOLER_SETPOINT_KEYS,
-        known_values=cooling_writes_as_held(self, _step),
+        known_values=cooling_writes_as_held(self, new_state),
         step=_step,
         log_source="trigger_cooler_change()",
     )

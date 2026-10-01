@@ -198,7 +198,15 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv(
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert bt.room_sensor_fallback is True
     assert bt.cur_temp == 19.5
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    # The room starts at the setpoint the head holds, so the first cycle has
+    # nothing to write; a new target is what shows the room is controlled.
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": BT_ENTITY, ATTR_TEMPERATURE: 22.0},
+        blocking=True,
+    )
+    assert await wait_for(hass, lambda: 22.0 in fake_trv.set_temperature_calls)
     assert bt.unavailable_sensors == [SENSOR_ID]
     assert _degraded_issue_sensors(hass, bt) == SENSOR_ID
 

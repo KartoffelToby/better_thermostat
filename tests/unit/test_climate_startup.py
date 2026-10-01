@@ -89,6 +89,7 @@ def bt():
             advanced={},
         )
     }
+    mock.state_mgr = None
     mock.cooler_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
@@ -2072,6 +2073,39 @@ class TestRestoreState:
         assert bt.cur_temp_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param((0.012345, 0.001234), (0.012345, 0.001234), id="store"),
+            pytest.param((None, None), (0.0123, 0.00123), id="attributes"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_store_keeps_the_learned_rates_at_full_precision(
+        self, bt, stored, expected
+    ):
+        """The rates the store holds win over the rounded state attributes.
+
+        The attributes publish the rates rounded for display; they fill in
+        only for an entry whose store carries none yet.
+        """
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_STATE_HEATING_POWER: 0.0123,
+            ATTR_STATE_HEAT_LOSS: 0.00123,
+            ATTR_TEMPERATURE: 21.0,
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+        bt.state_mgr = MagicMock()
+        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.heating_power, bt.heat_loss_rate = stored
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert (bt.heating_power, bt.heat_loss_rate) == expected
+
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
         """Test Target clamped to min."""
@@ -2584,14 +2618,14 @@ class TestValidateHvacMode:
         # humidity should be re-read
         assert bt._current_humidity is not None
 
-    def test_humidity_sensor_none_sets_zero(self, bt):
-        """Test Humidity sensor none sets zero."""
+    def test_a_missing_humidity_sensor_leaves_the_humidity_unknown(self, bt):
+        """A humidity sensor with no state publishes no humidity, not 0 %."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
         bt.hass.states.get.return_value = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt._current_humidity == 0
+        assert bt._current_humidity is None
 
 
 class TestFinalizeStartupOnADualRoleEntity:
