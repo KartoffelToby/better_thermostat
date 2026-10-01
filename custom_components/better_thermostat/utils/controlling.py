@@ -1064,7 +1064,10 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     The handler takes that reading as it arrives, as it does outside a cycle,
     unless it came too soon after the previous one; such a reading is taken
     here once that interval has passed, and asks for a cycle all the same. A
-    device answering inside every cycle with a report that carries nothing
+    head switched on inside the cycle asks for one as well, as its mode
+    change does outside a cycle: the cache already holds the commanded mode,
+    so the report moves nothing, yet the setpoint it was not adopted for
+    has to be driven back to the room target. A device answering inside every cycle with a report that carries nothing
     new would otherwise keep one cycle following the next.
 
     Parameters
@@ -1109,8 +1112,14 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 entity_id,
             )
             continue
+        switched_on = (
+            prior_hvac_mode == HVACMode.OFF
+            and state is not None
+            and state.state != HVACMode.OFF
+        )
         if (
             temperature_moved
+            or switched_on
             or _held_report_control_inputs(self, trv) != acted_on_before
             or _locked_device_moved(self, entity_id, trv, state)
         ):

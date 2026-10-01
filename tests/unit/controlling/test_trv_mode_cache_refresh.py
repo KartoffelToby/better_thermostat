@@ -488,7 +488,9 @@ class TestReportsHeldDuringACycle:
         that setpoint is not a press. The end of the cycle settles the mode
         cache on the mode Better Thermostat commanded before it reads the held
         report, and the report is still judged against the mode the head was
-        in before it.
+        in before it. As outside a cycle, switching the head on asks for a
+        cycle, which drives the head back to the room target the setpoint
+        was not adopted for.
         """
         trv = thermostat.real_trvs[ENTITY_ID]
         trv.hvac_mode = "off"
@@ -509,10 +511,11 @@ class TestReportsHeldDuringACycle:
         assert trv.report_unread is True
         refresh_cached_trv_modes(thermostat)
         thermostat.ignore_states = False
-        with patch(f"{_CTRL}.request_control_cycle"):
+        with patch(f"{_CTRL}.request_control_cycle") as request:
             await read_reports_held_during_cycle(thermostat)
 
         assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
 
 
 class TestHeldReportAgainstThePreviousState:
