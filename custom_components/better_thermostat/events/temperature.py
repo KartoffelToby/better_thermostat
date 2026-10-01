@@ -15,17 +15,20 @@ import math
 from time import monotonic
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
+from custom_components.better_thermostat.utils.watcher import room_sensor_reading
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,6 +115,18 @@ def temperature_filter_lock(self) -> asyncio.Lock:
         lock = asyncio.Lock()
         self._temperature_filter_lock = lock
     return lock
+
+
+def _room_sensor_returns(self, previous_state: State | None) -> bool:
+    """Tell whether a reading brings the room back from a sensor outage.
+
+    The room is off its sensor while the ladder stands on a lower rung, and
+    the reading returns from the outage when the sensor's previous state
+    carried no room temperature.
+    """
+    if self.kernel_state.control_mode.mode == ControlMode.OPTIMAL:
+        return False
+    return room_sensor_reading(self, previous_state) is None
 
 
 async def _commit_temperature_update(self, new_temp):
@@ -453,6 +468,13 @@ async def trigger_temperature_change(self, event):
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
+        if _room_sensor_returns(self, event.data.get("old_state")):
+            # During the outage the minute tick kept feeding the filter the
+            # last reading from before it, which says nothing about the room
+            # since. The filter starts over from the returning reading, and
+            # so does the slope the tick derives from it.
+            self.external_temp_ema = None
+            self._external_temp_ema_ts = None
         await _commit_temperature_update(self, _incoming_temperature_q)
     else:
         _LOGGER.debug(
