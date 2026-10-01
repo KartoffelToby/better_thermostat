@@ -14,8 +14,10 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.events.temperature import (
+    _cancel_room_sensor_fallback_timer,
     _schedule_room_sensor_fallback,
     refresh_room_temperature_from_trvs,
+    temperature_filter_lock,
     trv_room_temperature,
 )
 from custom_components.better_thermostat.trv import Trv
@@ -197,3 +199,45 @@ class TestEnterFallback:
         assert refresh_room_temperature_from_trvs(bt) is True
         assert bt.room_sensor_fallback is True
         assert bt.cur_temp == 18.0
+
+
+class TestFallbackTimerAfterRecovery:
+    """A timer callback belongs to the outage it was scheduled for."""
+
+    @pytest.mark.asyncio
+    async def test_recovery_while_the_callback_waits_voids_it(self):
+        """A new outage during the recovery waits its own delay."""
+        states = {
+            SENSOR_ID: State(SENSOR_ID, STATE_UNAVAILABLE),
+            FIRST_TRV: _heating(FIRST_TRV, 21.0),
+        }
+        bt = _bt(states, {FIRST_TRV: _trv(FIRST_TRV, 21.0)})
+        bt._temperature_filter_lock = None
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ) as call_later:
+            _schedule_room_sensor_fallback(bt)
+        callback = call_later.call_args.args[2]
+
+        # A returning reading holds the filter lock while the delay runs out.
+        async with temperature_filter_lock(bt):
+            pending = asyncio.ensure_future(callback(None))
+            await asyncio.sleep(0)
+            assert not pending.done()
+            states[SENSOR_ID] = State(SENSOR_ID, "19.5")
+            _cancel_room_sensor_fallback_timer(bt)
+            # The sensor drops out again while the reading is written to the TRVs.
+            states[SENSOR_ID] = State(SENSOR_ID, STATE_UNAVAILABLE)
+        await asyncio.wait_for(pending, timeout=1)
+
+        assert bt.room_sensor_fallback is False
+        assert bt.room_sensor_fallback_due is False
+        assert bt.cur_temp == 18.0
+        assert bt.control_queue_task.qsize() == 0
+
+        # The new outage starts a delay of its own.
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ) as call_later:
+            _schedule_room_sensor_fallback(bt)
+        assert call_later.call_count == 1
