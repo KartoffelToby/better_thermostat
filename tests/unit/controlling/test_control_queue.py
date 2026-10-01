@@ -425,8 +425,8 @@ class TestControlQueue:
     async def test_handles_queue_full_when_retrying(self):
         """A retry that finds the queue full is dropped, and the loop goes on.
 
-        A request that arrived while the failing cycle ran already fills the
-        queue and runs on the newest state, so it stands in for the retry.
+        A request that is already waiting runs on the newest state, so it
+        stands in for the retry of the failed cycle.
         """
         mock_self = Mock()
         mock_self.device_name = "test_thermostat"
@@ -448,6 +448,11 @@ class TestControlQueue:
             if calls == 1:
                 queue.put_nowait(mock_self)
                 return False
+            if calls == 2:
+                # Another request arrives while this cycle runs, and the
+                # retry of the failed cycle fires into the queue it fills.
+                queue.put_nowait(mock_self)
+                await asyncio.sleep(0.05)
             return True
 
         with (
@@ -455,16 +460,14 @@ class TestControlQueue:
                 "custom_components.better_thermostat.utils.controlling.control_trv",
                 side_effect=_control_trv,
             ) as mock_control_trv,
-            # The failed-cycle backoff is collapsed so the retry lands
-            # inside the window this test waits for.
             patch(
                 "custom_components.better_thermostat.utils.controlling.FAILED_CYCLE_BACKOFF_S",
-                0,
+                0.01,
             ),
         ):
             queue_task = asyncio.create_task(control_queue(mock_self))
             try:
-                await asyncio.wait_for(queue.join(), timeout=5)
+                await asyncio.sleep(0.2)
             finally:
                 queue_task.cancel()
                 try:
@@ -472,7 +475,7 @@ class TestControlQueue:
                 except asyncio.CancelledError:
                     pass
 
-        assert mock_control_trv.await_count == 2
+        assert mock_control_trv.await_count == 3
         assert queue.empty()
 
     @pytest.mark.asyncio
