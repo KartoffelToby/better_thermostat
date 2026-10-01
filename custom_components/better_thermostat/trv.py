@@ -159,6 +159,11 @@ class Trv:
     # in Home Assistant, so the warning is logged once per entity while it
     # stays disabled instead of per lookup or write.
     disabled_siblings_logged: set[str] = field(default_factory=set)
+    # Write channels whose last write spent every attempt and still raised,
+    # keyed by channel, each with the delegate's record of the outage. The
+    # next write on such a channel gets one attempt instead of the retry
+    # chain, which runs under the room's control lock, until the outage ends.
+    unreachable_write_channels: dict[str, Any] = field(default_factory=dict)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
