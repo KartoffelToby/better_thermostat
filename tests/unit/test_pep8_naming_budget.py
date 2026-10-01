@@ -14,6 +14,7 @@ what lets the narrower of the two be chosen without the number moving.
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import textwrap
 
 import pytest
@@ -267,3 +268,35 @@ def test_the_recorded_budget_names_files_that_exist(budget):
 def test_the_repository_stays_within_its_recorded_budget():
     """The committed counts hold against a real scan of the working tree."""
     assert _load_script().check() == 0
+
+
+def _repository_with(root: Path, *, tracked: str, untracked: str, ignored: str):
+    """Create a git repository holding one file of each standing."""
+    root.mkdir(parents=True, exist_ok=True)
+    for name in (tracked, untracked, ignored, ".gitignore"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+    (root / ".gitignore").write_text(f"{ignored}\n", encoding="utf-8")
+    for name in (tracked, untracked, ignored):
+        (root / name).write_text("value = 1\n", encoding="utf-8")
+    subprocess.run(("git", "init", "-q"), cwd=root, check=True)
+    subprocess.run(("git", "add", tracked, ".gitignore"), cwd=root, check=True)
+
+
+def test_a_file_git_does_not_track_yet_is_scanned(budget, monkeypatch, tmp_path):
+    """A new file counts before it is added, and an ignored one is left out.
+
+    A local check that skips a file nobody has run ``git add`` on passes on a
+    tree CI later fails on. The ignore rules still decide what belongs to the
+    repository.
+    """
+    _repository_with(
+        tmp_path / "repo",
+        tracked="test_tracked.py",
+        untracked="test_new.py",
+        ignored="test_ignored.py",
+    )
+    monkeypatch.setattr(budget, "REPO_ROOT", tmp_path / "repo")
+
+    listed = set(budget._python_files())
+
+    assert listed == {"test_tracked.py", "test_new.py"}

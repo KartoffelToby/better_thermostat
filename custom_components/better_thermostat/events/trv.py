@@ -19,6 +19,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
@@ -322,6 +323,11 @@ async def trigger_trv_change(
                     return
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
+        # Under SENSOR_FALLBACK the TRV readings are the room temperature,
+        # so a new one is controlled on even when it confirms an offset write.
+        if self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK:
+            _main_change = True
+
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)
         if _main_change:
@@ -449,7 +455,7 @@ async def trigger_trv_change(
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *cooling_writes_as_held(self, _step),
+            *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (
@@ -464,6 +470,8 @@ async def trigger_trv_change(
         known_values=_known_values,
         step=_step,
         log_source="trigger_trv_change()",
+        # A report the cooling channel owns is bounded by the cooling range.
+        cooling=_cooling_owns,
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
     # An AUTO the mode decoding ignores says nothing about the room, so the
@@ -496,8 +504,8 @@ async def trigger_trv_change(
             trv.last_temperature,
         )
         # The no_off OFF detection compares against the TRV's minimum, so it
-        # uses the reported value, not one the clamp may have raised into
-        # [bt_min_temp, bt_max_temp].
+        # uses the reported value, not one the clamp may have raised into the
+        # channel's range.
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo

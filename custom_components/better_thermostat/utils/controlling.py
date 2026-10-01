@@ -10,7 +10,11 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import (
+    ATTR_MAX_TEMP,
+    ATTR_MIN_TEMP,
+    HVACMode,
+)
 from homeassistant.const import (
     EVENT_STATE_CHANGED,
     STATE_UNAVAILABLE,
@@ -44,6 +48,7 @@ from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
 )
+from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
@@ -68,14 +73,13 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_device,
-    device_setpoint_step,
     dual_role_entity_id,
     get_current_set_temperatures,
-    last_sent_cooler_temperature,
     matches_any_setpoint,
     normalize_step,
+    on_cooler_grid,
+    read_bound_celsius,
     read_setpoint_celsius,
-    round_by_step,
     setpoint_echo_window,
     state_temperature_unit,
     supports_single_target_temperature,
@@ -1050,8 +1054,10 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
 
     A control cycle is requested only when the report moved what the next
     cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran,
-    which the handler takes as it arrives, as it does outside a cycle. A
+    to hold, or the internal temperature it reported while the cycle ran.
+    The handler takes that reading as it arrives, as it does outside a cycle,
+    unless it came too soon after the previous one; such a reading is taken
+    here once that interval has passed, and asks for a cycle all the same. A
     device answering inside every cycle with a report that carries nothing
     new would otherwise keep one cycle following the next.
 
@@ -1137,12 +1143,10 @@ def _locked_device_moved(
     step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
     if entity_id == dual_role_entity_id(self):
-        # The cooling channel's writes as the device holds them, on its grid,
-        # the way the inbound handler compares them.
-        known += [
-            round_by_step(self.bt_target_cooltemp, step),
-            round_by_step(last_sent_cooler_temperature(self), step),
-        ]
+        # The cooling channel's writes as the device holds them, on the grid
+        # the cooling channel sends on, the way the inbound handler compares
+        # them.
+        known += cooling_writes_as_held(self, state)
     known_values = [value for value in known if value is not None]
     if reported is None or not known_values:
         return False
@@ -1157,6 +1161,7 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, 
         self.bt_target_cooltemp,
         self.bt_hvac_mode,
         trv.hvac_mode,
+        trv.current_temperature,
     )
 
 
@@ -1354,17 +1359,22 @@ async def control_queue(self: BetterThermostat) -> None:
 _CoolerCommand = HVACMode | tuple[float, float | None] | None
 
 
-def cooler_low_bound(high: float, target_temp: float | None) -> float:
+def cooler_low_bound(
+    high: float, target_temp: float | None, lowest: float | None = None
+) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
     A range write needs both bounds, and Home Assistant rejects a low bound
-    above the high one. The heating target is the natural lower bound; it can
-    only exceed the cooling target while the two are out of sync, so it is
-    capped at the value being written.
+    above the high one or outside the cooler's range. The heating target is
+    the natural lower bound; it can only exceed the cooling target while the
+    two are out of sync, so it is capped at the value being written. The
+    heating target is held to the heaters' range, not the cooler's, so it is
+    raised onto ``lowest``, the cooler's minimum, where it sits below it.
     """
-    if target_temp is None:
-        return high
-    return min(float(target_temp), high)
+    low = high if target_temp is None else min(float(target_temp), high)
+    if lowest is not None and low < lowest:
+        low = min(lowest, high)
+    return low
 
 
 def _cooler_retry_deferred(
@@ -1426,47 +1436,6 @@ def _record_cooler_failure(
     )
 
 
-def _on_cooler_grid(
-    self: BetterThermostat, cooler_state: State, value: float | None
-) -> float | None:
-    """Return a cooler setpoint in °C as it lies on the cooler's own grid.
-
-    The cooler publishes its step in the system unit, so a Fahrenheit value is
-    rounded in Fahrenheit and brought back; the payload's conversion then
-    lands on that grid point again. A cooler that publishes no usable step
-    holds whole degrees on a Fahrenheit system, Home Assistant's precision
-    for that unit, and on a Celsius system is rounded onto the step its
-    reports are compared with.
-    """
-    if value is None:
-        return None
-    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
-    step = convert_to_float(
-        str(cooler_state.attributes.get("target_temp_step")),
-        self.device_name,
-        "control_cooler()",
-    )
-    if step is None or step <= 0:
-        if not fahrenheit:
-            return round_by_step(
-                value, device_setpoint_step(self, cooler_state, "control_cooler()")
-            )
-        step = 1.0
-    if fahrenheit:
-        on_grid = round_by_step(
-            TemperatureConverter.convert(
-                value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
-            step,
-        )
-        if on_grid is None:
-            return None
-        return TemperatureConverter.convert(
-            on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
-        )
-    return round_by_step(value, step)
-
-
 async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     """Control the cooler entity based on current temperature and cooling setpoint.
 
@@ -1522,7 +1491,21 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     # the send cache work with the value the device is actually sent.
     if snapshot is None:
         snapshot = build_snapshot(self)
-    desired_temp = _on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
+    desired_temp = on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
+    # Home Assistant refuses a setpoint outside the cooler's own range, and
+    # the cooling target can leave it where a configured bound widens the
+    # cooling range past the device's, so the write is held to the device.
+    _cooler_min = read_bound_celsius(
+        self, cooler_state, ATTR_MIN_TEMP, lower=True, context="control_cooler()"
+    )
+    _cooler_max = read_bound_celsius(
+        self, cooler_state, ATTR_MAX_TEMP, lower=False, context="control_cooler()"
+    )
+    if desired_temp is not None:
+        if _cooler_min is not None and desired_temp < _cooler_min:
+            desired_temp = _cooler_min
+        if _cooler_max is not None and _cooler_max < desired_temp:
+            desired_temp = _cooler_max
 
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
@@ -1695,7 +1678,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     _low_bound_changed = False
     if _write_range and desired_temp is not None:
         _low_to_set = cooler_low_bound(
-            desired_temp, _on_cooler_grid(self, cooler_state, target_temp)
+            desired_temp, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
         )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
@@ -1813,7 +1796,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         _temp_wanted = (
             temp_to_send,
             cooler_low_bound(
-                temp_to_send, _on_cooler_grid(self, cooler_state, target_temp)
+                temp_to_send,
+                on_cooler_grid(self, cooler_state, target_temp),
+                _cooler_min,
             )
             if _write_range
             else None,
@@ -1840,7 +1825,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         )
         _temp_to_set = temp_to_send
         _low_to_set = _low_to_set_c = cooler_low_bound(
-            temp_to_send, _on_cooler_grid(self, cooler_state, target_temp)
+            temp_to_send, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
         )
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(

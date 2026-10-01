@@ -6,8 +6,10 @@ in which overlapping readings and the keepalive tick reach the TRVs.
 """
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import logging
+from time import monotonic
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
@@ -18,6 +20,10 @@ import pytest
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.events.temperature import (
     _commit_temperature_update,
     _update_external_temp_ema,
@@ -59,7 +65,6 @@ def mock_bt():
     # Accumulation state
     bt.accum_delta = 0.0
     bt.accum_dir = 0
-    bt.accum_since = dt_util.now()
 
     # Pending / plateau state
     bt.pending_temp = None
@@ -390,6 +395,61 @@ class TestCommitTemperatureUpdate:
 # ---------------------------------------------------------------------------
 # 3. Guard clauses for trigger_temperature_change
 # ---------------------------------------------------------------------------
+
+
+class TestReturningRoomSensor:
+    """Only a reading that ends an outage of the room's sensor restarts the filter."""
+
+    @staticmethod
+    async def _filtered_after(mock_bt, rung, previous_state):
+        """Apply a 22 °C reading to a filter that has held 18 °C for a minute."""
+        mock_bt.kernel_state = replace(
+            KernelState(), control_mode=ControlModeState(mode=rung)
+        )
+        mock_bt.cur_temp = 18.0
+        mock_bt.external_temp_ema = 18.0
+        mock_bt._external_temp_ema_ts = monotonic() - 60.0
+        event = MagicMock()
+        event.data = {
+            "old_state": previous_state,
+            "new_state": State(SENSOR_ID, "22.0"),
+        }
+
+        await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 22.0
+        return mock_bt.cur_temp_filtered
+
+    @pytest.mark.asyncio
+    async def test_the_reading_that_ends_the_outage_seeds_the_filter(self, mock_bt):
+        """The room ran on the TRVs, so the old filter value says nothing."""
+        filtered = await self._filtered_after(
+            mock_bt, ControlMode.SENSOR_FALLBACK, State(SENSOR_ID, "unavailable")
+        )
+
+        assert filtered == 22.0
+
+    @pytest.mark.asyncio
+    async def test_a_gap_the_room_stayed_on_its_sensor_through_is_filtered(
+        self, mock_bt
+    ):
+        """A blip shorter than the ladder's debounce keeps the filter's memory."""
+        filtered = await self._filtered_after(
+            mock_bt, ControlMode.OPTIMAL, State(SENSOR_ID, "unavailable")
+        )
+
+        assert 18.0 < filtered < 22.0
+
+    @pytest.mark.asyncio
+    async def test_later_readings_before_the_ladder_climbs_back_are_filtered(
+        self, mock_bt
+    ):
+        """Only the first reading after the outage restarts the filter."""
+        filtered = await self._filtered_after(
+            mock_bt, ControlMode.SENSOR_FALLBACK, State(SENSOR_ID, "21.5")
+        )
+
+        assert 18.0 < filtered < 22.0
 
 
 class TestTriggerTemperatureChangeGuards:

@@ -18,6 +18,13 @@ rate.
 
 A marker is an added line that is
 
+* in a production file, not under ``tests/``: each line writes its own tests,
+  in its own fixtures and under its own names, so a test line says nothing
+  about whether the fix it covers reached the other line,
+* still in the maintenance line's tree, which excludes an intermediate state
+  a later maintenance-line commit replaced. The development line cannot be
+  asked to hold what the maintenance line itself no longer holds, and the
+  replacing commit carries the evidence instead,
 * at least ``MARKER_MIN_LENGTH`` characters once stripped,
 * not a comment, not an import and not a decorator,
 * carrying at least one character of ``=(){}[]:``, which excludes the prose
@@ -27,10 +34,18 @@ A marker is an added line that is
   commit only moved, reindented or copied from another section of the file.
   Such a line is in both trees no matter what the commit did.
 
-The last two rules carry most of the separation. Without the prose rule a
-docstring-heavy commit reads as absent because its sentences were rewritten;
-without the parent-revision rule a translation block moved into a new section
-reads as present because its strings already existed elsewhere in the file.
+The prose and parent-revision rules carry most of the separation. Without
+the prose rule a docstring-heavy commit reads as absent because its sentences
+were rewritten; without the parent-revision rule a translation block moved
+into a new section reads as present because its strings already existed
+elsewhere in the file.
+
+A marker is looked up under the development line's names, too. The
+development line renames identifiers onto the terms of its `glossary.toml`
+and the maintenance line keeps the old spellings, so a marker spelling a
+rejected alias is also searched with the alias replaced by each term that
+lists it, one whole identifier at a time. The glossary is read from the
+development tree, the one that did the renaming.
 
 ``MARKER_MIN_LENGTH`` is 16 from measurement. Over the 801 candidate lines of
 eleven commits whose content was confirmed by hand to be absent from
@@ -53,10 +68,12 @@ Known misreadings, both directions:
   high while adding nothing to `develop`. That reads correctly — there is
   nothing to forward-port — but the rate says "already there" rather than
   "went the other way".
-* A commit with fewer than ``MIN_MARKERS`` markers is not scored at all.
-  Version bumps and pure-prose commits land there, and so does a real change
-  small enough to leave no marker. Those commits are listed separately rather
-  than dropped, because a truncated list reads like completeness.
+* A commit with fewer than ``MIN_MARKERS`` markers gets no hit rate; it
+  counts as carried forward only when every one of its markers is present.
+  A commit with no production marker at all (version bumps, pure-prose and
+  test-only commits, and a real change too small to leave one) is listed
+  separately rather than dropped, because a truncated list reads like
+  completeness.
 
 Two modes:
 
@@ -74,12 +91,16 @@ Two modes:
 from __future__ import annotations
 
 import argparse
+import ast
 from dataclasses import dataclass
+import itertools
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ACKNOWLEDGED_FILE = REPO_ROOT / ".forward-port-gaps.json"
@@ -87,10 +108,16 @@ ACKNOWLEDGED_FILE = REPO_ROOT / ".forward-port-gaps.json"
 DEFAULT_MAINTENANCE = "origin/1.9"
 DEFAULT_DEVELOPMENT = "develop"
 
+# Each line writes its own tests, so no marker is taken from under here.
+TEST_ROOT = "tests/"
+GLOSSARY_PATH = "glossary.toml"
+
 MARKER_MIN_LENGTH = 16
 MARKERS_PER_COMMIT = 12
 MIN_MARKERS = 3
 HIT_RATE_THRESHOLD = 0.5
+# Spellings tried for one marker; bounds the work a line full of aliases costs.
+SPELLINGS_PER_MARKER = 256
 
 # Suffixes whose content is line-oriented text worth comparing. Translations
 # are `.json` and blueprints are `.yaml`, so both carry markers.
@@ -109,7 +136,11 @@ TEXT_SUFFIXES = (
 
 COMMENT_START = re.compile(r"""^(#|//|/\*|\*|<!--|-->|\"\"\"|''')""")
 IMPORT_OR_DECORATOR = re.compile(r"^(import |from \S+ import|@)")
+# Each line carries its own release number, so a bump is never forwarded.
+VERSION_LINE = re.compile(r"""^["']?version["']?\s*[:=]""")
+HUNK_HEADER = re.compile(r"^@@ -\S+ \+(\d+)")
 CODE_PUNCTUATION = frozenset("=(){}[]:")
+IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # A subject written under this repository's commit convention. The convention
 # is what separates the two groups here: work built as a pair follows it and
@@ -154,8 +185,15 @@ class Commit:
 
     @property
     def carried_forward(self) -> bool:
-        """Return whether enough of the commit is present to call it carried."""
-        return self.hit_rate >= HIT_RATE_THRESHOLD
+        """Return whether enough of the commit is present to call it carried.
+
+        A scored commit needs its share of markers. One too small to score
+        needs every marker it has, because a missing one-line fix would
+        otherwise pass unread; a commit with no marker has nothing to carry.
+        """
+        if self.scored:
+            return self.hit_rate >= HIT_RATE_THRESHOLD
+        return self.hits == self.markers
 
 
 def _git(*arguments: str) -> str:
@@ -242,8 +280,17 @@ def _tree_paths(ref: str) -> list[str]:
 
 
 def _tree_lines(ref: str) -> set[str]:
-    """Return every stripped text line the ref's tree holds."""
-    paths = [path for path in _tree_paths(ref) if _is_text(path)]
+    """Return every stripped line the ref's production text files hold.
+
+    Markers come from production files only, so they are looked up there
+    only: a test that quotes the line it pins holds the text without the
+    change being in place.
+    """
+    paths = [
+        path
+        for path in _tree_paths(ref)
+        if _is_text(path) and not path.startswith(TEST_ROOT)
+    ]
     # ``-z`` on the input too: without it the request is one path per line,
     # and a name holding a newline would be read as two requests.
     specification = "".join(f"{ref}:{path}\0" for path in paths).encode()
@@ -296,6 +343,8 @@ def _looks_distinctive(line: str) -> bool:
         return False
     if IMPORT_OR_DECORATOR.match(line):
         return False
+    if VERSION_LINE.match(line):
+        return False
     return bool(CODE_PUNCTUATION & set(line))
 
 
@@ -313,6 +362,8 @@ def _added_lines(sha: str) -> dict[str, list[str]]:
     per_file: dict[str, list[str]] = {}
     path: str | None = None
     in_hunk = False
+    number = 0
+    prose: set[int] = set()
     for line in diff.splitlines():
         if line.startswith("diff --git "):
             # Every file starts out unnamed. A deleted one reads
@@ -323,19 +374,57 @@ def _added_lines(sha: str) -> dict[str, list[str]]:
             continue
         if line.startswith("@@"):
             in_hunk = True
+            header = HUNK_HEADER.match(line)
+            number = int(header[1]) if header else 0
             continue
         if not in_hunk:
             if line.startswith("+++ "):
                 field = _unquote_path(line[4:])
                 # A deleted file reads "+++ /dev/null" and keeps no name.
                 path = field[2:] if field.startswith("b/") else None
+                prose = _docstring_lines(sha, path) if path else set()
             continue
-        if not line.startswith("+") or path is None or not _is_text(path):
+        if not line.startswith("+"):
+            continue
+        number += 1
+        if path is None or not _is_text(path) or number - 1 in prose:
             continue
         stripped = line[1:].strip()
         if _looks_distinctive(stripped):
             per_file.setdefault(path, []).append(stripped)
     return per_file
+
+
+def _docstring_lines(sha: str, path: str) -> set[int]:
+    """Return the line numbers a Python file's string statements span at ``sha``.
+
+    A docstring is prose, and prose that quotes code carries the punctuation
+    the marker rule looks for. Where the line sits tells it apart. A file
+    that is not Python, or does not parse, marks nothing.
+    """
+    if not path.endswith(".py"):
+        return set()
+    finished = subprocess.run(
+        ("git", "-C", str(REPO_ROOT), "show", f"{sha}:{path}"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if finished.returncode != 0:
+        return set()
+    try:
+        tree = ast.parse(finished.stdout)
+    except SyntaxError:
+        return set()
+    return {
+        number
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and node.end_lineno is not None
+        for number in range(node.lineno, node.end_lineno + 1)
+    }
 
 
 def _prior_lines(sha: str, path: str) -> set[str]:
@@ -351,7 +440,9 @@ def _prior_lines(sha: str, path: str) -> set[str]:
     return {line.strip() for line in finished.stdout.splitlines()}
 
 
-def markers_of(sha: str, limit: int | None = None) -> list[str]:
+def markers_of(
+    sha: str, limit: int | None = None, present: set[str] | None = None
+) -> list[str]:
     """Return up to ``limit`` markers for a commit.
 
     Parameters
@@ -365,14 +456,24 @@ def markers_of(sha: str, limit: int | None = None) -> list[str]:
         are drawn one file at a time, longest first within a file, so a commit
         spread over many files is judged on all of them rather than on
         whichever one is largest.
+    present
+        The stripped lines of the maintenance line's tree. A line missing
+        there was replaced by a later commit and is no marker. Left open,
+        every added line counts.
     """
     if limit is None:
         limit = MARKERS_PER_COMMIT
     per_file: dict[str, list[str]] = {}
     for path, lines in _added_lines(sha).items():
+        if path.startswith(TEST_ROOT):
+            continue
         prior = _prior_lines(sha, path)
         fresh = sorted(
-            {line for line in lines if line not in prior},
+            {
+                line
+                for line in lines
+                if line not in prior and (present is None or line in present)
+            },
             key=lambda line: (-len(line), line),
         )
         if fresh:
@@ -401,9 +502,73 @@ def markers_of(sha: str, limit: int | None = None) -> list[str]:
     return chosen
 
 
+def _renames(ref: str) -> dict[str, tuple[str, ...]]:
+    """Return each rejected alias of the ref's glossary with the names replacing it.
+
+    A term's name may be qualified (``trv.setpoint``); the identifier written
+    in code is its last part.
+    """
+    finished = subprocess.run(
+        ("git", "-C", str(REPO_ROOT), "show", f"{ref}:{GLOSSARY_PATH}"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if finished.returncode != 0:
+        return {}
+    try:
+        terms = tomllib.loads(finished.stdout).get("term", [])
+    except tomllib.TOMLDecodeError as err:
+        sys.exit(f"{ref}:{GLOSSARY_PATH} is not valid TOML: {err}")
+    renames: dict[str, list[str]] = {}
+    for term in terms:
+        rejected = term.get("rejected", [])
+        if not isinstance(rejected, list):
+            sys.exit(f"{ref}:{GLOSSARY_PATH}: `rejected` of {term['name']} is no list")
+        for alias in rejected:
+            renames.setdefault(alias, []).append(term["name"].rpartition(".")[2])
+    return {alias: tuple(names) for alias, names in renames.items()}
+
+
+def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
+    """Return the marker as written plus every spelling the glossary renames it to.
+
+    Each occurrence of an alias is spelled on its own, as written or as any
+    name replacing it, so one line can carry an alias renamed in one place
+    and kept or renamed differently in another. Past ``SPELLINGS_PER_MARKER``
+    combinations every occurrence of an alias takes the same spelling, and
+    no more than that many spellings are returned.
+    """
+    occurrences = [
+        match for match in IDENTIFIER.finditer(marker) if match[0] in renames
+    ]
+    options = [(match[0], *renames[match[0]]) for match in occurrences]
+    if math.prod(len(choices) for choices in options) > SPELLINGS_PER_MARKER:
+        aliases = sorted({match[0] for match in occurrences})
+        options = [(alias, *renames[alias]) for alias in aliases]
+        option_of = [aliases.index(match[0]) for match in occurrences]
+    else:
+        option_of = list(range(len(occurrences)))
+    spellings = [marker]
+    for choice in itertools.product(*options):
+        pieces: list[str] = []
+        end = 0
+        for match, index in zip(occurrences, option_of, strict=True):
+            pieces.extend((marker[end : match.start()], choice[index]))
+            end = match.end()
+        renamed = "".join(pieces) + marker[end:]
+        if renamed != marker:
+            spellings.append(renamed)
+        if len(spellings) >= SPELLINGS_PER_MARKER:
+            break
+    return spellings
+
+
 def measure(maintenance: str, development: str) -> list[Commit]:
     """Return every maintenance-line commit scored against the development tree."""
     tree = _tree_lines(development)
+    present = _tree_lines(maintenance)
+    renames = _renames(development)
     log = _git(
         "log",
         "--no-merges",
@@ -414,14 +579,18 @@ def measure(maintenance: str, development: str) -> list[Commit]:
     commits: list[Commit] = []
     for entry in log.splitlines():
         sha, author, subject = entry.split("\x1f", 2)
-        markers = markers_of(sha)
+        markers = markers_of(sha, present=present)
         commits.append(
             Commit(
                 sha=sha,
                 subject=subject,
                 author=author,
                 markers=len(markers),
-                hits=sum(1 for marker in markers if marker in tree),
+                hits=sum(
+                    1
+                    for marker in markers
+                    if any(line in tree for line in _spellings(marker, renames))
+                ),
             )
         )
     return commits
@@ -457,18 +626,24 @@ def show(maintenance: str, development: str) -> int:
     print(_headline(maintenance, development))
     print(f"{len(commits)} commits the development line does not contain\n")
 
-    behind = [c for c in commits if c.scored and not c.carried_forward]
-    carried = [c for c in commits if c.scored and c.carried_forward]
-    unscored = [c for c in commits if not c.scored]
+    behind = [c for c in commits if not c.carried_forward]
+    carried = [c for c in commits if c.markers and c.carried_forward]
+    unmarked = [c for c in commits if not c.markers]
 
-    print(f"not carried forward — under {HIT_RATE_THRESHOLD:.0%}:")
+    print(
+        f"not carried forward — under {HIT_RATE_THRESHOLD:.0%}, or a marker "
+        f"missing from a commit with fewer than {MIN_MARKERS}:"
+    )
     for commit in sorted(behind, key=lambda c: c.hit_rate):
         print(_describe(commit))
-    print(f"\ncarried forward — {HIT_RATE_THRESHOLD:.0%} or more:")
+    print(
+        f"\ncarried forward — {HIT_RATE_THRESHOLD:.0%} or more, or every marker "
+        f"of a commit with fewer than {MIN_MARKERS}:"
+    )
     for commit in sorted(carried, key=lambda c: c.hit_rate):
         print(_describe(commit))
-    print(f"\ntoo few markers to score — under {MIN_MARKERS}:")
-    for commit in unscored:
+    print("\nno production markers:")
+    for commit in unmarked:
         print(_describe(commit))
 
     print("\nby commit convention:")
@@ -495,7 +670,7 @@ def check(maintenance: str, development: str) -> int:
     """Report unrecorded gaps. Return an exit code."""
     commits = measure(maintenance, development)
     acknowledged = _load_acknowledged()
-    behind = {c.sha: c for c in commits if c.scored and not c.carried_forward}
+    behind = {c.sha: c for c in commits if not c.carried_forward}
 
     unrecorded = [behind[sha] for sha in sorted(behind) if sha not in acknowledged]
     stale = sorted(sha for sha in acknowledged if sha not in behind)
@@ -505,10 +680,10 @@ def check(maintenance: str, development: str) -> int:
         print(f"no longer behind: {sha[:8]} — drop it from {ACKNOWLEDGED_FILE.name}")
 
     if not unrecorded:
-        scored = sum(1 for c in commits if c.scored)
+        marked = sum(1 for c in commits if c.markers)
         print(
-            f"all {scored} scored commits are carried forward or recorded "
-            f"({len(commits) - scored} too small to score)"
+            f"all {marked} commits with production markers are carried forward "
+            f"or recorded ({len(commits) - marked} without any)"
         )
         return 0
 

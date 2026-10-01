@@ -12,9 +12,10 @@ running (``running``), where the startup happens to finish first.
 Covered copies, all made in a constructor:
 
 - ``BetterThermostatPresetNumber``: ``native_min_value`` and
-  ``native_max_value`` from ``min_temp`` and ``max_temp``, ``native_step``
+  ``native_max_value`` from the heating channel's range, ``native_step``
   from ``target_temperature_step``;
-- ``BetterThermostatPresetCoolNumber`` inherits all three;
+- ``BetterThermostatPresetCoolNumber`` inherits the step and takes its range
+  from the cooling channel;
 - ``BetterThermostatPIDNumber``, ``BetterThermostatValveMaxOpeningNumber``,
   ``BetterThermostatPIDAutoTuneSwitch`` and ``BetterThermostatChildLockSwitch``:
   the TRV's friendly name as the placeholder of their names.
@@ -147,21 +148,26 @@ async def test_preset_number_steps_on_the_device_grid(hass, fake_trv, order):
 @pytest.mark.parametrize(
     "device_role", [SEPARATE_COOLER], indirect=True, ids=profile_id
 )
-async def test_cooling_preset_number_offers_the_room_range(hass, device_role, order):
-    """A cooling preset number accepts exactly the range the room accepts.
+async def test_cooling_preset_number_offers_the_cooler_range(hass, device_role, order):
+    """A cooling preset number accepts exactly the range the cooler accepts.
 
-    With a separate cooler the room range is where the heater's and the
-    cooler's ranges overlap.
+    With a separate cooler the room publishes the span of both devices, and
+    each channel is held to its own device: the heating preset to the head's
+    range, the cooling preset to the cooler's.
     """
     set_room_sensor(hass, 18.0)
     bt = await _set_up(hass, make_entry(device_role.scenario), order)
+    head = device_role.scenario.trv
     cooler = device_role.scenario.cooler
-    assert (bt.min_temp, bt.max_temp) == (cooler.min_temp, cooler.max_temp)
+    assert (bt.min_temp, bt.max_temp) == (
+        min(head.min_temp, cooler.min_temp),
+        max(head.max_temp, cooler.max_temp),
+    )
 
     number = _number_state(hass, bt, "preset_comfort_cool")
     assert (number.attributes["min"], number.attributes["max"]) == (
-        bt.min_temp,
-        bt.max_temp,
+        cooler.min_temp,
+        cooler.max_temp,
     )
 
 
