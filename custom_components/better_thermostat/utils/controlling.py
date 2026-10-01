@@ -26,6 +26,7 @@ from custom_components.better_thermostat.adapters.delegate import (
     set_temperature,
     set_valve,
 )
+from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
@@ -43,6 +44,7 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     SETPOINT_MATCH_TOLERANCE,
+    TRV_SETPOINT_KEYS,
     attr_to_celsius,
     convert_to_float,
     cooling_owns_dual_role_device,
@@ -50,7 +52,10 @@ from custom_components.better_thermostat.utils.helpers import (
     dual_role_entity_id,
     get_current_set_temperatures,
     matches_any_setpoint,
+    normalize_step,
+    on_cooler_grid,
     read_setpoint_celsius,
+    setpoint_echo_window,
     state_temperature_unit,
     supports_single_target_temperature,
     supports_temperature_range,
@@ -515,10 +520,14 @@ async def read_reports_held_during_cycle(self) -> None:
 
     A control cycle is requested only when the report moved what the next
     cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran,
-    which the handler takes as it arrives, as it does outside a cycle. A
-    device answering inside every cycle with a report that carries nothing
-    new would otherwise keep one cycle following the next.
+    to hold, or the internal temperature it reported while the cycle ran.
+    The handler takes that reading as it arrives, as it does outside a cycle,
+    unless it came too soon after the previous one; such a reading is taken
+    here once that interval has passed, and asks for a cycle all the same. A
+    child-locked device holding a setpoint or mode it was not sent requests
+    one as well, since the cycle is what turns it back. A device answering
+    inside every cycle with a report that carries nothing new would otherwise
+    keep one cycle following the next.
 
     Parameters
     ----------
@@ -569,12 +578,57 @@ async def read_reports_held_during_cycle(self) -> None:
         if (
             temperature_moved
             or _held_report_control_inputs(self, trv) != acted_on_before
+            or _locked_device_moved(self, entity_id, trv, state)
         ):
             try:
                 self.control_queue_task.put_nowait(self)
             except asyncio.QueueFull:
                 # A cycle is already queued, and it reads the same state.
                 pass
+
+
+def _locked_device_moved(self, entity_id, trv, state) -> bool:
+    """Return whether a child-locked TRV holds a setpoint or mode it was not sent.
+
+    The lock keeps a press at the device from being adopted, so it moves no
+    control input, and the cycle that turns the device back has to be asked
+    for by what the device holds. A mode command still waiting for its
+    confirmation is left to its watchdog, since the report can lag it; a
+    setpoint report that lags a write shows a value the device was sent
+    before.
+
+    The mode is held against the command of the channel that drives the
+    device: while the cooling channel owns a device that carries both roles,
+    that is the mode the cooler last sent, not the heating channel's. A device
+    reporting ``unknown`` names no mode, which is how a model that reads
+    ``unknown`` as operating reports, so only its setpoint is compared.
+    """
+    if not (trv.advanced or {}).get("child_lock"):
+        return False
+    if state.state != STATE_UNKNOWN:
+        if cooling_owns_dual_role_device(self, entity_id):
+            commanded_mode = self.last_sent_cooler_hvac_mode
+        elif trv.system_mode_received:
+            commanded_mode = trv.last_hvac_mode
+        else:
+            commanded_mode = None
+        if commanded_mode is not None and state.state != commanded_mode:
+            return True
+    reported = read_setpoint_celsius(
+        self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
+    )
+    step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
+    if entity_id == dual_role_entity_id(self):
+        # The cooling channel's writes as the device holds them, on the grid
+        # the cooling channel sends on, the way the inbound handler compares
+        # them.
+        known += cooling_writes_as_held(self, state)
+    known_values = [float(value) for value in known if value is not None]
+    if reported is None or not known_values:
+        return False
+    window = setpoint_echo_window(step)
+    return all(abs(reported - value) >= window for value in known_values)
 
 
 def _held_report_control_inputs(self, trv) -> tuple:
@@ -584,6 +638,7 @@ def _held_report_control_inputs(self, trv) -> tuple:
         self.bt_target_cooltemp,
         self.bt_hvac_mode,
         trv.hvac_mode,
+        trv.current_temperature,
     )
 
 
@@ -859,8 +914,13 @@ async def control_cooler(self):
     min_resend_interval_s = self.min_cooler_resend_interval_s
     now_ts = monotonic()
 
-    # Determine desired state based on current conditions
+    # Determine desired state based on current conditions. The cooler holds
+    # setpoints on its own grid only, so the command is the cooling target
+    # rounded once onto that grid; every comparison below and the send cache
+    # work with the value the device is actually sent.
     desired_temp = self.bt_target_cooltemp
+    if isinstance(desired_temp, (int, float)):
+        desired_temp = on_cooler_grid(self, cooler_state, float(desired_temp))
 
     # A range write needs both bounds, and Home Assistant rejects a low bound
     # above the high one. The heating target is the natural lower bound; it can
@@ -872,7 +932,9 @@ async def control_cooler(self):
         and desired_temp is not None
         and isinstance(self.bt_target_temp, (int, float))
     ):
-        _low_to_set = min(float(self.bt_target_temp), desired_temp)
+        _low_to_set = min(
+            on_cooler_grid(self, cooler_state, float(self.bt_target_temp)), desired_temp
+        )
 
     if any(
         v is None
@@ -1112,8 +1174,15 @@ async def control_cooler(self):
             }
         else:
             _payload = {"entity_id": self.cooler_entity_id, "temperature": _temp_to_set}
-        # Only prime the send-cache on success. A failed call must not look like
-        # a completed send, otherwise the nil-guard would suppress the retry.
+        # The device can report the write back while the call is still in
+        # flight, so the value is recorded as sent before the call goes out.
+        # A failed call must not look like a completed send, otherwise the
+        # nil-guard would suppress the retry, so a failure puts the previous
+        # record back.
+        _previous_send = (self.last_sent_cooler_temp, self.last_sent_cooler_temp_ts)
+        self.last_sent_cooler_temp = desired_temp
+        self.last_sent_cooler_temp_ts = now_ts
+        _sent = False
         try:
             await self.hass.services.async_call(
                 "climate",
@@ -1122,6 +1191,7 @@ async def control_cooler(self):
                 blocking=True,
                 context=self.context,
             )
+            _sent = True
         except HomeAssistantError as err:
             _LOGGER.warning(
                 "better_thermostat %s: set_temperature for cooler %s failed (%s); "
@@ -1130,9 +1200,11 @@ async def control_cooler(self):
                 self.cooler_entity_id,
                 err,
             )
-        else:
-            self.last_sent_cooler_temp = desired_temp
-            self.last_sent_cooler_temp_ts = now_ts
+        finally:
+            if not _sent:
+                self.last_sent_cooler_temp, self.last_sent_cooler_temp_ts = (
+                    _previous_send
+                )
 
     # Decide whether an hvac_mode command is needed, throttling identical
     # resends the same way as temperature commands.
