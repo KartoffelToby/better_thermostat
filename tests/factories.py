@@ -33,6 +33,7 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.preset_manager import PresetManager
 
 DEFAULT_TRV_ID = "climate.trv"
 DEFAULT_CONFIG_ENTRY_ID = "config_entry_1"
@@ -260,7 +261,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     MagicMock
         The entity mock with every attribute the property touches.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.window_open = False
     bt.call_for_heat = True
     bt.last_change = datetime(2026, 5, 18, tzinfo=UTC)
@@ -284,7 +285,12 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.last_heat_loss_stats = {}
     bt.next_valve_maintenance = None
     bt._preset_cool_temperatures = {}
-    bt.preset_mgr.temperatures = {}
+    bt._preset_cool_temperature = None
+    bt.preset_mgr = PresetManager(temperatures={})
+    bt.door_open = False
+    bt.kernel_state = running_kernel_state()
+    bt.clock = FakeClock()
+    bt.temp_slope = None
     for name, value in overrides.items():
         setattr(bt, name, value)
     return bt
