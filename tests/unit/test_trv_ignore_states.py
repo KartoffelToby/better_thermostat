@@ -45,13 +45,14 @@ def trv():
     )
 
 
-def _adopts(trv):
+def _adopts(trv, *, was_off=False):
     """Ask the production rule about a live report from ``trv``."""
     return accepts_user_setpoint(
         trv,
         is_echo=False,
         child_lock=trv.advanced.get("child_lock"),
         contact_open=False,
+        was_off=was_off,
     )
 
 
@@ -82,3 +83,17 @@ class TestIgnoreTrvStates:
         trv = Trv.from_legacy_dict("climate.default_test", {})
 
         assert trv.ignore_trv_states is False
+
+
+class TestSwitchedOn:
+    """A report that switches a device on does not bring its setpoint."""
+
+    def test_the_setpoint_of_a_report_that_switches_the_device_on_is_not_adopted(
+        self, trv
+    ):
+        """The setpoint was turned while the device was off."""
+        assert _adopts(trv, was_off=True) is False
+
+    def test_the_setpoint_of_a_device_that_was_heating_is_adopted(self, trv):
+        """A device that was already on reports a press."""
+        assert _adopts(trv, was_off=False) is True
