@@ -156,6 +156,25 @@ on observed user behaviour, **not calibrated truth** — read the row as
 "indicative for offset-mode TRVs in general", not as "calibrated for
 Tado specifically".
 
+By default the wrapper maps the valve intent onto a setpoint the way
+`calibration.py` does for the controller modes
+(`setpoint_mapping="production"`): `T_trv + (T_max − T_trv)·u`, a
+setpoint below the TRV's reading at `u = 0`, rounded up while heating
+and down while idle. The TRV's own sensor reads
+`T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
+the inner controller sees that reading as its TRV temperature. The
+fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the
+Bosch, Tuya and Sonoff presets; places swap only where two scores lie
+within 0.01 of each other (Tado and Bosch at 0.05), and absolute scores
+move by up to 0.08. The older `"heuristic"` and `"inversion"` mappings
+remain selectable.
+
+`reports_valve_position` decides what the inner controller gets as the
+previous valve: off (the default for all four presets), its own
+previous command; on, the opening the TRV actually chose, as Better
+Thermostat passes it to MPC v2 when the TRV's climate entity carries a
+`valve_position` attribute.
+
 ### Limitations
 
 * **It's a simulation.** The room is a lumped-RC model (2 or 3
