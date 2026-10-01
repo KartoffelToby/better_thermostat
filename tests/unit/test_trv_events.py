@@ -3599,15 +3599,27 @@ class TestDualRoleEntityReports:
         return mock_bt
 
     @staticmethod
-    async def _report(bt, *, device_mode, reported_temp, previous_temp):
-        """Drive one device report through the real TRV handler."""
+    async def _report(bt, *, device_mode, reported_temp, previous_temp, step=None):
+        """Drive one device report through the real TRV handler.
+
+        ``step`` is the setpoint step the device publishes, if any.
+        """
+        published = {} if step is None else {"target_temp_step": step}
         old_state = _make_state(
             state_str=device_mode,
-            attributes={"temperature": previous_temp, "current_temperature": 22.0},
+            attributes={
+                "temperature": previous_temp,
+                "current_temperature": 22.0,
+                **published,
+            },
         )
         new_state = _make_state(
             state_str=device_mode,
-            attributes={"temperature": reported_temp, "current_temperature": 22.0},
+            attributes={
+                "temperature": reported_temp,
+                "current_temperature": 22.0,
+                **published,
+            },
         )
         # trigger_trv_change reads the state machine rather than the event's
         # new_state for the device's own mode, so both carry the report.
@@ -3727,7 +3739,11 @@ class TestDualRoleEntityReports:
         shared_bt._cooler_last_sent = {"temperature": (cool_target, 0.0)}
 
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=pressed, previous_temp=held
+            shared_bt,
+            device_mode="cool",
+            reported_temp=pressed,
+            previous_temp=held,
+            step=1.0,
         )
 
         assert shared_bt.bt_target_cooltemp == pressed
@@ -3748,7 +3764,11 @@ class TestDualRoleEntityReports:
         )
 
         await self._report(
-            shared_bt, device_mode="cool", reported_temp=held, previous_temp=20.0
+            shared_bt,
+            device_mode="cool",
+            reported_temp=held,
+            previous_temp=20.0,
+            step=1.0,
         )
 
         assert shared_bt.bt_target_cooltemp == cool_target
