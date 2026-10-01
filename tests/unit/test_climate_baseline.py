@@ -139,7 +139,7 @@ def mock_bt():
     )
     bt._configured_target_temp_step = None
     bt._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(bt, value)
-    bt._preset_target = lambda value: BetterThermostat._preset_target(bt, value)
+    bt._applied_target = lambda value: BetterThermostat._applied_target(bt, value)
     return bt
 
 

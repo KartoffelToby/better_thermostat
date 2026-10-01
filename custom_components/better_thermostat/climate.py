@@ -2221,7 +2221,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 preset_temp = self.preset_mgr.get_temperature(self.preset_mgr.mode)
                 # Only override if different to avoid masking manual restore logic
                 if isinstance(preset_temp, (int, float)) and self.bt_target_temp != (
-                    preset_target := self._preset_target(preset_temp)
+                    preset_target := self._applied_target(preset_temp)
                 ):
                     _LOGGER.debug(
                         "better_thermostat %s: Applying restored preset %s temperature %s after startup",
@@ -2236,7 +2236,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 ):
                     cool_temp = self._preset_cool_temperatures[self.preset_mgr.mode]
                     if isinstance(cool_temp, (int, float)):
-                        self.bt_target_cooltemp = self._preset_target(cool_temp)
+                        self.bt_target_cooltemp = self._applied_target(cool_temp)
                 # A target that is re-injected rather than chosen is ordered the
                 # moment it is stored: the HVAC mode can change without the pair
                 # being looked at again, and async_set_hvac_mode does not
@@ -4321,19 +4321,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # 21.200000000000003.
         return round(rounded, 10)
 
-    def _preset_target(self, value: float) -> float:
-        """Return the target a stored preset temperature applies as.
+    def _applied_target(self, value: float) -> float:
+        """Return the target a requested or stored temperature applies as.
 
-        Rounded onto the configured step first and clamped into the range
-        second, as a target set directly is: a bound between two steps would
-        otherwise round the preset past it. Selecting a preset, comparing a
-        manual target against it and restoring it after a restart all go
-        through here, so the three agree on one number.
+        Clamped into the range, rounded onto the configured step, and clamped
+        again: the step nearest the clamped value, or the bound when that
+        step lies outside the range. Applying the result again returns it
+        unchanged, and a value outside the range applies as its clamped
+        value does. A target set directly, a preset being selected, a manual
+        target compared against the active preset and a preset restored
+        after a restart all go through here, so they agree on one number.
         """
-        on_grid = self._onto_target_grid(value)
-        return min(
-            self.max_temp, max(self.min_temp, value if on_grid is None else on_grid)
-        )
+        lowest, highest = self.min_temp, self.max_temp
+        in_range = min(highest, max(lowest, value))
+        on_grid = self._onto_target_grid(in_range)
+        return min(highest, max(lowest, in_range if on_grid is None else on_grid))
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
@@ -4424,21 +4426,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Home Assistant hands the target over converted from the unit the
         # user set it in, so a whole or tenth degree Fahrenheit arrives off the
-        # Celsius grid; it is rounded onto the thermostat's step here, once,
-        # and then clamped into the range.
-        _new_setpoint = self._onto_target_grid(_new_setpoint)
-        _new_setpointlow = self._onto_target_grid(_new_setpointlow)
-        _new_setpointhigh = self._onto_target_grid(_new_setpointhigh)
-
-        # Validate against min/max temps
+        # Celsius grid; it is put onto the thermostat's step inside the range
+        # here, once.
         if _new_setpoint is not None:
-            _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
+            _new_setpoint = self._applied_target(_new_setpoint)
         if _new_setpointlow is not None:
-            _new_setpointlow = min(self.max_temp, max(self.min_temp, _new_setpointlow))
+            _new_setpointlow = self._applied_target(_new_setpointlow)
         if _new_setpointhigh is not None:
-            _new_setpointhigh = min(
-                self.max_temp, max(self.min_temp, _new_setpointhigh)
-            )
+            _new_setpointhigh = self._applied_target(_new_setpointhigh)
 
         # Preserve explicit 0.0 values (avoid Python truthiness bug)
         if _new_setpoint is not None:
@@ -4471,7 +4466,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
             if (
                 preset_stored is None
-                or abs(applied - self._preset_target(preset_stored)) > 1e-3
+                or abs(applied - self._applied_target(preset_stored)) > 1e-3
             ):
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
@@ -4653,13 +4648,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # can be preserved and restored when returning to PRESET_NONE.
             previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
-                self.bt_target_temp = self._preset_target(new_temp)
+                self.bt_target_temp = self._applied_target(new_temp)
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
-                    self.bt_target_cooltemp = self._preset_target(
+                    self.bt_target_cooltemp = self._applied_target(
                         self._preset_cool_temperatures[preset_mode]
                     )
                     _LOGGER.debug(
