@@ -23,6 +23,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.temperature import (
+    queue_control_cycle,
     refresh_room_temperature_from_trvs,
 )
 from custom_components.better_thermostat.model_fixes.model_quirks import (
@@ -188,6 +189,11 @@ async def trigger_trv_change(
             # The next valid reading is the first live data after the
             # outage and must not be dropped by the debounce below.
             trv.accept_next_internal_temp = True
+        # During the room sensor fallback the room is taken from a TRV that
+        # still reports, and a room temperature that moves is controlled on.
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
+            queue_control_cycle(self)
         return
 
     advanced = trv.advanced or {}
@@ -272,7 +278,6 @@ async def trigger_trv_change(
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
-        _fallback_was_due = self.room_sensor_fallback_due
         _room_temperature_changed = refresh_room_temperature_from_trvs(self)
         if _room_temperature_changed:
             self.async_write_ha_state()
@@ -289,10 +294,10 @@ async def trigger_trv_change(
             if trv.calibration == 0:
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
-        # The report that starts a due room sensor fallback moves the room
-        # onto the TRV temperature. That happens once, so it gets a cycle
+        # A room temperature the room sensor fallback takes from the report,
+        # including the one that starts a due fallback, is controlled on
         # even when the report also confirms an offset write.
-        if _fallback_was_due and self.room_sensor_fallback:
+        if _room_temperature_changed:
             _main_change = True
 
     if self.ignore_states:

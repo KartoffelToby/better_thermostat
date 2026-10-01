@@ -304,9 +304,10 @@ async def read_reports_held_during_cycle(self) -> None:
 
     A control cycle is requested only when the report moved what the next
     cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran,
-    which the handler takes as it arrives, as it does outside a cycle. A
-    device answering inside every cycle with a report that carries nothing
+    to hold, the room temperature the room sensor fallback takes from it, or
+    the internal temperature it reported while the cycle ran, which the
+    handler takes as it arrives, as it does outside a cycle. A device
+    answering inside every cycle with a report that carries nothing
     new would otherwise keep one cycle following the next.
 
     Parameters
@@ -373,6 +374,7 @@ def _held_report_control_inputs(self, trv) -> tuple:
         self.bt_target_cooltemp,
         self.bt_hvac_mode,
         trv.hvac_mode,
+        self.cur_temp,
     )
 
 

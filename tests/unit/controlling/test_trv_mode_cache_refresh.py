@@ -471,6 +471,7 @@ class TestReportsHeldDuringACycle:
             pytest.param(None, False, id="nothing_moved"),
             pytest.param(("bt_target_temp", 23.0), True, id="target_adopted"),
             pytest.param(("bt_hvac_mode", HVACMode.OFF), True, id="mode_adopted"),
+            pytest.param(("cur_temp", 21.0), True, id="room_temperature_moved"),
         ],
     )
     async def test_a_cycle_is_requested_only_for_what_a_cycle_acts_on(
