@@ -11,6 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
@@ -119,15 +120,28 @@ def _hold_report(
     came back from becomes the reference. A later report that moves the
     setpoint the device came back with makes the state before that move the
     reference, so a knob turned after the return is still read as a press.
+    A later report that switches the device on makes the off state it
+    switched on from the reference, and off the mode it is judged against,
+    as the handler would have cached the earlier report outside a cycle.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
         self, trv.state_before_held_report
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    switched_on_after_first_report = (
+        trv.report_unread
+        and old_state is not None
+        and old_state.state == HVACMode.OFF
+        and new_state is not None
+        and new_state.state not in (HVACMode.OFF, STATE_UNAVAILABLE, STATE_UNKNOWN)
+    )
     if not trv.report_unread or returned or moved_after_return:
         trv.state_before_held_report = old_state
         trv.hvac_mode_before_held_report = trv.hvac_mode
+    if switched_on_after_first_report:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = HVACMode.OFF
     trv.report_unread = True
 
 

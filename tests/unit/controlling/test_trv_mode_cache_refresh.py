@@ -517,6 +517,47 @@ class TestReportsHeldDuringACycle:
         assert thermostat.bt_target_temp == 19.0
         request.assert_called_once_with(thermostat)
 
+    @pytest.mark.asyncio
+    async def test_a_head_switched_off_and_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A later report that switches the head on is judged as a switch-on.
+
+        The head heats, is switched off inside the cycle, and is switched on
+        again with a setpoint turned while it was off, all before the cycle
+        ends. Outside a cycle the first report caches the head as off, so the
+        second is read as a switch-on and its setpoint is not adopted. Read
+        at the end of the cycle, the reports are judged the same way, and the
+        switch-on asks for the cycle that drives the head back to the room
+        target.
+        """
+        heating = reported_states[ENTITY_ID]
+        switched_off = _reported_state("off")
+        switched_on = _reported_state("heat", setpoint=23.0)
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        for old_state, new_state in (
+            (heating, switched_off),
+            (switched_off, switched_on),
+        ):
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
+
 
 class TestHeldReportAgainstThePreviousState:
     """A report read at cycle end is judged against the state it replaced."""
