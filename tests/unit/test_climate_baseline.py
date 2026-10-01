@@ -147,7 +147,7 @@ def mock_bt():
     )
     bt._configured_target_temp_step = None
     bt._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(bt, value)
-    bt._preset_target = lambda value, **kwargs: BetterThermostat._preset_target(
+    bt._applied_target = lambda value, **kwargs: BetterThermostat._applied_target(
         bt, value, **kwargs
     )
     return bt
@@ -2268,7 +2268,7 @@ class TestChannelRanges:
 
     def test_a_preset_is_held_to_the_heating_range(self, cooled_bt):
         """A heating preset above the heads' maximum applies as that maximum."""
-        assert BetterThermostat._preset_target(cooled_bt, 33.0) == 30.0
+        assert BetterThermostat._applied_target(cooled_bt, 33.0) == 30.0
 
     @pytest.mark.asyncio
     async def test_a_selected_preset_is_held_to_the_heating_range(self, cooled_bt):
@@ -2280,3 +2280,35 @@ class TestChannelRanges:
         await BetterThermostat.async_set_preset_mode(cooled_bt, PRESET_COMFORT)
 
         assert cooled_bt.bt_target_temp == 30.0
+
+    @pytest.mark.asyncio
+    async def test_a_selected_cooling_preset_is_held_to_the_cooling_range(
+        self, cooled_bt
+    ):
+        """A cooling preset above the heads' maximum is kept where the cooler holds it."""
+        cooled_bt.preset_modes = [PRESET_NONE, PRESET_COMFORT]
+        cooled_bt.preset_mgr.mode = PRESET_NONE
+        cooled_bt.preset_mgr.update_temperature(PRESET_COMFORT, 22.0)
+        cooled_bt._preset_cool_temperatures = {PRESET_COMFORT: 33.0}
+        cooled_bt._preset_cool_temperature = None
+
+        await BetterThermostat.async_set_preset_mode(cooled_bt, PRESET_COMFORT)
+
+        assert cooled_bt.bt_target_cooltemp == 33.0
+
+    @pytest.mark.asyncio
+    async def test_a_cooling_target_set_directly_is_held_to_the_cooling_range(
+        self, cooled_bt
+    ):
+        """A target_temp_high above the heads' maximum is kept within the cooler's."""
+        cooled_bt.hvac_mode = HVACMode.HEAT_COOL
+        cooled_bt.bt_hvac_mode = HVACMode.HEAT_COOL
+        cooled_bt.preset_mgr.mode = PRESET_NONE
+        cooled_bt.bt_target_temp = 21.0
+        cooled_bt.bt_target_cooltemp = 26.0
+
+        await BetterThermostat.async_set_temperature(
+            cooled_bt, **{ATTR_TARGET_TEMP_HIGH: 33.0}
+        )
+
+        assert cooled_bt.bt_target_cooltemp == 33.0
