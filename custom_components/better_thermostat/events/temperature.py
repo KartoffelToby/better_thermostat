@@ -242,6 +242,38 @@ async def _commit_temperature_update(self, new_temp):
     )
 
 
+def _commit_pending_after(self, delay_s: float) -> None:
+    """Apply the pending reading once the debounce interval has run out.
+
+    A reading turned away only because it came too soon after the last one
+    is the room's temperature as soon as the interval is over: a sensor that
+    reports on change says nothing more until the room moves again. The
+    timer shares the plateau timer's handle, so a newer reading, a commit or
+    the entity's removal cancels it the same way.
+    """
+    if self.plateau_timer_cancel is not None:
+        self.plateau_timer_cancel()
+    _value = self.pending_temp
+    _since = self.pending_since
+
+    async def _interval_cb(_now):
+        self.plateau_timer_cancel = None
+        async with temperature_filter_lock(self):
+            if self.is_removed:
+                return
+            if self.pending_temp != _value or self.pending_since != _since:
+                return
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature accepted after the "
+                "debounce interval (value=%.2f)",
+                self.device_name,
+                _value,
+            )
+            await _commit_temperature_update(self, _value)
+
+    self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_cb)
+
+
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
 
@@ -477,6 +509,12 @@ async def trigger_temperature_change(self, event):
             self._external_temp_ema_ts = None
         await _commit_temperature_update(self, _incoming_temperature_q)
     else:
+        if (
+            not _interval_ok
+            and self.pending_temp is not None
+            and (_is_significant or abs(self.accum_delta) >= _sig_threshold_q)
+        ):
+            _commit_pending_after(self, max(0.1, _time_diff - _age))
         _LOGGER.debug(
             "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s "
             "age=%.1fs sig=%s interval_ok=%s threshold=%.2f accum=%.2f dir=%s pending=%s pending_age=%ss)",

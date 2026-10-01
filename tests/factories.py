@@ -192,7 +192,6 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.window_open = False
     bt.call_for_heat = True
     bt.last_change = datetime(2026, 5, 18, tzinfo=UTC)
-    bt._preset_temperature = None
     bt._current_humidity = None
     bt.humidity_sensor_entity_id = None
     bt.last_main_hvac_mode = HVACMode.HEAT

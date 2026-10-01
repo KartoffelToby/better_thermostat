@@ -24,7 +24,6 @@ def mock_bt_with_off_temperature():
     bt.call_for_heat = True
     bt.last_change = MagicMock()
     bt.last_change.isoformat = MagicMock(return_value="2026-01-11T20:00:00")
-    bt._preset_temperature = None
     bt._current_humidity = 50.0
     bt.last_main_hvac_mode = "heat"
     bt.tolerance = 0.5
@@ -48,7 +47,6 @@ def mock_bt_without_off_temperature():
     bt.call_for_heat = True
     bt.last_change = MagicMock()
     bt.last_change.isoformat = MagicMock(return_value="2026-01-11T20:00:00")
-    bt._preset_temperature = None
     bt._current_humidity = 50.0
     bt.last_main_hvac_mode = "heat"
     bt.tolerance = 0.5

@@ -89,9 +89,23 @@ def _target_version() -> str | None:
 
 
 def _python_files() -> list[str]:
-    """Return the repository's Python files, as git records them."""
+    """Return the repository's Python files, added to git or not yet.
+
+    A file nobody has run ``git add`` on is part of the next commit all the
+    same, so it counts here as it will in CI. The ignore rules decide what
+    belongs to the repository.
+    """
     listing = subprocess.run(
-        ("git", "ls-files", "-z", "--", "*.py"),
+        (
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "*.py",
+        ),
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

@@ -36,7 +36,7 @@ This page explains the two setup screens in plain language and gives practical d
 - **The outdoor temperature when the thermostat should turn off**: If it gets warmer than this outside, the heating turns off automatically to save energy and money.
 - **Enabled Presets**: Choose which modes you want to use (like Eco mode for saving energy while away).
 - **Tolerance, to prevent the thermostat from turning on and off too often**: A small temperature buffer so your heater doesn't constantly click on and off if the temperature fluctuates slightly.
-- **Target minimum temperature** / **Target maximum temperature**: The range you can set on this thermostat. Leave both on *Auto* to use the range your devices report, or pick a degree to narrow it — a nursery held above 16°C, say. The minimum must not be above the maximum.
+- **Target minimum temperature** / **Target maximum temperature**: The range you can set on this thermostat. Leave both on *Auto* to use the range your devices report, or pick a degree to narrow it — a nursery held above 16°C, say. The minimum must not be above the maximum. With a cooler on *Auto*, the heating target stays within your heaters' range and the cooling target within the cooler's, so an air conditioner that goes up to 35°C can be given 33°C even when the radiators stop at 30°C.
 - **Target temperature step**: How much the temperature changes when you press the plus or minus buttons (e.g., 0.5°C).
 
 </div>
@@ -101,7 +101,7 @@ Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision h
 ### Other important toggles
 
 - **Overheating protection?**: On by default. Helps if your room keeps getting too hot even after reaching the target temperature (often happens if radiators stay hot for a long time). It only acts in the AI Time Based and Aggressive modes.
-- **If your TRV doesn't support the 'off' mode, enable this to set the TRV to its minimum temperature instead**: Some devices don't have a proper "Off" switch. This sends them their lowest supported target temperature instead to keep them off safely.
+- **Use the minimum temperature instead of 'off'**: Sends the TRV its lowest supported target temperature instead of switching it off, and treats a TRV at that temperature as off; the room switches off once every TRV in it is off and no window or door is open. A TRV that lists no "Off" mode gets the minimum temperature automatically, but counts as off at that temperature only with this option; enable the option when the "Off" mode your TRV lists does not work, or when turning the knob of a TRV without one should switch BT on and off.
 - **If 'auto' means 'heat' for your TRV and you want to swap it**: Fixes a quirk with some specific thermostat brands where the modes are mixed up in Home Assistant.
 - **If your thermostat has no own maintenance mode, you can use this one**: Adds a maintenance mode (like opening the valve fully to prevent it from getting stuck in summer) if your device lacks one.
 - **Ignore all inputs on the TRV like a child lock**: Acts like a child lock. Changes made directly on the physical radiator valve will be ignored.

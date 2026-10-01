@@ -2318,6 +2318,80 @@ class TestControlCoolerTargetRange:
         }
 
 
+class TestControlCoolerDeviceRange:
+    """The cooler is written only setpoints its own range contains.
+
+    Home Assistant refuses a setpoint outside a device's range, and the cooling
+    target can leave the cooler's range where a configured bound widens the
+    cooling range past it.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("target_cooltemp", "written"),
+        [
+            pytest.param(38.0, 35.0, id="above_the_maximum"),
+            pytest.param(12.0, 16.0, id="below_the_minimum"),
+            pytest.param(26.0, 26.0, id="inside_the_range"),
+        ],
+    )
+    async def test_the_setpoint_is_held_to_the_cooler_range(
+        self, target_cooltemp, written
+    ):
+        """A cooling target outside the cooler's range is written at its edge."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes={"temperature": 24.0, "min_temp": 16.0, "max_temp": 35.0},
+            target_cooltemp=target_cooltemp,
+            target_temp=10.0,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = _service_calls(mock_hass, "set_temperature")
+        assert calls[0].args[2] == {
+            "entity_id": "climate.cooler",
+            "temperature": written,
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_fahrenheit_range_is_held_in_the_system_unit(self):
+        """The edge is read inward of the published °F bound and written in °F.
+
+        Home Assistant publishes a device's bound rounded to whole degrees, so
+        95 °F stands for anything from 94.5 °F up; the edge is taken half a
+        degree inward, where the device's own bound cannot be exceeded.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes={"temperature": 75.2, "min_temp": 61.0, "max_temp": 95.0},
+            system_unit=UnitOfTemperature.FAHRENHEIT,
+            target_cooltemp=36.0,
+            target_temp=20.0,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = _service_calls(mock_hass, "set_temperature")
+        assert calls[0].args[2] == {"entity_id": "climate.cooler", "temperature": 94.5}
+
+    @pytest.mark.asyncio
+    async def test_the_lower_bound_of_a_band_is_raised_onto_the_cooler_minimum(self):
+        """A heating target below the cooler's minimum travels as that minimum."""
+        attributes = _range_attributes(target_temp_high=28.0, target_temp_low=19.0)
+        attributes |= {"min_temp": 16.0, "max_temp": 35.0}
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes=attributes, target_cooltemp=26.0, target_temp=10.0
+        )
+
+        await control_cooler(mock_self)
+
+        calls = _service_calls(mock_hass, "set_temperature")
+        assert calls[0].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 26.0,
+            "target_temp_low": 16.0,
+        }
+
+
 class TestControlCoolerUnknownTarget:
     """A cool target that is not known holds the cooler off."""
 

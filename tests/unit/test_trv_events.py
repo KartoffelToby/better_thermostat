@@ -5,6 +5,7 @@ mode synchronisation, target-temperature adoption, control-queue triggering,
 and the convert_inbound_states / convert_outbound_states helpers.
 """
 
+import asyncio
 from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +17,7 @@ from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.trv import (
     convert_inbound_states,
     convert_outbound_states,
@@ -38,6 +40,12 @@ PEER_ID = "climate.test_trv_peer"
 # ---------------------------------------------------------------------------
 
 
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the task manager instead of running it."""
+    coro.close()
+    return MagicMock()
+
+
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
@@ -55,6 +63,8 @@ def mock_bt():
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
@@ -63,6 +73,8 @@ def mock_bt():
     bt.tolerance = 0.3
     bt.startup_running = False
     bt.control_queue_task = MagicMock()
+    # Background work the handler schedules is not run here.
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_close_coro))
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
@@ -660,6 +672,41 @@ class TestInternalTemperatureChange:
             await trigger_trv_change(mock_bt, event)
 
         mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cycle_running", [False, True])
+    async def test_calibration_received_under_sensor_fallback_still_controls(
+        self, mock_bt, cycle_running
+    ):
+        """A confirmation that moves the fallback room temperature requests a cycle.
+
+        Under SENSOR_FALLBACK the TRV readings are the room temperature, so a
+        new reading changes what the next cycle controls on even when it also
+        confirms an offset write.
+        """
+        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        mock_bt.ignore_states = cycle_running
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.calibration_received = False
+        trv.calibration = 1
+        trv.current_temperature = 18.0
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert trv.calibration_received is True
+        assert trv.current_temperature == 20.0
+        if cycle_running:
+            assert trv.temperature_moved_while_held is True
+        else:
+            mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
 
     @pytest.mark.asyncio
     async def test_calibration_zero_fetches_offset(self, mock_bt):
@@ -3260,6 +3307,8 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
@@ -3267,7 +3316,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.contact_open = False
     bt.tolerance = 0.3
     bt.startup_running = False
-    bt.control_queue_task = AsyncMock()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
@@ -3593,8 +3642,8 @@ class TestDualRoleEntityReports:
         mock_bt._clamp_inbound_cool_target = lambda v: (
             BetterThermostat._clamp_inbound_cool_target(mock_bt, v)
         )
-        mock_bt._enforce_heat_below_cool = lambda: (
-            BetterThermostat._enforce_heat_below_cool(mock_bt)
+        mock_bt._enforce_heat_below_cool = lambda **kwargs: (
+            BetterThermostat._enforce_heat_below_cool(mock_bt, **kwargs)
         )
         return mock_bt
 
@@ -3654,6 +3703,25 @@ class TestDualRoleEntityReports:
         assert shared_bt.bt_target_temp == 20.0
         assert shared_bt.bt_target_cooltemp == 24.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_bounds_a_cooling_press_by_the_cooling_range(
+        self, shared_bt
+    ):
+        """A press the cooling channel owns is held to the cooling range.
+
+        A second head narrows the heating range below the shared device's own
+        maximum, which still bounds the cooling channel.
+        """
+        shared_bt.bt_max_temp = 26.0
+        shared_bt.cool_max_temperature = 31.0
+
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=29.0, previous_temp=24.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == 29.0
+        assert shared_bt.bt_target_temp == 20.0
 
     @pytest.mark.asyncio
     async def test_shared_entity_files_a_press_under_the_cooling_channel_while_it_cools(

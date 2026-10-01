@@ -51,6 +51,12 @@ def _reported_state(mode: str, setpoint: float = 19.0) -> State:
     )
 
 
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the task manager instead of running it."""
+    coro.close()
+    return MagicMock()
+
+
 @pytest.fixture
 def reported_states() -> dict[str, State]:
     """Hold what each device publishes, so a test can change it mid-cycle."""
@@ -85,6 +91,8 @@ def thermostat(reported_states):
     bt.cooler_entity_id = None
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
+    # Background work the handler schedules is not run here.
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_close_coro))
     bt.calculate_heating_power = AsyncMock()
     bt.calculate_heat_loss = AsyncMock()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]

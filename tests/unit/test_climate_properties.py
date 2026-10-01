@@ -26,6 +26,8 @@ def bt():
     mock.bt_target_cooltemp = 25.0
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
+    mock.cool_min_temperature = None
+    mock.cool_max_temperature = None
     mock.cooler_entity_id = None
     return mock
 
@@ -107,6 +109,26 @@ def test_min_temp_uses_configured(bt):
 def test_max_temp_uses_configured(bt):
     """A configured max is returned directly."""
     assert _prop("max_temp", bt) == 30.0
+
+
+def test_a_cooler_widens_the_published_range_to_its_own(bt):
+    """The published range spans the heating and the cooling channel.
+
+    Home Assistant checks both targets against the one range the entity
+    publishes, so a cooling target only the cooler can hold has to fit in it.
+    """
+    bt.cooler_entity_id = "climate.cooler"
+    bt.cool_min_temperature = 16.0
+    bt.cool_max_temperature = 35.0
+    assert (_prop("min_temp", bt), _prop("max_temp", bt)) == (5.0, 35.0)
+
+
+def test_a_narrower_cooler_leaves_the_heater_range_published(bt):
+    """A cooler inside the heater's range leaves the heating range reachable."""
+    bt.cooler_entity_id = "climate.cooler"
+    bt.cool_min_temperature = 16.0
+    bt.cool_max_temperature = 28.0
+    assert (_prop("min_temp", bt), _prop("max_temp", bt)) == (5.0, 30.0)
 
 
 # --- supported_features (cooler dependent) ---------------------------------

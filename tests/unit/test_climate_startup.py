@@ -10,7 +10,7 @@ import contextlib
 from datetime import timedelta
 import json
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
@@ -75,10 +75,19 @@ LOCAL_CALIBRATION = 3
 # ---------------------------------------------------------------------------
 
 
+def _discard_background_work(coro, *, name):
+    """Close a coroutine handed to ``_spawn_owned`` instead of running it."""
+    coro.close()
+    return DEFAULT
+
+
 @pytest.fixture
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
     mock = MagicMock(spec=BetterThermostat)
+    # The coroutine handed over was created by the caller; a mock that drops
+    # it leaves it unawaited.
+    mock._spawn_owned = MagicMock(side_effect=_discard_background_work)
     mock.clock = MagicMock()
     mock.kernel_state = KernelState()
     mock._degraded_grace_until = None
@@ -113,6 +122,8 @@ def bt():
     mock.degraded_mode = False
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
+    mock.cool_min_temperature = None
+    mock.cool_max_temperature = None
     mock.bt_target_temp = 21.0
     mock.bt_target_temp_min = None
     mock.bt_target_temp_max = None
@@ -160,6 +171,9 @@ def bt():
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
+    mock._bound_cool_target_to_range = lambda value: (
+        BetterThermostat._bound_cool_target_to_range(mock, value)
+    )
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     mock._first_plausible_trv_temperature = lambda: (
         BetterThermostat._first_plausible_trv_temperature(mock)
@@ -194,6 +208,7 @@ def plateau_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     # Production holds Trv objects here. A MagicMock in their place answers
     # every attribute read, so a member field the code under test asks for
@@ -337,6 +352,7 @@ class TestStartupUnloadBailout:
         bt._door_task = None
         bt.plateau_timer_cancel = None
         bt._owned_tasks = set()
+        bt._final_flush_task = None
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
@@ -477,6 +493,7 @@ def owned_task_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
@@ -708,6 +725,50 @@ class TestOwnedBackgroundTasks:
 
         assert readings == []
         state_mgr.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_removal_stops_the_timed_copy_retry_before_the_flush(
+        self, hass, owned_task_bt
+    ):
+        """No timed copy retry outlives the entity.
+
+        The flush still tries the copy once. A timer left running would
+        write into the store the next entity for the same entry reads.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_task_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        lifecycle = [
+            name
+            for name, _args, _kwargs in state_mgr.mock_calls
+            if name in {"close", "flush"}
+        ]
+        assert lifecycle == ["close", "flush"]
 
 
 # ---------------------------------------------------------------------------
@@ -1283,6 +1344,18 @@ class TestStartupCoolTargetSeed:
         await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_the_seed_is_bounded_by_the_cooler_range(self, bt):
+        """A cooler setpoint above the heads' maximum is taken as reported."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.cool_min_temperature = 16.0
+        bt.cool_max_temperature = 35.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 33.0})})
+
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp == 33.0
 
     @pytest.mark.asyncio
     async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):
