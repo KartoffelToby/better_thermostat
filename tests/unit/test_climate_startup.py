@@ -138,7 +138,7 @@ def bt():
     mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
         mock, value
     )
-    mock._preset_target = lambda value: BetterThermostat._preset_target(mock, value)
+    mock._applied_target = lambda value: BetterThermostat._applied_target(mock, value)
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     return mock
 
@@ -2049,6 +2049,49 @@ class TestRestoreState:
         assert selected == (22.0, 25.5)
         assert (bt.bt_target_temp, bt.bt_target_cooltemp) == selected
         assert bt.preset_mgr.mode == "comfort"
+
+    @pytest.mark.asyncio
+    async def test_a_preset_below_a_bound_off_the_step_applies_one_target(self, bt):
+        """A preset below the range applies the same target on every path.
+
+        The range starts at 68.5 °F, 20.28 °C, between two steps of the
+        configured 0.5 °C, and Eco is stored at 18 °C. Selecting Eco, setting
+        the target it applied or Eco's stored 18 °C directly, as Eco's number
+        does, and restoring Eco after a restart all land on 20.5 °C, the step
+        nearest the bound inside the range, and Eco stays active throughout.
+        """
+        bt.bt_min_temp = 20.28
+        bt._configured_target_temp_step = 0.5
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.control_queue_task = AsyncMock()
+
+        await BetterThermostat.async_set_preset_mode(bt, "eco")
+        selected = bt.bt_target_temp
+
+        for requested in (selected, 18.0):
+            await BetterThermostat.async_set_temperature(
+                bt, **{ATTR_TEMPERATURE: requested}
+            )
+            assert bt.bt_target_temp == selected
+            assert bt.preset_mgr.mode == "eco"
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected,
+            "preset_mode": "eco",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.0, "eco": 18.0}
+            ),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == 20.5
+        assert bt.bt_target_temp == selected
+        assert bt.preset_mgr.mode == "eco"
 
     def _cooling_bt(self, bt, minimum, maximum):
         """Configure *bt* with a cooling channel and a real ordering method."""
