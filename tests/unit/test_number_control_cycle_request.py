@@ -34,8 +34,10 @@ def _thermostat_with_a_pending_cycle():
     bt_climate = MagicMock()
     bt_climate.unique_id = "test_bt"
     bt_climate.device_name = "Test BT"
-    bt_climate.min_temp = 5.0
-    bt_climate.max_temp = 30.0
+    bt_climate.bt_min_temp = 5.0
+    bt_climate.bt_max_temp = 30.0
+    bt_climate.cool_min_temperature = None
+    bt_climate.cool_max_temperature = None
     bt_climate.bt_target_temp_step = 0.5
     bt_climate.preset_mode = PRESET_HOME
     bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL

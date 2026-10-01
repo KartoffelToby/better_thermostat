@@ -122,6 +122,8 @@ def bt():
     mock.degraded_mode = False
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
+    mock.cool_min_temperature = None
+    mock.cool_max_temperature = None
     mock.bt_target_temp = 21.0
     mock.bt_target_temp_min = None
     mock.bt_target_temp_max = None
@@ -168,6 +170,9 @@ def bt():
     )
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
+    )
+    mock._bound_cool_target_to_range = lambda value: (
+        BetterThermostat._bound_cool_target_to_range(mock, value)
     )
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     mock._first_plausible_trv_temperature = lambda: (
@@ -1339,6 +1344,18 @@ class TestStartupCoolTargetSeed:
         await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_the_seed_is_bounded_by_the_cooler_range(self, bt):
+        """A cooler setpoint above the heads' maximum is taken as reported."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.cool_min_temperature = 16.0
+        bt.cool_max_temperature = 35.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 33.0})})
+
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp == 33.0
 
     @pytest.mark.asyncio
     async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):

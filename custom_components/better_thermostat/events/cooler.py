@@ -106,6 +106,7 @@ async def trigger_cooler_change(self, event):
         new_state,
         keys=COOLER_SETPOINT_KEYS,
         known_values=cooling_writes_as_held(self, new_state),
+        cooling=True,
         step=_step,
         log_source="trigger_cooler_change()",
     )
@@ -217,9 +218,10 @@ async def trigger_cooler_change(self, event):
             # The clamp leaves the heating target alone, so this only settles
             # the degenerate case where no cooling value above the heating
             # target exists inside the range: at a heating target resting on
-            # bt_max_temp it drops that target by one step, and a range the
-            # children narrowed below a target already in place is what moves
-            # it further — that move is what brings it back inside the range.
+            # the cooling maximum it drops that target by one step, and a range
+            # the children narrowed below a target already in place is what
+            # moves it further — that move is what brings it back inside the
+            # range.
             self._enforce_heat_below_cool()
             _main_change = True
         elif _reported_moved:

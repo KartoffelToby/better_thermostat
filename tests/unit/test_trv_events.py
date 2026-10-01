@@ -57,6 +57,8 @@ def mock_bt():
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
@@ -3297,6 +3299,8 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
@@ -3630,8 +3634,8 @@ class TestDualRoleEntityReports:
         mock_bt._clamp_inbound_cool_target = lambda v: (
             BetterThermostat._clamp_inbound_cool_target(mock_bt, v)
         )
-        mock_bt._enforce_heat_below_cool = lambda: (
-            BetterThermostat._enforce_heat_below_cool(mock_bt)
+        mock_bt._enforce_heat_below_cool = lambda **kwargs: (
+            BetterThermostat._enforce_heat_below_cool(mock_bt, **kwargs)
         )
         return mock_bt
 
@@ -3691,6 +3695,25 @@ class TestDualRoleEntityReports:
         assert shared_bt.bt_target_temp == 20.0
         assert shared_bt.bt_target_cooltemp == 24.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_shared_entity_bounds_a_cooling_press_by_the_cooling_range(
+        self, shared_bt
+    ):
+        """A press the cooling channel owns is held to the cooling range.
+
+        A second head narrows the heating range below the shared device's own
+        maximum, which still bounds the cooling channel.
+        """
+        shared_bt.bt_max_temp = 26.0
+        shared_bt.cool_max_temperature = 31.0
+
+        await self._report(
+            shared_bt, device_mode="cool", reported_temp=29.0, previous_temp=24.0
+        )
+
+        assert shared_bt.bt_target_cooltemp == 29.0
+        assert shared_bt.bt_target_temp == 20.0
 
     @pytest.mark.asyncio
     async def test_shared_entity_files_a_press_under_the_cooling_channel_while_it_cools(
