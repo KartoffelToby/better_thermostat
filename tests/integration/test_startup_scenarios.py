@@ -428,6 +428,63 @@ async def test_a_silent_room_sensor_moves_the_ladder_one_tick_after_each_window(
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
 
 
+async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
+    hass, fake_trv
+):
+    """The filtered room temperature starts over from the returning reading.
+
+    While the room runs on the TRV temperature, the minute tick keeps feeding
+    the filter the last reading from before the outage, which says nothing
+    about the room since. Blended into the returning reading it would hold
+    the filtered temperature near the old value when the ladder hands the
+    room back to its sensor, and show a warming trend that did not happen.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+    assert bt.cur_temp_filtered == 18.0
+
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    start = dt_util.utcnow()
+    elapsed = 0.0
+
+    async def let_time_pass(seconds):
+        """Move both clocks on by ``seconds`` in half-tick steps."""
+        nonlocal elapsed
+        step = LADDER_TICK_S / 2
+        target = elapsed + seconds
+        while elapsed < target:
+            clock.advance(step)
+            elapsed += step
+            async_fire_time_changed(hass, start + timedelta(seconds=elapsed))
+            await hass.async_block_till_done()
+
+    with patch(
+        "custom_components.better_thermostat.events.temperature.monotonic",
+        clock.monotonic,
+    ):
+        hass.states.async_set(SENSOR_ID, "unavailable")
+        fake_trv._attr_current_temperature = 22.0
+        fake_trv.async_set_context(Context())
+        fake_trv.async_write_ha_state()
+        await hass.async_block_till_done()
+        await let_time_pass(30 * 60)
+        assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+        assert effective_room_temp(bt) == 22.0
+
+        set_room_sensor(hass, 22.0)
+        assert await wait_for(hass, lambda: bt.cur_temp == 22.0)
+        assert bt.cur_temp_filtered == 22.0
+
+        await let_time_pass(LadderParams().up_stability_s + LADDER_TICK_S)
+        assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert bt.cur_temp_filtered == 22.0
+        assert bt.temp_slope == 0.0
+
+
 def degraded_issue_sensors(hass, bt) -> str | None:
     """Return the sensors the degraded-mode repair issue names, if it is open."""
     issue = ir.async_get(hass).async_get_issue(

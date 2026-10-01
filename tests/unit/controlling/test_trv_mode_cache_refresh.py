@@ -7,11 +7,13 @@ mode inside that window and states what the cache owes the user afterwards.
 """
 
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -30,6 +32,7 @@ from custom_components.better_thermostat.utils.controlling import (
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
+_COOLER = "custom_components.better_thermostat.events.cooler"
 
 # The mode list of an ordinary radiator valve.
 OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
@@ -429,6 +432,49 @@ class TestReportsHeldDuringACycle:
         assert thermostat.real_trvs[ENTITY_ID].current_temperature == 19.5
         assert request.called
 
+    @pytest.mark.asyncio
+    async def test_an_internal_temperature_held_back_inside_the_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A reading the debounce held back inside a cycle is acted on at its end.
+
+        The reading arrives too soon after the previous one, so the handler
+        neither takes it nor marks it as moved. By the end of the cycle that
+        interval has passed, and the report read again then takes the reading,
+        which outside a cycle requests one.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        old_state = reported_states[ENTITY_ID]
+        warmer = State(
+            ENTITY_ID,
+            old_state.state,
+            attributes={**old_state.attributes, "current_temperature": 19.5},
+        )
+        reported_states[ENTITY_ID] = warmer
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": warmer,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+
+        assert trv.current_temperature == 18.0
+        assert trv.report_unread is True
+        assert trv.temperature_moved_while_held is False
+
+        trv.last_internal_sensor_change = dt_util.now() - timedelta(seconds=10)
+        thermostat.ignore_states = False
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert trv.current_temperature == 19.5
+        request.assert_called_once_with(thermostat)
+
 
 class TestHeldReportAgainstThePreviousState:
     """A report read at cycle end is judged against the state it replaced."""
@@ -694,7 +740,44 @@ class TestALockedPressHeldDuringACycle:
 
         with (
             patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
-            patch(f"{_CTRL}.last_sent_cooler_temperature", return_value=24.3),
+            patch(f"{_COOLER}.last_sent_cooler_temperature", return_value=24.3),
+        ):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    async def test_a_fahrenheit_dual_role_device_compares_on_the_cooling_grid(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit without a published step reads whole °F.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.0
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with (
+            patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
+            patch(
+                f"{_COOLER}.last_sent_cooler_temperature",
+                return_value=(75.0 - 32.0) * 5.0 / 9.0,
+            ),
         ):
             moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
 

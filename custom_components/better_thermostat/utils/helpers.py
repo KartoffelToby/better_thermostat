@@ -1290,6 +1290,47 @@ def device_setpoint_step(
     return step
 
 
+def on_cooler_grid(
+    self: BetterThermostat, cooler_state: State, value: float | None
+) -> float | None:
+    """Return a cooler setpoint in °C as it lies on the cooler's own grid.
+
+    The cooler publishes its step in the system unit, so a Fahrenheit value is
+    rounded in Fahrenheit and brought back; the payload's conversion then
+    lands on that grid point again. A cooler that publishes no usable step
+    holds whole degrees on a Fahrenheit system, Home Assistant's precision
+    for that unit, and on a Celsius system is rounded onto the step its
+    reports are compared with.
+    """
+    if value is None:
+        return None
+    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
+    step = convert_to_float(
+        str(cooler_state.attributes.get("target_temp_step")),
+        self.device_name,
+        "control_cooler()",
+    )
+    if step is None or step <= 0:
+        if not fahrenheit:
+            return round_by_step(
+                value, device_setpoint_step(self, cooler_state, "control_cooler()")
+            )
+        step = 1.0
+    if fahrenheit:
+        on_grid = round_by_step(
+            TemperatureConverter.convert(
+                value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
+            step,
+        )
+        if on_grid is None:
+            return None
+        return TemperatureConverter.convert(
+            on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+        )
+    return round_by_step(value, step)
+
+
 def setpoint_echo_window(step: float) -> float:
     """Return the distance below which a setpoint difference is grid noise.
 

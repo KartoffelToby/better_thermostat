@@ -40,7 +40,7 @@
   "custom_components/better_thermostat/utils/calibration/pid.py": 27,
   "custom_components/better_thermostat/utils/calibration/strategies.py": 1,
   "custom_components/better_thermostat/utils/calibration/tpi.py": 1,
-  "custom_components/better_thermostat/utils/controlling.py": 42,
+  "custom_components/better_thermostat/utils/controlling.py": 41,
   "custom_components/better_thermostat/utils/helpers.py": 10,
   "custom_components/better_thermostat/utils/hvac_action.py": 29,
   "custom_components/better_thermostat/utils/snapshot.py": 10,
