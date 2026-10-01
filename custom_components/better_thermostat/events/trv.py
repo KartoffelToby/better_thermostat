@@ -241,6 +241,23 @@ async def trigger_trv_change(
     # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
     # below and leaves the stored reading in place.
     _reports_no_temp = _new_current_temp is None
+    # SENSOR_FALLBACK counts a stored reading only while the TRV's report
+    # confirms it. A report that turns a plausible reading into a marker
+    # value takes the TRV out of the mean, and one that turns a marker value
+    # back into a plausible reading puts it back, so either moves the room
+    # temperature the control law reads while the stored value stays.
+    _previous_temp = attr_to_celsius(
+        self, old_state, "current_temperature", None, "TRV_previous_temp"
+    )
+    if (
+        self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+        and trv.current_temperature is not None
+        and _new_current_temp is not None
+        and _previous_temp is not None
+        and is_reasonable_temperature(_new_current_temp)
+        != is_reasonable_temperature(_previous_temp)
+    ):
+        _main_change = True
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):

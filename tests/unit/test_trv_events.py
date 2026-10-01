@@ -6,6 +6,7 @@ and the convert_inbound_states / convert_outbound_states helpers.
 """
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +17,7 @@ from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 import pytest
 
+from custom_components.better_thermostat.calibration import effective_room_temp
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.trv import (
@@ -820,6 +822,145 @@ class _UnprintableValvePosition:
 
     def __str__(self):
         raise RuntimeError("boom")
+
+
+class TestSensorFallbackOnReportsWithoutAUsableTemperature:
+    """The fallback room temperature follows what the TRVs report."""
+
+    @pytest.mark.asyncio
+    async def test_unchanged_reading_after_unknown_is_taken(self, mock_bt):
+        """A reading equal to the one held before the gap is live again."""
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        gap = _make_state(attributes={"current_temperature": "unknown"})
+        report = _make_state(attributes={"current_temperature": 21.0})
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            mock_bt.hass.states.get.return_value = gap
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=gap, old_state=report)
+            )
+            assert trv.current_temperature is None
+
+            mock_bt.hass.states.get.return_value = report
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=report, old_state=gap)
+            )
+
+        assert trv.current_temperature == 21.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cycle_running", [False, True])
+    async def test_a_reading_turning_implausible_controls_the_room_anew(
+        self, mock_bt, cycle_running
+    ):
+        """A TRV whose report turns into a marker value drops out of the mean."""
+        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        mock_bt.ignore_states = cycle_running
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        live = _make_state(attributes={"current_temperature": 21.0})
+        marker = _make_state(attributes={"current_temperature": 127.0})
+        mock_bt.hass.states.get.return_value = marker
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=marker, old_state=live)
+            )
+
+        if cycle_running:
+            assert trv.temperature_moved_while_held is True
+        else:
+            mock_bt.control_queue_task.put_nowait.assert_called_once_with(mock_bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("mode", "previous"),
+        [
+            pytest.param(ControlMode.SENSOR_FALLBACK, 127.0, id="marker_repeated"),
+            pytest.param(ControlMode.OPTIMAL, 21.0, id="room_sensor_in_charge"),
+        ],
+    )
+    async def test_a_marker_that_changes_nothing_requests_no_cycle(
+        self, mock_bt, mode, previous
+    ):
+        """Only the report that takes the reading out of the mean moves the room."""
+        mock_bt.kernel_state.control_mode.mode = mode
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        before = _make_state(attributes={"current_temperature": previous})
+        marker = _make_state(attributes={"current_temperature": 127.0})
+        mock_bt.hass.states.get.return_value = marker
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=marker, old_state=before)
+            )
+
+        mock_bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "recovered",
+        [
+            pytest.param(21.0, id="same_as_stored"),
+            pytest.param(21.5, id="inside_debounce_window"),
+        ],
+    )
+    async def test_a_reading_turning_plausible_again_controls_the_room_anew(
+        self, mock_bt, recovered
+    ):
+        """A TRV whose marker report turns usable again rejoins the mean."""
+        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        trv.last_internal_sensor_change = dt_util.now()
+        mock_bt.real_trvs[PEER_ID] = replace(
+            trv, entity_id=PEER_ID, current_temperature=19.0
+        )
+        peer_state = State(
+            PEER_ID,
+            "heat",
+            attributes={"current_temperature": 19.0, "temperature": 19.0},
+        )
+        live = _make_state(attributes={"current_temperature": 21.0})
+        marker = _make_state(attributes={"current_temperature": 127.0})
+        back = _make_state(attributes={"current_temperature": recovered})
+        reported = {PEER_ID: peer_state, ENTITY_ID: live}
+        mock_bt.hass.states.get.side_effect = reported.get
+        put_nowait = mock_bt.control_queue_task.put_nowait
+
+        async def report(new_state, old_state):
+            reported[ENTITY_ID] = new_state
+            await trigger_trv_change(
+                mock_bt, _make_event(mock_bt, new_state=new_state, old_state=old_state)
+            )
+
+        assert effective_room_temp(mock_bt) == 20.0
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await report(marker, live)
+            assert put_nowait.call_count == 1
+            assert effective_room_temp(mock_bt) == 19.0
+
+            await report(back, marker)
+            assert put_nowait.call_count == 2
+            assert effective_room_temp(mock_bt) == 20.0
+
+            await report(back, back)
+            assert put_nowait.call_count == 2
 
 
 class TestHvacActionAndValvePosition:
