@@ -22,6 +22,7 @@ from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.better_thermostat.adapters import delegate, generic
@@ -56,6 +57,23 @@ _PATCHES = {
     "override_set_hvac_mode": f"{_CTRL}.override_set_hvac_mode",
     "override_set_temperature": f"{_CTRL}.override_set_temperature",
 }
+
+
+@pytest.fixture(autouse=True)
+def _no_helper_entity_is_disabled():
+    """The entity registry marks none of the TRVs' helper entities disabled.
+
+    The stand-in Home Assistant carries no registry of its own; an empty
+    one answers every helper lookup with "no entry", which the write path
+    treats as enabled.
+    """
+    registry = MagicMock(spec=er.EntityRegistry)
+    registry.async_get.return_value = None
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
 
 
 def _close_coro(coro, **kwargs):

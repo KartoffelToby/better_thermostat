@@ -436,7 +436,7 @@ async def trigger_trv_change(
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *cooling_writes_as_held(self, _step),
+            *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (
@@ -563,6 +563,7 @@ async def trigger_trv_change(
                     _adopted_heating_setpoint,
                 )
                 self.bt_target_temp = _adopted_heating_setpoint
+                trv.remember_setpoint_adopted(_raw_heating_setpoint)
                 if self.cooler_entity_id is not None:
                     # Residual tie-break only: the clamp already cleared the
                     # cooling target unless it ran into bt_min_temp, so this

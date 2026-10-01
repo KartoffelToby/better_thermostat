@@ -7,11 +7,13 @@ mode inside that window and states what the cache owes the user afterwards.
 """
 
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -23,6 +25,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationType,
 )
 from custom_components.better_thermostat.utils.controlling import (
+    _locked_device_moved,
     control_queue,
     read_reports_held_during_cycle,
 )
@@ -522,6 +525,43 @@ class TestReportsHeldDuringACycle:
         assert cycles == 2
 
     @pytest.mark.asyncio
+    async def test_an_internal_temperature_held_back_inside_the_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A reading the debounce held back inside a cycle is acted on at its end.
+
+        The reading arrives too soon after the previous one, so the handler
+        neither takes it nor marks it as moved. By the end of the cycle that
+        interval has passed, and the report read again then takes the reading,
+        which outside a cycle requests one.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        thermostat.ignore_states = True
+        previous = reported_states[ENTITY_ID]
+        warmer = State(
+            ENTITY_ID,
+            "heat",
+            attributes={**previous.attributes, "current_temperature": 19.5},
+        )
+        reported_states[ENTITY_ID] = warmer
+
+        await trigger_trv_change(thermostat, _device_event(previous, warmer))
+
+        assert trv.current_temperature == 18.0
+        assert trv.report_unread is True
+        assert trv.temperature_moved_while_held is False
+
+        trv.last_internal_sensor_change = dt_util.now() - timedelta(seconds=10)
+        thermostat.ignore_states = False
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert trv.current_temperature == 19.5
+        assert thermostat.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
     async def test_a_routine_report_during_the_cycle_requests_no_further_cycle(
         self, thermostat, reported_states
     ):
@@ -717,3 +757,211 @@ class TestHeldReportsAcrossAnOutage:
         )
 
         assert thermostat.bt_target_temp == 19.0
+
+
+class TestALockedPressHeldDuringACycle:
+    """A press at a child-locked TRV that the cycle held off is turned back."""
+
+    @staticmethod
+    def _lock(thermostat):
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.advanced["child_lock"] = True
+        trv.report_unread = True
+        return trv
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(_reported_state("heat", setpoint=25.0), id="setpoint_up"),
+            pytest.param(_reported_state("heat", setpoint=16.0), id="setpoint_down"),
+            pytest.param(_reported_state("off"), id="mode"),
+        ],
+    )
+    async def test_a_locked_press_requests_a_cycle(
+        self, thermostat, reported_states, published
+    ):
+        """The next cycle drives the device back without waiting for a tick."""
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = published
+
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.control_queue_task.qsize() == 1
+        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(_reported_state("heat", setpoint=19.0), id="its_own_write"),
+            pytest.param(_reported_state("heat", setpoint=19.2), id="within_a_step"),
+        ],
+    )
+    async def test_a_locked_device_holding_the_write_requests_none(
+        self, thermostat, reported_states, published
+    ):
+        """A locked device that reports what it was sent needs no cycle."""
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = published
+
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_a_lagging_report_of_a_pending_write_requests_none(
+        self, thermostat, reported_states
+    ):
+        """A report of the value before an unconfirmed write is not a press."""
+        trv = self._lock(thermostat)
+        trv.remember_setpoint_confirmed(19.0)
+        trv.last_temperature = 22.0
+        trv.target_temp_received = False
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
+
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    async def test_a_lagging_report_of_a_pending_mode_requests_none(
+        self, thermostat, reported_states
+    ):
+        """A report of the mode before an unconfirmed mode command is not a press."""
+        trv = self._lock(thermostat)
+        trv.last_hvac_mode = "off"
+        trv.system_mode_received = False
+        reported_states[ENTITY_ID] = _reported_state("heat")
+
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.control_queue_task.empty()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(24.0, True, id="one_step_below_the_held_target"),
+            pytest.param(24.5, False, id="the_held_target"),
+        ],
+    )
+    async def test_a_dual_role_device_compares_cooling_writes_as_it_holds_them(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit reads a press against its grid.
+
+        The cooling target 24.3 is held as 24.5 on a 0.5 grid, so a press to
+        24.0 is one step away from what the device was sent, and 24.5 is the
+        write itself.
+        """
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.3
+        thermostat.last_sent_cooler_temp = 24.3
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    async def test_a_fahrenheit_dual_role_device_compares_on_the_cooling_grid(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit without a published step reads whole °F.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.0
+        thermostat.last_sent_cooler_temp = (75.0 - 32.0) * 5.0 / 9.0
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("held_mode", "requested"),
+        [
+            pytest.param("cool", False, id="the_cooling_command"),
+            pytest.param("heat", True, id="the_idle_heating_command"),
+        ],
+    )
+    async def test_a_cooled_dual_role_device_is_held_to_the_cooling_command(
+        self, thermostat, reported_states, held_mode, requested
+    ):
+        """A locked reversible unit the cooling channel drives holds its mode.
+
+        The cooling channel owns the device and last sent it cool, while the
+        heating channel's own mode command is still heat. A device holding
+        cool holds what it was sent and needs no cycle; one holding heat was
+        turned away from the cooling command and is turned back.
+        """
+        trv = self._lock(thermostat)
+        trv.last_hvac_mode = "heat"
+        trv.last_temperature = 19.0
+        thermostat.cooler_entity_id = ENTITY_ID
+        thermostat.last_cooler_mode_decided = HVACMode.COOL
+        thermostat.last_sent_cooler_hvac_mode = HVACMode.COOL
+        thermostat.last_sent_cooler_temp = 25.0
+        state = _reported_state(held_mode, setpoint=25.0)
+
+        moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("setpoint", "requested"),
+        [
+            pytest.param(19.0, False, id="holding_the_write"),
+            pytest.param(25.0, True, id="setpoint_pressed"),
+        ],
+    )
+    async def test_an_operating_unknown_report_is_read_for_its_setpoint_only(
+        self, thermostat, reported_states, setpoint, requested
+    ):
+        """A model that reports an operating device as unknown names no mode.
+
+        The report is read, since the model says the device operates, but
+        unknown is not a mode the device was turned to; only a setpoint it
+        was not sent asks for the cycle that turns it back.
+        """
+        self._lock(thermostat)
+        reported_states[ENTITY_ID] = _reported_state(STATE_UNKNOWN, setpoint=setpoint)
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        with patch(f"{_CTRL}.trv_state_unknown_as_available", return_value=True):
+            await read_reports_held_during_cycle(thermostat)
+
+        assert (thermostat.control_queue_task.qsize() == 1) is requested
