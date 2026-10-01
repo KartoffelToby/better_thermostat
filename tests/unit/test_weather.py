@@ -26,6 +26,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from custom_components.better_thermostat.utils.weather import (
+    FORECAST_CALL_TIMEOUT,
     OUTDOOR_HISTORY_REFRESH,
     DailyHistory,
     check_ambient_air_temperature,
@@ -83,6 +84,11 @@ def make_bt(hass, **kw):
     for k, v in kw.items():
         setattr(bt, k, v)
     return bt
+
+
+async def hanging_service_call(*_args, **_kwargs):
+    """Stand in for a service call whose handler never returns."""
+    await asyncio.Event().wait()
 
 
 class FakeMonotonic:
@@ -312,6 +318,29 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
         bt = make_bt(hass, weather_entity=WEATHER_ID)
         assert await check_weather_prediction(bt) is None
+
+    async def test_a_hanging_service_gives_no_opinion_after_the_timeout(self, caplog):
+        """A forecast service that stalls yields no verdict once the timeout ends.
+
+        A cloud weather integration can stall on its request while the
+        internet is down. The call is cut off after the forecast timeout and
+        reads as a missing forecast, with a warning naming the entity.
+        """
+        states = {WEATHER_ID: weather_state()}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(side_effect=hanging_service_call)
+        bt = make_bt(hass, weather_entity=WEATHER_ID)
+        with (
+            patch(f"{WEATHER_MOD}.FORECAST_CALL_TIMEOUT", timedelta(seconds=0.01)),
+            caplog.at_level(logging.WARNING, logger=WEATHER_MOD),
+        ):
+            result = await asyncio.wait_for(check_weather_prediction(bt), timeout=5)
+        assert result is None
+        assert [r for r in caplog.records if WEATHER_ID in r.getMessage()]
+
+    async def test_the_forecast_call_is_bounded_by_default(self):
+        """The shipped timeout holds startup up for at most ten seconds."""
+        assert FORECAST_CALL_TIMEOUT == timedelta(seconds=10)
 
     async def test_service_not_supported_returns_none(self):
         """A ServiceNotSupported error resolves to None."""
@@ -1028,6 +1057,21 @@ class TestCheckWeather:
         assert bt.call_for_heat is previous
         assert changed is False
         logbook.assert_not_awaited()
+
+    async def test_a_hanging_weather_service_at_startup_leaves_heating_enabled(self):
+        """A forecast service that stalls before any verdict ends with heating on.
+
+        Startup awaits this check; the cut-off call reads as a missing
+        forecast, and without a verdict since startup the room heats.
+        """
+        states = {WEATHER_ID: weather_state()}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(side_effect=hanging_service_call)
+        bt = make_bt(hass, weather_entity=WEATHER_ID, outdoor_sensor=None)
+        bt.call_for_heat = False
+        with patch(f"{WEATHER_MOD}.FORECAST_CALL_TIMEOUT", timedelta(seconds=0.01)):
+            await asyncio.wait_for(check_weather(bt), timeout=5)
+        assert bt.call_for_heat is True
 
 
 HOUR_S = 3600.0
