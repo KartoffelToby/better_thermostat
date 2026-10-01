@@ -5,10 +5,17 @@ entry; nothing reads them once the entry is gone, so its removal deletes
 them. Another entry's state is left alone.
 """
 
+import asyncio
 from unittest.mock import patch
 
+from homeassistant.helpers import storage
+
 from .conftest import DOMAIN, SENSOR_ID, make_entry, setup_entry, wait_for_startup
-from .test_state_saved_on_stop import CHANGED, _started_with_a_saved_value
+from .test_state_saved_on_stop import (
+    CHANGED,
+    _started_on_a_store_whose_copy_fails,
+    _started_with_a_saved_value,
+)
 
 
 def _stored_keys(hass_storage, entry) -> list[str]:
@@ -86,3 +93,63 @@ async def test_a_failed_removal_does_not_block_the_entry_removal(
     assert result == {"require_restart": False}
     assert hass.config_entries.async_get_entry(entry.entry_id) is None
     assert "failed to remove state store" in caplog.text
+
+
+async def _remove_while_the_final_write_is_held(hass, entry) -> None:
+    """Remove *entry* while its final state write waits on a gate.
+
+    The gate opens only once the removal has had every chance to finish
+    without the write, so a removal that does not wait for the write
+    deletes the stores before it lands.
+    """
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    write = storage.Store._async_write_data
+
+    async def _held_write(store, data):
+        if entry.entry_id in store.key:
+            entered.set()
+            await release.wait()
+        await write(store, data)
+
+    with patch.object(storage.Store, "_async_write_data", _held_write):
+        removal = hass.async_create_task(
+            hass.config_entries.async_remove(entry.entry_id)
+        )
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        for _ in range(20):
+            await asyncio.sleep(0)
+        release.set()
+        await removal
+        await hass.async_block_till_done()
+
+
+async def test_removal_waits_for_the_final_save(hass, hass_storage, fake_trv):
+    """A final save still writing when the entry is removed is not left behind."""
+    entry = make_entry()
+    bt = await _started_with_a_saved_value(hass, hass_storage, entry)
+    bt.heating_power = CHANGED
+    bt.schedule_save_state()
+
+    await _remove_while_the_final_write_is_held(hass, entry)
+
+    assert _stored_keys(hass_storage, entry) == []
+
+
+async def test_removal_waits_for_the_final_copy(hass, hass_storage, fake_trv):
+    """A copy the final save is still writing at removal is not left behind."""
+    entry = make_entry()
+    disk = {"full": True}
+    bt, _live, patcher = await _started_on_a_store_whose_copy_fails(
+        hass, hass_storage, entry, disk
+    )
+    try:
+        disk["full"] = False
+        bt.heating_power = CHANGED
+        bt.state_mgr.mark_dirty()
+
+        await _remove_while_the_final_write_is_held(hass, entry)
+    finally:
+        patcher.stop()
+
+    assert _stored_keys(hass_storage, entry) == []

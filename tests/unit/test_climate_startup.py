@@ -127,6 +127,7 @@ def bt():
     mock.version = "1.0.0"
     mock.startup_running = True
     mock._owned_tasks = set()
+    mock._final_flush_task = None
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
