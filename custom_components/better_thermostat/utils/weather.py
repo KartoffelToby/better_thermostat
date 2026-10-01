@@ -28,6 +28,14 @@ from .helpers import convert_to_float_celsius
 
 _LOGGER = logging.getLogger(__name__)
 
+# How long the get_forecasts service call may take. Coordinator-based weather
+# entities answer from memory; one that fetches on demand answers within a
+# few seconds while its service is reachable. A cloud integration can instead
+# stall until its HTTP client gives up, minutes later, when the internet is
+# down, and startup awaits this call before the entity becomes available. A
+# call cut off here reads as a missing forecast.
+FORECAST_CALL_TIMEOUT = timedelta(seconds=10)
+
 # How long a weather-only setup keeps its decision while the weather entity
 # gives no forecast verdict. check_weather runs once an hour, so this holds
 # the decision across three silent checks: long enough to ride out a cloud
@@ -210,13 +218,24 @@ async def check_weather_prediction(self) -> bool | None:
         # Sample roughly the next two days regardless of forecast granularity.
         _forecast_samples = {"daily": 2, "twice_daily": 4, "hourly": 48}[ftype]
 
-        forecasts = await self.hass.services.async_call(
-            WEATHER_DOMAIN,
-            "get_forecasts",
-            {"type": ftype, "entity_id": [self.weather_entity]},
-            blocking=True,
-            return_response=True,
-        )
+        try:
+            async with asyncio.timeout(FORECAST_CALL_TIMEOUT.total_seconds()):
+                forecasts = await self.hass.services.async_call(
+                    WEATHER_DOMAIN,
+                    "get_forecasts",
+                    {"type": ftype, "entity_id": [self.weather_entity]},
+                    blocking=True,
+                    return_response=True,
+                )
+        except TimeoutError:
+            _LOGGER.warning(
+                "better_thermostat %s: weather entity %s did not return a "
+                "forecast within %.0f seconds",
+                self.device_name,
+                self.weather_entity,
+                FORECAST_CALL_TIMEOUT.total_seconds(),
+            )
+            return None
         forecast_container = (
             forecasts.get(self.weather_entity) if isinstance(forecasts, dict) else None
         )
