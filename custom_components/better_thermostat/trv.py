@@ -244,6 +244,22 @@ class Trv:
             if pending.write_id > through_write_id
         ]
 
+    def remember_setpoint_adopted(self, value: float) -> None:
+        """Record a setpoint turned at the device as the one it holds.
+
+        The turn takes the place of the command BT last saw confirmed, so a
+        later turn back to that command reads as the user's again instead of
+        as BT's write coming back. The writes still on the wire are not
+        retired: the device has not answered them, and one may still land.
+
+        Parameters
+        ----------
+        value : float
+            The setpoint in °C as the device reported it.
+        """
+        self.last_temperature = value
+        self.remember_setpoint_confirmed(value, self.confirmed_write_id)
+
     @classmethod
     def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
         """Build a Trv from a plain per-entity dict.
