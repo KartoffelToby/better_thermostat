@@ -958,14 +958,10 @@ def advance_hvac_action(self: BetterThermostat) -> None:
         The Better Thermostat climate entity instance
     """
     try:
-        # Preserve old action for change detection if attributes exist
-        if hasattr(self, "attr_hvac_action"):
-            self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
-        # Recompute current hvac action (uses internal climate logic)
-        if hasattr(self, "_compute_hvac_action_pure"):
-            result = self._compute_hvac_action_pure()
-            self._commit_hvac_action(result)
-            self.attr_hvac_action = result.action
+        self.old_attr_hvac_action = self.attr_hvac_action
+        result = self._compute_hvac_action_pure()
+        self._commit_hvac_action(result)
+        self.attr_hvac_action = result.action
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: hvac action recompute failed (non critical)",

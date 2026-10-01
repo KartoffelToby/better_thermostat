@@ -26,6 +26,7 @@ def _tracked_trv(entity_id: str) -> Trv:
 def _thermostat() -> ThermostatStandIn:
     """Build a heating room at rest that one control cycle can observe."""
     bt = ThermostatStandIn()
+    bt.attr_hvac_action = None
     bt.clock = FakeClock()
     bt.kernel_state = running_kernel_state()
     bt.flight_recorder = FlightRecorder()

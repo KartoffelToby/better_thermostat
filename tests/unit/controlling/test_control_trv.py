@@ -129,6 +129,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_hass.services.async_call = AsyncMock()
 
     mock_self = ThermostatStandIn()
+    mock_self.attr_hvac_action = None
     mock_self.hass = mock_hass
     mock_self.device_name = "test_thermostat"
     mock_self._temp_lock = asyncio.Lock()
@@ -1608,6 +1609,7 @@ class TestBoostModeSafetyOverride:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -1953,6 +1955,7 @@ class TestBoostModeSafetyOverride:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -2334,6 +2337,7 @@ class TestRaceConditionLockCoverage:
         )
 
         mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_grouped_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -2535,6 +2539,7 @@ class TestRaceConditionLockCoverage:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -2652,6 +2657,7 @@ class TestRaceConditionLockCoverage:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
         mock_self._temp_lock = asyncio.Lock()
@@ -2833,6 +2839,7 @@ class TestRaceConditionLockCoverage:
 def mock_bt_grouped():
     """Create a mock BetterThermostat instance for grouped TRV testing."""
     bt = ThermostatStandIn()
+    bt.attr_hvac_action = None
     bt.hass = MagicMock()
     bt.clock = FakeClock()
     bt.flight_recorder = FlightRecorder()

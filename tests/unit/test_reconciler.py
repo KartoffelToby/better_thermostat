@@ -34,6 +34,7 @@ _CTRL = "custom_components.better_thermostat.utils.controlling"
 
 def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt = ThermostatStandIn()
+    bt.attr_hvac_action = None
     bt.device_name = "Test BT"
     bt.cooler_entity_id = None
     bt.device_name = "Test BT"
