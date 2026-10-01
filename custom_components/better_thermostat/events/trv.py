@@ -414,7 +414,7 @@ async def trigger_trv_change(
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *cooling_writes_as_held(self, _step),
+            *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (

@@ -7,11 +7,13 @@ mode inside that window and states what the cache owes the user afterwards.
 """
 
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -523,6 +525,43 @@ class TestReportsHeldDuringACycle:
         assert cycles == 2
 
     @pytest.mark.asyncio
+    async def test_an_internal_temperature_held_back_inside_the_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A reading the debounce held back inside a cycle is acted on at its end.
+
+        The reading arrives too soon after the previous one, so the handler
+        neither takes it nor marks it as moved. By the end of the cycle that
+        interval has passed, and the report read again then takes the reading,
+        which outside a cycle requests one.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        thermostat.ignore_states = True
+        previous = reported_states[ENTITY_ID]
+        warmer = State(
+            ENTITY_ID,
+            "heat",
+            attributes={**previous.attributes, "current_temperature": 19.5},
+        )
+        reported_states[ENTITY_ID] = warmer
+
+        await trigger_trv_change(thermostat, _device_event(previous, warmer))
+
+        assert trv.current_temperature == 18.0
+        assert trv.report_unread is True
+        assert trv.temperature_moved_while_held is False
+
+        trv.last_internal_sensor_change = dt_util.now() - timedelta(seconds=10)
+        thermostat.ignore_states = False
+
+        await read_reports_held_during_cycle(thermostat)
+
+        assert trv.current_temperature == 19.5
+        assert thermostat.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
     async def test_a_routine_report_during_the_cycle_requests_no_further_cycle(
         self, thermostat, reported_states
     ):
@@ -799,6 +838,38 @@ class TestALockedPressHeldDuringACycle:
         trv.last_hvac_mode = "cool"
         thermostat.bt_target_cooltemp = 24.3
         thermostat.last_sent_cooler_temp = 24.3
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    async def test_a_fahrenheit_dual_role_device_compares_on_the_cooling_grid(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit without a published step reads whole °F.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.0
+        thermostat.last_sent_cooler_temp = (75.0 - 32.0) * 5.0 / 9.0
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
