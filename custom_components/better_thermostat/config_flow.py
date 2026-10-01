@@ -20,7 +20,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import CONF_NAME, UnitOfTemperature
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, selector
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -839,6 +839,30 @@ async def _prepare_advanced_context(
     }
 
 
+def _in_use_placeholders(
+    hass: HomeAssistant,
+    trv_entity_ids_to_check: Iterable[str],
+    entry_id: str | None,
+    kept: Iterable[str] = (),
+) -> dict[str, str] | None:
+    """Name the first thermostat another entry controls, and that entry.
+
+    Thermostats in ``kept`` are skipped. ``None`` means every thermostat is
+    free for the entry ``entry_id`` (``None`` for an entry not yet created).
+    """
+    kept_ids = set(kept)
+    for trv_entity_id in trv_entity_ids_to_check:
+        if trv_entity_id in kept_ids:
+            continue
+        owners = other_entries_controlling(hass, trv_entity_id, entry_id)
+        if owners:
+            return {
+                "trv": trv_entity_id,
+                "entry": owners[0].data.get(CONF_NAME, owners[0].title),
+            }
+    return None
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Better Thermostat."""
 
@@ -898,6 +922,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Creating entry with heater bundle: %s", self.data.get(CONF_HEATER)
                 )
                 self._abort_if_unique_id_configured()
+                # Another flow can have created an entry for one of these
+                # thermostats while this one waited on its forms, so the
+                # check runs again with nothing awaited before the entry.
+                in_use = _in_use_placeholders(
+                    self.hass, [x["trv"] for x in self.data[CONF_HEATER]], None
+                )
+                if in_use:
+                    return self.async_abort(
+                        reason="trv_in_use", description_placeholders=in_use
+                    )
                 return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
@@ -1023,16 +1057,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_HEATER] = "no_heater"
 
             if not errors:
-                for trv_entity_id in heaters:
-                    owners = other_entries_controlling(self.hass, trv_entity_id, None)
-                    if owners:
-                        return self.async_abort(
-                            reason="trv_in_use",
-                            description_placeholders={
-                                "trv": trv_entity_id,
-                                "entry": owners[0].data.get(CONF_NAME, owners[0].title),
-                            },
-                        )
+                in_use = _in_use_placeholders(self.hass, heaters, None)
+                if in_use:
+                    return self.async_abort(
+                        reason="trv_in_use", description_placeholders=in_use
+                    )
                 self.trv_entity_ids = list(heaters)
                 self.trv_bundle = []
                 for trv in self.trv_entity_ids:
@@ -1144,8 +1173,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 self.updated_config.get(CONF_HEATER),
             )
 
-            # Check for calibration mode changes to trigger entity cleanup
-            await self._check_calibration_changes()
+            # Another entry can have taken a thermostat this one gains while
+            # the forms were open, so the check runs again with nothing
+            # awaited before the write.
+            in_use = self._in_use_placeholders([trv["trv"] for trv in self.trv_bundle])
+            if in_use:
+                self.i = 0
+                self.trv_bundle = []
+                self._active_trv_config = None
+                return self._show_user_form(
+                    self.updated_config, {CONF_HEATER: "trv_in_use"}, in_use
+                )
+
+            # The comparison reads the entry's data, so it runs before the
+            # write; the signal goes out only once the write has happened.
+            algorithms_changed = self._calibration_algorithms_changed()
 
             # The whole configuration lives in the entry's data. Options are
             # emptied in the same update, so an entry that still carries them
@@ -1153,6 +1195,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config, options={}
             )
+            if algorithms_changed:
+                # Dynamic entity management adds and removes algorithm sensors.
+                signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
+                dispatcher_send(
+                    self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
+                )
             self._active_trv_config = None
             # The entry is written above and nothing reads its options.
             return self.async_create_entry(title=self.updated_config["name"], data={})
@@ -1209,22 +1257,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # a missing key.
             if not normalized.get(CONF_SENSOR):
                 errors[CONF_SENSOR] = "no_sensor"
-            # A thermostat belongs to one entry. An overlap the entry already
-            # has is left alone; only a thermostat it gains is checked.
-            stored_trvs = trv_entity_ids(self._config_entry)
-            for trv_entity_id in normalized.get(CONF_HEATER) or []:
-                if trv_entity_id in stored_trvs:
-                    continue
-                owners = other_entries_controlling(
-                    self.hass, trv_entity_id, self._config_entry.entry_id
-                )
-                if owners:
-                    errors[CONF_HEATER] = "trv_in_use"
-                    in_use_placeholders = {
-                        "trv": trv_entity_id,
-                        "entry": owners[0].data.get(CONF_NAME, owners[0].title),
-                    }
-                    break
+            in_use = self._in_use_placeholders(normalized.get(CONF_HEATER) or [])
+            if in_use:
+                errors[CONF_HEATER] = "trv_in_use"
+                in_use_placeholders = in_use
 
             if not errors:
                 self.trv_bundle = []
@@ -1278,9 +1314,36 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 errors[CONF_HEATER] = "no_heater"
 
+        return self._show_user_form(
+            self._config_entry.data, errors, in_use_placeholders, user_input
+        )
+
+    def _in_use_placeholders(
+        self, trv_entity_ids_to_check: Iterable[str]
+    ) -> dict[str, str] | None:
+        """Name a thermostat this entry gains that another entry controls.
+
+        A thermostat belongs to one entry. An overlap the entry already has is
+        left alone; only a thermostat it gains is checked.
+        """
+        return _in_use_placeholders(
+            self.hass,
+            trv_entity_ids_to_check,
+            self._config_entry.entry_id,
+            kept=trv_entity_ids(self._config_entry),
+        )
+
+    def _show_user_form(
+        self,
+        current: Mapping[str, Any],
+        errors: dict[str, str],
+        placeholders: Mapping[str, str],
+        user_input: dict[str, Any] | None = None,
+    ):
+        """Show the user step prefilled from ``current`` and ``user_input``."""
         fields = _build_user_fields(
             mode="update",
-            current=self._config_entry.data,
+            current=current,
             user_input=user_input,
             system_unit=self.hass.config.units.temperature_unit,
         )
@@ -1292,12 +1355,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             last_step=False,
             description_placeholders={
                 "docs_url": CONFIG_WALKTHROUGH_URL,
-                **in_use_placeholders,
+                **placeholders,
             },
         )
 
-    async def _check_calibration_changes(self) -> None:
-        """Check for calibration mode changes and signal for entity cleanup."""
+    def _calibration_algorithms_changed(self) -> bool:
+        """Return whether the update changes the set of calibration algorithms."""
         old_config = self._config_entry.data
         new_config = self.updated_config
 
@@ -1321,12 +1384,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     for alg in algorithms_removed
                 ],
             )
-
-            # Signal configuration change for dynamic entity management
-            signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
-            dispatcher_send(
-                self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
-            )
+            return True
+        return False
 
     def _get_active_algorithms(self, config: Mapping[str, Any]) -> set:
         """Get set of calibration algorithms currently in use by any TRV."""
