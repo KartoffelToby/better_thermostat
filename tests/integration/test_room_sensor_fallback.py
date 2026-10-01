@@ -8,6 +8,7 @@ maximum.
 """
 
 from datetime import timedelta
+import time
 from unittest.mock import patch
 
 from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -214,3 +215,67 @@ async def test_a_sensor_reading_taken_while_startup_runs_reaches_the_room(
 
     assert await wait_for(hass, lambda: bt.cur_temp == 21.0)
     assert bt.room_sensor_fallback is False
+
+
+class _SharedClock:
+    """Move Home Assistant's timers and the filter's monotonic clock together.
+
+    The filter weighs a reading by the monotonic time since its last update,
+    which the test clock of Home Assistant does not advance.
+    """
+
+    def __init__(self):
+        self.offset_s = 0.0
+        self._real_monotonic = time.monotonic
+        self._start = dt_util.utcnow()
+
+    def monotonic(self):
+        """Return the real monotonic time shifted by the simulated time."""
+        return self._real_monotonic() + self.offset_s
+
+    async def advance(self, hass, seconds):
+        """Let ``seconds`` pass and run the timers that come due meanwhile."""
+        self.offset_s += seconds
+        async_fire_time_changed(hass, self._start + timedelta(seconds=self.offset_s))
+        await hass.async_block_till_done()
+
+
+async def test_returning_sensor_restarts_the_filtered_temperature(hass, fake_trv):
+    """The filtered room temperature starts over from the returning reading.
+
+    While the sensor is lost, the minute tick keeps feeding the filter the
+    last reading from before the outage, which says nothing about the room
+    since. Blended into the returning reading it would hold the filtered
+    temperature near the old value and show a warming trend that did not
+    happen.
+    """
+    clock = _SharedClock()
+    with (
+        patch(
+            "custom_components.better_thermostat.events.temperature.monotonic",
+            clock.monotonic,
+        ),
+        patch("custom_components.better_thermostat.climate.monotonic", clock.monotonic),
+    ):
+        bt = await _started_at_target(hass, fake_trv, 22.0)
+        assert bt.cur_temp_filtered == 18.0
+
+        _room_sensor(hass, STATE_UNAVAILABLE)
+        await hass.async_block_till_done()
+        await clock.advance(hass, ROOM_SENSOR_FALLBACK_DELAY_S + 1)
+        await _trv_reports(hass, bt, fake_trv, 22.0)
+        assert await wait_for(hass, lambda: bt.cur_temp == 22.0)
+        for _ in range(30):
+            await clock.advance(hass, 60)
+        assert bt.room_sensor_fallback is True
+
+        await clock.advance(hass, 30)
+        _room_sensor(hass, "22.0")
+        await hass.async_block_till_done()
+        assert await wait_for(hass, lambda: not bt.room_sensor_fallback)
+
+        assert bt.cur_temp_filtered == 22.0
+
+        await clock.advance(hass, 60)
+        assert bt.cur_temp_filtered == 22.0
+        assert bt.temp_slope == 0.0
