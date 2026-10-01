@@ -588,7 +588,8 @@ class StateManager:
         self._copy_retry_at = 0.0
         self._copy_retry_s = COPY_RETRY_FIRST_S
         self._copy_retry_running = False
-        # The background task of the latest timed try; flush() waits for it.
+        # The background task of the latest try, timed or started by a
+        # runtime save; flush() waits for it.
         self._copy_retry_task: asyncio.Task[None] | None = None
         # The timer that tries the copy at ``_copy_retry_at`` on its own, and
         # whether the manager still starts one; after close() it does not.
@@ -820,10 +821,15 @@ class StateManager:
         self._copy_retry_timer = None
         if self._payload_awaiting_copy is None or self._copy_retry_running:
             return
+        self._start_copy_retry()
+
+    def _start_copy_retry(self) -> asyncio.Task[None]:
+        """Start a try of the copy as the task :meth:`flush` waits for."""
         self._copy_retry_running = True
         self._copy_retry_task = self._hass.async_create_background_task(
             self._retry_copy_then_save(), name=f"bt_state_copy_{self._entry_id}"
         )
+        return self._copy_retry_task
 
     async def _retry_copy_then_save(self) -> None:
         """Try the awaited copy again and save unsaved changes once it is kept.
@@ -1022,8 +1028,9 @@ class StateManager:
         again once :data:`COPY_RETRY_FIRST_S`, and after each failure twice
         as long, has passed; until it succeeds the save is skipped and the
         state stays unsaved. A timer tries the copy at the same deadline
-        without waiting for this call. :meth:`flush` tries the copy
-        regardless.
+        without waiting for this call. Either way the try runs as the task
+        :meth:`flush` waits for, and saves nothing once :meth:`close` was
+        called. :meth:`flush` tries the copy regardless.
         """
         if not self._dirty:
             return
@@ -1032,11 +1039,7 @@ class StateManager:
             and not self._copy_retry_running
             and monotonic() >= self._copy_retry_at
         ):
-            self._copy_retry_running = True
-            try:
-                await self.save()
-            finally:
-                self._copy_retry_running = False
+            await asyncio.wait({self._start_copy_retry()})
             return
         if self._payload_awaiting_copy is not None:
             _LOGGER.debug(
@@ -1051,7 +1054,7 @@ class StateManager:
         """Flush unsaved changes -- call when the entity stops or is removed.
 
         Unlike :meth:`save_if_dirty`, this tries again to set aside a stored
-        payload still waiting for its copy. A timed copy already under way is
+        payload still waiting for its copy. A copy already under way is
         awaited first, so the final write sees its outcome instead of trying
         the copy beside it: a copy that lands after :meth:`close` saves
         nothing of its own. The wait is not bounded, like the Store write in

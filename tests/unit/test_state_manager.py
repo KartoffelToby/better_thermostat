@@ -61,9 +61,16 @@ def _hass_double() -> AsyncMock:
 
     A copy that cannot be written starts a retry timer on ``hass.loop``;
     the ``AsyncMock`` default would turn ``loop.time()`` into a coroutine.
+    A retry of the copy runs as a background task, which the double starts
+    on the running loop as Home Assistant does.
     """
     hass = AsyncMock()
     hass.loop = MagicMock()
+
+    def _create_background_task(target, name, eager_start=True):
+        return asyncio.get_running_loop().create_task(target, name=name)
+
+    hass.async_create_background_task = MagicMock(side_effect=_create_background_task)
     return hass
 
 
@@ -1676,6 +1683,91 @@ class TestAFailedCopyThatRecovers:
         assert saved_by_the_flush == 1
         assert stores[_LIVE_STORE_KEY].async_save.await_count == 1
         assert mgr.dirty is False
+
+    async def _runtime_copy_under_way(self, hass, stores, clock, *, fail_after_first):
+        """Start a runtime save whose due copy blocks until released.
+
+        Returns the manager, the copy store, the release event and the task
+        of the runtime save. With *fail_after_first*, every further write
+        of the copy fails.
+        """
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        mgr, copy = await self._loaded_on(hass, stores, disk)
+        mgr.mark_dirty()
+        kept = _saved_into(copy)
+        writes = {"count": 0}
+
+        async def _gated(data):
+            writes["count"] += 1
+            if fail_after_first and writes["count"] > 1:
+                raise OSError("disk busy")
+            entered.set()
+            await release.wait()
+            kept(data)
+
+        copy.async_save.side_effect = _gated
+        clock.now += 61
+        runtime_save = hass.async_create_task(mgr.save_if_dirty())
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        return mgr, copy, release, runtime_save
+
+    @pytest.mark.asyncio
+    async def test_the_final_flush_waits_for_a_runtime_copy_under_way(
+        self, hass, freezer
+    ):
+        """A flush during a copy a runtime save started waits for that copy.
+
+        The debounced save is no longer cancellable once it runs, so the
+        entity's removal leaves it running; a second try beside it may fail
+        where it succeeds, and the flush has to write the state itself.
+        """
+        clock = _Clock()
+        with _stores_by_key() as stores, patch(f"{_SM}.monotonic", clock):
+            mgr, copy, release, runtime_save = await self._runtime_copy_under_way(
+                hass, stores, clock, fail_after_first=True
+            )
+
+            mgr.close()
+            flush = hass.async_create_task(mgr.flush())
+            for _ in range(20):
+                await asyncio.sleep(0)
+            release.set()
+            await asyncio.wait_for(flush, timeout=5)
+            saved_by_the_flush = stores[_LIVE_STORE_KEY].async_save.await_count
+
+            await asyncio.wait_for(runtime_save, timeout=5)
+            await hass.async_block_till_done(wait_background_tasks=True)
+
+        assert copy.async_load.return_value == self._PAYLOAD
+        assert saved_by_the_flush == 1
+        assert stores[_LIVE_STORE_KEY].async_save.await_count == 1
+        assert mgr.dirty is False
+
+    @pytest.mark.asyncio
+    async def test_a_runtime_copy_that_lands_after_close_saves_nothing(
+        self, hass, freezer
+    ):
+        """A copy a runtime save started saves nothing once the manager closed.
+
+        The stores may be deleted after the removal; a save made by that
+        copy would recreate them.
+        """
+        clock = _Clock()
+        with _stores_by_key() as stores, patch(f"{_SM}.monotonic", clock):
+            mgr, copy, release, runtime_save = await self._runtime_copy_under_way(
+                hass, stores, clock, fail_after_first=False
+            )
+
+            mgr.close()
+            release.set()
+            await asyncio.wait_for(runtime_save, timeout=5)
+            await hass.async_block_till_done(wait_background_tasks=True)
+
+        assert copy.async_load.return_value == self._PAYLOAD
+        stores[_LIVE_STORE_KEY].async_save.assert_not_awaited()
+        assert mgr.dirty is True
 
 
 class TestEveryDistinctPayloadIsKept:
