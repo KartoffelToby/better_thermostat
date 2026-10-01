@@ -1,7 +1,7 @@
 # Calibration Controller Benchmark
 
 Pure-simulation comparison framework for Better Thermostat's calibration
-controllers (`mpc`, `pid`, `tpi`) against reproducible thermal-dynamics
+controllers (`mpc_v2`, `mpc`, `pid`, `tpi`) against reproducible thermal-dynamics
 scenarios. No Home Assistant runtime, no hardware, no external data —
 every result is a deterministic function of code + seeds.
 
@@ -26,6 +26,7 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
+  mpc_v2                0.880  0.117    0.932  0.148     0.755  0.303    0.936  0.161   37
   tpi                   0.795  0.154    0.693  0.234     0.889  0.218    0.910  0.158   37
   pid                   0.787  0.144    0.850  0.209     0.583  0.359    0.936  0.159   37
   mpc                   0.716  0.153    0.864  0.181     0.339  0.399    0.911  0.158   37
@@ -115,9 +116,9 @@ a controller wins.
 * **BangBang ≈ 0.58** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.71–0.80.** That band is the realistic operating range. A controller
-  above 0.80 is beating most of the field; near the BangBang floor means
-  a clear weakness in at least one dimension.
+  0.71–0.80, `mpc_v2` ≈ 0.88.** That band is the realistic operating
+  range. A controller above 0.80 is beating most of the field; near the
+  BangBang floor means a clear weakness in at least one dimension.
 
 Rule of thumb: when a controller scores well below the Oracle, look at
 which dimension column dropped. A 0.92 comfort with 0.25 actuator means
@@ -141,19 +142,40 @@ This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
 single-radiator rooms the single-TRV matrix is the relevant one.
 
-### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`)
+### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`, `mpc_v2+indirect_trv`)
 
 A wrapper that mediates the controller's valve-% intent through an
 offset-mode TRV (Tado, Bosch BTH-RA, Sonoff TRVZB offset-mode, Tuya
 TS0601). The TRV runs its own internal P-loop and only accepts a
 quantised setpoint; the score reflects what physically reaches the room,
-not what the controller intended.
+not what the controller intended. While a window is open, or when the
+controller stands down, the wrapper closes the valve instead of mapping
+a zero intent onto a setpoint, as BT turns the TRV off.
 
 Each row aggregates the four vendor presets × all single-TRV
 scenarios. The vendor parameters are heuristic operating points based
 on observed user behaviour, **not calibrated truth** — read the row as
 "indicative for offset-mode TRVs in general", not as "calibrated for
 Tado specifically".
+
+By default the wrapper maps the valve intent onto a setpoint the way
+`calibration.py` does for the controller modes
+(`setpoint_mapping="production"`): `T_trv + (T_max − T_trv)·u`, a
+setpoint below the TRV's reading at `u = 0`, rounded up while heating
+and down while idle, then clamped to the TRV's range. The TRV's own sensor reads
+`T_room + trv_sensor_rad_fraction·(T_rad − T_room)`, 0.1 by default, and
+the inner controller sees that reading as its TRV temperature. The
+fraction is an estimate. Between 0.05 and 0.2, TPI stays first on the
+Bosch, Tuya and Sonoff presets; places swap only where two scores lie
+within 0.01 of each other (Tado and Bosch at 0.05), and absolute scores
+move by up to 0.08. The older `"heuristic"` and `"inversion"` mappings
+remain selectable.
+
+`reports_valve_position` decides what the inner controller gets as the
+previous valve: off (the default for all four presets), its own
+previous command; on, the opening the TRV actually chose, as Better
+Thermostat passes it to MPC v2 when the TRV's climate entity carries a
+`valve_position` attribute.
 
 ### Limitations
 
@@ -210,8 +232,8 @@ Register it in `runner.ADAPTER_FACTORIES`:
 ADAPTER_FACTORIES["my"] = MyAdapter
 ```
 
-Existing wrappers under `adapters/` (`mpc_adapter`, `pid_adapter`,
-`tpi_adapter`) serve as templates.
+Existing wrappers under `adapters/` (`mpc_v2_adapter`, `mpc_adapter`,
+`pid_adapter`, `tpi_adapter`) serve as templates.
 
 ## Adding a scenario
 
