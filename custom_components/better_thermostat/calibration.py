@@ -809,6 +809,16 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
     # single valve fraction; it keeps its optimistic command until group
     # actuator aggregation has an explicit plant contract.
     confirmed_valve_pct = None if is_multi_trv else _confirmed_valve_pct(trv_state)
+    # The controller's applied input is also its command between re-plans and
+    # the anchor of its rate limit, so it may only be an opening BT wrote
+    # itself. A TRV steered through its setpoint opens by its own regulator:
+    # fed back, that opening would become BT's next command, raise the
+    # setpoint and open the TRV further. The re-identification samples below
+    # keep the reported opening, which there is a measurement of the room's
+    # input.
+    controller_applied_pct = (
+        confirmed_valve_pct if _supports_direct_valve_control(self, entity_id) else None
+    )
 
     try:
         mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
@@ -824,7 +834,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
                 entity_id=entity_id,
                 outdoor_temp_C=outdoor_temp,
                 max_opening_pct=max_opening_pct,
-                applied_valve_pct=confirmed_valve_pct,
+                applied_valve_pct=controller_applied_pct,
             ),
             v2_params,
             state=mpc_v2_state,
