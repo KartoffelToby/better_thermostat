@@ -22,7 +22,7 @@ def async_retry(
     backoff_factor: float = 2.0,
     max_delay: float = 60.0,
     exceptions: tuple[type[Exception], ...] = (Exception,),
-    log_level: int = logging.ERROR,
+    log_level: int = logging.DEBUG,
     identifier: str = "",
 ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Retry async functions when exceptions occur.
@@ -61,7 +61,9 @@ def async_retry(
                             f"{log_prefix}{func.__name__} failed after "
                             f"{retries + 1} attempts: {e}{entity_suffix}"
                         )
-                        _LOGGER.exception(log_message)
+                        _LOGGER.warning(
+                            log_message, exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
+                        )
                         raise
 
                     # Calculate exponential backoff
@@ -78,7 +80,11 @@ def async_retry(
                         f"failed: {e}{entity_suffix}, retrying in {actual_delay:.2f}s"
                     )
 
-                    _LOGGER.log(log_level, log_message, exc_info=True)
+                    _LOGGER.log(
+                        log_level,
+                        log_message,
+                        exc_info=_LOGGER.isEnabledFor(logging.DEBUG),
+                    )
 
                     await asyncio.sleep(actual_delay)
                     attempt += 1

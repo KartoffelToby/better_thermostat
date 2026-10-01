@@ -40,7 +40,8 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead",
+          "mpc_v2_plant_preset": "MPC v2 room size"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -64,7 +65,9 @@
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
-      "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant"
+      "no_devices_found": "No thermostat entity found, make sure you have a climate entity in your Home Assistant",
+      "already_configured": "A Better Thermostat with this name already controls these thermostats.",
+      "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only; remove it there first."
     }
   },
   "options": {
@@ -94,7 +97,8 @@
           "calibration": "The sort of calibration",
           "heat_auto_swapped": "If 'auto' means 'heat' for your TRV and you want to swap it",
           "child_lock": "Ignore all inputs on the TRV like a child lock",
-          "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle"
+          "homematicip": "If you use HomematicIP, you should enable this to slow down the requests to prevent the duty cycle",
+          "cooler": "The cooling device (optional)"
         },
         "data_description": {
           "presets": "Select the presets you want to be available for this thermostat."
@@ -110,7 +114,8 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead",
+          "mpc_v2_plant_preset": "MPC v2 room size"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
@@ -126,7 +131,9 @@
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
-      "no_data": "No data was received. Please try again."
+      "no_data": "No data was received. Please try again.",
+      "no_sensor": "Please select a room temperature sensor.",
+      "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only."
     }
   },
   "issues": {
@@ -156,6 +163,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - invalid external temperature",
       "description": "The external temperature sensor for Better Thermostat {name} reported an implausible value: {value}.\n\nThe reading was outside the plausible range and has been ignored. Please check your temperature sensor configuration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} is controlled by more than one Better Thermostat",
+      "description": "The thermostat {trv} belongs to these Better Thermostats: {entries}. They write competing target temperatures and modes to it. Remove it from all but one of them in their settings; this issue clears itself afterwards."
     }
   },
   "services": {

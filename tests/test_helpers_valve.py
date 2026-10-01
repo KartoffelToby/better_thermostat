@@ -14,6 +14,7 @@ def _make_entity(eid, uid, device_id, translation_key=None, original_name=None):
     e.device_id = device_id
     e.translation_key = translation_key
     e.original_name = original_name
+    e.disabled_by = None
     # RegistryEntry.domain is derived from the entity_id
     e.domain = eid.split(".", 1)[0]
     return e
@@ -50,6 +51,7 @@ async def test_find_valve_entity_ignores_sensor_pi_heating_demand():
         e.entity_id = eid
         e.unique_id = uid
         e.device_id = trv_device_id
+        e.disabled_by = None
         return e
 
     entity_sensor = make_entity("sensor.pi_heating_demand", "unique_sensor")
@@ -141,6 +143,7 @@ async def test_find_valve_entity_trvzb_valve_opening_degree_device_mismatch():
     ent.unique_id = "0x00124b0000abcd_valve_opening_degree"
     ent.original_name = "Valve Opening Degree"
     ent.device_id = valve_device_id
+    ent.disabled_by = None
 
     with (
         patch(
