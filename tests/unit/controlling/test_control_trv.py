@@ -1262,6 +1262,49 @@ class TestControlTrvAvailablePath:
             for call in mock_self.task_manager.create_task.call_args_list
         )
 
+    @pytest.mark.parametrize(
+        ("mode_answer", "expected"),
+        [
+            pytest.param(True, True, id="written"),
+            pytest.param(False, False, id="refused"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_refused_mode_write_fails_the_cycle(self, mode_answer, expected):
+        """A refused mode asks the queue for another cycle after its backoff.
+
+        Not every room has a periodic tick, so without the failed cycle the
+        mode would wait for the next sensor or user event.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.OFF,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _default_trv_config(last_hvac_mode=HVACMode.OFF)
+            },
+        )
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(_PATCHES["set_hvac_mode"], new=AsyncMock(return_value=mode_answer)),
+            patch(
+                _PATCHES["override_set_hvac_mode"], new=AsyncMock(return_value=False)
+            ),
+            patch(
+                _PATCHES["override_set_temperature"], new=AsyncMock(return_value=False)
+            ),
+            patch(_PATCHES["handle_contact_open"]) as mock_window,
+            patch(_PATCHES["set_temperature"], new=AsyncMock()),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+            mock_window.return_value = HVACMode.HEAT
+
+            assert await control_trv(mock_self, "climate.trv1") is expected
+
     @pytest.mark.asyncio
     async def test_a_refused_mode_on_a_trv_reading_unknown_keeps_the_old_command(self):
         """A driven Spirit reads ``unknown``; that is no mode it holds.

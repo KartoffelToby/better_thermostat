@@ -990,7 +990,8 @@ async def control_trv(self, heater_entity_id=None):
     -------
     bool
         True if control succeeded or TRV was skipped (unavailable)
-        False if TRV not found in real_trvs or state conversion failed
+        False if TRV not found in real_trvs, state conversion failed, a valve
+        write spent its attempts or the TRV refused the mode
     """
     # Guard against missing or invalid heater_entity_id
     if not heater_entity_id or heater_entity_id not in self.real_trvs:
@@ -999,10 +1000,11 @@ async def control_trv(self, heater_entity_id=None):
     if not hasattr(self, "task_manager"):
         self.task_manager = TaskManager(hass=self.hass)
 
-    # A valve write that spent its attempts fails the cycle, so the queue
-    # retries it after its backoff instead of leaving the valve at its old
-    # position until some later event.
+    # A valve write that spent its attempts or a refused mode fails the
+    # cycle, so the queue retries it after its backoff instead of leaving the
+    # device where it was until some later event.
     _valve_write_failed = False
+    _mode_refused = False
     async with self._temp_lock:
         self.real_trvs[heater_entity_id].ignore_trv_states = True
         try:
@@ -1183,17 +1185,17 @@ async def control_trv(self, heater_entity_id=None):
                 _tvr_has_quirk = await override_set_hvac_mode(
                     self, heater_entity_id, _new_hvac_mode
                 )
-                _mode_refused = False
                 if _tvr_has_quirk is False:
                     _mode_refused = (
                         await set_hvac_mode(self, heater_entity_id, _new_hvac_mode)
                         is False
                     )
-                # A refused mode is written again by the next cycle, which
-                # still finds the device in its old mode; there is nothing to
-                # wait for until then. Until it goes through, the device holds
-                # the mode it reports, and that is the mode last commanded as
-                # far as the mode cache and the inbound handler are concerned:
+                # A refused mode fails the cycle, and the cycle the queue
+                # retries after its backoff still finds the device in its old
+                # mode and writes it again; there is nothing to wait for until
+                # then. Until it goes through, the device holds the mode it
+                # reports, and that is the mode last commanded as far as the
+                # mode cache and the inbound handler are concerned:
                 # the refused one would read the device's next plain report
                 # as a press back to its old mode.
                 if _mode_refused:
@@ -1366,7 +1368,7 @@ async def control_trv(self, heater_entity_id=None):
             await asyncio.sleep(3)
         finally:
             self.real_trvs[heater_entity_id].ignore_trv_states = False
-    return not _valve_write_failed
+    return not (_valve_write_failed or _mode_refused)
 
 
 def handle_contact_open(self, _remapped_states):
