@@ -13,13 +13,16 @@ from unittest.mock import patch
 
 from homeassistant.const import ATTR_TEMPERATURE, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Context
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
+import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import ROOM_SENSOR_FALLBACK_DELAY_S
 
 from .conftest import (
+    DOMAIN,
     SENSOR_ID,
     TRV_ID,
     make_entry,
@@ -29,6 +32,16 @@ from .conftest import (
 )
 
 BT_ENTITY = "climate.bt_test"
+
+# The two startup grace windows. Both are minutes long, so a test that wants
+# to see what happens after one has closed shortens it rather than waiting.
+CRITICAL_GRACE = (
+    "custom_components.better_thermostat.climate.STARTUP_CRITICAL_GRACE_PERIOD"
+)
+DEGRADED_GRACE = (
+    "custom_components.better_thermostat.climate.STARTUP_DEGRADED_GRACE_PERIOD"
+)
+NO_GRACE = timedelta(seconds=0)
 
 
 def _room_sensor(hass, value):
@@ -145,6 +158,113 @@ async def test_outage_shorter_than_the_debounce_keeps_the_last_reading(hass, fak
     assert bt.cur_temp == 18.0
 
 
+def _degraded_issue_sensors(hass, bt) -> str | None:
+    """Return the sensors the degraded-mode repair issue names, if it is open."""
+    issue = ir.async_get(hass).async_get_issue(
+        DOMAIN, f"degraded_mode_{bt.device_name}"
+    )
+    if issue is None or issue.translation_placeholders is None:
+        return None
+    return issue.translation_placeholders["sensors"]
+
+
+async def _started_without_room_sensor(hass, sensor_state):
+    """Start BT with a room sensor that gives no usable reading past the grace window.
+
+    Both grace windows are over before the first check, so the room starts
+    as soon as startup sees that the sensor is still missing, and the
+    degraded-mode report is not held back either.
+    """
+    if sensor_state is not None:
+        hass.states.async_set(SENSOR_ID, sensor_state)
+    entry = make_entry()
+    with patch(CRITICAL_GRACE, NO_GRACE), patch(DEGRADED_GRACE, NO_GRACE):
+        await setup_entry(hass, entry)
+        return await wait_for_startup(hass, entry)
+
+
+@pytest.mark.parametrize("sensor_state", [None, STATE_UNAVAILABLE, STATE_UNKNOWN])
+async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv(
+    hass, fake_trv, sensor_state
+):
+    """A dead room sensor at boot does not keep the room from starting.
+
+    Once the grace window has closed, the room starts on the TRV's internal
+    temperature, follows it as the TRV reports, and names the missing
+    sensor, as it does when the sensor drops out at runtime.
+    """
+    bt = await _started_without_room_sensor(hass, sensor_state)
+
+    assert hass.states.get(BT_ENTITY).state == "heat"
+    assert bt.room_sensor_fallback is True
+    assert bt.cur_temp == 19.5
+    # The room starts at the setpoint the head holds, so the first cycle has
+    # nothing to write; a new target is what shows the room is controlled.
+    await hass.services.async_call(
+        "climate",
+        "set_temperature",
+        {"entity_id": BT_ENTITY, ATTR_TEMPERATURE: 22.0},
+        blocking=True,
+    )
+    assert await wait_for(hass, lambda: 22.0 in fake_trv.set_temperature_calls)
+    assert bt.unavailable_sensors == [SENSOR_ID]
+    assert _degraded_issue_sensors(hass, bt) == SENSOR_ID
+
+    await _trv_reports(hass, bt, fake_trv, 24.0)
+    assert await wait_for(hass, lambda: bt.cur_temp == 24.0)
+    assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == 24.0
+
+
+async def test_a_room_sensor_that_arrives_within_the_grace_window_starts_normally(
+    hass, fake_trv
+):
+    """A room sensor that is only late is waited for, not replaced.
+
+    A slow sensor integration looks exactly like a dead sensor at boot.
+    Inside the grace window the room keeps waiting and commands nothing, so
+    a sensor that turns up in time is the one the room starts on.
+    """
+    hass.states.async_set(SENSOR_ID, STATE_UNAVAILABLE)
+    entry = make_entry()
+    await setup_entry(hass, entry)
+
+    for _ in range(20):
+        await hass.async_block_till_done()
+    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    assert bt.startup_running
+    assert hass.states.get(BT_ENTITY).state == "unavailable"
+    assert fake_trv.set_temperature_calls == []
+
+    _room_sensor(hass, "17.0")
+
+    bt = await wait_for_startup(hass, entry)
+    assert hass.states.get(BT_ENTITY).state == "heat"
+    assert bt.room_sensor_fallback is False
+    assert bt.cur_temp == 17.0
+    assert bt.unavailable_sensors == []
+
+
+async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
+    hass, fake_trv
+):
+    """A room sensor that comes back after a fallback start is used at once.
+
+    From then on the TRV no longer speaks for the room.
+    """
+    bt = await _started_without_room_sensor(hass, STATE_UNAVAILABLE)
+    assert bt.room_sensor_fallback is True
+
+    _room_sensor(hass, "21.0")
+    await hass.async_block_till_done()
+    assert await wait_for(hass, lambda: bt.cur_temp == 21.0)
+    assert bt.room_sensor_fallback is False
+
+    await _advance(hass, 10)
+    await _trv_reports(hass, bt, fake_trv, 25.0)
+    assert bt.cur_temp == 21.0
+    assert await wait_for(hass, lambda: _degraded_issue_sensors(hass, bt) is None)
+
+
 async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
     hass, fake_trv
 ):
@@ -158,6 +278,25 @@ async def test_removed_sensor_entity_hands_the_room_temperature_to_the_trv(
 
     assert bt.room_sensor_fallback is True
     assert bt.cur_temp == 26.0
+
+
+async def test_a_room_that_starts_on_the_trv_follows_it(hass, fake_trv):
+    """A room sensor with an implausible reading at boot hands the room to the TRV.
+
+    Once the grace window has closed, startup takes the TRV temperature in
+    its place, and the room follows the TRV from then on until the sensor
+    reports a usable value.
+    """
+    bt = await _started_without_room_sensor(hass, "126.5")
+    assert bt.cur_temp == 19.5
+
+    await _trv_reports(hass, bt, fake_trv, 24.0)
+    assert await wait_for(hass, lambda: bt.cur_temp == 24.0)
+
+    _room_sensor(hass, "21.0")
+    await hass.async_block_till_done()
+    assert await wait_for(hass, lambda: bt.cur_temp == 21.0)
+    assert bt.room_sensor_fallback is False
 
 
 async def test_implausible_sensor_readings_hand_the_room_to_the_trv(hass, fake_trv):
@@ -195,6 +334,25 @@ async def test_a_sensor_lost_while_startup_runs_is_caught_up_on(hass, fake_trv):
 
     assert bt.room_sensor_fallback is True
     assert bt.cur_temp == 26.0
+
+
+async def test_a_sensor_back_while_startup_runs_takes_the_room_over(hass, fake_trv):
+    """A sensor that returns before its changes are handled still takes over.
+
+    The room starts on the TRV because the sensor is missing, and the
+    sensor's first reading arrives while startup is still running.
+    """
+    initialize_trvs = BetterThermostat._initialize_trvs
+
+    async def _sensor_returns_meanwhile(bt):
+        _room_sensor(hass, "21.0")
+        await initialize_trvs(bt)
+
+    with patch.object(BetterThermostat, "_initialize_trvs", _sensor_returns_meanwhile):
+        bt = await _started_without_room_sensor(hass, STATE_UNAVAILABLE)
+
+    assert await wait_for(hass, lambda: bt.cur_temp == 21.0)
+    assert bt.room_sensor_fallback is False
 
 
 async def test_a_sensor_reading_taken_while_startup_runs_reaches_the_room(

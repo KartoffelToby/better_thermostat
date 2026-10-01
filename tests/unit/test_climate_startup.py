@@ -144,6 +144,9 @@ def bt():
         mock, value
     )
     mock._applied_target = lambda value: BetterThermostat._applied_target(mock, value)
+    mock._first_plausible_trv_temperature = lambda: (
+        BetterThermostat._first_plausible_trv_temperature(mock)
+    )
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     return mock
 
@@ -691,22 +694,134 @@ class TestOwnedBackgroundTasks:
 class TestCheckEntitiesReady:
     """Tests for _check_entities_ready."""
 
-    def test_sensor_none_returns_false(self, bt):
-        """Return False when sensor state is None."""
-        result = BetterThermostat._check_entities_ready(bt, None)
-        assert result is False
+    @pytest.mark.parametrize(
+        "sensor",
+        [
+            None,
+            State(SENSOR_ID, STATE_UNAVAILABLE),
+            State(SENSOR_ID, STATE_UNKNOWN),
+            State(SENSOR_ID, "not a number", {"unit_of_measurement": "°C"}),
+            State(SENSOR_ID, "126.5", {"unit_of_measurement": "°C"}),
+        ],
+        ids=["absent", "unavailable", "unknown", "non_numeric", "implausible"],
+    )
+    def test_a_missing_room_sensor_is_waited_for_inside_the_grace_window(
+        self, bt, sensor
+    ):
+        """A sensor integration that is still loading is not replaced.
 
-    def test_sensor_unavailable_returns_false(self, bt):
-        """Return False when sensor is unavailable."""
-        sensor = State(SENSOR_ID, STATE_UNAVAILABLE)
-        result = BetterThermostat._check_entities_ready(bt, sensor)
-        assert result is False
+        A slow sensor looks exactly like a dead one at boot, and one that
+        turns up in time is the one the room should start on.
+        """
+        bt._critical_grace_until = dt_util.now() + timedelta(seconds=30)
+        bt.hass.states.get.return_value = _make_trv_state()
 
-    def test_sensor_unknown_returns_false(self, bt):
-        """Return False when sensor state is unknown."""
-        sensor = State(SENSOR_ID, STATE_UNKNOWN)
-        result = BetterThermostat._check_entities_ready(bt, sensor)
+        assert BetterThermostat._check_entities_ready(bt, sensor) is False
+
+    @pytest.mark.parametrize(
+        "sensor",
+        [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
+        ids=["absent", "unavailable", "unknown"],
+    )
+    def test_a_missing_room_sensor_lets_startup_go_ahead_after_the_grace_window(
+        self, bt, caplog, sensor
+    ):
+        """Past the grace window a TRV temperature stands in for the sensor.
+
+        The room controls on the TRV's internal temperature when its sensor
+        drops out at runtime, so a sensor that is already gone at boot must
+        not keep it from starting at all. The missing sensor is named.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.hass.states.get.return_value = _make_trv_state()
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, sensor)
+
+        assert result is True
+        assert SENSOR_ID in caplog.text
+
+    @pytest.mark.parametrize(
+        "current_temperature", [None, 126.5], ids=["no_reading", "implausible"]
+    )
+    def test_a_missing_room_sensor_without_a_trv_temperature_keeps_waiting(
+        self, bt, current_temperature
+    ):
+        """Without the sensor, a room needs a TRV temperature to control on.
+
+        Starting on no reading at all would regulate the room on a made-up
+        default temperature.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.hass.states.get.return_value = _make_trv_state(
+            attrs={"current_temperature": current_temperature}
+        )
+
+        assert BetterThermostat._check_entities_ready(bt, None) is False
+
+    def test_a_missing_room_sensor_with_every_trv_gone_keeps_waiting_quietly(
+        self, bt, caplog
+    ):
+        """A room with no TRV to stand in for its sensor is not named yet.
+
+        The warning says the room starts without its sensor, so it belongs
+        to the pass that actually lets startup go ahead, not to every pass
+        of the wait loop.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.real_trvs = {
+            TRV_ID: Trv(entity_id=TRV_ID),
+            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+        }
+        _install_states(
+            bt,
+            {
+                TRV_ID: State(TRV_ID, STATE_UNAVAILABLE),
+                TRV_ID_2: State(TRV_ID_2, STATE_UNAVAILABLE),
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, None)
+
         assert result is False
+        assert SENSOR_ID not in caplog.text
+
+    def test_a_missing_room_sensor_with_a_trv_gone_starts_on_the_one_left(
+        self, bt, caplog
+    ):
+        """Past the grace window both stand-ins apply at once.
+
+        The TRV that is there drives the room and its temperature stands in
+        for the sensor; the sensor and the TRV left behind are both named.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.real_trvs = {
+            TRV_ID: Trv(entity_id=TRV_ID),
+            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+        }
+        _install_states(
+            bt,
+            {
+                TRV_ID: _make_trv_state(TRV_ID),
+                TRV_ID_2: State(TRV_ID_2, STATE_UNAVAILABLE),
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, None)
+
+        assert result is True
+        assert SENSOR_ID in caplog.text
+        assert TRV_ID_2 in caplog.text
+
+    def test_a_missing_room_sensor_ignores_the_reading_of_an_unavailable_trv(self, bt):
+        """Only a TRV that is there can stand in for the room sensor."""
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+        bt.hass.states.get.return_value = _make_trv_state(state=STATE_UNAVAILABLE)
+
+        assert BetterThermostat._first_plausible_trv_temperature(bt) is None
 
     def test_trv_none_returns_false(self, bt):
         """Return False when TRV state is None."""
@@ -780,13 +895,6 @@ class TestCheckEntitiesReady:
         )
 
         assert BetterThermostat._check_entities_ready(bt, sensor) is False
-
-    def test_a_missing_room_sensor_is_waited_for_after_the_grace_window(self, bt):
-        """The grace window lets startup go ahead without a TRV, not the sensor."""
-        _arm_grace(bt, remaining=timedelta(seconds=-1))
-        bt.hass.states.get.return_value = _make_trv_state()
-
-        assert BetterThermostat._check_entities_ready(bt, None) is False
 
 
 def _arm_grace(bt, *, remaining: timedelta) -> None:
@@ -973,6 +1081,7 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.cur_temp == 19.5
+        assert bt.room_sensor_fallback is True
 
     def test_implausible_trv_value_falls_back_to_default(self, bt):
         """If both sensor and TRV are implausible, the default fallback is used."""
