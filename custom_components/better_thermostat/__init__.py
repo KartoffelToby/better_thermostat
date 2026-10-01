@@ -3,23 +3,29 @@
 from __future__ import annotations
 
 from asyncio import Lock
+import copy
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, Platform
+from homeassistant.const import CONF_NAME, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
 from .utils.const import (
     CONF_CALIBRATION_MODE,
+    CONF_COOLER,
     CONF_HEATER,
     CONF_HUMIDITY,
     CONF_NO_SYSTEM_MODE_OFF,
+    CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_SENSOR,
+    CONF_SENSOR_DOOR,
     CONF_SENSOR_WINDOW,
+    CONF_WEATHER,
     CONF_WINDOW_TIMEOUT,
     CONF_WINDOW_TIMEOUT_AFTER,
     DOMAIN,
@@ -44,9 +50,143 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
+
+
+def trv_entity_ids(entry: ConfigEntry) -> list[str]:
+    """Return the entity ids of the thermostats ``entry`` controls."""
+    heaters = entry.data.get(CONF_HEATER)
+    if isinstance(heaters, str):
+        return [heaters]
+    return [
+        trv["trv"]
+        for trv in heaters or []
+        if isinstance(trv, dict) and isinstance(trv.get("trv"), str) and trv["trv"]
+    ]
+
+
+def other_entries_controlling(
+    hass: HomeAssistant, trv_entity_id: str, entry_id: str | None
+) -> list[ConfigEntry]:
+    """Return every entry other than ``entry_id`` that controls ``trv_entity_id``."""
+    return [
+        other
+        for other in hass.config_entries.async_entries(DOMAIN)
+        if other.entry_id != entry_id and trv_entity_id in trv_entity_ids(other)
+    ]
+
+
+def _entry_name(entry: ConfigEntry) -> str:
+    return str(entry.data.get(CONF_NAME, entry.title))
+
+
+def _raise_shared_trv_issue(
+    hass: HomeAssistant, trv_entity_id: str, names: list[str]
+) -> None:
+    """Create or update the repair issue naming the entries sharing a thermostat."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"{SHARED_TRV_ISSUE_PREFIX}{trv_entity_id}",
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="shared_trv",
+        translation_placeholders={"trv": trv_entity_id, "entries": ", ".join(names)},
+    )
+
+
+def _sync_shared_trv_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Name every thermostat that more than one entry controls, and only those.
+
+    A thermostat belongs to one entry. Entries that already share one keep
+    running, so setup warns once for each thermostat this entry shares and
+    keeps one repair issue per shared thermostat. An issue whose overlap is
+    gone, because an entry dropped the thermostat, is deleted here as well.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry being set up.
+    """
+    for trv_entity_id in trv_entity_ids(entry):
+        others = other_entries_controlling(hass, trv_entity_id, entry.entry_id)
+        if others:
+            _LOGGER.warning(
+                "better_thermostat %s: the thermostat %s is also controlled by %s; "
+                "a thermostat should belong to one Better Thermostat only",
+                _entry_name(entry),
+                trv_entity_id,
+                ", ".join(_entry_name(other) for other in others),
+            )
+
+    owners: dict[str, list[str]] = {}
+    for any_entry in hass.config_entries.async_entries(DOMAIN):
+        for trv_entity_id in trv_entity_ids(any_entry):
+            owners.setdefault(trv_entity_id, []).append(_entry_name(any_entry))
+    shared = {
+        trv_entity_id: names
+        for trv_entity_id, names in owners.items()
+        if len(names) > 1
+    }
+    for trv_entity_id, names in shared.items():
+        _raise_shared_trv_issue(hass, trv_entity_id, names)
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if (
+            domain == DOMAIN
+            and issue_id.startswith(SHARED_TRV_ISSUE_PREFIX)
+            and issue_id.removeprefix(SHARED_TRV_ISSUE_PREFIX) not in shared
+        ):
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+
+
+def _warn_about_an_off_temperature_below_freezing(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Warn when a Fahrenheit entry stores an outdoor threshold below 0 °C.
+
+    The threshold is stored in the system unit. A number meant as Celsius,
+    such as 20, reads as 20 °F (-6.7 °C) on a Fahrenheit system and stops the
+    heating whenever it is warmer than that outside. The stored value stays
+    as it is; the warning names it so the user can change it.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+        The running Home Assistant instance.
+    entry : ConfigEntry
+        The config entry being set up.
+    """
+    if hass.config.units.temperature_unit != UnitOfTemperature.FAHRENHEIT:
+        return
+    if not (entry.data.get(CONF_OUTDOOR_SENSOR) or entry.data.get(CONF_WEATHER)):
+        return
+    try:
+        stored = float(entry.data[CONF_OFF_TEMPERATURE])
+    except KeyError, TypeError, ValueError:
+        return
+    celsius = TemperatureConverter.convert(
+        stored, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
+    )
+    if celsius < 0.0:
+        _LOGGER.warning(
+            "better_thermostat %s: the outdoor threshold off_temperature is "
+            "%s °F (%.1f °C), so heating stops whenever it is warmer than that "
+            "outside; change it in the thermostat's settings if it was meant "
+            "in °C",
+            entry.data.get(CONF_NAME, entry.title),
+            entry.data[CONF_OFF_TEMPERATURE],
+            celsius,
+        )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entry."""
     hass.data.setdefault(DOMAIN, {})
+    _warn_about_an_off_temperature_below_freezing(hass, entry)
+    _sync_shared_trv_issues(hass, entry)
     hass.data[DOMAIN][entry.entry_id] = {}
     try:
         # Setup climate platform first to ensure entity is available for other platforms
@@ -141,16 +281,14 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     ):
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 
-    entity_ids: list[str] = []
-    for trv in entry.data.get(CONF_HEATER) or []:
-        trv_id = trv.get("trv")
-        if trv_id:
-            entity_ids.append(trv_id)
+    entity_ids: list[str] = trv_entity_ids(entry)
     for conf_key in (
         CONF_SENSOR,
         CONF_HUMIDITY,
         CONF_SENSOR_WINDOW,
+        CONF_SENSOR_DOOR,
         CONF_OUTDOOR_SENSOR,
+        CONF_COOLER,
     ):
         eid = entry.data.get(conf_key)
         if eid:
@@ -159,21 +297,44 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     for eid in entity_ids:
         ir.async_delete_issue(hass, DOMAIN, f"missing_entity_{eid}")
 
+    for trv_entity_id in trv_entity_ids(entry):
+        remaining = other_entries_controlling(hass, trv_entity_id, entry.entry_id)
+        if len(remaining) > 1:
+            _raise_shared_trv_issue(
+                hass, trv_entity_id, [_entry_name(other) for other in remaining]
+            )
+        else:
+            ir.async_delete_issue(
+                hass, DOMAIN, f"{SHARED_TRV_ISSUE_PREFIX}{trv_entity_id}"
+            )
+
 
 async def async_migrate_entry(hass, config_entry: ConfigEntry):
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
-    new = {**config_entry.data}
+    if isinstance(config_entry.data.get(CONF_HEATER), str):
+        _LOGGER.error(
+            "better_thermostat %s: this entry was created before version "
+            "1.0.0-Beta36 of the Better Thermostat integration; remove the BT "
+            "devices (integration) and add it again.",
+            config_entry.title,
+        )
+        return False
 
-    if config_entry.version == 1:
+    new = copy.deepcopy(dict(config_entry.data))
+    version = config_entry.version
+
+    # Each step lifts the entry by one version, so an old entry passes every
+    # step written after the one it was stored at.
+    if version <= 1:
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
 
-    if config_entry.version == 2:
+    if version <= 2:
         new[CONF_WINDOW_TIMEOUT] = 0
 
-    if config_entry.version == 3:
+    if version <= 3:
         for trv in new[CONF_HEATER]:
             if (
                 CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
@@ -187,11 +348,11 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                     {CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION}
                 )
 
-    if config_entry.version == 4:
+    if version <= 4:
         for trv in new[CONF_HEATER]:
             trv["advanced"].update({CONF_NO_SYSTEM_MODE_OFF: False})
 
-    if config_entry.version == 5:
+    if version <= 5:
         new[CONF_WINDOW_TIMEOUT_AFTER] = new[CONF_WINDOW_TIMEOUT]
 
     if config_entry.version < 18:

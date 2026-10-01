@@ -10,14 +10,21 @@ from unittest.mock import MagicMock
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
+import pytest
 
-from custom_components.better_thermostat.utils.helpers import group_all_members_off
+from custom_components.better_thermostat.utils.helpers import (
+    bound_to_celsius,
+    group_all_members_off,
+    setpoint_at_minimum,
+)
 
 
-def _member(no_off=False, min_temp=5.0):
+def _member(no_off=False, min_temp=5.0, target_temp_step=None):
     """A minimal stand-in for a Trv exposing only what the helper reads."""
     return types.SimpleNamespace(
-        advanced={"no_off_system_mode": no_off}, min_temp=min_temp
+        advanced={"no_off_system_mode": no_off},
+        min_temp=min_temp,
+        target_temp_step=target_temp_step,
     )
 
 
@@ -152,3 +159,105 @@ def test_all_unavailable_false():
         "climate.b": State("climate.b", "unknown"),
     }
     assert group_all_members_off(_fake_self(members, states)) is False
+
+
+# The lowest setpoint the thermostat writes to a head whose minimum is
+# published as 41 °F: half a published degree inside it, 41.5 °F.
+_PARKED_MIN_CELSIUS = bound_to_celsius(
+    "41", UnitOfTemperature.FAHRENHEIT, lower=True, instance_name="test"
+)
+
+
+# What a head publishes next to its setpoint: whole degrees when Home
+# Assistant rounds it to whole degrees Fahrenheit, tenths when the
+# integration states that precision.
+_WHOLE_DEGREES = {"min_temp": 41, "max_temp": 86, "current_temperature": 68}
+_TENTHS = {"min_temp": 41.0, "max_temp": 86.0, "current_temperature": 67.6}
+
+
+def _fahrenheit_room(reported, published):
+    """Two no-off heads at ``reported`` °F, published like ``published``."""
+    members = {
+        "climate.a": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
+        "climate.b": _member(no_off=True, min_temp=_PARKED_MIN_CELSIUS),
+    }
+    states = {
+        entity_id: State(
+            entity_id, "heat", attributes={"temperature": reported, **published}
+        )
+        for entity_id in members
+    }
+    return _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
+
+
+@pytest.mark.parametrize(
+    ("reported", "published"),
+    [
+        pytest.param(41.5, _TENTHS, id="parked_published_in_tenths"),
+        pytest.param(42.0, _WHOLE_DEGREES, id="parked_published_in_whole_degrees"),
+        pytest.param(41.0, _TENTHS, id="end_stop_published_in_tenths"),
+        pytest.param(41.0, _WHOLE_DEGREES, id="end_stop_published_in_whole_degrees"),
+    ],
+)
+def test_no_off_at_the_minimum_on_fahrenheit_counts_as_off(reported, published):
+    """A Fahrenheit head at its minimum counts as off, however it got there.
+
+    The thermostat parks the head at 41.5 °F. The head reports that back on
+    the 0.01 grid of a reading, or, when Home Assistant publishes it in whole
+    degrees, as 42 °F; and a user may turn it further, to the device's own
+    41 °F, below it. All of these are the head at its minimum.
+    """
+    assert group_all_members_off(_fahrenheit_room(reported, published)) is True
+
+
+@pytest.mark.parametrize(
+    ("reported", "published"),
+    [
+        pytest.param(42.0, _TENTHS, id="42_published_in_tenths"),
+        pytest.param(42.1, _WHOLE_DEGREES, id="42_1_next_to_whole_degrees"),
+        pytest.param(42.5, _WHOLE_DEGREES, id="42_5_next_to_whole_degrees"),
+        pytest.param(43.0, _WHOLE_DEGREES, id="43_published_in_whole_degrees"),
+    ],
+)
+def test_no_off_above_the_parked_minimum_on_fahrenheit_heats(reported, published):
+    """A setpoint above what a parked head reports is one the user chose.
+
+    A head published in tenths reports its parked 41.5 °F as it is, so 42 °F
+    is a setpoint of its own. A head published in whole degrees reports it
+    as 42 °F, and anything past that half degree is above the minimum.
+    """
+    assert group_all_members_off(_fahrenheit_room(reported, published)) is False
+
+
+def test_no_off_parked_on_a_coarser_device_grid_counts_as_off():
+    """A head whose grid has no point at the minimum is parked on the next one.
+
+    A 1 °F grid holds 41.5 °F as 42 °F, and reports it as that even when
+    Home Assistant publishes it in tenths.
+    """
+    one_fahrenheit_degree = 5.0 / 9.0
+    members = {
+        "climate.a": _member(
+            no_off=True,
+            min_temp=_PARKED_MIN_CELSIUS,
+            target_temp_step=one_fahrenheit_degree,
+        )
+    }
+    members["climate.b"] = members["climate.a"]
+    states = {
+        entity_id: State(entity_id, "heat", attributes={"temperature": 42.0, **_TENTHS})
+        for entity_id in members
+    }
+    self_ = _fake_self(members, states, system_unit=UnitOfTemperature.FAHRENHEIT)
+    assert group_all_members_off(self_) is True
+
+
+@pytest.mark.parametrize(
+    ("setpoint", "min_temp"),
+    [pytest.param(None, 5.0, id="no_setpoint"), pytest.param(5.0, None, id="no_min")],
+)
+def test_a_missing_setpoint_or_minimum_is_not_at_the_minimum(setpoint, min_temp):
+    """Without both values there is nothing to say the head is at its minimum."""
+    assert (
+        setpoint_at_minimum(setpoint, min_temp, step=None, whole_degrees=False) is False
+    )

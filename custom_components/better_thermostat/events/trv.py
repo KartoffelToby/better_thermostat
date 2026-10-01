@@ -44,10 +44,12 @@ from custom_components.better_thermostat.utils.helpers import (
     is_reasonable_temperature,
     mode_remap,
     normalize_step,
+    published_in_whole_fahrenheit,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     room_mode_intent,
+    setpoint_at_minimum,
     setpoint_echo_window,
 )
 
@@ -58,7 +60,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def accepts_user_setpoint(
-    trv: Trv, *, is_echo: bool, child_lock: bool | None, contact_open: bool
+    trv: Trv,
+    *,
+    is_echo: bool,
+    child_lock: bool | None,
+    contact_open: bool,
+    was_off: bool,
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
 
@@ -77,6 +84,10 @@ def accepts_user_setpoint(
         option and reads as not locked.
     contact_open
         Whether a window or door contact of the room is open.
+    was_off
+        Whether the device was off before this report. A report that
+        switches it on carries a setpoint turned while it was off, which is
+        no more a press than one reported while it is still off.
 
     Returns
     -------
@@ -90,6 +101,7 @@ def accepts_user_setpoint(
         and trv.target_temp_received is True
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
+        and not was_off
         and contact_open is False
         and not trv.ignore_trv_states
     )
@@ -108,15 +120,51 @@ def _hold_report(
     came back from becomes the reference. A later report that moves the
     setpoint the device came back with makes the state before that move the
     reference, so a knob turned after the return is still read as a press.
+    A later report that switches the device on makes the off state it
+    switched on from the reference, and off the mode it is judged against,
+    as the handler would have cached the earlier report outside a cycle.
+    A report that moves the setpoint of a device that is on, after the
+    reference was set to off, makes the state before that move the reference
+    and its mode the mode it is judged against: outside a cycle the handler
+    has cached the device as on by then, and reads the move as a press.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
         self, trv.state_before_held_report
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    switched_on_after_first_report = (
+        trv.report_unread
+        and old_state is not None
+        and old_state.state == HVACMode.OFF
+        and _reports_on(new_state)
+    )
+    pressed_after_switch_on = (
+        trv.report_unread
+        and trv.hvac_mode_before_held_report == HVACMode.OFF
+        and _reports_on(old_state)
+        and _reports_on(new_state)
+        and previous_setpoint != _held_setpoint(self, new_state)
+    )
     if not trv.report_unread or returned or moved_after_return:
         trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = trv.hvac_mode
+    if switched_on_after_first_report:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = HVACMode.OFF
+    if pressed_after_switch_on and old_state is not None:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = old_state.state
     trv.report_unread = True
+
+
+def _reports_on(state: State | None) -> bool:
+    """Return whether a held report's state names a mode other than off."""
+    return state is not None and state.state not in (
+        HVACMode.OFF,
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+    )
 
 
 def _held_setpoint(self, state: State | None) -> float | None:
@@ -125,7 +173,12 @@ def _held_setpoint(self, state: State | None) -> float | None:
 
 
 async def trigger_trv_change(
-    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+    self,
+    event,
+    *,
+    mode_settled: bool = False,
+    request_cycle: bool = True,
+    prior_hvac_mode: str | None = None,
 ):
     """Trigger a change in the trv state.
 
@@ -133,6 +186,9 @@ async def trigger_trv_change(
     has already settled, so the mode it carries is left to the device's next
     report. ``request_cycle=False`` reads the report without requesting a
     control cycle for it, for a caller that decides that itself.
+    ``prior_hvac_mode`` is the mode the device was cached in before the
+    report, for a caller whose cache has moved since; without it the cache
+    is that mode.
     """
     if self.startup_running:
         return
@@ -336,6 +392,9 @@ async def trigger_trv_change(
     except Exception:
         pass
 
+    _was_off = (
+        prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode
+    ) == HVACMode.OFF
     if (
         mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL)
         and not mode_settled
@@ -414,7 +473,7 @@ async def trigger_trv_change(
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *cooling_writes_as_held(self, _step),
+            *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (
@@ -461,14 +520,18 @@ async def trigger_trv_change(
             _reported_setpoint,
             trv.last_temperature,
         )
-        # The no_off OFF detection compares against the device's true min_temp,
-        # so it uses the reported value, not one the clamp may have raised into
+        # The no_off OFF detection compares against the TRV's minimum, so it
+        # uses the reported value, not one the clamp may have raised into
         # [bt_min_temp, bt_max_temp].
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
         _accept_user_setpoint = accepts_user_setpoint(
-            trv, is_echo=_is_echo, child_lock=child_lock, contact_open=self.contact_open
+            trv,
+            is_echo=_is_echo,
+            child_lock=child_lock,
+            contact_open=self.contact_open,
+            was_off=_was_off,
         )
         if _accept_user_setpoint:
             if _setpoint.clamped:
@@ -596,7 +659,14 @@ async def trigger_trv_change(
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
             _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
-            if _raw_heating_setpoint == trv.min_temp:
+            if setpoint_at_minimum(
+                _raw_heating_setpoint,
+                trv.min_temp,
+                step=trv.target_temp_step,
+                whole_degrees=published_in_whole_fahrenheit(
+                    new_state, self.hass.config.units.temperature_unit
+                ),
+            ):
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
                 # off heating - and only

@@ -46,6 +46,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
@@ -89,6 +90,7 @@ def bt():
             advanced={},
         )
     }
+    mock.state_mgr = None
     mock.cooler_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
@@ -135,6 +137,14 @@ def bt():
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
+    # The range is resolved before the state is restored, so the bounds the
+    # entity reports are the configured ones.
+    type(mock).min_temp = property(lambda self: self.bt_min_temp)
+    type(mock).max_temp = property(lambda self: self.bt_max_temp)
+    mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
+        mock, value
+    )
+    mock._applied_target = lambda value: BetterThermostat._applied_target(mock, value)
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     return mock
 
@@ -1861,6 +1871,58 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
+class TestInitializeTrvRangeFallback:
+    """A device that publishes no range is given 5 to 30 °C, on any system.
+
+    The fallback is Better Thermostat's own range, stated in the Celsius it
+    computes in. It stands in for a value the device never published, so no
+    unit the device might have published in applies to it.
+    """
+
+    def _trv_only_bt(self, bt, unit, state):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = unit
+        bt.hass.states.get.return_value = state
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "unit",
+        [
+            pytest.param(UnitOfTemperature.CELSIUS, id="celsius"),
+            pytest.param(UnitOfTemperature.FAHRENHEIT, id="fahrenheit"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(State(TRV_ID, "heat", {}), id="no_range_attributes"),
+            pytest.param(None, id="no_state"),
+        ],
+    )
+    async def test_a_device_without_a_range_gets_5_to_30_celsius(
+        self, bt, unit, published
+    ):
+        """The range fallback is 5 to 30 °C whatever the system unit."""
+        bt = self._trv_only_bt(bt, unit, published)
+        await self._run(bt)
+        trv = bt.real_trvs[TRV_ID]
+        assert (trv.min_temp, trv.max_temp) == (5.0, 30.0)
+
+
 class TestInitializeTrvSetpointSeed:
     """At startup the device's own setpoint is the one it may echo."""
 
@@ -2007,6 +2069,39 @@ class TestRestoreState:
         assert bt.cur_temp_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param((0.012345, 0.001234), (0.012345, 0.001234), id="store"),
+            pytest.param((None, None), (0.0123, 0.00123), id="attributes"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_store_keeps_the_learned_rates_at_full_precision(
+        self, bt, stored, expected
+    ):
+        """The rates the store holds win over the rounded state attributes.
+
+        The attributes publish the rates rounded for display; they fill in
+        only for an entry whose store carries none yet.
+        """
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_STATE_HEATING_POWER: 0.0123,
+            ATTR_STATE_HEAT_LOSS: 0.00123,
+            ATTR_TEMPERATURE: 21.0,
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+        bt.state_mgr = MagicMock()
+        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.heating_power, bt.heat_loss_rate = stored
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert (bt.heating_power, bt.heat_loss_rate) == expected
+
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
         """Test Target clamped to min."""
@@ -2092,6 +2187,90 @@ class TestRestoreState:
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
         assert bt.bt_target_cooltemp == 25.5
+
+    @pytest.mark.asyncio
+    async def test_a_restored_preset_off_the_step_applies_the_targets_it_applied_before(
+        self, bt
+    ):
+        """A preset stored between two steps comes back as the targets it applied.
+
+        Comfort heats to the 72 °F a user typed, 22.22 °C, and cools to
+        77.5 °F, 25.28 °C. Selecting it puts both on the configured 0.5 °C
+        step, 22 °C and 25.5 °C. After a restart the restored preset applies
+        those same two targets, not the stored values beneath them.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt._configured_target_temp_step = 0.5
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
+        bt._preset_cool_temperature = None
+        bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+        bt.control_queue_task = None
+
+        await BetterThermostat.async_set_preset_mode(bt, "comfort")
+        selected = (bt.bt_target_temp, bt.bt_target_cooltemp)
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected[0],
+            "preset_mode": "comfort",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+            ),
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+        bt.bt_target_cooltemp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == (22.0, 25.5)
+        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == selected
+        assert bt.preset_mgr.mode == "comfort"
+
+    @pytest.mark.asyncio
+    async def test_a_preset_below_a_bound_off_the_step_applies_one_target(self, bt):
+        """A preset below the range applies the same target on every path.
+
+        The range starts at 68.5 °F, 20.28 °C, between two steps of the
+        configured 0.5 °C, and Eco is stored at 18 °C. Selecting Eco, setting
+        the target it applied or Eco's stored 18 °C directly, as Eco's number
+        does, and restoring Eco after a restart all land on 20.5 °C, the step
+        nearest the bound inside the range, and Eco stays active throughout.
+        """
+        bt.bt_min_temp = 20.28
+        bt._configured_target_temp_step = 0.5
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.control_queue_task = asyncio.Queue()
+
+        await BetterThermostat.async_set_preset_mode(bt, "eco")
+        selected = bt.bt_target_temp
+
+        for requested in (selected, 18.0):
+            await BetterThermostat.async_set_temperature(
+                bt, **{ATTR_TEMPERATURE: requested}
+            )
+            assert bt.bt_target_temp == selected
+            assert bt.preset_mgr.mode == "eco"
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected,
+            "preset_mode": "eco",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.0, "eco": 18.0}
+            ),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == 20.5
+        assert bt.bt_target_temp == selected
+        assert bt.preset_mgr.mode == "eco"
 
     def _cooling_bt(self, bt, minimum, maximum):
         """Configure *bt* with a cooling channel and a real ordering method."""
@@ -2519,14 +2698,14 @@ class TestValidateHvacMode:
         # humidity should be re-read
         assert bt._current_humidity is not None
 
-    def test_humidity_sensor_none_sets_zero(self, bt):
-        """Test Humidity sensor none sets zero."""
+    def test_a_missing_humidity_sensor_leaves_the_humidity_unknown(self, bt):
+        """A humidity sensor with no state publishes no humidity, not 0 %."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
         bt.hass.states.get.return_value = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt._current_humidity == 0
+        assert bt._current_humidity is None
 
 
 class TestFinalizeStartupOnADualRoleEntity:

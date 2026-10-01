@@ -26,6 +26,23 @@ _RETRY = "custom_components.better_thermostat.utils.retry"
 ATTEMPTS = 6
 
 
+@pytest.fixture(autouse=True)
+def _no_helper_entity_is_disabled():
+    """The entity registry marks none of the TRV's helper entities disabled.
+
+    The stand-in Home Assistant carries no registry of its own; an empty
+    one answers every helper lookup with "no entry", which the write path
+    treats as enabled.
+    """
+    registry = MagicMock()
+    registry.async_get.return_value = None
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
+
+
 def _thermostat(adapter, quirks=None):
     """A thermostat with one TRV whose valve channel is ready to write to."""
     thermostat = MagicMock()
@@ -62,7 +79,11 @@ class TestAValveWriteThatFails:
 
     @pytest.mark.asyncio
     async def test_a_write_through_a_model_quirk_is_attempted_again(self):
-        """A quirk drives the same wire, so it is worth the same attempts."""
+        """A quirk drives the same wire, so it is worth the same attempts.
+
+        Once they are spent, the adapter's own channel still takes the
+        position.
+        """
         quirks = SimpleNamespace(
             override_set_valve=AsyncMock(side_effect=OSError("bus error"))
         )
@@ -72,8 +93,9 @@ class TestAValveWriteThatFails:
         with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
             answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
 
-        assert answer is False
         assert quirks.override_set_valve.await_count == ATTEMPTS
+        assert answer is True
+        adapter.set_valve.assert_awaited_once_with(thermostat, ENTITY_ID, 50)
 
     @pytest.mark.asyncio
     async def test_a_write_nobody_could_make_is_reported(self, caplog):
