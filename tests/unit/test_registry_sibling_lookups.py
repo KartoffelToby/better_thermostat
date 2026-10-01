@@ -610,6 +610,7 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
         helper_id, device_id=TRV_DEVICE, disabled_by=er.RegistryEntryDisabler.USER
     )
     host = _runtime_host(enabled)
+    refused = None if helper_id == RUNTIME_HELPERS["valve"] else False
 
     async def write_with(entry: Any) -> bool | None:
         host.hass.services.async_call.reset_mock()
@@ -620,14 +621,14 @@ async def test_a_helper_disabled_at_runtime_is_not_written(helper_id, caplog):
     assert await write_with(enabled) is True
     assert _written_to(host, helper_id)
 
-    assert not await write_with(disabled)
+    assert await write_with(disabled) is refused
     assert not _written_to(host, helper_id)
-    assert not await write_with(disabled)
+    assert await write_with(disabled) is refused
     assert len(_disabled_sibling_warnings(caplog)) == 1
 
     assert await write_with(enabled) is True
     assert _written_to(host, helper_id)
-    assert not await write_with(disabled)
+    assert await write_with(disabled) is refused
     assert len(_disabled_sibling_warnings(caplog)) == 2
 
 
