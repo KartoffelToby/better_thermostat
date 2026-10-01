@@ -37,7 +37,7 @@ _CTRL = "custom_components.better_thermostat.utils.controlling"
 OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
 
 
-def _reported_state(mode: str, setpoint: float = 19.0) -> State:
+def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
     """Build the state one TRV publishes."""
     return State(
         ENTITY_ID,
@@ -638,6 +638,39 @@ class TestReportsHeldDuringACycle:
         )
 
         assert thermostat.bt_target_temp == 19.0
+        assert cycles == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("off_setpoint", [19.0, None])
+    @pytest.mark.parametrize("switched_off_in_cycle", [True, False])
+    async def test_a_press_after_a_switch_on_during_a_cycle_is_adopted(
+        self, thermostat, reported_states, off_setpoint, switched_off_in_cycle
+    ):
+        """A setpoint pressed after a switch-on inside a cycle is adopted.
+
+        The head is off, or is switched off inside the cycle, and is switched
+        on with a setpoint turned while it was off; then the setpoint is
+        pressed again while it is on. Outside a cycle the switch-on is not
+        adopted, and the press that follows is read against the head being on
+        and is adopted. Read at the end of the cycle, the reports are judged
+        the same way, whether or not the off state carries a setpoint.
+        """
+        switched_off = _reported_state("off", setpoint=off_setpoint)
+        published = [
+            _reported_state("heat", setpoint=23.0),
+            _reported_state("heat", setpoint=24.0),
+        ]
+        if switched_off_in_cycle:
+            published.insert(0, switched_off)
+        else:
+            thermostat.real_trvs[ENTITY_ID].hvac_mode = "off"
+            reported_states[ENTITY_ID] = switched_off
+
+        cycles = await _run_one_cycle(
+            thermostat, reported_states, published, handled_inside=True
+        )
+
+        assert thermostat.bt_target_temp == 24.0
         assert cycles == 2
 
 
