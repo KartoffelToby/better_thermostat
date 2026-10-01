@@ -1,7 +1,7 @@
 # Calibration Controller Benchmark
 
 Pure-simulation comparison framework for Better Thermostat's calibration
-controllers (`mpc`, `pid`, `tpi`) against reproducible thermal-dynamics
+controllers (`mpc_v2`, `mpc`, `pid`, `tpi`) against reproducible thermal-dynamics
 scenarios. No Home Assistant runtime, no hardware, no external data —
 every result is a deterministic function of code + seeds.
 
@@ -26,6 +26,7 @@ Scores are 0..1, oracle-normalised; 1.0 = oracle-equivalent.
 ============================================================================================
   controller          overall      σ  comfort      σ  actuator      σ   energy      σ    n
  *ideal_oracle          1.000  0.000    1.000  0.000     1.000  0.000    1.000  0.000   37
+  mpc_v2                0.874  0.115    0.930  0.148     0.736  0.299    0.937  0.161   37
   pid                   0.785  0.144    0.850  0.209     0.577  0.355    0.936  0.159   37
   tpi                   0.783  0.155    0.680  0.230     0.870  0.223    0.911  0.158   37
   mpc                   0.709  0.151    0.864  0.181     0.315  0.378    0.912  0.157   37
@@ -115,9 +116,9 @@ a controller wins.
 * **BangBang ≈ 0.57** — noise floor. A deliberately naive on/off
   controller; anything close to BangBang has a real problem.
 * **Production controllers (`pid`, `tpi`, `mpc`, `heating_power`) ≈
-  0.68–0.78.** That band is the realistic operating range. A controller
-  above 0.80 is beating most of the field; near the BangBang floor means
-  a clear weakness in at least one dimension.
+  0.68–0.78, `mpc_v2` ≈ 0.87.** That band is the realistic operating
+  range. A controller above 0.80 is beating most of the field; near the
+  BangBang floor means a clear weakness in at least one dimension.
 
 Rule of thumb: when a controller scores well below the Oracle, look at
 which dimension column dropped. A 0.92 comfort with 0.25 actuator means
@@ -141,7 +142,7 @@ This is the closer-to-reality benchmark for **multi-radiator rooms**
 (living rooms, larger kitchens) — common in residential setups. For
 single-radiator rooms the single-TRV matrix is the relevant one.
 
-### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`)
+### Indirect TRVs (`pid+indirect_trv`, `tpi+indirect_trv`, `mpc+indirect_trv`, `mpc_v2+indirect_trv`)
 
 A wrapper that mediates the controller's valve-% intent through an
 offset-mode TRV (Tado, Bosch BTH-RA, Sonoff TRVZB offset-mode, Tuya
@@ -210,8 +211,8 @@ Register it in `runner.ADAPTER_FACTORIES`:
 ADAPTER_FACTORIES["my"] = MyAdapter
 ```
 
-Existing wrappers under `adapters/` (`mpc_adapter`, `pid_adapter`,
-`tpi_adapter`) serve as templates.
+Existing wrappers under `adapters/` (`mpc_v2_adapter`, `mpc_adapter`,
+`pid_adapter`, `tpi_adapter`) serve as templates.
 
 ## Adding a scenario
 
