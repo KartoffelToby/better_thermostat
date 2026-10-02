@@ -4,6 +4,7 @@ from homeassistant.components.climate.const import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.core import Context
@@ -19,21 +20,16 @@ def _report(fake_trv) -> None:
     fake_trv.async_write_ha_state()
 
 
-async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_off(
-    hass, fake_trv
-):
-    """The knob turned while the head was off is written over.
+async def _turn_the_knob_of_a_head_that_is_off(hass, fake_trv, target, turned):
+    """Start a room at ``target``, switch it off and turn its head's knob.
 
-    The user switches the room off, turns the device's knob while it is off,
-    and switches the device on. The turn was not the user's word while the
-    device was off, and the report that switches it on does not make it one.
+    Returns the room's entity and the head's record in it.
     """
     hass.states.async_set(SENSOR_ID, "19.5", {"unit_of_measurement": "°C"})
     entry = make_entry()
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     trv = bt.real_trvs[fake_trv.entity_id]
-    target, turned = 20.5, 22.5
 
     await hass.services.async_call(
         CLIMATE_DOMAIN,
@@ -68,6 +64,20 @@ async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_of
     _report(fake_trv)
     await hass.async_block_till_done()
     assert bt.bt_target_temp == target
+    return bt, trv
+
+
+async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_off(
+    hass, fake_trv
+):
+    """The knob turned while the head was off is written over.
+
+    The user switches the room off, turns the device's knob while it is off,
+    and switches the device on. The turn was not the user's word while the
+    device was off, and the report that switches it on does not make it one.
+    """
+    target, turned = 20.5, 22.5
+    bt, _ = await _turn_the_knob_of_a_head_that_is_off(hass, fake_trv, target, turned)
 
     fake_trv._attr_hvac_mode = HVACMode.HEAT
     _report(fake_trv)
@@ -78,3 +88,26 @@ async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_of
     assert await wait_for(hass, lambda: fake_trv.target_temperature == target, 3.0), (
         f"the device stayed at {fake_trv.target_temperature}"
     )
+
+
+async def test_a_report_after_the_switch_on_does_not_bring_the_turn_either(
+    hass, fake_trv
+):
+    """A head that reports again right after it was switched on keeps the room's target.
+
+    The second report arrives before the room's cycle has written the head
+    back. It carries the setpoint the knob was turned to while the head was
+    off, and the head is on by then. The value is still no press.
+    """
+    target, turned = 20.5, 22.5
+    bt, _ = await _turn_the_knob_of_a_head_that_is_off(hass, fake_trv, target, turned)
+
+    fake_trv._attr_hvac_mode = HVACMode.HEAT
+    _report(fake_trv)
+    fake_trv._attr_hvac_action = HVACAction.HEATING
+    _report(fake_trv)
+    assert await wait_for(hass, lambda: bt.hvac_mode == HVACMode.HEAT, 3.0)
+    assert await wait_for(hass, lambda: fake_trv.target_temperature == target, 3.0), (
+        f"the device stayed at {fake_trv.target_temperature}"
+    )
+    assert bt.bt_target_temp == target, f"the room took {bt.bt_target_temp}"
