@@ -17,7 +17,11 @@ import logging
 import traceback
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import (
+    ClimateEntityFeature,
+    HVACAction,
+    HVACMode,
+)
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
 import pytest
@@ -1102,9 +1106,28 @@ class TestAdvanceHvacAction:
             an entity whose ``_compute_hvac_action_pure`` raises a ValueError
         """
         mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = None
         mock_self.device_name = "test_thermostat"
         mock_self._compute_hvac_action_pure.side_effect = ValueError("no snapshot")
         return mock_self
+
+    def test_a_cycle_keeps_the_previous_action_and_commits_the_new_one(self):
+        """The action the cycle replaces is kept for change detection.
+
+        The recompute's hysteresis state is committed and its action becomes
+        the current one, while the one it replaces moves to
+        ``old_attr_hvac_action``.
+        """
+        mock_self = ThermostatStandIn()
+        mock_self.attr_hvac_action = HVACAction.HEATING
+        result = Mock(action=HVACAction.IDLE)
+        mock_self._compute_hvac_action_pure.return_value = result
+
+        advance_hvac_action(mock_self)
+
+        assert mock_self.old_attr_hvac_action == HVACAction.HEATING
+        assert mock_self.attr_hvac_action == HVACAction.IDLE
+        mock_self._commit_hvac_action.assert_called_once_with(result)
 
     def test_a_failing_recompute_carries_its_traceback_into_the_log(self, caplog):
         """The swallowed exception and its frames reach the reporting record.
