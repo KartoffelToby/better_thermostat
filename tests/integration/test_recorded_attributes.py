@@ -8,6 +8,7 @@ change a fresh attribute row. The live state keeps showing all of them.
 
 from dataclasses import replace
 from datetime import timedelta
+from functools import partial
 
 from homeassistant.components.recorder import history
 from homeassistant.helpers.recorder import get_instance
@@ -48,14 +49,32 @@ def _is_telemetry(key: str) -> bool:
     return key.startswith(("pid_", "mpc_v2_")) or key in _TELEMETRY
 
 
-async def _recorded_attributes(hass, entity_id: str) -> dict:
-    """Return the attributes of the newest recorded state of ``entity_id``."""
+async def _recorded_attributes(hass, state) -> dict:
+    """Return the attributes the recorder stored for the live ``state``.
+
+    Most writes of the climate entity change attributes only, so the query
+    keeps insignificant rows and picks the one whose update time is the
+    live state's.
+    """
     await async_wait_recording_done(hass)
     start = dt_util.utcnow() - timedelta(hours=1)
     states = await get_instance(hass).async_add_executor_job(
-        history.state_changes_during_period, hass, start, None, entity_id
+        partial(
+            history.get_significant_states,
+            hass,
+            start,
+            None,
+            [state.entity_id],
+            significant_changes_only=False,
+        )
     )
-    return dict(states[entity_id][-1].attributes)
+    rows = [
+        row
+        for row in states[state.entity_id]
+        if row.last_updated_timestamp == state.last_updated_timestamp
+    ]
+    assert len(rows) == 1
+    return dict(rows[0].attributes)
 
 
 async def test_controller_telemetry_stays_out_of_the_recorder(hass):
@@ -70,8 +89,10 @@ async def test_controller_telemetry_stays_out_of_the_recorder(hass):
     assert await wait_for(
         hass, lambda: "pid_u" in hass.states.get(bt.entity_id).attributes
     )
+    live = hass.states.get(bt.entity_id)
 
-    recorded = await _recorded_attributes(hass, bt.entity_id)
+    recorded = await _recorded_attributes(hass, live)
 
+    assert recorded["temperature"] == 22.0
     assert "control_mode" in recorded
     assert sorted(key for key in recorded if _is_telemetry(key)) == []
