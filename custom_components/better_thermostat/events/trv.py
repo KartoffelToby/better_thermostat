@@ -36,6 +36,7 @@ from custom_components.better_thermostat.utils.helpers import (
     adopt_reported_hvac_modes,
     attr_to_celsius,
     convert_to_float,
+    cooler_send_cache,
     cooling_owns_dual_role_report,
     device_offers_mode,
     dual_role_entity_id,
@@ -634,6 +635,15 @@ async def trigger_trv_change(
                     _adopted_cooling_setpoint,
                 )
                 self.bt_target_cooltemp = _adopted_cooling_setpoint
+                # The turn takes the place of the cooling channel's last write
+                # as what the device holds, so the cycle compares the cooling
+                # target with the turn rather than with a write the device no
+                # longer holds. The turn was not sent, so it carries no send
+                # time for the resend throttle, and the device has not settled
+                # on any write since.
+                _cooler_sent = cooler_send_cache(self)
+                _cooler_sent["temperature"] = (_raw_heating_setpoint, None)
+                _cooler_sent.pop("temperature_settled", None)
                 # Residual tie-break only, the counterpart of the one below.
                 self._enforce_heat_below_cool()
             else:
