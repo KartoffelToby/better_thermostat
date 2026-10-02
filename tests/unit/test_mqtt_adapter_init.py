@@ -24,6 +24,7 @@ from custom_components.better_thermostat.adapters.mqtt import (
     manual_preset,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 _VALVE_LOGGER = "custom_components.better_thermostat.adapters.valve_entity"
@@ -41,7 +42,7 @@ _WAIT_FOR_CALIBRATION = (
 
 def _bt() -> MagicMock:
     """Build a BetterThermostat stand-in whose calibration needs no lookup."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=1)}
     return bt
@@ -111,9 +112,10 @@ def _bt_with_preset(preset_modes, preset_mode=None) -> MagicMock:
     names no calibration type leaves behind; every type a configuration can
     name reaches the reset.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID, calibration=0)}
+    bt.context = None
     bt.hass.states.get.return_value = State(
         ENTITY_ID, "heat", {"preset_modes": preset_modes, "preset_mode": preset_mode}
     )

@@ -18,6 +18,7 @@ import pytest
 
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
+from tests.factories import ThermostatStandIn
 
 quirk = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.ZWA021"
@@ -32,7 +33,7 @@ quirks = importlib.import_module(
 
 def _make_self(calibration=None):
     """Create a mock BetterThermostat with a spied service-call layer."""
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()

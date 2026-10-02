@@ -701,7 +701,7 @@ async def boot_with_heads_gone(
         await setup_entry(hass, entry)
         for _ in range(20):
             await hass.async_block_till_done()
-    return hass.data[DOMAIN][entry.entry_id]["climate"], entry
+    return entry.runtime_data.climate, entry
 
 
 async def set_room_target(hass, value: float) -> None:

@@ -15,12 +15,12 @@ offset conditionally hand it back untouched.
 """
 
 from importlib import import_module
-from unittest.mock import MagicMock
 
 import pytest
 
 from custom_components.better_thermostat.model_fixes import TS0601, TS0601_thermostat
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 # Two of the modules carry a hyphen in the device name they are called
 # after, so they are reached by name rather than by an import statement.
@@ -40,7 +40,7 @@ CONDITIONAL_NUDGE_QUIRKS = [TS0601, TS0601_thermostat, SEA801]
 
 def _thermostat(cur_temp, bt_target_temp):
     """Build a host reporting the given room temperature and setpoint."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.cur_temp = cur_temp
     bt.bt_target_temp = bt_target_temp
     bt.device_name = "test"

@@ -12,6 +12,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters.delegate import set_temperature
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.trv"
 
@@ -19,7 +20,7 @@ ENTITY_ID = "climate.trv"
 @pytest.fixture
 def bt():
     """Mock thermostat whose TRV carries no step of its own."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     mock.bt_target_temp_step = None

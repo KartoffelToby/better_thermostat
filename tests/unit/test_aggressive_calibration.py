@@ -26,6 +26,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import PIDState
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.test_trv"
 
@@ -52,20 +53,24 @@ def _make_bt(
     the HVAC mode is OFF) and the test only exercises offset / post-adjustment
     logic.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
     bt.attr_hvac_action = hvac_action
     bt.hvac_action = hvac_action
     bt.cur_temp = cur_temp
+    bt.cur_temp_filtered = None
     bt.bt_target_temp = bt_target_temp
     bt.outdoor_sensor = None
     bt.weather_entity = None
+    bt.contact_open = False
     # Short-circuit MPC/TPI/PID internal compute
     bt.bt_hvac_mode = HVACMode.OFF
     # PID standby still follows the room, on a real state and clock.
     bt.clock = FakeClock(monotonic_value=1_000.0)
+    bt.state_mgr = MagicMock()
     bt.state_mgr.get_pid.side_effect = lambda _key: PIDState()
 
     quirks = MagicMock()

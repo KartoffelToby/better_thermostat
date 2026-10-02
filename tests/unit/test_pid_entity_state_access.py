@@ -16,6 +16,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_KP,
     PIDState,
 )
+from tests.factories import ThermostatStandIn
 
 _KEY = "uid:climate.trv:t21.0"
 
@@ -43,7 +44,7 @@ class _StateMgrStub:
 
 
 def _make_bt() -> MagicMock:
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = "uid"
     bt.bt_target_temp = 21.0
     bt.schedule_save_state = MagicMock()

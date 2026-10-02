@@ -18,6 +18,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     LadderParams,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _WATCHER = "custom_components.better_thermostat.utils.watcher"
@@ -28,7 +29,7 @@ TRV_ID = "climate.test_trv"
 @pytest.fixture
 def bt():
     """Mock BT whose room sensor and only TRV both read as unavailable."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.kernel_state = KernelState()
     mock.clock = FakeClock()
