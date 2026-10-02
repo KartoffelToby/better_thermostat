@@ -4644,29 +4644,42 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def run_valve_maintenance_service(self) -> None:
-        """Entity service: run valve maintenance immediately (ignores schedule)."""
-        try:
-            if self.in_maintenance:
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance already running",
-                    self.device_name,
-                )
-                return
-            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
-            if not trvs_to_service:
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance requested, but no TRV has it enabled",
-                    self.device_name,
-                )
-                return
-            # force immediate run
-            self.next_valve_maintenance = self.clock.now()
-            await self._run_valve_maintenance(trvs_to_service)
-        except Exception:
-            _LOGGER.debug(
-                "better_thermostat %s: valve maintenance service encountered an error",
-                self.device_name,
+        """Entity service: run valve maintenance immediately (ignores schedule).
+
+        Raises
+        ------
+        ServiceValidationError
+            when a run is already in progress, or no valve of this thermostat
+            has valve maintenance enabled
+        HomeAssistantError
+            when the run fails
+        """
+        if self.in_maintenance:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="valve_maintenance_running",
+                translation_placeholders={"device_name": self.device_name},
             )
+        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
+        if not trvs_to_service:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="valve_maintenance_not_enabled",
+                translation_placeholders={"device_name": self.device_name},
+            )
+        # force immediate run
+        self.next_valve_maintenance = self.clock.now()
+        try:
+            await self._run_valve_maintenance(trvs_to_service)
+        except Exception as err:
+            _LOGGER.exception(
+                "better_thermostat %s: valve maintenance failed", self.device_name
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="valve_maintenance_failed",
+                translation_placeholders={"device_name": self.device_name},
+            ) from err
 
     @property
     def min_temp(self):

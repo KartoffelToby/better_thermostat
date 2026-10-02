@@ -548,6 +548,15 @@
     },
     "non_numeric_temperature": {
       "message": "{device_name} a reçu {value} pour {attribute}, ce qui n'est pas un nombre."
+    },
+    "valve_maintenance_running": {
+      "message": "Une maintenance des vannes est déjà en cours sur {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} n'a aucune vanne avec la maintenance des vannes activée."
+    },
+    "valve_maintenance_failed": {
+      "message": "La maintenance des vannes sur {device_name} a échoué. Le journal contient les détails."
     }
   }
 }

@@ -548,6 +548,15 @@
     },
     "non_numeric_temperature": {
       "message": "{device_name}, {attribute} için sayı olmayan {value} değerini aldı."
+    },
+    "valve_maintenance_running": {
+      "message": "{device_name} üzerinde vana bakımı zaten çalışıyor."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} cihazında vana bakımı etkin olan bir vana yok."
+    },
+    "valve_maintenance_failed": {
+      "message": "{device_name} üzerinde vana bakımı başarısız oldu. Ayrıntılar günlükte."
     }
   }
 }

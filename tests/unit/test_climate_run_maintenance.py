@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -244,3 +245,39 @@ async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
 
     assert written_while_held == []
     assert writes == [("climate.trv", 30.0)]
+
+
+# ---------------------------------------------------------------------------
+# run_valve_maintenance_service: what the user sees when it cannot run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_service_refuses_while_maintenance_runs(bt):
+    """A request during a run is refused instead of returning silently."""
+    bt.in_maintenance = True
+    bt._run_valve_maintenance = AsyncMock()
+
+    with pytest.raises(ServiceValidationError) as refused:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+
+    assert refused.value.translation_key == "valve_maintenance_running"
+    bt._run_valve_maintenance.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_service_reports_a_failed_run(bt, caplog):
+    """A run that fails surfaces as an error and leaves its cause in the log."""
+    bt.real_trvs = {
+        "climate.trv": Trv(
+            entity_id="climate.trv", advanced={"valve_maintenance": True}
+        )
+    }
+    bt._run_valve_maintenance = AsyncMock(side_effect=RuntimeError("adapter gone"))
+
+    with pytest.raises(HomeAssistantError) as failed:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+
+    assert failed.value.translation_key == "valve_maintenance_failed"
+    assert isinstance(failed.value.__cause__, RuntimeError)
+    assert "adapter gone" in caplog.text
