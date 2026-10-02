@@ -11,6 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
@@ -119,16 +120,51 @@ def _hold_report(
     came back from becomes the reference. A later report that moves the
     setpoint the device came back with makes the state before that move the
     reference, so a knob turned after the return is still read as a press.
+    A later report that switches the device on makes the off state it
+    switched on from the reference, and off the mode it is judged against,
+    as the handler would have cached the earlier report outside a cycle.
+    A report that moves the setpoint of a device that is on, after the
+    reference was set to off, makes the state before that move the reference
+    and its mode the mode it is judged against: outside a cycle the handler
+    has cached the device as on by then, and reads the move as a press.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
         self, trv.state_before_held_report
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    switched_on_after_first_report = (
+        trv.report_unread
+        and old_state is not None
+        and old_state.state == HVACMode.OFF
+        and _reports_on(new_state)
+    )
+    pressed_after_switch_on = (
+        trv.report_unread
+        and trv.hvac_mode_before_held_report == HVACMode.OFF
+        and _reports_on(old_state)
+        and _reports_on(new_state)
+        and previous_setpoint != _held_setpoint(self, new_state)
+    )
     if not trv.report_unread or returned or moved_after_return:
         trv.state_before_held_report = old_state
         trv.hvac_mode_before_held_report = trv.hvac_mode
+    if switched_on_after_first_report:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = HVACMode.OFF
+    if pressed_after_switch_on and old_state is not None:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = old_state.state
     trv.report_unread = True
+
+
+def _reports_on(state: State | None) -> bool:
+    """Return whether a held report's state names a mode other than off."""
+    return state is not None and state.state not in (
+        HVACMode.OFF,
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+    )
 
 
 def _held_setpoint(self, state: State | None) -> float | None:

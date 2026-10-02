@@ -974,6 +974,43 @@ class TestSensorFallbackOnReportsWithoutAUsableTemperature:
             await report(back, back)
             assert put_nowait.call_count == 2
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("outage", ["unavailable", "unknown"])
+    async def test_a_trv_going_off_the_air_controls_the_room_on_the_others(
+        self, mock_bt, outage
+    ):
+        """A TRV outage moves the room onto the TRVs that still report.
+
+        The room temperature under SENSOR_FALLBACK is the mean of the TRVs
+        that report one, so the outage moves it, and the room is controlled
+        on the new value at once rather than on the next unrelated report.
+        """
+        _set_control_mode(mock_bt, ControlMode.SENSOR_FALLBACK)
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = 21.0
+        mock_bt.real_trvs[PEER_ID] = replace(
+            trv, entity_id=PEER_ID, current_temperature=19.0
+        )
+        peer_state = State(
+            PEER_ID,
+            "heat",
+            attributes={"current_temperature": 19.0, "temperature": 19.0},
+        )
+        live = _make_state(attributes={"current_temperature": 21.0})
+        gone = State(ENTITY_ID, outage)
+        reported = {PEER_ID: peer_state, ENTITY_ID: live}
+        mock_bt.hass.states.get.side_effect = reported.get
+        put_nowait = mock_bt.control_queue_task.put_nowait
+
+        assert effective_room_temp(mock_bt) == 20.0
+        reported[ENTITY_ID] = gone
+        await trigger_trv_change(
+            mock_bt, _make_event(mock_bt, new_state=gone, old_state=live)
+        )
+
+        assert effective_room_temp(mock_bt) == 19.0
+        put_nowait.assert_called_once()
+
 
 class TestHvacActionAndValvePosition:
     """Tests for hvac_action / valve_position cache updates."""
