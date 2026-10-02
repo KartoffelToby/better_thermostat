@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "La manutenzione delle valvole su {device_name} non è riuscita. I dettagli sono nel log."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} non ha ancora caricato lo stato appreso. Riprova quando si è avviato."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} non ha una temperatura target a cui applicare i valori PID predefiniti. Non è stato reimpostato nulla."
+    },
+    "pid_reset_failed": {
+      "message": "Il ripristino dell'apprendimento PID di {device_name} non è riuscito. I dettagli sono nel log."
     }
   }
 }

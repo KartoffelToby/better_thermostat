@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "Ventilvedligeholdelse på {device_name} mislykkedes. Loggen har detaljerne."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} har endnu ikke indlæst sin lærte tilstand. Prøv igen, når den er startet."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} har ingen måltemperatur at anvende PID-standardværdierne på. Intet blev nulstillet."
+    },
+    "pid_reset_failed": {
+      "message": "Nulstilling af PID-læringen for {device_name} mislykkedes. Loggen har detaljerne."
     }
   }
 }

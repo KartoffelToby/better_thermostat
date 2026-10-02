@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "{device_name} üzerinde vana bakımı başarısız oldu. Ayrıntılar günlükte."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} öğrenilmiş durumunu henüz yüklemedi. Başladıktan sonra tekrar deneyin."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} için PID varsayılanlarının uygulanacağı bir hedef sıcaklık yok. Hiçbir şey sıfırlanmadı."
+    },
+    "pid_reset_failed": {
+      "message": "{device_name} için PID öğrenmesinin sıfırlanması başarısız oldu. Ayrıntılar günlükte."
     }
   }
 }

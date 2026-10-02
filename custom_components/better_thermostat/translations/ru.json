@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "Обслуживание клапанов на {device_name} не удалось. Подробности в журнале."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} ещё не загрузил обученное состояние. Повторите попытку после его запуска."
+    },
+    "pid_defaults_without_target": {
+      "message": "У {device_name} нет целевой температуры для применения значений PID по умолчанию. Ничего не было сброшено."
+    },
+    "pid_reset_failed": {
+      "message": "Не удалось сбросить обучение PID для {device_name}. Подробности в журнале."
     }
   }
 }

@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "Konserwacja zaworów na {device_name} nie powiodła się. Szczegóły są w logu."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} nie wczytał jeszcze wyuczonego stanu. Spróbuj ponownie po jego uruchomieniu."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} nie ma temperatury docelowej, do której można zastosować domyślne wartości PID. Nic nie zostało zresetowane."
+    },
+    "pid_reset_failed": {
+      "message": "Resetowanie nauki PID dla {device_name} nie powiodło się. Szczegóły są w logu."
     }
   }
 }

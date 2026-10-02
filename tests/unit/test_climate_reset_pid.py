@@ -3,11 +3,13 @@
 The service clears the entity's PID state in the StateManager and can
 optionally seed PID defaults into the current target bucket and its ±0.5 °C
 neighbours.  These tests pin the reset scope, the bucket key construction,
-and the seed conditions.
+the seed conditions, and the errors a call that cannot do its work raises.
 """
 
+import math
 from unittest.mock import MagicMock
 
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -85,10 +87,12 @@ async def test_no_keys_still_schedules_save(bt):
 
 
 @pytest.mark.asyncio
-async def test_no_state_manager_is_a_noop(bt):
-    """Without a StateManager the service returns without scheduling a save."""
+async def test_no_state_manager_is_reported(bt):
+    """Before startup has loaded the state, the call says so and saves nothing."""
     bt.state_mgr = None
-    await BetterThermostat.reset_pid_learnings_service(bt)
+    with pytest.raises(HomeAssistantError) as refused:
+        await BetterThermostat.reset_pid_learnings_service(bt)
+    assert refused.value.translation_key == "pid_state_not_ready"
     bt.schedule_save_state.assert_not_called()
 
 
@@ -162,10 +166,33 @@ async def test_no_trvs_seeds_nothing(bt):
     bt.control_queue_task.put_nowait.assert_not_called()
 
 
+@pytest.mark.parametrize("target", [None, math.nan])
 @pytest.mark.asyncio
-async def test_non_numeric_target_seeds_nothing(bt):
-    """A non-numeric target yields no buckets, so nothing is seeded."""
-    bt.bt_target_temp = None
-    await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)
-    assert bt.state_mgr.pid == {}
+async def test_defaults_without_a_target_are_refused_before_the_reset(bt, target):
+    """Defaults need a target bucket; without one nothing is reset or seeded.
+
+    The call asked for a reset followed by seeding. Doing only the first
+    half would leave the learned gains gone and no defaults in their place.
+    """
+    bt.bt_target_temp = target
+    bt.state_mgr.pid = {"uid:climate.trv:t21.0": PIDState(pid_integral=7.5)}
+    with pytest.raises(ServiceValidationError) as refused:
+        await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)
+    assert refused.value.translation_key == "pid_defaults_without_target"
+    assert set(bt.state_mgr.pid) == {"uid:climate.trv:t21.0"}
     bt.control_queue_task.put_nowait.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_reset_is_reported(bt, caplog):
+    """A failure of the state store surfaces and leaves its cause in the log."""
+
+    def _broken(prefix: str) -> int:
+        raise RuntimeError("store gone")
+
+    bt.state_mgr.reset_pid_states = _broken
+    with pytest.raises(HomeAssistantError) as failed:
+        await BetterThermostat.reset_pid_learnings_service(bt)
+    assert failed.value.translation_key == "pid_reset_failed"
+    assert isinstance(failed.value.__cause__, RuntimeError)
+    assert "store gone" in caplog.text
