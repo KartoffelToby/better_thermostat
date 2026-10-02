@@ -1,6 +1,6 @@
 """Tests that PID calibration reads and writes state through the state manager."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from custom_components.better_thermostat.calibration import _compute_pid_balance
 from custom_components.better_thermostat.core.clock import FakeClock
@@ -9,6 +9,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,
     build_pid_key,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 
 class _PidStateStub:
@@ -26,9 +27,10 @@ class _PidStateStub:
         self.pid[key] = pid
 
 
-def _make_bt(state_mgr: _PidStateStub) -> MagicMock:
+def _make_bt(state_mgr: _PidStateStub) -> ThermostatStandIn:
     """Return a BetterThermostat mock wired for a single heating TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.bt_target_temp = 22.0
@@ -36,6 +38,7 @@ def _make_bt(state_mgr: _PidStateStub) -> MagicMock:
     bt.cur_temp_filtered = None
     bt.temp_slope = 0.0
     bt.window_open = False
+    bt.contact_open = False
     bt.bt_hvac_mode = "heat"
     bt.clock = FakeClock(monotonic_value=1_000.0)
     bt.real_trvs = {

@@ -24,6 +24,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.decide import KernelState
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -31,7 +32,7 @@ _CLIMATE = "custom_components.better_thermostat.climate"
 @pytest.fixture
 def bt():
     """A BetterThermostat stand-in whose entities all read as available."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.kernel_state = KernelState()
     mock.in_maintenance = False

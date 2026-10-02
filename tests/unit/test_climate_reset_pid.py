@@ -17,6 +17,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
 )
+from tests.factories import ThermostatStandIn, make_trv
 
 
 class _StateMgrStub:
@@ -52,12 +53,12 @@ class _StateMgrStub:
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for the reset-PID service."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock._unique_id = "uid"
     mock.unique_id = "uid"
     mock.bt_target_temp = 21.0
-    mock.real_trvs = {"climate.trv": {}}
+    mock.real_trvs = {"climate.trv": make_trv("climate.trv")}
     mock.schedule_save_state = MagicMock()
     mock.control_queue_task = MagicMock()
     mock.state_mgr = _StateMgrStub()

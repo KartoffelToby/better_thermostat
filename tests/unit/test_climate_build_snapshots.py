@@ -13,12 +13,13 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for snapshot building."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.real_trvs = {}
     mock.hass = MagicMock()

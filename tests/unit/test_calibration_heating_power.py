@@ -18,6 +18,7 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.test_trv"
 _CAL = "custom_components.better_thermostat.calibration"
@@ -35,7 +36,8 @@ def _make_bt(
     last_calibration=0.0,
 ):
     """Mock entity in HEATING_POWER mode, mirroring the calibration fixtures."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = tolerance

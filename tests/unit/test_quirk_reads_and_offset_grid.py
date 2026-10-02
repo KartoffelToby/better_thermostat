@@ -22,7 +22,7 @@ from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
 from custom_components.better_thermostat.utils.helpers import round_by_step
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "select.trv_local_temperature_calibration"
@@ -49,7 +49,7 @@ BOOSTED = {
 
 
 def _host(unit=UnitOfTemperature.CELSIUS, state=None, advanced=None):
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.hass = MagicMock()

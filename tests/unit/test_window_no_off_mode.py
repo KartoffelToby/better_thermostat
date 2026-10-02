@@ -21,12 +21,13 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from tests.factories import ThermostatStandIn
 
 
 @pytest.fixture
 def mock_bt_instance():
     """Create a mock BetterThermostat instance."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT

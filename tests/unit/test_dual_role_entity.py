@@ -15,13 +15,14 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_report,
     dual_role_entity_id,
 )
+from tests.factories import ThermostatStandIn
 
 SHARED_ID = "climate.reversible_ac"
 
 
 def _make_bt(*, cooler_entity_id, real_trvs, hvac_mode_decided=None):
     """Build a minimal stand-in carrying only what the helpers read."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.cooler_entity_id = cooler_entity_id
     bt.real_trvs = real_trvs
     bt._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}

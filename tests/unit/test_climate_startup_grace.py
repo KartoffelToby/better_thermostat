@@ -30,6 +30,7 @@ from custom_components.better_thermostat.utils.watcher import (
     STARTUP_DEGRADED_GRACE_PERIOD,
     check_and_update_degraded_mode,
 )
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _WATCHER = "custom_components.better_thermostat.utils.watcher"
@@ -40,11 +41,12 @@ WEATHER_ID = "weather.home"
 
 def _startup_bt():
     """Build a minimal BetterThermostat mock for _finalize_startup."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.is_removed = False
     mock.kernel_state = KernelState()
     mock.clock = FakeClock()
+    type(mock).startup_running = BetterThermostat.startup_running
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None

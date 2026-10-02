@@ -12,12 +12,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.better_thermostat.utils.const import ATTR_STATE_OFF_TEMPERATURE
+from tests.factories import ThermostatStandIn
 
 
 @pytest.fixture
 def mock_bt_with_off_temperature():
     """Create a mock BetterThermostat instance with off_temperature configured."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test Thermostat"
     bt.off_temperature = 20.0
     bt.window_open = False
@@ -40,7 +41,7 @@ def mock_bt_with_off_temperature():
 @pytest.fixture
 def mock_bt_without_off_temperature():
     """Create a mock BetterThermostat instance without off_temperature configured."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test Thermostat No Off Temp"
     bt.off_temperature = None
     bt.window_open = False
@@ -103,7 +104,7 @@ class TestOffTemperatureAttribute:
         test_values = [15.0, 18.0, 20.0, 22.0, 25.0, 0.0]
 
         for temp_value in test_values:
-            bt = MagicMock()
+            bt = ThermostatStandIn()
             bt.off_temperature = temp_value
 
             # Verify the value is stored correctly
@@ -128,7 +129,7 @@ class TestOffTemperatureAttribute:
         included in the extra_state_attributes dictionary, similar to window_open.
         """
         # Simulate the extra_state_attributes dict pattern
-        mock_bt = MagicMock()
+        mock_bt = ThermostatStandIn()
         mock_bt.off_temperature = 20.0
 
         # Simulate building the attributes dict as done in climate.py
@@ -144,7 +145,7 @@ class TestOffTemperatureAttribute:
         When off_temperature is None, it should still be included in the
         attributes dict (same pattern as other optional attributes).
         """
-        mock_bt = MagicMock()
+        mock_bt = ThermostatStandIn()
         mock_bt.off_temperature = None
 
         # Simulate building the attributes dict

@@ -8,7 +8,7 @@ bare ``cur_temp`` reading — and must still skip when no temperature is
 available at all.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from homeassistant.core import State
 
@@ -19,7 +19,11 @@ from custom_components.better_thermostat.calibration import (
     _compute_tpi_balance,
     _record_mpc_v2_reid_sample,
 )
-from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
@@ -35,6 +39,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     build_tpi_key,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
+from tests.factories import ThermostatStandIn, make_state
 
 
 class _StateStub:
@@ -93,9 +98,9 @@ class _StateStub:
         return self.mpc_v2_reid_runtime.setdefault(key, MpcV2ReidRuntime())
 
 
-def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> MagicMock:
+def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> ThermostatStandIn:
     """Return a BetterThermostat mock in SENSOR_FALLBACK with a dead room sensor."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.bt_target_temp = 22.0
@@ -111,7 +116,7 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> MagicMock:
     bt.weather_entity = None
     bt.heating_power = None
     bt.heat_loss_rate = None
-    bt.clock.monotonic.return_value = 100.0
+    bt.clock = FakeClock(monotonic_value=100.0)
     # The TRV itself is reachable and reports its temperature; every other
     # entity is absent.
     bt.hass.states.get.side_effect = lambda entity_id: (
@@ -124,7 +129,9 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> MagicMock:
         else None
     )
     bt.hass.config.units.temperature_unit = "°C"
-    bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+    bt.kernel_state = make_state(
+        control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
+    )
     bt.real_trvs = {
         "climate.trv": Trv.from_legacy_dict(
             "climate.trv",
@@ -270,7 +277,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     state_mgr = _StateStub()
     bt = _make_bt(state_mgr, trv_temp=21.0)
     # Sampling is gated to the OPTIMAL rung; the door flag is orthogonal.
-    bt.kernel_state.control_mode.mode = ControlMode.OPTIMAL
+    bt.kernel_state = make_state()
     bt.cur_temp = 20.5
     bt.window_open = False
     bt.door_open = True
@@ -296,7 +303,7 @@ def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None
     """
     state_mgr = _StateStub()
     bt = _make_bt(state_mgr, trv_temp=21.0)
-    bt.kernel_state.control_mode.mode = ControlMode.OPTIMAL
+    bt.kernel_state = make_state()
     bt.cur_temp = 20.5
 
     _record_mpc_v2_reid_sample(
