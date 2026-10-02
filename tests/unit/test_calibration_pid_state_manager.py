@@ -86,3 +86,17 @@ def test_pid_balance_threads_the_same_state_across_calls() -> None:
     _compute_pid_balance(bt, "climate.trv")
     assert state_mgr.pid[key] is first
     assert first.previous_abs_error == 2.0
+
+
+def test_pid_balance_ignores_the_room_sensor_filter_during_the_trv_fallback() -> None:
+    """The filter still holds the lost sensor's readings; PID uses the TRV value."""
+    state_mgr = _PidStateStub()
+    bt = _make_bt(state_mgr)
+    bt.cur_temp_filtered = 18.0
+    bt.room_sensor_fallback = True
+
+    _compute_pid_balance(bt, "climate.trv")
+
+    key = build_pid_key(bt, "climate.trv")
+    # error = |target - current| = |22.0 - 20.0|, not |22.0 - 18.0|
+    assert state_mgr.pid[key].last_abs_error == 2.0

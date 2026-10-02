@@ -179,6 +179,10 @@ DEFAULT_CALIBRATION_MODE: Final = CalibrationMode.HEATING_POWER_CALIBRATION
 MIN_REASONABLE_TEMPERATURE = -50.0
 MAX_REASONABLE_TEMPERATURE = 60.0
 
+# How long the room sensor has to stay unavailable or unknown before the
+# TRV-internal temperature stands in for the room temperature (seconds).
+ROOM_SENSOR_FALLBACK_DELAY_S: Final = 120
+
 # Default temperature bounds / setpoint for the BT climate entity (Celsius),
 # used until the underlying TRV reports its own min/max/target.
 DEFAULT_MIN_TEMP: Final = 0.0

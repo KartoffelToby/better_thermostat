@@ -53,6 +53,7 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_calibration_mode,
+    normalize_step,
     round_by_step,
     rounding,
 )
@@ -88,6 +89,29 @@ def _compute_zero_open_offset(
     _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
     _offset = max(_trv_temp_step, _offset)
     return _offset
+
+
+def _filtered_room_temp(self) -> float | None:
+    """Return the filtered room temperature a controller may use.
+
+    The filter runs on the room sensor's readings, so while the TRV
+    temperature stands in for a lost sensor it still holds that sensor's
+    last value; the controllers then work on the unfiltered room
+    temperature.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    float | None
+            The filtered room temperature, or None during the TRV fallback.
+    """
+    if self.room_sensor_fallback:
+        return None
+    return self.cur_temp_filtered
 
 
 def _get_current_outdoor_temp(self) -> float | None:
@@ -281,9 +305,10 @@ def _compute_mpc_balance(self, entity_id: str):
     params = MpcParams()
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
-    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed
+    # separately, except while the TRV temperature stands in for the room sensor.
     mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = self.cur_temp_filtered
+    mpc_filtered_temp = _filtered_room_temp(self)
 
     _is_day = True
     if self.hass:
@@ -664,7 +689,7 @@ def _compute_pid_balance(self, entity_id: str):
             trv_state.current_temperature,
             self.temp_slope,
             key,
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=_filtered_room_temp(self),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
         )
@@ -1127,10 +1152,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
 
-    _trv_temp_step_raw = self.real_trvs[entity_id].target_temp_step
-    _trv_temp_step = _convert_to_float(_trv_temp_step_raw)
-    if _trv_temp_step is None or _trv_temp_step <= 0:
-        _trv_temp_step = 0.5
+    # The step is the grid the setpoint is rounded to, so it is kept as the
+    # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
+    # drifts off whole degrees Fahrenheit within a few steps.
+    _trv_temp_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
     if _cur_trv_temp is None:
         return None

@@ -12,7 +12,7 @@ import json
 import logging
 from random import randint
 from time import monotonic
-from typing import Any
+from typing import Any, overload
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -37,12 +37,22 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
+    PRECISION_TENTHS,
+    PRECISION_WHOLE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Context,
+    Event,
+    ServiceCall,
+    State,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -77,16 +87,16 @@ from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
     EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
+    reconcile_room_sensor,
+    room_sensor_reading,
     temperature_filter_lock,
     trigger_temperature_change,
+    trv_ready,
+    trv_reported_temperature,
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import (
-    initial_tweak,
-    load_model_quirks,
-    trv_state_unknown_as_available,
-)
+from .model_fixes.model_quirks import initial_tweak, load_model_quirks
 from .switch import restored_child_lock
 from .trv import Trv
 from .utils.calibration.pid import (
@@ -163,9 +173,11 @@ from .utils.helpers import (
     member_counts_as_off,
     normalize_hvac_mode,
     normalize_step,
+    read_bound_celsius,
     reported_setpoint_step_celsius,
     resolve_inbound_setpoint,
     room_mode_intent,
+    round_by_step,
     state_temperature_unit,
 )
 from .utils.hvac_action import (
@@ -216,6 +228,11 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
+
+# Modes in which a head's setpoint is no heating target.
+_MODES_WITHOUT_A_HEATING_SETPOINT = frozenset(
+    {HVACMode.COOL, HVACMode.DRY, HVACMode.FAN_ONLY}
+)
 
 # How often the room temperature is re-sent to TRVs that mirror it into an
 # input of their own. Such a device falls back to its own sensor after a fixed
@@ -378,6 +395,15 @@ def _target_temp_step_celsius(
     )
 
 
+def _room_sensor_missing(sensor_state: State | None) -> bool:
+    """Return whether the room sensor's state carries no reading at all."""
+    return sensor_state is None or sensor_state.state in (
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+        None,
+    )
+
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
@@ -390,6 +416,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def reset_heating_power(self):
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
+        self.schedule_save_state()
         self.async_write_ha_state()
 
     # Thermal tracker properties
@@ -678,16 +705,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if target_temp_max not in (None, "", "-1.0", -1.0)
             else None
         )
+        # The configured step is picked from options labelled in Celsius, the
+        # unit the configured range is picked in, so it is read as Celsius on
+        # every system.
         self.bt_target_temp_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
-        if (
-            self.bt_target_temp_step is not None
-            and unit == UnitOfTemperature.FAHRENHEIT
-        ):
-            self.bt_target_temp_step = round(self.bt_target_temp_step * 5.0 / 9.0, 4)
         # ``bt_target_temp_step`` also absorbs the step derived from the child
         # entities, so the explicitly configured value is kept apart: it is the
         # only step that may override a device's own grid.
@@ -797,6 +822,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         self._door_task = None
         self._owned_tasks: set[asyncio.Task] = set()
+        self._final_flush_task: asyncio.Task | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
         self.is_removed = False
@@ -828,6 +854,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Applies a pending reading later, at the end of a plateau or of the
         # debounce interval.
         self.plateau_timer_cancel = None
+        # TRV-internal temperature standing in for a lost room sensor
+        self.room_sensor_fallback = False
+        # The sensor stayed lost past the delay, but no TRV had a usable
+        # temperature to take over with yet
+        self.room_sensor_fallback_due = False
+        self.room_sensor_fallback_cancel = None
         self.last_change_direction = 0
         self.prev_stable_temp = None
         self.accum_delta = 0.0
@@ -1031,12 +1063,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._save_cancel()
                 self._save_cancel = None
             if self.state_mgr is not None:
+                self.state_mgr.close()
                 try:
                     self._record_thermal_to_state()
-                    # The last save is left to hass rather than owned: the
-                    # on_remove callbacks run before async_will_remove_from_hass,
-                    # so an owned task would be cancelled before it writes.
-                    self.hass.async_create_background_task(
+                    # The last save is not an owned task: the on_remove
+                    # callbacks run before async_will_remove_from_hass, which
+                    # cancels owned tasks, so it would never write. That
+                    # method awaits it instead, so the unload, and a removal
+                    # that deletes the stores after it, follow the write.
+                    self._final_flush_task = self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
                     )
@@ -1044,6 +1079,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
         self.async_on_remove(on_remove)
+
+        async def _save_on_stop(_event: Event) -> None:
+            # Home Assistant does not remove entities when it stops, so a
+            # save still waiting out its delay is written now instead. The
+            # final write is the stage in which the Store writes at once, so
+            # a copy the state waits for can be confirmed before the save.
+            if self._save_cancel is not None:
+                self._save_cancel()
+                self._save_cancel = None
+            if self.state_mgr is not None:
+                self._record_thermal_to_state()
+                await self.state_mgr.flush()
+
+        self.async_on_remove(
+            self.hass.bus.async_listen(EVENT_HOMEASSISTANT_FINAL_WRITE, _save_on_stop)
+        )
 
         await super().async_added_to_hass()
 
@@ -1293,15 +1344,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         self.async_set_context(event.context)
-        if (event.data.get("new_state")) is None:
-            return
-        # Only update humidity if sensor is available
+        # A sensor that stops reporting or is removed leaves the humidity
+        # unknown, as it does at startup. The humidity is the sensor's
+        # reading, not a head's, so it is published while a head is
+        # unavailable as well.
         if is_entity_available(self.hass, self.humidity_sensor_entity_id):
             humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
             if humidity_state is not None:
                 self._current_humidity = convert_to_float(
                     str(humidity_state.state), self.device_name, "humidity_update"
                 )
+        else:
+            self._current_humidity = None
+        # Checked for the repair issue an unavailable head raises.
+        await check_critical_entities(self)
         self.async_write_ha_state()
 
     async def _trigger_trv_change(self, event):
@@ -1441,21 +1497,30 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def _check_entities_ready(self, sensor_state: State | None) -> bool:
         """Decide whether startup can go ahead.
 
-        The room sensor has to be available. The TRVs have to be available
-        as well while the startup grace window is open, so a TRV whose
-        integration is still loading is initialised with the others. Once
-        the window has closed, startup goes ahead with the TRVs that are
-        available and leaves the rest to be initialised when they report
-        again. A room with no TRV available keeps waiting: there is nothing
-        to control, and the temperature range and the mode startup derives
-        from the TRVs would have nothing to be read from.
+        The room sensor has to give a usable reading while the startup grace
+        window is open, so a sensor whose integration is still loading is the
+        one the room starts on. Once the window has closed, a room sensor that
+        still gives none is replaced by the internal temperature of a TRV,
+        the same fallback the room runs on when its sensor drops out later,
+        and it takes over again as soon as it reports. Without its room
+        sensor, a room keeps waiting until a TRV reports a plausible
+        temperature to control on.
+
+        The TRVs have to be available as well while the startup grace window
+        is open, so a TRV whose integration is still loading is initialised
+        with the others. Once the window has closed, startup goes ahead with
+        the TRVs that are available and leaves the rest to be initialised
+        when they report again. A room with no TRV available keeps waiting:
+        there is nothing to control, and the temperature range and the mode
+        startup derives from the TRVs would have nothing to be read from.
 
         Returns True when startup can go ahead, False otherwise.
         """
-        if sensor_state is None or sensor_state.state in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-            None,
+        grace_until = getattr(self, "_critical_grace_until", None)
+        in_grace = grace_until is not None and dt_util.now() < grace_until
+        sensor_missing = room_sensor_reading(self.device_name, sensor_state) is None
+        if sensor_missing and (
+            in_grace or self._first_plausible_trv_temperature() is None
         ):
             _LOGGER.info(
                 "better_thermostat %s: waiting for sensor entity with id '%s' to become fully available...",
@@ -1465,11 +1530,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return False
 
         unavailable = self._unavailable_trvs()
-        if not unavailable:
-            return True
-        grace_until = getattr(self, "_critical_grace_until", None)
-        in_grace = grace_until is not None and dt_util.now() < grace_until
-        if in_grace or len(unavailable) == len(self.real_trvs):
+        if unavailable and (in_grace or len(unavailable) == len(self.real_trvs)):
             for trv_id in unavailable:
                 _LOGGER.info(
                     "better_thermostat %s: waiting for TRV/climate entity with id '%s' to become fully available...",
@@ -1485,24 +1546,34 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 trv_id,
             )
+        if sensor_missing:
+            _LOGGER.warning(
+                "better_thermostat %s: room temperature sensor '%s' still gives "
+                "no usable reading after the startup grace window; starting on "
+                "the TRV internal temperature until it reports one",
+                self.device_name,
+                self.sensor_entity_id,
+            )
         return True
 
     def _unavailable_trvs(self) -> list[str]:
         """Return the TRVs that are not in a state they can be driven in."""
-        unavailable = []
+        return [trv_id for trv_id in self.real_trvs if not trv_ready(self, trv_id)]
+
+    def _first_plausible_trv_temperature(self) -> tuple[str, float] | None:
+        """Return the first available TRV with a plausible internal temperature.
+
+        Returns
+        -------
+        tuple[str, float] | None
+            The TRV's entity id and its internal temperature in Celsius, or
+            ``None`` when no available TRV reports a plausible one.
+        """
         for trv_id in self.real_trvs:
-            trv_state = self.hass.states.get(trv_id)
-            state_unknown_as_available = trv_state_unknown_as_available(self, trv_id)
-            if (
-                trv_state is None
-                or trv_state.state in (STATE_UNAVAILABLE, None)
-                or (
-                    (not state_unknown_as_available)
-                    and trv_state.state == STATE_UNKNOWN
-                )
-            ):
-                unavailable.append(trv_id)
-        return unavailable
+            candidate = trv_reported_temperature(self, trv_id)
+            if candidate is not None:
+                return trv_id, candidate
+        return None
 
     def _collect_trv_states(self) -> list[State]:
         """Collect current State objects for the initialised TRVs and the cooler.
@@ -1539,29 +1610,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         max_temps: list[float] = []
         steps: list[float] = []
         for s in states:
-            _unit = state_temperature_unit(
-                s.attributes, self.hass.config.units.temperature_unit
+            _c = read_bound_celsius(
+                self,
+                s,
+                ATTR_MIN_TEMP,
+                lower=True,
+                context="_resolve_temperature_range(min)",
             )
-            _raw_min = s.attributes.get(ATTR_MIN_TEMP)
-            if _raw_min is not None:
-                _c = convert_to_float_celsius(
-                    str(_raw_min),
-                    self.device_name,
-                    "_resolve_temperature_range(min)",
-                    unit_of_measurement=_unit,
-                )
-                if _c is not None:
-                    min_temps.append(_c)
-            _raw_max = s.attributes.get(ATTR_MAX_TEMP)
-            if _raw_max is not None:
-                _c = convert_to_float_celsius(
-                    str(_raw_max),
-                    self.device_name,
-                    "_resolve_temperature_range(max)",
-                    unit_of_measurement=_unit,
-                )
-                if _c is not None:
-                    max_temps.append(_c)
+            if _c is not None:
+                min_temps.append(_c)
+            _c = read_bound_celsius(
+                self,
+                s,
+                ATTR_MAX_TEMP,
+                lower=False,
+                context="_resolve_temperature_range(max)",
+            )
+            if _c is not None:
+                max_temps.append(_c)
             _sf = _target_temp_step_celsius(
                 s, self.device_name, self.hass.config.units.temperature_unit
             )
@@ -1599,74 +1665,39 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.all_entities.append(self.sensor_entity_id)
 
         # Handle room temperature sensor with TRV fallback
-        room_candidate: float | None = None
-        if sensor_state is not None and sensor_state.state not in (
-            STATE_UNAVAILABLE,
-            STATE_UNKNOWN,
-            None,
+        room_candidate = room_sensor_reading(self.device_name, sensor_state)
+        if (
+            room_candidate is None
+            and sensor_state is not None
+            and not _room_sensor_missing(sensor_state)
         ):
-            room_candidate = convert_to_float_celsius(
-                str(sensor_state.state),
+            _LOGGER.warning(
+                "better_thermostat %s: Room temperature sensor '%s' reports "
+                "implausible value %s; falling back to TRV internal temperature.",
                 self.device_name,
-                "startup()",
-                unit_of_measurement=sensor_state.attributes.get("unit_of_measurement"),
+                self.sensor_entity_id,
+                sensor_state.state,
             )
-            if not is_reasonable_temperature(room_candidate):
-                _LOGGER.warning(
-                    "better_thermostat %s: Room temperature sensor '%s' reports "
-                    "implausible value %s; falling back to TRV internal temperature.",
-                    self.device_name,
-                    self.sensor_entity_id,
-                    room_candidate,
-                )
-                room_candidate = None
 
+        # A room that starts on a TRV temperature keeps following the TRV
+        # until the room sensor reports a usable value. A sensor that is
+        # missing here has been missing for the whole grace window, which
+        # already outlasts the runtime fallback delay.
+        self.room_sensor_fallback = False
         if room_candidate is not None:
             self.cur_temp = room_candidate
         else:
-            if sensor_state is None or sensor_state.state in (
-                STATE_UNAVAILABLE,
-                STATE_UNKNOWN,
-                None,
-            ):
-                _LOGGER.warning(
-                    "better_thermostat %s: Room temperature sensor '%s' unavailable. "
-                    "Falling back to TRV internal temperature.",
-                    self.device_name,
-                    self.sensor_entity_id,
-                )
             self.cur_temp = None
-            for trv_id in self.real_trvs:
-                trv_state = self.hass.states.get(trv_id)
-                if trv_state is None:
-                    continue
-                trv_temp = trv_state.attributes.get("current_temperature")
-                if trv_temp is None:
-                    continue
-                candidate = attr_to_celsius(
-                    self,
-                    trv_state,
-                    "current_temperature",
-                    None,
-                    "startup() TRV fallback",
-                )
-                if not is_reasonable_temperature(candidate):
-                    _LOGGER.warning(
-                        "better_thermostat %s: TRV '%s' reports implausible "
-                        "current_temperature %s; trying next TRV.",
-                        self.device_name,
-                        trv_id,
-                        candidate,
-                    )
-                    continue
-                self.cur_temp = candidate
+            trv_reading = self._first_plausible_trv_temperature()
+            if trv_reading is not None:
+                trv_id, self.cur_temp = trv_reading
+                self.room_sensor_fallback = True
                 _LOGGER.info(
                     "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
                     self.device_name,
                     trv_id,
-                    candidate,
+                    self.cur_temp,
                 )
-                break
             if self.cur_temp is None:
                 self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
                 _LOGGER.warning(
@@ -1724,6 +1755,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.debug(
             "better_thermostat %s: async_get_last_state returned", self.device_name
         )
+        # A missing heating target falls back to the setpoints of the heads
+        # that are on. A head that is off, including a no-off device parked at
+        # its minimum, holds its off or frost setpoint, not a room target, and
+        # the cooler's setpoint belongs to the cooling channel. That includes
+        # a head that is also the cooler: in a mode that does not heat, its
+        # setpoint is a cooling target. On a heat/cool range it still hands
+        # over the lower bound as its heating setpoint.
+        head_states = [
+            state
+            for state in states
+            if state.entity_id in self.real_trvs
+            and state.state not in _MODES_WITHOUT_A_HEATING_SETPOINT
+            and not member_counts_as_off(self, state.entity_id, state)
+        ]
         if old_state is not None:
             _LOGGER.debug("better_thermostat %s: restoring state...", self.device_name)
             # Restore external_temp_ema if available (overwrites startup init)
@@ -1762,14 +1807,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # Clamp the saved target, or fall back to the TRV mean.
             _restored_target = restore_target_temperature(
                 saved_heating_target(old_state.attributes),
-                states,
+                head_states,
                 self.bt_min_temp,
                 self.bt_max_temp,
                 self.device_name,
                 self.hass.config.units.temperature_unit,
             )
-            if _restored_target is not None:
-                self.bt_target_temp = _restored_target
+            self.bt_target_temp = self._bound_target_to_range(
+                DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
+            )
             _LOGGER.debug(
                 "better_thermostat %s: target temperature restored", self.device_name
             )
@@ -1891,10 +1937,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
                 preset_temp = self.preset_mgr.get_temperature(self.preset_mgr.mode)
                 # Only override if different to avoid masking manual restore logic
-                if (
-                    isinstance(preset_temp, (int, float))
-                    and preset_temp is not None
-                    and self.bt_target_temp != preset_temp
+                if isinstance(preset_temp, (int, float)) and self.bt_target_temp != (
+                    preset_target := self._applied_target(preset_temp)
                 ):
                     _LOGGER.debug(
                         "better_thermostat %s: Applying restored preset %s temperature %s after startup",
@@ -1902,14 +1946,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.preset_mgr.mode,
                         preset_temp,
                     )
-                    self.bt_target_temp = self._bound_target_to_range(preset_temp)
+                    self.bt_target_temp = preset_target
                 if (
                     self.cooler_entity_id is not None
                     and self.preset_mgr.mode in self._preset_cool_temperatures
                 ):
                     cool_temp = self._preset_cool_temperatures[self.preset_mgr.mode]
                     if isinstance(cool_temp, (int, float)):
-                        self.bt_target_cooltemp = self._bound_target_to_range(cool_temp)
+                        self.bt_target_cooltemp = self._applied_target(cool_temp)
                 # A target that is re-injected rather than chosen is ordered the
                 # moment it is stored: the HVAC mode can change without the pair
                 # being looked at again, and async_set_hvac_mode does not
@@ -1950,13 +1994,28 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.last_main_hvac_mode = str(
                     old_state.attributes[ATTR_STATE_MAIN_MODE]
                 )
-            if old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None:
+            # The StateManager, hydrated before the restore, is the
+            # persistence authority and keeps the rates at full precision.
+            # The restored attributes, rounded for display, only fill in a
+            # rate the store does not carry, such as for an entry whose rates
+            # were persisted through the entity attributes.
+            _stored_power, _stored_loss = (
+                self.state_mgr.clamped_thermal()
+                if self.state_mgr is not None
+                else (None, None)
+            )
+            if (
+                _stored_power is None
+                and old_state.attributes.get(ATTR_STATE_HEATING_POWER, None) is not None
+            ):
                 self.heating_power = clamp_heating_power(
                     old_state.attributes.get(ATTR_STATE_HEATING_POWER), self.device_name
                 )
 
-            # Restore heat loss if available
-            if old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None:
+            if (
+                _stored_loss is None
+                and old_state.attributes.get(ATTR_STATE_HEAT_LOSS, None) is not None
+            ):
                 _restored_loss = clamp_heat_loss(
                     old_state.attributes.get(ATTR_STATE_HEAT_LOSS)
                 )
@@ -1993,20 +2052,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: no previous state, restoring defaults...",
                 self.device_name,
             )
-            if self.bt_target_temp is None or not isinstance(
-                self.bt_target_temp, float
-            ):
-                _LOGGER.info(
-                    "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
-                    self.device_name,
-                )
-                _restored_target = mean_trv_target(
-                    states,
-                    self.device_name,
-                    system_unit=self.hass.config.units.temperature_unit,
-                )
-                if _restored_target is not None:
-                    self.bt_target_temp = _restored_target
+            _LOGGER.info(
+                "better_thermostat %s: No previously saved temperature found on startup, get it from the TRV",
+                self.device_name,
+            )
+            _restored_target = mean_trv_target(
+                head_states,
+                self.device_name,
+                system_unit=self.hass.config.units.temperature_unit,
+            )
+            self.bt_target_temp = self._bound_target_to_range(
+                DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
+            )
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
 
     def _validate_hvac_mode(self, states: list[State]) -> None:
@@ -2053,13 +2110,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     self.humidity_sensor_entity_id,
                 )
-                self._current_humidity = 0
+                self._current_humidity = None
+            elif _hum_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                self._current_humidity = None
             else:
-                self._current_humidity = (
-                    convert_to_float(
-                        str(_hum_state.state), self.device_name, "startup()"
-                    )
-                    or 0.0
+                self._current_humidity = convert_to_float(
+                    str(_hum_state.state), self.device_name, "startup()"
                 )
         else:
             self._current_humidity = 0.0
@@ -2176,8 +2232,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv_data.valve_position = convert_to_float(
                 str(_attrs.get("valve_position", None)), self.device_name, "startup"
             )
-            trv_data.max_temp = attr_to_celsius(self, _s, "max_temp", 30, "startup")
-            trv_data.min_temp = attr_to_celsius(self, _s, "min_temp", 5, "startup")
+            # A device that publishes no range gets Better Thermostat's own,
+            # which is stated in the Celsius it computes in.
+            _max_temp = read_bound_celsius(
+                self, _s, "max_temp", lower=False, context="startup"
+            )
+            _min_temp = read_bound_celsius(
+                self, _s, "min_temp", lower=True, context="startup"
+            )
+            trv_data.max_temp = 30.0 if _max_temp is None else _max_temp
+            trv_data.min_temp = 5.0 if _min_temp is None else _min_temp
             # This step is the grid the device rounds to: it sizes the echo
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
@@ -2700,6 +2764,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 timedelta(minutes=1),
             )
         )
+        # The room sensor's changes were not handled while startup ran.
+        await reconcile_room_sensor(self)
         _LOGGER.info("better_thermostat %s: startup completed.", self.device_name)
         self.async_write_ha_state()
         await self.async_update_ha_state(force_refresh=True)
@@ -2795,7 +2861,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # state names no mode to restore, gets none and stays out of the
             # run below.
             infos = build_trv_snapshots(
-                self.real_trvs, trvs, self.hass.states.get, self.device_name
+                self.real_trvs,
+                trvs,
+                self.hass.states.get,
+                self.device_name,
+                read_setpoint=lambda state: attr_to_celsius(
+                    self, state, "temperature", None, "valve maintenance"
+                ),
             )
             serviced_ids = {info.entity_id for info in infos}
 
@@ -3035,9 +3107,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_MAIN_MODE: self.last_main_hvac_mode,
             ATTR_STATE_OFF_TEMPERATURE: self.off_temperature,
             CONF_TOLERANCE: self.tolerance,
-            CONF_TARGET_TEMP_STEP: self.bt_target_temp_step,
-            ATTR_STATE_HEATING_POWER: self.heating_power,
-            ATTR_STATE_HEAT_LOSS: getattr(self, "heat_loss_rate", None),
+            # The learned rates carry full precision; they are rounded here,
+            # where they are published.
+            ATTR_STATE_HEATING_POWER: round(self.heating_power, 4),
+            ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
             "external_temp_ema": self.cur_temp_filtered,
@@ -3119,18 +3192,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     @property
     def precision(self):
-        """Return the precision of the system.
+        """Return the precision the entity's temperatures are published with.
+
+        Home Assistant rounds every temperature this entity publishes (the
+        room temperature, the target and the range) to it after converting
+        into the system unit. Its default on a Fahrenheit system is whole
+        degrees, which would round the thermostat's range outward past the
+        device's bounds and hide a target between two degrees, so every
+        system publishes tenths, which is Home Assistant's default on a
+        Celsius one.
 
         Returns
         -------
         float
                 Precision of the thermostat.
         """
-        return super().precision
+        return PRECISION_TENTHS
 
     @property
     def target_temperature_step(self) -> float | None:
-        """Return the supported step of target temperature.
+        """Return the supported step of target temperature, in the system unit.
+
+        Home Assistant converts every temperature this entity publishes into
+        the system unit but publishes the step as given, and the frontend
+        steps the converted target by it. ``bt_target_temp_step`` is a
+        Celsius difference, so on a Fahrenheit system it is scaled into
+        Fahrenheit. Without one the step is Home Assistant's default
+        precision for the system unit, whole degrees on a Fahrenheit system
+        and tenths on a Celsius one.
+
+        The system unit is the one the entity was set up with; a change of
+        the unit system takes effect when the entry is reloaded.
 
         Returns
         -------
@@ -3138,9 +3230,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 Step size of target temperature.
         """
         if self.bt_target_temp_step is not None:
+            if self._unit == UnitOfTemperature.FAHRENHEIT:
+                return round(self.bt_target_temp_step * 9.0 / 5.0, 2)
             return self.bt_target_temp_step
 
-        return super().precision
+        if self._unit == UnitOfTemperature.FAHRENHEIT:
+            return PRECISION_WHOLE
+        return PRECISION_TENTHS
 
     @property
     def temperature_unit(self) -> str:
@@ -3732,6 +3828,48 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ceiling = max(ceiling, self.bt_min_temp)
         return min(value, ceiling)
 
+    @overload
+    def _onto_target_grid(self, value: float) -> float: ...
+
+    @overload
+    def _onto_target_grid(self, value: None) -> None: ...
+
+    @overload
+    def _onto_target_grid(self, value: float | None) -> float | None: ...
+
+    def _onto_target_grid(self, value: float | None) -> float | None:
+        """Round a requested target onto the configured step.
+
+        Only a configured step is a grid of the thermostat's own; one derived
+        from the devices is left to each device, which rounds onto its own
+        grid. A value already on the grid, and every value when no step is
+        configured, comes back unchanged.
+        """
+        step = self._configured_target_temp_step
+        if value is None or not isinstance(step, float) or step <= 0:
+            return value
+        rounded = round_by_step(value, step)
+        if rounded is None or abs(rounded - value) < 1e-9:
+            return value
+        # Clear of the float noise the multiplication leaves: 21.2, not
+        # 21.200000000000003.
+        return round(rounded, 10)
+
+    def _applied_target(self, value: float) -> float:
+        """Return the target a requested or stored temperature applies as.
+
+        Clamped into the range, rounded onto the configured step, and clamped
+        again: the step nearest the clamped value, or the bound when that
+        step lies outside the range. Applying the result again returns it
+        unchanged, and a value outside the range applies as its clamped
+        value does. A target set directly, a preset being selected, a manual
+        target compared against the active preset and a preset restored
+        after a restart all go through here, so they agree on one number.
+        """
+        lowest, highest = self.min_temp, self.max_temp
+        in_range = min(highest, max(lowest, value))
+        return min(highest, max(lowest, self._onto_target_grid(in_range)))
+
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(
@@ -3794,15 +3932,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             return
 
-        # Validate against min/max temps
+        # Home Assistant hands the target over converted from the unit the
+        # user set it in, so a whole or tenth degree Fahrenheit arrives off the
+        # Celsius grid; it is put onto the thermostat's step inside the range
+        # here, once.
         if _new_setpoint is not None:
-            _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
+            _new_setpoint = self._applied_target(_new_setpoint)
         if _new_setpointlow is not None:
-            _new_setpointlow = min(self.max_temp, max(self.min_temp, _new_setpointlow))
+            _new_setpointlow = self._applied_target(_new_setpointlow)
         if _new_setpointhigh is not None:
-            _new_setpointhigh = min(
-                self.max_temp, max(self.min_temp, _new_setpointhigh)
-            )
+            _new_setpointhigh = self._applied_target(_new_setpointhigh)
 
         # Preserve explicit 0.0 values (avoid Python truthiness bug)
         if _new_setpoint is not None:
@@ -3813,8 +3952,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
 
-        # Enforce ordering: cool target should be above heat target in HEAT_COOL.
-        self._enforce_cool_above_heat()
+        # The pair is ordered whatever the mode: a switch to HEAT_COOL runs on
+        # it without looking at it again.
+        self._enforce_cool_above_heat(
+            regardless_of_hvac_mode=self.cooler_entity_id is not None
+        )
 
         # If a specific preset (Comfort, Eco, …) is active and the user manually
         # changes the target temperature to a value that does not match the
@@ -3830,7 +3972,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ):
             applied = float(self.bt_target_temp)
             preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
-            if preset_stored is None or abs(applied - float(preset_stored)) > 1e-3:
+            if (
+                preset_stored is None
+                or abs(applied - self._applied_target(preset_stored)) > 1e-3
+            ):
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
                 _LOGGER.debug(
@@ -4003,16 +4148,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # can be preserved and restored when returning to PRESET_NONE.
             previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
-                self.bt_target_temp = new_temp
+                self.bt_target_temp = self._applied_target(new_temp)
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
                     cool_temp = self._preset_cool_temperatures[preset_mode]
-                    self.bt_target_cooltemp = min(
-                        self.max_temp, max(self.min_temp, cool_temp)
-                    )
+                    self.bt_target_cooltemp = self._applied_target(cool_temp)
                     _LOGGER.debug(
                         "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
                         self.device_name,
@@ -4294,14 +4437,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Terminate the startup retry loop so an entity whose dependencies
         # never became available does not keep polling after unload.
         self.startup_running = False
-        # The plateau timer is scheduled on hass, not on the entity, so a
-        # pending one outlives the unload and would write the external
-        # temperature to TRVs this entity no longer drives. Awaiting the
-        # workers below yields to the loop, which is long enough for a due
-        # timer to fire, so it goes first.
+        # The plateau and room sensor fallback timers are scheduled on hass,
+        # not on the entity, so a pending one outlives the unload and would
+        # write the external temperature to TRVs this entity no longer drives,
+        # or queue a control cycle for it. Awaiting the workers below yields
+        # to the loop, which is long enough for a due timer to fire, so they
+        # go first.
         if self.plateau_timer_cancel is not None:
             self.plateau_timer_cancel()
             self.plateau_timer_cancel = None
+        if self.room_sensor_fallback_cancel is not None:
+            self.room_sensor_fallback_cancel()
+            self.room_sensor_fallback_cancel = None
         # The owned tasks are cancelled before anything is awaited, for the same
         # reason: several of them write to TRVs, and awaiting the workers below
         # hands the loop back long enough for a ready one to take its turn. The
@@ -4311,6 +4458,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._owned_tasks.clear()
         for task in owned:
             task.cancel()
+        # The write watchdogs the control loop starts run on the task manager
+        # and wait for minutes; closing it also stops the workers below from
+        # starting new ones while they wind down.
+        if hasattr(self, "task_manager"):
+            owned.extend(self.task_manager.cancel_all())
         if self._control_task:
             self._control_task.cancel()
             try:
@@ -4331,4 +4483,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 pass
         if owned:
             await asyncio.gather(*owned, return_exceptions=True)
+        # The final save started by the on_remove callback finishes before
+        # the unload does; removing the entry deletes the stores after the
+        # unload, and a write landing later would recreate them. The wait
+        # has no timeout of its own: Home Assistant cancels the background
+        # task when it starts to stop, which ends the wait.
+        final_flush = self._final_flush_task
+        if final_flush is not None and not final_flush.done():
+            await asyncio.wait({final_flush})
         await super().async_will_remove_from_hass()

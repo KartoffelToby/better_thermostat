@@ -184,29 +184,39 @@ async def test_the_last_state_save_survives_the_unload(hass, fake_trv):
     It is dispatched from an on-remove callback, which Home Assistant runs
     before ``async_will_remove_from_hass``, so it is already in flight while
     the entity ends its background work. Losing it discards the thermal
-    model and the preset temperatures the user last had.
+    model and the preset temperatures the user last had. The unload ends
+    only after it, so a removal deleting the stores next cannot race it.
     """
     _room_sensor(hass)
     entry = make_entry()
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
 
+    started = asyncio.Event()
     saved = asyncio.Event()
     let_the_write_land = asyncio.Event()
-    write_the_store = StateManager.save_if_dirty
+    write_the_store = StateManager.flush
 
     async def report_the_save(self):
         # A real save hands the loop back for the executor round trip, so it
         # is still pending while the entity finishes letting go.
+        started.set()
         await let_the_write_land.wait()
         await write_the_store(self)
         saved.set()
 
-    with patch.object(StateManager, "save_if_dirty", report_the_save):
-        assert await hass.config_entries.async_unload(entry.entry_id)
-        await hass.async_block_till_done()
+    with patch.object(StateManager, "flush", report_the_save):
+        unload = hass.async_create_task(
+            hass.config_entries.async_unload(entry.entry_id)
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert not unload.done()
         let_the_write_land.set()
-        assert await wait_for(hass, saved.is_set)
+        assert await unload
+        await hass.async_block_till_done()
+        assert saved.is_set()
 
 
 async def test_climate_entity_id_follows_device_name_after_rename(hass, fake_trv):
