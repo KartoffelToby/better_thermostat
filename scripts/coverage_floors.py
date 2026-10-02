@@ -18,8 +18,8 @@ Two modes:
     when any module fell below its own. A module that has a floor but is
     missing from the report fails too: a floor nothing measures holds nothing
     back, so leaving the report would otherwise retire a guard in silence.
-    Modules with no floor yet are listed and do not fail — a new module has
-    nothing to regress against.
+    A module with no floor yet fails as well, so a new module arrives with
+    the floor it is held to and is never left unguarded.
 
 ``update``
     Rewrite the floors from a report. Run this after landing work that raises
@@ -122,7 +122,13 @@ def check(report_path: Path) -> int:
             f"'{Path(__file__).name} update' if it was deleted or renamed."
         )
 
-    if regressions or gone:
+    if new:
+        print(
+            "\nA new module is held to the coverage it arrives with. Record its "
+            f"floor with '{Path(__file__).name} update'."
+        )
+
+    if regressions or gone or new:
         return 1
 
     print(f"all {len(floors)} modules hold their floor")

@@ -494,8 +494,8 @@ commit the changed `uv.lock`.
 
 CI measures coverage per module and compares it against `.coverage-floors.json`,
 which holds the level each module is at today. A change that leaves one of them
-less covered than it was fails the build; a module nobody has measured yet has
-nothing to fall below and passes.
+less covered than it was fails the build. A new module fails too until its floor
+is recorded, so it is held to the coverage it arrives with from its first day.
 
 A recorded module the report does not cover fails the build as well. A floor
 nothing measures holds nothing back, so a module that was deleted or renamed
