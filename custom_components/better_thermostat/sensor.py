@@ -871,7 +871,6 @@ class BetterThermostatTempSlopeSensor(_BtSimpleAttributeSensor):
     _attr_translation_key = "temp_slope"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_icon = "mdi:chart-line"
     _climate_attr = "temp_slope"
     _rounding = 4
     _unique_id_suffix = "temp_slope"
@@ -883,7 +882,6 @@ class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
     _attr_translation_key = "heating_power"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_icon = "mdi:thermometer-plus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _climate_attr = "heating_power"
     _rounding = 4
@@ -896,7 +894,6 @@ class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
     _attr_translation_key = "heat_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_icon = "mdi:thermometer-minus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _climate_attr = "heat_loss_rate"
     _rounding = 5
@@ -909,7 +906,6 @@ class BetterThermostatVirtualTempSensor(_BtMpcSensorBase):
     _attr_translation_key = "virtual_temp"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_icon = "mdi:thermometer-auto"
     _debug_key = "mpc_virtual_temp"
     _unique_id_suffix = "virtual_temp"
 
@@ -920,7 +916,6 @@ class BetterThermostatMpcGainSensor(_BtMpcSensorBase):
     _attr_translation_key = "mpc_gain"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_icon = "mdi:thermometer-plus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_gain"
     _unique_id_suffix = "mpc_gain"
@@ -932,7 +927,6 @@ class BetterThermostatMpcLossSensor(_BtMpcSensorBase):
     _attr_translation_key = "mpc_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_icon = "mdi:thermometer-minus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_loss"
     _unique_id_suffix = "mpc_loss"
@@ -944,7 +938,6 @@ class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     _attr_translation_key = "mpc_ka"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "1/min"
-    _attr_icon = "mdi:home-thermometer-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_ka"
     _unique_id_suffix = "mpc_ka"
@@ -990,7 +983,6 @@ class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):
     _attr_translation_key = "mpc_v2_virtual_temp"
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_icon = "mdi:thermometer-auto"
     _v2_debug_key = "T_room_hat"
     _unique_id_suffix = "mpc_v2_virtual_temp"
     _shared_unique_id_suffix = "virtual_temp"
@@ -1000,7 +992,6 @@ class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 radiator-to-room coupling."""
 
     _attr_translation_key = "mpc_v2_coupling"
-    _attr_icon = "mdi:heat-wave"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "coupling_rad_room"
     _unique_id_suffix = "mpc_v2_coupling"
@@ -1012,7 +1003,6 @@ class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
 
     _attr_translation_key = "mpc_v2_disturbance"
     _attr_native_unit_of_measurement = "K/min"
-    _attr_icon = "mdi:thermometer-minus"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "D_hat_K_per_min"
     _unique_id_suffix = "mpc_v2_disturbance"
@@ -1024,7 +1014,6 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
 
     _attr_translation_key = "mpc_v2_room_time_constant"
     _attr_native_unit_of_measurement = "min"
-    _attr_icon = "mdi:home-clock-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "tau_room_min"
     _unique_id_suffix = "mpc_v2_room_time_constant"
@@ -1036,7 +1025,6 @@ class BetterThermostatPidKpSensor(_BtMpcSensorBase):
 
     _attr_translation_key = "pid_kp"
     _attr_device_class = None
-    _attr_icon = "mdi:alpha-p-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "kp"
     _unique_id_suffix = "pid_kp"
@@ -1047,7 +1035,6 @@ class BetterThermostatPidKiSensor(_BtMpcSensorBase):
 
     _attr_translation_key = "pid_ki"
     _attr_device_class = None
-    _attr_icon = "mdi:alpha-i-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "ki"
     _unique_id_suffix = "pid_ki"
@@ -1058,7 +1045,6 @@ class BetterThermostatPidKdSensor(_BtMpcSensorBase):
 
     _attr_translation_key = "pid_kd"
     _attr_device_class = None
-    _attr_icon = "mdi:alpha-d-circle-outline"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "kd"
     _unique_id_suffix = "pid_kd"
@@ -1070,7 +1056,6 @@ class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
     _attr_translation_key = "pid_output"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
-    _attr_icon = "mdi:valve"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "u"
     _unique_id_suffix = "pid_output"
@@ -1082,7 +1067,6 @@ class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
     _attr_translation_key = "pid_error"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K"
-    _attr_icon = "mdi:thermometer-alert"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "e_K"
     _unique_id_suffix = "pid_error"
@@ -1095,7 +1079,6 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:solar-power"
     _unique_id_suffix = "solar_intensity"
 
     async def async_added_to_hass(self) -> None:

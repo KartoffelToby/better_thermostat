@@ -228,6 +228,31 @@ def test_services_yaml_covered():
         )
 
 
+# Sensors whose icon comes from their device class.
+DEVICE_CLASS_ICON_KEYS = {"external_temp_ema", "external_temp_ema_1h"}
+
+
+def test_icons_json_names_an_icon_for_every_sensor_and_switch():
+    """Each sensor and switch key has an icon, and the catalog has no stray key."""
+    icons = _load_json(COMPONENT / "icons.json")["entity"]
+
+    assert set(icons) == {"sensor", "switch"}
+    for platform, keys in icons.items():
+        assert set(keys) == ENTITY_TRANSLATION_KEYS[platform] - DEVICE_CLASS_ICON_KEYS
+        for key, spec in keys.items():
+            named = [spec["default"], *spec.get("state", {}).values()]
+            assert all(icon.startswith("mdi:") for icon in named), (platform, key)
+
+
+def test_icons_json_names_an_icon_for_every_service():
+    """The action picker shows an icon for each service in services.yaml."""
+    services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))
+    icons = _load_json(COMPONENT / "icons.json")["services"]
+
+    assert set(icons) == set(services)
+    assert all(spec["service"].startswith("mdi:") for spec in icons.values())
+
+
 def test_select_selectors_declare_translation_keys():
     """Config-flow dropdowns must be translatable instead of carrying labels."""
     source_path = COMPONENT / "config_flow.py"

@@ -97,7 +97,6 @@ class BetterThermostatPIDAutoTuneSwitch(TrvNamedEntity, SwitchEntity, RestoreEnt
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:magic-staff"
 
     def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
         """Initialize the switch."""
@@ -220,7 +219,6 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:account-lock"
 
     def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
         """Initialize the switch."""
