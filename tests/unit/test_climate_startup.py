@@ -377,7 +377,12 @@ SUB_THRESHOLD_TEMP = 20.05
 
 
 async def _feed_sensor_reading(entity, temperature):
-    """Deliver one external temperature reading to the event handler."""
+    """Publish one external temperature reading and hand it to the handler.
+
+    Home Assistant stores the sensor's state before its change event is
+    handled, and the plateau timer reads the stored state back.
+    """
+    entity.hass.states.async_set(SENSOR_ID, str(temperature))
     event = MagicMock()
     event.data = {"new_state": State(SENSOR_ID, str(temperature))}
     await trigger_temperature_change(entity, event)
