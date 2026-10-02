@@ -7,12 +7,14 @@ convert thermostat states and prepare outbound payloads.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import State
+from homeassistant.core import State, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
@@ -171,6 +173,101 @@ def _reports_on(state: State | None) -> bool:
 def _held_setpoint(self, state: State | None) -> float | None:
     """Return the setpoint a held report's state carries, or None."""
     return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
+
+
+def _read_internal_temperature_later(
+    self, trv: Trv, entity_id: str, interval_s: float
+) -> None:
+    """Read a device's internal temperature again once its debounce is over.
+
+    A reading turned away only because it came within the debounce interval
+    of the last one is the device's temperature once the interval is over: a
+    device that reports on change says nothing more until it moves again.
+    The interval runs from the reading the device last had accepted, which a
+    reading that bypasses the debounce can move while the wait is on, so the
+    wait lasts until the interval from the latest one is over. The wait runs
+    on Home Assistant's timer, and the task around it is what the entity
+    cancels when it is removed.
+
+    The pending flag is set before the task is created, since Home Assistant
+    starts the task eagerly and its coroutine can run to its end inside the
+    call that creates it. It is cleared however the reread ends: by the
+    coroutine once it runs, here when no task is created, and by the task's
+    done callback when the task is cancelled before its coroutine starts,
+    which then never runs a line of it.
+    """
+    if trv.internal_reread_pending:
+        return
+    started = False
+
+    async def _wait(delay_s: float) -> None:
+        due: asyncio.Future[None] = self.hass.loop.create_future()
+
+        @callback
+        def _due(_now: Any) -> None:
+            if not due.done():
+                due.set_result(None)
+
+        cancel_timer = async_call_later(self.hass, delay_s, _due)
+        try:
+            await due
+        finally:
+            cancel_timer()
+
+    async def _reread() -> None:
+        nonlocal started
+        started = True
+        try:
+            while True:
+                _last = trv.last_internal_sensor_change
+                if _last is None:
+                    break
+                _remaining = interval_s - (dt_util.now() - _last).total_seconds()
+                if _remaining <= 0:
+                    break
+                await _wait(max(0.1, _remaining))
+        finally:
+            trv.internal_reread_pending = False
+        if self.is_removed or self.real_trvs.get(entity_id) is not trv:
+            return
+        _state = self.hass.states.get(entity_id)
+        # A device that is gone has had its reading invalidated; the
+        # attributes it still carries are not a live temperature.
+        if trv_report_is_unreadable(self, entity_id, _state):
+            return
+        _reading = attr_to_celsius(
+            self, _state, "current_temperature", None, "TRV_current_temp"
+        )
+        if (
+            _reading is None
+            or not is_reasonable_temperature(_reading)
+            or _reading == trv.current_temperature
+        ):
+            return
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s internal temperature read again after "
+            "the debounce interval: %s to %s",
+            self.device_name,
+            entity_id,
+            trv.current_temperature,
+            _reading,
+        )
+        trv.current_temperature = _reading
+        trv.last_internal_sensor_change = dt_util.now()
+        request_control_cycle(self)
+
+    def _release_unstarted(_task: asyncio.Task[Any]) -> None:
+        if not started:
+            trv.internal_reread_pending = False
+
+    trv.internal_reread_pending = True
+    task = self.task_manager.create_task(
+        _reread(), name=f"bt_internal_reread_{entity_id}"
+    )
+    if task is None:
+        trv.internal_reread_pending = False
+        return
+    task.add_done_callback(_release_unstarted)
 
 
 async def trigger_trv_change(
@@ -400,6 +497,14 @@ async def trigger_trv_change(
         # so a new one is controlled on even when it confirms an offset write.
         if self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK:
             _main_change = True
+    elif (
+        _new_current_temp is not None
+        and trv.current_temperature != _new_current_temp
+        and _last_internal_change is not None
+    ):
+        # Turned away by the debounce alone: the reading is read again once
+        # the interval is over.
+        _read_internal_temperature_later(self, trv, entity_id, _time_diff)
 
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)
