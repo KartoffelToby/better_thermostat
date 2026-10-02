@@ -9,16 +9,17 @@ and the test passes on a branch it did not mean to exercise.
 
 A bare mock is a thermostat stand-in when it carries one of the names the
 suite gives a thermostat, or when the scope that builds it sets at least two
-attributes of thermostat state on it. For an attribute of ``self`` the scope
-is the whole class: a mock built in ``setUp`` and filled in a test method
-counts. A local mock built in one helper and filled in another is seen by
-neither rule.
+attributes of thermostat state on it before binding the name again. For an
+attribute of ``self`` the scope is the whole class: a mock built in ``setUp``
+and filled in a test method counts. A local mock built in one helper and
+filled in another is seen by neither rule.
 """
 
 from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from homeassistant.components.climate import ClimateEntity
@@ -70,12 +71,15 @@ def _is_bare_mock(node: ast.expr | None, mock_classes: frozenset[str]) -> bool:
     return called in mock_classes
 
 
+_SEQUENCES = (ast.Tuple, ast.List)
+
+
 def _bindings(node: ast.stmt) -> list[tuple[ast.expr, ast.expr | None]]:
     """Return ``(target, value)`` pairs an assignment statement binds."""
     if isinstance(node, ast.Assign):
         pairs = []
         for target in node.targets:
-            if isinstance(target, ast.Tuple) and isinstance(node.value, ast.Tuple):
+            if isinstance(target, _SEQUENCES) and isinstance(node.value, _SEQUENCES):
                 pairs.extend(zip(target.elts, node.value.elts, strict=False))
             else:
                 pairs.append((target, node.value))
@@ -100,61 +104,89 @@ def _walk_own_scope(scope: ast.AST) -> Iterator[ast.AST]:
             pending.extend(ast.iter_child_nodes(node))
 
 
-type _Evidence = tuple[dict[str, set[int]], dict[str, set[str]]]
+@dataclass
+class _Evidence:
+    """The bare mocks one scope builds and the thermostat state it sets.
+
+    ``built`` holds one entry per construction: the name, its line and the
+    thermostat-only attributes set on that name while it still held the mock.
+    ``unbound`` holds the attributes set on a name the scope has not bound
+    at that point, which belong to an object built elsewhere.
+    """
+
+    built: list[tuple[str, int, set[str]]] = field(default_factory=list)
+    unbound: dict[str, set[str]] = field(default_factory=dict)
 
 
 def _evidence(scope: ast.AST, mock_classes: frozenset[str]) -> _Evidence:
-    """Return the mocks ``scope`` builds and the thermostat state it sets.
+    """Read the bindings of ``scope`` in source order.
 
-    The first map holds the lines each name is built on, the second the
-    thermostat-only attributes set on each name.
+    State set on a name counts for the mock the name holds at that point, so
+    a rebinding starts empty.
     """
-    built: dict[str, set[int]] = {}
-    state_set: dict[str, set[str]] = {}
+    events: list[tuple[ast.stmt | ast.NamedExpr, ast.expr, ast.expr | None]] = []
     for node in _walk_own_scope(scope):
-        if isinstance(node, ast.NamedExpr) and _is_bare_mock(node.value, mock_classes):
-            built.setdefault(node.target.id, set()).add(node.lineno)
-        if not isinstance(node, ast.stmt):
+        if isinstance(node, ast.NamedExpr):
+            events.append((node, node.target, node.value))
+        elif isinstance(node, ast.stmt):
+            events.extend((node, target, value) for target, value in _bindings(node))
+    events.sort(key=lambda event: (event[0].lineno, event[0].col_offset))
+
+    evidence = _Evidence()
+    # A name bound to something other than a bare mock maps to None.
+    held: dict[str, set[str] | None] = {}
+    for node, target, value in events:
+        if (
+            isinstance(target, ast.Attribute)
+            and target.attr in _THERMOSTAT_ONLY
+            and (owner := _dotted(target.value))
+        ):
+            if owner not in held:
+                evidence.unbound.setdefault(owner, set()).add(target.attr)
+            elif (state := held[owner]) is not None:
+                state.add(target.attr)
+        name = _dotted(target)
+        if name is None or value is None or isinstance(node, ast.AugAssign):
             continue
-        for target, value in _bindings(node):
-            if _is_bare_mock(value, mock_classes) and (name := _dotted(target)):
-                built.setdefault(name, set()).add(node.lineno)
-            if (
-                isinstance(target, ast.Attribute)
-                and target.attr in _THERMOSTAT_ONLY
-                and (owner := _dotted(target.value))
-            ):
-                state_set.setdefault(owner, set()).add(target.attr)
-    return built, state_set
+        if _is_bare_mock(value, mock_classes):
+            fresh: set[str] = set()
+            held[name] = fresh
+            evidence.built.append((name, node.lineno, fresh))
+        else:
+            held[name] = None
+    return evidence
 
 
-def _stand_in_lines(evidence: _Evidence) -> set[int]:
+def _stand_in_lines(built: list[tuple[str, int, set[str]]]) -> set[int]:
     """Return the lines that build a mock its name or its state marks."""
-    built, state_set = evidence
     return {
         line
-        for name, lines in built.items()
-        if name.rsplit(".", 1)[-1] in _STAND_IN_NAMES
-        or len(state_set.get(name, ())) >= _STATE_EVIDENCE
-        for line in lines
+        for name, line, state in built
+        if name.rsplit(".", 1)[-1] in _STAND_IN_NAMES or len(state) >= _STATE_EVIDENCE
     }
 
 
-def _instance_evidence(cls: ast.ClassDef, mock_classes: frozenset[str]) -> _Evidence:
-    """Pool the evidence on ``self`` attributes over the methods of ``cls``."""
-    built: dict[str, set[int]] = {}
-    state_set: dict[str, set[str]] = {}
-    for method in cls.body:
-        if not isinstance(method, ast.FunctionDef | ast.AsyncFunctionDef):
-            continue
-        method_built, method_state = _evidence(method, mock_classes)
-        for name, lines in method_built.items():
-            if name.startswith("self."):
-                built.setdefault(name, set()).update(lines)
-        for name, attrs in method_state.items():
-            if name.startswith("self."):
-                state_set.setdefault(name, set()).update(attrs)
-    return built, state_set
+def _instance_stand_ins(cls: ast.ClassDef, mock_classes: frozenset[str]) -> set[int]:
+    """Judge each ``self`` mock with the state other methods of ``cls`` set on it."""
+    methods = [
+        _evidence(method, mock_classes)
+        for method in cls.body
+        if isinstance(method, ast.FunctionDef | ast.AsyncFunctionDef)
+    ]
+    built = []
+    for index, method in enumerate(methods):
+        for name, line, state in method.built:
+            if not name.startswith("self."):
+                continue
+            pooled = set(state).union(
+                *(
+                    other.unbound.get(name, ())
+                    for other_index, other in enumerate(methods)
+                    if other_index != index
+                )
+            )
+            built.append((name, line, pooled))
+    return _stand_in_lines(built)
 
 
 def _bare_stand_ins(path: Path) -> list[int]:
@@ -163,9 +195,9 @@ def _bare_stand_ins(path: Path) -> list[int]:
     mock_classes = _mock_classes(tree)
     scopes = [tree, *(node for node in ast.walk(tree) if isinstance(node, _SCOPES))]
     lines = set().union(
-        *(_stand_in_lines(_evidence(scope, mock_classes)) for scope in scopes),
+        *(_stand_in_lines(_evidence(scope, mock_classes).built) for scope in scopes),
         *(
-            _stand_in_lines(_instance_evidence(node, mock_classes))
+            _instance_stand_ins(node, mock_classes)
             for node in ast.walk(tree)
             if isinstance(node, ast.ClassDef)
         ),
@@ -191,12 +223,11 @@ def test_a_bare_stand_in_is_found_in_each_spelling(tmp_path):
         "    trv.max_temp = 30.0\n"
         "    strict = ThermostatStandIn()\n"
         "    other = MagicMock()\n"
-        "    other.kernel_state = None\n"
-        "    mock = MagicMock()\n",
+        "    other.kernel_state = None\n",
         encoding="utf-8",
     )
 
-    assert _bare_stand_ins(probe) == [1, 2, 3, 5, 8, 16]
+    assert _bare_stand_ins(probe) == [1, 2, 3, 5, 8]
 
 
 def test_a_name_reused_in_another_scope_is_a_different_mock(tmp_path):
@@ -260,6 +291,65 @@ def test_a_self_attribute_is_judged_across_the_methods_of_its_class(tmp_path):
     )
 
     assert _bare_stand_ins(probe) == [3]
+
+
+def test_a_list_unpacks_like_a_tuple(tmp_path):
+    """Each name an unpacking binds is matched with its own value."""
+    probe = tmp_path / "test_probe.py"
+    probe.write_text(
+        "bt, trv = [MagicMock(), MagicMock()]\n"
+        "[mock_bt, other] = (MagicMock(), MagicMock())\n"
+        "[mock_self, kept] = [ThermostatStandIn(), MagicMock()]\n",
+        encoding="utf-8",
+    )
+
+    assert _bare_stand_ins(probe) == [1, 2]
+
+
+def test_state_marks_only_the_binding_that_received_it(tmp_path):
+    """State set before a rebinding, or after it, stays with its own mock."""
+    probe = tmp_path / "test_probe.py"
+    probe.write_text(
+        "def strict_then_bare():\n"
+        "    mock = ThermostatStandIn()\n"
+        "    mock.kernel_state = None\n"
+        "    mock.clock = None\n"
+        "    mock = MagicMock()\n"
+        "def bare_then_strict():\n"
+        "    mock = MagicMock()\n"
+        "    mock.kernel_state = None\n"
+        "    mock = ThermostatStandIn()\n"
+        "    mock.clock = None\n"
+        "def strict_then_bare_thermostat():\n"
+        "    mock = ThermostatStandIn()\n"
+        "    mock = MagicMock()\n"
+        "    mock.kernel_state = None\n"
+        "    mock.clock = None\n",
+        encoding="utf-8",
+    )
+
+    assert _bare_stand_ins(probe) == [13]
+
+
+def test_a_self_attribute_rebound_in_a_method_keeps_its_state(tmp_path):
+    """State a method sets after rebinding ``self.<name>`` is not pooled."""
+    probe = tmp_path / "test_probe.py"
+    probe.write_text(
+        "class TestRoom:\n"
+        "    def setUp(self):\n"
+        "        self.thermostat = MagicMock()\n"
+        "        self.room = MagicMock()\n"
+        "    def test_strict(self):\n"
+        "        self.thermostat = ThermostatStandIn()\n"
+        "        self.thermostat.kernel_state = None\n"
+        "        self.thermostat.clock = None\n"
+        "    def test_room(self):\n"
+        "        self.room.kernel_state = None\n"
+        "        self.room.clock = None\n",
+        encoding="utf-8",
+    )
+
+    assert _bare_stand_ins(probe) == [4]
 
 
 def test_no_file_builds_a_bare_stand_in():
