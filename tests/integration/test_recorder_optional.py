@@ -34,15 +34,19 @@ def _publish_outdoor(hass, celsius: float) -> None:
 
 
 async def test_the_thermostat_loads_when_the_recorder_fails(hass, fake_trv):
-    """The entry loads and the outdoor check runs on the current reading."""
+    """The entry loads and the outdoor check decides on the current reading."""
     set_room_sensor(hass, 18.0)
     _publish_outdoor(hass, 2.0)
-    entry = make_entry(fake_trv.profile, with_outdoor_sensor=True)
+    entry = make_entry(fake_trv.profile, with_outdoor_sensor=True, off_temperature=5)
     with patch("homeassistant.components.recorder.async_setup", return_value=False):
         await setup_entry(hass, entry)
 
     assert entry.state is ConfigEntryState.LOADED
     bt = await wait_for_startup(hass, entry)
-    _publish_outdoor(hass, 2.5)
-    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp is not None)
+    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp == 2.0)
+    assert bt.call_for_heat is True
+
+    _publish_outdoor(hass, 8.0)
+    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp == 8.0)
+    assert bt.call_for_heat is False
     assert "recorder" not in hass.config.components
