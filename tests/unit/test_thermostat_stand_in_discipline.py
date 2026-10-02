@@ -58,7 +58,13 @@ def _bare_stand_ins(path: Path) -> int:
     """Count ``bt = MagicMock()`` and its spellings in one file."""
     count = 0
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not isinstance(node.value, ast.Call):
             continue
         func = node.value.func
         called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
@@ -66,7 +72,7 @@ def _bare_stand_ins(path: Path) -> int:
             continue
         count += sum(
             isinstance(target, ast.Name) and target.id in _STAND_IN_NAMES
-            for target in node.targets
+            for target in targets
         )
     return count
 
@@ -81,18 +87,20 @@ def _suite_counts() -> dict[str, int]:
 
 
 def test_a_bare_stand_in_is_counted_in_each_spelling(tmp_path):
-    """Both mock classes and both import styles count; the strict stand-in does not."""
+    """Both mock classes, both import styles and annotated assignments count."""
     probe = tmp_path / "test_probe.py"
     probe.write_text(
         "bt = MagicMock()\n"
         "mock_bt = mock.Mock()\n"
         "mock_self = Mock()\n"
+        "bt: MagicMock = MagicMock()\n"
+        "bt: MagicMock\n"
         "bt = ThermostatStandIn()\n"
         "trv = MagicMock()\n",
         encoding="utf-8",
     )
 
-    assert _bare_stand_ins(probe) == 3
+    assert _bare_stand_ins(probe) == 4
 
 
 def test_no_file_adds_a_bare_stand_in():
