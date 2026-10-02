@@ -3,6 +3,7 @@
   "name": "Better Thermostat",
   "after_dependencies": [
     "climate",
+    "recorder",
     "zwave_js"
   ],
   "codeowners": [
@@ -10,8 +11,7 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "climate",
-    "recorder"
+    "climate"
   ],
   "documentation": "https://better-thermostat.org/",
   "integration_type": "device",
