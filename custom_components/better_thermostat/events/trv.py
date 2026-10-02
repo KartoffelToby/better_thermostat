@@ -187,10 +187,15 @@ def _read_internal_temperature_later(
     wait lasts until the interval from the latest one is over. The wait runs
     on Home Assistant's timer, and the task around it is what the entity
     cancels when it is removed.
+
+    The pending flag is set only once the task exists and is cleared however
+    the task ends: by the coroutine once it runs, and by the task's done
+    callback when the task is cancelled before its coroutine starts, which
+    then never runs a line of it.
     """
     if trv.internal_reread_pending:
         return
-    trv.internal_reread_pending = True
+    started = False
 
     async def _wait(delay_s: float) -> None:
         due: asyncio.Future[None] = self.hass.loop.create_future()
@@ -207,6 +212,8 @@ def _read_internal_temperature_later(
             cancel_timer()
 
     async def _reread() -> None:
+        nonlocal started
+        started = True
         try:
             while True:
                 _last = trv.last_internal_sensor_change
@@ -246,7 +253,17 @@ def _read_internal_temperature_later(
         trv.last_internal_sensor_change = dt_util.now()
         request_control_cycle(self)
 
-    self.task_manager.create_task(_reread(), name=f"bt_internal_reread_{entity_id}")
+    def _release_unstarted(_task: asyncio.Task[Any]) -> None:
+        if not started:
+            trv.internal_reread_pending = False
+
+    task = self.task_manager.create_task(
+        _reread(), name=f"bt_internal_reread_{entity_id}"
+    )
+    if task is None:
+        return
+    trv.internal_reread_pending = True
+    task.add_done_callback(_release_unstarted)
 
 
 async def trigger_trv_change(

@@ -32,6 +32,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.helpers import mode_remap
 
 ENTITY_ID = "climate.test_trv"
@@ -4197,7 +4198,7 @@ class TestInternalRereadAfterTheDebounce:
         """Arm the reread and return the work it hands to the entity."""
         work = []
         mock_bt.task_manager.create_task = MagicMock(
-            side_effect=lambda coro, **kwargs: work.append(coro)
+            side_effect=lambda coro, **kwargs: work.append(coro) or MagicMock()
         )
         _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
         (coro,) = work
@@ -4225,6 +4226,75 @@ class TestInternalRereadAfterTheDebounce:
                 clock[0] = at
                 timers[-1][1](at)
             await asyncio.wait_for(task, 1.0)
+
+    @pytest.mark.asyncio
+    async def test_the_reread_is_pending_while_its_task_exists(self, mock_bt):
+        """A second turned-away reading arms no second reread."""
+        trv = self._prepare(mock_bt, state=None)
+        coro = self._start(mock_bt, trv)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        coro.close()
+        assert trv.internal_reread_pending is True
+        mock_bt.task_manager.create_task.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_closed_task_manager_leaves_no_reread_pending(self, mock_bt):
+        """A reread the entity can no longer start does not block later ones."""
+        trv = self._prepare(mock_bt, state=None)
+        mock_bt.task_manager = TaskManager()
+        mock_bt.task_manager.cancel_all()
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        assert trv.internal_reread_pending is False
+        mock_bt.task_manager = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt.task_manager.create_task.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_reread_cancelled_before_it_starts_is_not_pending(self, mock_bt):
+        """A task cancelled before its coroutine runs still releases the flag."""
+        trv = self._prepare(mock_bt, state=None)
+        mock_bt.task_manager = TaskManager()
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        assert trv.internal_reread_pending is True
+        cancelled = mock_bt.task_manager.cancel_all()
+        await asyncio.gather(*cancelled, return_exceptions=True)
+        await asyncio.sleep(0)
+
+        assert [task.cancelled() for task in cancelled] == [True]
+        assert trv.internal_reread_pending is False
+        mock_bt.task_manager = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt.task_manager.create_task.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_finished_reread_leaves_the_next_one_pending(self, mock_bt):
+        """The done callback of a reread that ran does not release a newer one.
+
+        The callback runs a loop turn after the coroutine has cleared the
+        flag, and a reread armed in between holds the flag on its own.
+        """
+        trv = self._prepare(mock_bt, state=None)
+        trv.last_internal_sensor_change = None
+        first_task = MagicMock()
+        mock_bt.task_manager.create_task = MagicMock(return_value=first_task)
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (first_call,) = mock_bt.task_manager.create_task.call_args_list
+        await first_call.args[0]
+        (done_callback,) = first_task.add_done_callback.call_args.args
+
+        mock_bt.task_manager.create_task = MagicMock(return_value=MagicMock())
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        done_callback(first_task)
+
+        assert trv.internal_reread_pending is True
+        mock_bt.task_manager.create_task.call_args.args[0].close()
 
     @pytest.mark.asyncio
     async def test_a_reading_is_taken_once_the_interval_is_over(self, mock_bt):
