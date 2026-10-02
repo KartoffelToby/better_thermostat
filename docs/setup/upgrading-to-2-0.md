@@ -67,10 +67,11 @@ itself.
 ### Cooling devices
 
 The option "Minimum seconds between repeated cooler commands" is gone.
-Better Thermostat now waits a fixed 240 seconds between repeated commands
-to protect the compressor. A failed command is retried with a growing
-pause, from 30 seconds up to 30 minutes. You don't need to do anything; a
-value you set before is ignored.
+Better Thermostat now holds back an unchanged temperature or mode command
+if it sent the same value less than 240 seconds earlier, to protect the
+compressor. A changed value goes out at once. A failed command is retried
+with its own growing pause, from 30 seconds up to 30 minutes. You don't
+need to do anything; a value you set before is ignored.
 
 ### Entities of a calibration mode you no longer use
 
