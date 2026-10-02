@@ -474,6 +474,22 @@ def _target_temp_step_celsius(
     )
 
 
+def unsupported_hvac_mode_error(
+    bt: BetterThermostat, hvac_mode: object
+) -> ServiceValidationError:
+    """Build the error refusing ``hvac_mode``, naming the modes ``bt`` offers."""
+    mode = hvac_mode.value if isinstance(hvac_mode, HVACMode) else hvac_mode
+    return ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key="unsupported_hvac_mode",
+        translation_placeholders={
+            "device_name": bt.device_name,
+            "mode": str(mode),
+            "modes": ", ".join(bt.hvac_modes),
+        },
+    )
+
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
@@ -3988,10 +4004,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         hvac_mode_norm = normalize_hvac_mode(hvac_mode)
         if hvac_mode_norm not in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            raise ServiceValidationError(
-                f"Unsupported hvac_mode {hvac_mode!r} for {self.device_name}; "
-                f"supported: heat, heat_cool, off"
-            )
+            raise unsupported_hvac_mode_error(self, hvac_mode)
         self.bt_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
         self.last_user_change_monotonic = self.clock.monotonic()
         self.async_write_ha_state()
@@ -4471,10 +4484,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 else None
             )
             if hvac_mode_norm not in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                raise ServiceValidationError(
-                    f"Unsupported hvac_mode {hvac_mode_val!r} for "
-                    f"{self.device_name}; supported: heat, heat_cool, off"
-                )
+                raise unsupported_hvac_mode_error(self, hvac_mode_val)
             # Same normalization as async_set_hvac_mode, so both service
             # entry points map HEAT/HEAT_COOL identically.
             _new_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
@@ -4493,8 +4503,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if value is None:
                 raise ServiceValidationError(
-                    f"Invalid {attr} {kwargs.get(attr)!r} for "
-                    f"{self.device_name}; must be numeric"
+                    translation_domain=DOMAIN,
+                    translation_key="non_numeric_temperature",
+                    translation_placeholders={
+                        "device_name": self.device_name,
+                        "attribute": attr,
+                        "value": str(kwargs.get(attr)),
+                    },
                 )
             return value
 

@@ -541,5 +541,13 @@
       "set_hvac_mode": "Установить режим HVAC",
       "set_temperature": "Установить целевую температуру"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} не поддерживает режим HVAC {mode}. Поддерживаемые режимы: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} получил значение {value} для {attribute}, которое не является числом."
+    }
   }
 }
