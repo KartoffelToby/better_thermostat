@@ -28,6 +28,7 @@ from custom_components.better_thermostat.utils.controlling import (
     _locked_device_moved,
     control_queue,
     read_reports_held_during_cycle,
+    refresh_cached_trv_modes,
 )
 
 ENTITY_ID = "climate.test_trv"
@@ -38,7 +39,7 @@ _COOLER = "custom_components.better_thermostat.events.cooler"
 OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
 
 
-def _reported_state(mode: str, setpoint: float = 19.0) -> State:
+def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
     """Build the state one TRV publishes."""
     return State(
         ENTITY_ID,
@@ -473,6 +474,133 @@ class TestReportsHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         assert trv.current_temperature == 19.5
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("commanded", ["heat", None])
+    async def test_a_head_switched_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states, commanded
+    ):
+        """A head switched on inside a cycle does not bring a setpoint turned while off.
+
+        The head is off while the room heats, and the report that switches it
+        on carries a setpoint turned while it was off. Read outside a cycle,
+        that setpoint is not a press. The end of the cycle settles the mode
+        cache on the mode Better Thermostat commanded before it reads the held
+        report, and the report is still judged against the mode the head was
+        in before it. As outside a cycle, switching the head on asks for a
+        cycle, which drives the head back to the room target the setpoint
+        was not adopted for.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = commanded
+        previous = _reported_state("off")
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=23.0)
+        event = MagicMock()
+        event.data = {
+            "old_state": previous,
+            "new_state": reported_states[ENTITY_ID],
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        assert trv.report_unread is True
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    async def test_a_head_switched_off_and_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A later report that switches the head on is judged as a switch-on.
+
+        The head heats, is switched off inside the cycle, and is switched on
+        again with a setpoint turned while it was off, all before the cycle
+        ends. Outside a cycle the first report caches the head as off, so the
+        second is read as a switch-on and its setpoint is not adopted. Read
+        at the end of the cycle, the reports are judged the same way, and the
+        switch-on asks for the cycle that drives the head back to the room
+        target.
+        """
+        heating = reported_states[ENTITY_ID]
+        switched_off = _reported_state("off")
+        switched_on = _reported_state("heat", setpoint=23.0)
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        for old_state, new_state in (
+            (heating, switched_off),
+            (switched_off, switched_on),
+        ):
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("off_setpoint", [19.0, None])
+    @pytest.mark.parametrize("switched_off_in_cycle", [True, False])
+    async def test_a_press_after_a_switch_on_during_a_cycle_is_adopted(
+        self, thermostat, reported_states, off_setpoint, switched_off_in_cycle
+    ):
+        """A setpoint pressed after a switch-on inside a cycle is adopted.
+
+        The head is off, or is switched off inside the cycle, and is switched
+        on with a setpoint turned while it was off; then the setpoint is
+        pressed again while it is on. Outside a cycle the switch-on is not
+        adopted, and the press that follows is read against the head being on
+        and is adopted. Read at the end of the cycle, the reports are judged
+        the same way, whether or not the off state carries a setpoint.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        switched_off = _reported_state("off", setpoint=off_setpoint)
+        switched_on = _reported_state("heat", setpoint=23.0)
+        pressed = _reported_state("heat", setpoint=24.0)
+        reports = [(switched_off, switched_on), (switched_on, pressed)]
+        if switched_off_in_cycle:
+            reports.insert(0, (reported_states[ENTITY_ID], switched_off))
+        else:
+            trv.hvac_mode = "off"
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        for old_state, new_state in reports:
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 24.0
         request.assert_called_once_with(thermostat)
 
 

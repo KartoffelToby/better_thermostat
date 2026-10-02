@@ -188,7 +188,10 @@ from .utils.helpers import (
     device_setpoint_step,
     dual_role_entity_id,
     find_battery_entity,
+    get_cool_temperature_bounds,
+    get_cool_temperature_range,
     get_device_model,
+    get_heat_temperature_range,
     get_hvac_bt_mode,
     is_reasonable_temperature,
     member_counts_as_off,
@@ -253,6 +256,11 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
+
+# Modes in which a head's setpoint is no heating target.
+_MODES_WITHOUT_A_HEATING_SETPOINT = frozenset(
+    {HVACMode.COOL, HVACMode.DRY, HVACMode.FAN_ONLY}
+)
 
 # How many attempts a TRV that arrives after startup gets before a step that
 # keeps failing is accepted with defaults, the way startup accepts it for the
@@ -437,6 +445,20 @@ def _configured_temperature_bound(
     if not math.isfinite(bound) or bound == float(TARGET_TEMP_BOUND_AUTO):
         return None
     return bound
+
+
+def _bound_into(value: float, lower: float | None, upper: float | None) -> float:
+    """Bound ``value`` into ``[lower, upper]``, each side only when it is known.
+
+    The lower bound is applied first and the upper bound second, so an
+    inverted range, which :meth:`BetterThermostat._resolve_temperature_range`
+    permits, is decided by the upper bound.
+    """
+    if lower is not None and value < lower:
+        value = lower
+    if upper is not None and upper < value:
+        value = upper
+    return value
 
 
 def _target_temp_step_celsius(
@@ -970,8 +992,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
             else None
         )
+        # ``bt_min_temp`` / ``bt_max_temp`` bound the heating channel, and the
+        # only channel of a thermostat without a cooler. With a cooler the
+        # cooling channel is held to the cooler's own range instead; a bound it
+        # has not resolved falls back to the heating one.
         self.bt_min_temp: float | None = DEFAULT_MIN_TEMP
         self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
+        self.cool_min_temperature: float | None = None
+        self.cool_max_temperature: float | None = None
         self.bt_target_temp = DEFAULT_TARGET_TEMP
         self.bt_target_cooltemp = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -1064,6 +1092,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         self._door_task = None
         self._owned_tasks: set[asyncio.Task[Any]] = set()
+        self._final_flush_task: asyncio.Task[None] | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
         self.is_removed = False
@@ -1286,11 +1315,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # pending delayed write when async_save runs.
             # This is the last write of the removal itself, so it is deliberately
             # not one of the entity's owned tasks: cancelling it would drop the
-            # state the next start reads back.
+            # state the next start reads back. async_will_remove_from_hass
+            # awaits it instead, so the unload, and a removal that deletes the
+            # stores after it, follow the write.
             if self.state_mgr is not None:
+                self.state_mgr.close()
                 try:
                     self._record_runtime_to_state()
-                    self.hass.async_create_background_task(
+                    self._final_flush_task = self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
                     )
@@ -1465,7 +1497,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         would end up regulated on the older of the two.
         """
         async with temperature_filter_lock(self):
-            await check_and_update_degraded_mode(self)
+            await check_and_update_degraded_mode(self, event.data.get("new_state"))
             await check_critical_entities(self)
             self.async_set_context(event.context)
             await trigger_temperature_change(self, event)
@@ -1864,8 +1896,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             and (state := self.hass.states.get(entity_id)) is not None
         ]
 
-        # Include cooler entity in min/max calculation to ensure BT's
-        # temperature range is compatible with all controlled devices
+        # The cooler's state carries the bounds of the cooling channel.
         if self.cooler_entity_id is not None:
             cooler_state = self.hass.states.get(self.cooler_entity_id)
             if cooler_state is not None and cooler_state.state not in (
@@ -1878,18 +1909,31 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return states
 
     def _resolve_temperature_range(self, states: list[State]) -> None:
-        """Derive min/max/step temperature from TRV states.
+        """Derive min/max/step temperature from the heater and cooler states.
+
+        Each channel is bounded by the devices that carry it: the heating
+        channel by the intersection of the TRV ranges, the cooling channel by
+        the cooler's own range. The two are kept apart because a heater and a
+        cooler rarely cover the same span, and intersecting them would cap
+        the cooling target at the heater's maximum and lift the heating
+        target onto the cooler's minimum. A room with a cooler but no TRV
+        bounds its heating channel by the cooler as well.
 
         A bound configured on the entry replaces the one derived from the
-        children, so a thermostat can be held to a narrower range than its
-        devices allow.
+        children on both channels, so a thermostat can be held to a narrower
+        range than its devices allow.
         """
         # Convert each child's min/max to Celsius before reducing, because
         # children may report in Fahrenheit while BT works internally in °C.
-        min_temps: list[float] = []
-        max_temps: list[float] = []
+        heat_mins: list[float] = []
+        heat_maxes: list[float] = []
+        cool_mins: list[float] = []
+        cool_maxes: list[float] = []
         steps: list[float] = []
         for s in states:
+            # A device that carries both roles bounds both channels.
+            is_cooler = s.entity_id == self.cooler_entity_id
+            is_heater = not is_cooler or s.entity_id in self.real_trvs
             _c = read_bound_celsius(
                 self,
                 s,
@@ -1898,7 +1942,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 context="_resolve_temperature_range(min)",
             )
             if _c is not None:
-                min_temps.append(_c)
+                if is_heater:
+                    heat_mins.append(_c)
+                if is_cooler:
+                    cool_mins.append(_c)
             _c = read_bound_celsius(
                 self,
                 s,
@@ -1907,34 +1954,56 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 context="_resolve_temperature_range(max)",
             )
             if _c is not None:
-                max_temps.append(_c)
+                if is_heater:
+                    heat_maxes.append(_c)
+                if is_cooler:
+                    cool_maxes.append(_c)
             _sf = _target_temp_step_celsius(
                 s, self.device_name, self.hass.config.units.temperature_unit
             )
             if _sf is not None:
                 steps.append(_sf)
+        if not heat_mins and not heat_maxes:
+            heat_mins, heat_maxes = cool_mins, cool_maxes
         if self.bt_target_temp_min is None:
-            self.bt_min_temp = max(min_temps) if min_temps else None
+            self.bt_min_temp = max(heat_mins) if heat_mins else None
         else:
             self.bt_min_temp = self.bt_target_temp_min
         if self.bt_target_temp_max is None:
-            self.bt_max_temp = min(max_temps) if max_temps else None
+            self.bt_max_temp = min(heat_maxes) if heat_maxes else None
         else:
             self.bt_max_temp = self.bt_target_temp_max
-
-        if (
-            self.bt_min_temp is not None
-            and self.bt_max_temp is not None
-            and self.bt_min_temp > self.bt_max_temp
-        ):
-            _LOGGER.warning(
-                "better_thermostat %s: min temp (%.1f°) > max temp (%.1f°). "
-                "This indicates non-overlapping temperature ranges between "
-                "heater and cooler entities. Please check your configuration.",
-                self.device_name,
-                self.bt_min_temp,
-                self.bt_max_temp,
+        if self.cooler_entity_id is None:
+            self.cool_min_temperature = None
+            self.cool_max_temperature = None
+        else:
+            self.cool_min_temperature = (
+                self.bt_target_temp_min
+                if self.bt_target_temp_min is not None
+                else (max(cool_mins) if cool_mins else None)
             )
+            self.cool_max_temperature = (
+                self.bt_target_temp_max
+                if self.bt_target_temp_max is not None
+                else (min(cool_maxes) if cool_maxes else None)
+            )
+
+        for channel, lower, upper in (
+            ("heating", self.bt_min_temp, self.bt_max_temp),
+            ("cooling", self.cool_min_temperature, self.cool_max_temperature),
+        ):
+            if lower is not None and upper is not None and lower > upper:
+                _LOGGER.warning(
+                    "better_thermostat %s: %s min temp (%.1f°) > max temp "
+                    "(%.1f°). This indicates non-overlapping temperature "
+                    "ranges between the devices of that channel, or a "
+                    "configured bound outside them. Please check your "
+                    "configuration.",
+                    self.device_name,
+                    channel,
+                    lower,
+                    upper,
+                )
 
         if self.bt_target_temp_step is None:
             self.bt_target_temp_step = max(steps) if steps else None
@@ -2040,11 +2109,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # A missing heating target falls back to the setpoints of the heads
         # that are on. A head that is off, including a no-off device parked at
         # its minimum, holds its off or frost setpoint, not a room target, and
-        # the cooler's setpoint belongs to the cooling channel.
+        # the cooler's setpoint belongs to the cooling channel. That includes
+        # a head that is also the cooler: in a mode that does not heat, its
+        # setpoint is a cooling target. On a heat/cool range it still hands
+        # over the lower bound as its heating setpoint.
         head_states = [
             state
             for state in states
             if state.entity_id in self.real_trvs
+            and state.state not in _MODES_WITHOUT_A_HEATING_SETPOINT
             and not member_counts_as_off(self, state.entity_id, state)
         ]
         if old_state is not None:
@@ -2120,7 +2193,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     # The pair was ordered under the range that held when it
                     # was saved. A narrower range can bound both targets onto
                     # the same value, so the ordering is applied again here.
-                    self.bt_target_cooltemp = self._bound_target_to_range(
+                    self.bt_target_cooltemp = self._bound_cool_target_to_range(
                         _restored_cool_target
                     )
                     self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
@@ -2220,10 +2293,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
                 preset_temp = self.preset_mgr.get_temperature(self.preset_mgr.mode)
                 # Only override if different to avoid masking manual restore logic
-                if (
-                    isinstance(preset_temp, (int, float))
-                    and preset_temp is not None
-                    and self.bt_target_temp != preset_temp
+                if isinstance(preset_temp, (int, float)) and self.bt_target_temp != (
+                    preset_target := self._applied_target(preset_temp)
                 ):
                     _LOGGER.debug(
                         "better_thermostat %s: Applying restored preset %s temperature %s after startup",
@@ -2231,14 +2302,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.preset_mgr.mode,
                         preset_temp,
                     )
-                    self.bt_target_temp = self._bound_target_to_range(preset_temp)
+                    self.bt_target_temp = preset_target
                 if (
                     self.cooler_entity_id is not None
                     and self.preset_mgr.mode in self._preset_cool_temperatures
                 ):
                     cool_temp = self._preset_cool_temperatures[self.preset_mgr.mode]
                     if isinstance(cool_temp, (int, float)):
-                        self.bt_target_cooltemp = self._bound_target_to_range(cool_temp)
+                        self.bt_target_cooltemp = self._applied_target(
+                            cool_temp, cooling=True
+                        )
                 # A target that is re-injected rather than chosen is ordered the
                 # moment it is stored: the HVAC mode can change without the pair
                 # being looked at again, and async_set_hvac_mode does not
@@ -2656,7 +2729,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.bt_target_temp is not None:
                 self.bt_target_temp = self._bound_target_to_range(self.bt_target_temp)
             if self.bt_target_cooltemp is not None:
-                self.bt_target_cooltemp = self._bound_target_to_range(
+                self.bt_target_cooltemp = self._bound_cool_target_to_range(
                     self.bt_target_cooltemp
                 )
                 self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
@@ -3936,7 +4009,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         with the key precedence a cooler is driven through — a device that only
         supports TARGET_TEMPERATURE_RANGE reports ``temperature: None`` and
         carries its setpoint in ``target_temp_high`` — then clamped into the
-        configured range and ordered above the heating target. A cooler that was
+        cooling range and ordered above the heating target. A cooler that was
         unavailable while that range was derived contributed no bounds to it, so
         the setpoint it reports can sit outside the range and is clamped into it
         exactly like a reported one. Echo detection has nothing to compare
@@ -3979,7 +4052,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 return False
             # A stored preset pair is re-injected verbatim, so the value takes
             # the same bound every other re-injected target takes.
-            self.bt_target_cooltemp = self._bound_target_to_range(float(cool_temp))
+            self.bt_target_cooltemp = self._bound_cool_target_to_range(float(cool_temp))
             _LOGGER.info(
                 "better_thermostat %s: %s drives both channels, taking the "
                 "preset cooling temperature %s as the cool target",
@@ -4002,6 +4075,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             known_values=(),
             step=device_setpoint_step(self, cooler_state, log_source),
             log_source=log_source,
+            cooling=True,
         )
         if setpoint is None:
             return False
@@ -4022,7 +4096,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         A value the user never chose has to be traceable, because the stored
         target is written back to the cooler: this annunciates the clamp into the
-        configured range, and :meth:`_enforce_cool_above_heat` annunciates a lift
+        cooling range, and :meth:`_enforce_cool_above_heat` annunciates a lift
         above the heating target.
 
         Parameters
@@ -4065,9 +4139,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         is meant to order inverted.
 
         The cooling target is reported as ``target_temperature_high`` and written
-        to the cooler, so the bump is capped at the configured maximum. Where the
-        heating target leaves the range no room, the two invariants collide and
-        one of them decides:
+        to the cooler, so the bump is capped at the cooling range's maximum. Where
+        the heating target leaves the range no room, the two invariants collide
+        and one of them decides:
 
         - A heating target resting on the maximum leaves no value above it inside
           the range. The range wins: the cooling target goes to the maximum, the
@@ -4099,7 +4173,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
         step = normalize_step(self.bt_target_temp_step)
         adjusted = self.bt_target_temp + step
-        maximum = self.bt_max_temp
+        maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None and maximum >= self.bt_target_temp:
             adjusted = min(adjusted, maximum)
         if adjusted == self.bt_target_cooltemp:
@@ -4125,7 +4199,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         self.bt_target_cooltemp = adjusted
 
-    def _enforce_heat_below_cool(self) -> None:
+    def _enforce_heat_below_cool(
+        self, *, regardless_of_hvac_mode: bool = False
+    ) -> None:
         """Keep the heating target strictly below the cooling target.
 
         The counterpart to :meth:`_enforce_cool_above_heat`, for the case where
@@ -4140,10 +4216,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         pins the heating target on the minimum, at or above the cooling target:
         the range bounds the value that is stored, and the overlap that remains
         is annunciated as such rather than reported as an ordered pair.
+
+        Parameters
+        ----------
+        regardless_of_hvac_mode : bool
+            Enforce the ordering outside HEAT_COOL as well, as
+            :meth:`_enforce_cool_above_heat` does for the same callers.
         """
+        if not regardless_of_hvac_mode and self.hvac_mode != HVACMode.HEAT_COOL:
+            return
         if (
-            self.hvac_mode != HVACMode.HEAT_COOL
-            or self.bt_target_cooltemp is None
+            self.bt_target_cooltemp is None
             or self.bt_target_temp is None
             or self.bt_target_temp < self.bt_target_cooltemp
         ):
@@ -4176,15 +4259,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_target_temp = adjusted
 
     def _bound_target_to_range(self, value: float) -> float:
-        """Bound a re-injected target into the configured range.
+        """Bound a re-injected heating target into the heating range.
 
         Stored targets come back into the entity without passing the range
         check the value they replace went through: a preset pair written while
         a cooler was unavailable, or a manual cooling target stashed under a
         different range, is re-injected verbatim. Both targets are published as
         ``target_temperature_low`` / ``target_temperature_high`` and written to
-        the devices, so a value the configured range does not contain is not a
-        setpoint BT can hold.
+        the devices, so a value outside its channel's range is not a setpoint BT
+        can hold.
 
         The lower bound is applied first and the upper bound second, each only
         when it is known. The order is load-bearing:
@@ -4207,13 +4290,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Returns
         -------
         float
-                the target bounded into the configured range
+                the target bounded into the heating range
         """
-        if self.bt_min_temp is not None and value < self.bt_min_temp:
-            value = self.bt_min_temp
-        if self.bt_max_temp is not None and self.bt_max_temp < value:
-            value = self.bt_max_temp
-        return value
+        return _bound_into(value, self.bt_min_temp, self.bt_max_temp)
+
+    def _bound_cool_target_to_range(self, value: float) -> float:
+        """Bound a re-injected cooling target into the cooling range.
+
+        The counterpart of :meth:`_bound_target_to_range` for the cooling
+        channel, with the same sequencing and the same silence.
+
+        Parameters
+        ----------
+        value : float
+                the cooling target being re-injected, in °C
+
+        Returns
+        -------
+        float
+                the target bounded into the cooling range
+        """
+        return _bound_into(value, *get_cool_temperature_bounds(self))
 
     def _clamp_inbound_cool_target(self, value: float) -> float:
         """Clamp a device-reported cooling setpoint above the heating target.
@@ -4222,8 +4319,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         Rather than pulling the heating target down to make room, the reported
         value is raised onto a floor one step above the heating target, so a
         press on the air conditioner's own remote leaves the radiators alone.
-        The floor is capped at the configured maximum because a bound outside
-        the range is not a setpoint BT can hold, and that cap is where the
+        The floor is capped at the cooling range's maximum because a bound
+        outside the range is not a setpoint BT can hold, and that cap is where the
         separation gives way: a heating target resting on the maximum or above
         it puts the floor on that target or below it, so the value returned
         there does not clear it. The residual :meth:`_enforce_heat_below_cool`
@@ -4246,21 +4343,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         ----------
         value : float
                 the reported cooling setpoint in °C, already clamped into the
-                configured range
+                cooling range
 
         Returns
         -------
         float
                 the setpoint to adopt, unchanged unless it had to be raised
-                onto the floor the heating target and the configured maximum
-                set
+                onto the floor the heating target and the cooling range's
+                maximum set
         """
         if self.cooler_entity_id is None or self.bt_target_temp is None:
             return value
         step = normalize_step(self.bt_target_temp_step)
         floor = self.bt_target_temp + step
-        if self.bt_max_temp is not None:
-            floor = min(floor, self.bt_max_temp)
+        maximum = get_cool_temperature_bounds(self)[1]
+        if maximum is not None:
+            floor = min(floor, maximum)
         return max(value, floor)
 
     def _clamp_inbound_heat_target(self, value: float) -> float:
@@ -4323,17 +4421,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # 21.200000000000003.
         return round(rounded, 10)
 
-    def _preset_target(self, value: float) -> float:
-        """Return the target a stored preset temperature applies as.
+    def _applied_target(self, value: float, *, cooling: bool = False) -> float:
+        """Return the target a requested or stored temperature applies as.
 
-        Rounded onto the configured step first and clamped into the range
-        second, as a target set directly is: a bound between two steps would
-        otherwise round the preset past it.
+        Clamped into the channel's range, rounded onto the configured step,
+        and clamped again: the step nearest the clamped value, or the bound
+        when that step lies outside the range. Applying the result again
+        returns it unchanged, and a value outside the range applies as its
+        clamped value does. The range is the heating channel's, or the
+        cooling channel's when ``cooling`` is set. A target set directly, a
+        preset being selected, a manual target compared against the active
+        preset and a preset restored after a restart all go through here, so
+        they agree on one number.
         """
-        on_grid = self._onto_target_grid(value)
-        return min(
-            self.max_temp, max(self.min_temp, value if on_grid is None else on_grid)
+        lowest, highest = (
+            get_cool_temperature_range(self)
+            if cooling
+            else get_heat_temperature_range(self)
         )
+        in_range = min(highest, max(lowest, value))
+        on_grid = self._onto_target_grid(in_range)
+        return min(highest, max(lowest, in_range if on_grid is None else on_grid))
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
@@ -4424,22 +4532,17 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         # Home Assistant hands the target over converted from the unit the
         # user set it in, so a whole or tenth degree Fahrenheit arrives off the
-        # Celsius grid; it is rounded onto the thermostat's step here, once,
-        # and then clamped into the range.
-        _new_setpoint = self._onto_target_grid(_new_setpoint)
-        _new_setpointlow = self._onto_target_grid(_new_setpointlow)
-        _new_setpointhigh = self._onto_target_grid(_new_setpointhigh)
-
-        # Validate against min/max temps
+        # Celsius grid; it is put onto the thermostat's step inside its own
+        # channel's range here, once: the heating target the heaters', the
+        # cooling target the cooler's.
         if _new_setpoint is not None:
-            _new_setpoint = min(self.max_temp, max(self.min_temp, _new_setpoint))
+            _new_setpoint = self._applied_target(_new_setpoint)
         if _new_setpointlow is not None:
-            _new_setpointlow = min(self.max_temp, max(self.min_temp, _new_setpointlow))
+            _new_setpointlow = self._applied_target(_new_setpointlow)
         if _new_setpointhigh is not None:
-            _new_setpointhigh = min(
-                self.max_temp, max(self.min_temp, _new_setpointhigh)
-            )
+            _new_setpointhigh = self._applied_target(_new_setpointhigh, cooling=True)
 
+        _heating_target_before = self.bt_target_temp
         # Preserve explicit 0.0 values (avoid Python truthiness bug)
         if _new_setpoint is not None:
             self.bt_target_temp = _new_setpoint
@@ -4449,10 +4552,25 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _new_setpointhigh is not None:
             self.bt_target_cooltemp = _new_setpointhigh
 
-        # The pair is ordered whatever the mode: a switch to HEAT_COOL runs on
-        # it without looking at it again.
-        self._enforce_cool_above_heat(
-            regardless_of_hvac_mode=self.cooler_entity_id is not None
+        # Enforce the ordering of the pair: the target the payload did not set
+        # is the one that yields. A payload that sets only the cooling target
+        # moves the heating target below it; any payload that sets a heating
+        # target moves the cooling target above that. With a cooler the pair is
+        # ordered whatever the mode: a switch to HEAT_COOL runs on it without
+        # looking at it again.
+        _order_in_every_mode = self.cooler_entity_id is not None
+        if _new_setpoint is None and _new_setpointlow is None:
+            self._enforce_heat_below_cool(regardless_of_hvac_mode=_order_in_every_mode)
+        else:
+            self._enforce_cool_above_heat(regardless_of_hvac_mode=_order_in_every_mode)
+
+        # A heating target the ordering moved is a manual heating target like
+        # one the payload set: it leaves the preset and is recorded, so the
+        # value in force is the one that persists and comes back on restart.
+        _heating_target_set = (
+            _new_setpoint is not None
+            or _new_setpointlow is not None
+            or self.bt_target_temp != _heating_target_before
         )
 
         # If a specific preset (Comfort, Eco, …) is active and the user manually
@@ -4463,7 +4581,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # updates the preset's stored temperature so the values match and the
         # preset stays active.
         if (
-            (_new_setpoint is not None or _new_setpointlow is not None)
+            _heating_target_set
             and self.bt_target_temp is not None
             and self.preset_mgr.mode != PRESET_NONE
         ):
@@ -4471,7 +4589,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
             if (
                 preset_stored is None
-                or abs(applied - self._preset_target(preset_stored)) > 1e-3
+                or abs(applied - self._applied_target(preset_stored)) > 1e-3
             ):
                 old_preset = self.preset_mgr.mode
                 self.preset_mgr.deactivate()
@@ -4486,9 +4604,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # record it as the stored manual temperature. Specific presets (Comfort, Eco,
         # etc.) are managed via separate Number entities and must NOT be overwritten
         # by manual setpoint changes.
-        if (
-            _new_setpoint is not None or _new_setpointlow is not None
-        ) and self.bt_target_temp is not None:
+        if _heating_target_set and self.bt_target_temp is not None:
             applied = float(self.bt_target_temp)
             old_value = self.preset_mgr.record_manual_change(applied)
             if old_value is not None:
@@ -4563,16 +4679,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def min_temp(self):
         """Return the minimum temperature.
 
+        The published range spans both channels, because Home Assistant checks
+        the heating and the cooling target against it alike; each target is
+        held to its own channel's range afterwards.
+
         Returns
         -------
         float
                 the minimum temperature.
         """
-        if self.bt_min_temp is not None:
-            return self.bt_min_temp
-
-        # get default temp from super class
-        return super().min_temp
+        return min(
+            get_heat_temperature_range(self)[0], get_cool_temperature_range(self)[0]
+        )
 
     @property
     def max_temp(self):
@@ -4583,11 +4701,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         float
                 the maximum temperature.
         """
-        if self.bt_max_temp is not None:
-            return self.bt_max_temp
-
-        # Get default temp from super class
-        return super().max_temp
+        return max(
+            get_heat_temperature_range(self)[1], get_cool_temperature_range(self)[1]
+        )
 
     @property
     def supported_features(self):
@@ -4632,8 +4748,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             new_temp = self.preset_mgr.activate(
                 preset_mode,
                 current_target_temp=self.bt_target_temp,
-                min_temp=self.min_temp,
-                max_temp=self.max_temp,
+                min_temp=get_heat_temperature_range(self)[0],
+                max_temp=get_heat_temperature_range(self)[1],
             )
             self.kernel_state = replace(
                 self.kernel_state,
@@ -4653,14 +4769,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # can be preserved and restored when returning to PRESET_NONE.
             previous_cooltemp = self.bt_target_cooltemp
             if new_temp is not None:
-                self.bt_target_temp = self._preset_target(new_temp)
+                self.bt_target_temp = self._applied_target(new_temp)
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
-                    self.bt_target_cooltemp = self._preset_target(
-                        self._preset_cool_temperatures[preset_mode]
+                    self.bt_target_cooltemp = self._applied_target(
+                        self._preset_cool_temperatures[preset_mode], cooling=True
                     )
                     _LOGGER.debug(
                         "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
@@ -4681,7 +4797,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 and self.cooler_entity_id is not None
                 and self._preset_cool_temperature is not None
             ):
-                self.bt_target_cooltemp = self._bound_target_to_range(
+                self.bt_target_cooltemp = self._bound_cool_target_to_range(
                     self._preset_cool_temperature
                 )
                 self._preset_cool_temperature = None
@@ -4982,6 +5098,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 pass
         if owned_tasks:
             await asyncio.gather(*owned_tasks, return_exceptions=True)
+        # The final save started by the on_remove callback finishes before
+        # the unload does; removing the entry deletes the stores after the
+        # unload, and a write landing later would recreate them. The wait
+        # has no timeout of its own: Home Assistant cancels the background
+        # task when it starts to stop, which ends the wait.
+        final_flush = self._final_flush_task
+        if final_flush is not None and not final_flush.done():
+            await asyncio.wait({final_flush})
         await super().async_will_remove_from_hass()
 
 

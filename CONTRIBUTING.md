@@ -543,7 +543,10 @@ missing, the same as a gap.
 `1.9` that `develop` does not contain it takes up to twelve distinctive added
 lines and looks each one up in `develop`'s *tree*. Reading the tree rather than
 the history is what finds a pair: a line that arrived under any commit is in
-the tree.
+the tree. The lines come from production files only, since each line writes
+its own tests, and only from lines `1.9` still holds, since a state a later
+`1.9` commit replaced is judged by that commit. A name `develop` renamed onto
+`glossary.toml` is looked up under its new spelling too.
 
 ```bash
 git fetch origin 1.9:refs/remotes/origin/1.9        # once, if you have no 1.9
@@ -568,6 +571,8 @@ ships the very commits the report would name. Ordinary pull requests target
 pull request, and nothing watches that path.
 
 The script names its own blind spots in its docstring. The one to know before
-reading the output: a commit carrying fewer than three markers is not scored at
-all, so version bumps and prose-only commits are listed apart rather than
-judged, and a real change small enough to leave no marker is listed with them.
+reading the output: a commit carrying fewer than three markers gets no hit rate
+and counts as carried forward only when every one of its markers is on
+`develop`. A commit with no production marker at all (version bumps, prose-only
+and test-only commits) is listed apart rather than judged, and a real change
+small enough to leave no marker is listed with them.

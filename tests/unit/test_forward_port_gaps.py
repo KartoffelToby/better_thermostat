@@ -426,20 +426,440 @@ def test_a_merge_carries_no_content_of_its_own(lines):
     assert measured == {maintenance_commit}
 
 
-def test_a_commit_too_small_to_score_is_neither_carried_nor_behind(lines):
-    """A version bump has one marker, and one marker decides nothing."""
+@pytest.mark.parametrize(
+    ("name", "template"),
+    [
+        (
+            "manifest.json",
+            '{\n  "domain": "better_thermostat",\n  "version": "%s"\n}\n',
+        ),
+        ("pyproject.toml", '[project]\nname = "better_thermostat"\nversion = "%s"\n'),
+    ],
+)
+def test_a_version_bump_is_neither_carried_nor_behind(lines, name, template):
+    """Each line carries its own version, so a bump has nothing to forward."""
     script, line = lines
-    manifest = '{\n  "domain": "better_thermostat",\n  "version": "%s"\n}\n'
     line.git("checkout", "-q", "maintenance")
-    line.write("manifest.json", manifest % "1.9.1")
-    line.commit("[TASK] add the manifest")
-    line.write("manifest.json", manifest % "1.9.2")
+    line.write(name, template % "1.9.1")
+    line.commit("[TASK] add the metadata")
+    line.write(name, template % "1.9.2")
     maintenance_commit = line.commit("[TASK] bump version")
 
     commit = _measure(script, line, maintenance_commit)
 
-    assert commit.markers == 1
+    assert commit.markers == 0
+    assert commit.carried_forward
+
+
+def _small_fix(line, *, lines_on_develop: int) -> str:
+    """Commit two production lines and a test on the maintenance line.
+
+    The development line gets the first ``lines_on_develop`` of the two
+    production lines. Returns the maintenance commit.
+    """
+    production = _body(2)
+    if lines_on_develop:
+        line.git("checkout", "-q", "develop")
+        line.write("module.py", f"shared = 1\n{_body(lines_on_develop)}")
+        line.commit("fix: the development line's form")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{production}")
+    line.write("tests/test_module.py", _body(6, start=20))
+    return line.commit("fix: a two-line fix with its test")
+
+
+@pytest.mark.parametrize(
+    ("lines_on_develop", "is_carried"), [(0, False), (1, False), (2, True)]
+)
+def test_a_fix_too_small_to_score_is_carried_only_when_all_of_it_is_there(
+    lines, lines_on_develop, is_carried
+):
+    """A small fix cannot be judged by a share, so every line of it counts.
+
+    Two production lines are too few for a rate to mean anything, and passing
+    such a fix unread would let a missing one-line fix through. It is carried
+    forward when every production line is on the development line and behind
+    when any one is missing.
+    """
+    script, line = lines
+    maintenance_commit = _small_fix(line, lines_on_develop=lines_on_develop)
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 2
     assert not commit.scored
+    assert commit.carried_forward is is_carried
+
+
+def test_a_small_fix_renamed_onto_the_glossary_is_carried(lines):
+    """The complete-presence rule reads the glossary's renames like the rate."""
+    script, line = lines
+    line.git("checkout", "-q", "develop")
+    line.write("glossary.toml", GLOSSARY)
+    line.write(
+        "module.py", "shared = 1\ntrv.remember_the_setpoint(entity_id, reported_1)\n"
+    )
+    line.commit("refactor: rename onto the glossary")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{OLD_SPELLING.format(i=1)}\n")
+    maintenance_commit = line.commit("fix: remember the setpoint")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 1
+    assert commit.carried_forward
+
+
+def test_check_fails_on_a_missing_fix_too_small_to_score(lines, capsys):
+    """A missing two-line fix closes the gate like a low rate does."""
+    script, line = lines
+    maintenance_commit = _small_fix(line, lines_on_develop=1)
+
+    assert script.check("maintenance", "develop") == 1
+    assert maintenance_commit[:8] in capsys.readouterr().out
+
+
+def test_prose_inside_a_docstring_with_code_punctuation_is_not_a_marker(lines):
+    """A docstring line that quotes code is prose, not a marker.
+
+    The punctuation rule cannot tell a sentence that quotes
+    ``int(value / step)`` from a statement; where the text sits can.
+    """
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write(
+        "module.py",
+        "shared = 1\n\n\ndef tol(step):\n"
+        '    """Return the window.\n\n'
+        "    The platform truncates onto that grid (``int(value / step)``): a\n"
+        "    written 6.3 becomes 62 counts = 6.2 {reported}.\n"
+        '    """\n'
+        f"    {DISTINCTIVE % 0}\n",
+    )
+    maintenance_commit = line.commit("fix: widen the window")
+
+    assert script.markers_of(maintenance_commit) == [DISTINCTIVE % 0]
+
+
+def _fix_with_tests(line, *, production_on_develop: bool, tests_on_develop: bool):
+    """Commit a fix plus its tests on the maintenance line.
+
+    The development line gets the production lines, the test lines, both or
+    neither, each written by its own commit. Returns the maintenance commit.
+    """
+    production = _body(3)
+    tests = "".join(f"assert check_the_reported_value({i}) == {i}\n" for i in range(9))
+    line.git("checkout", "-q", "develop")
+    if production_on_develop:
+        line.write("module.py", f"shared = 1\n{production}")
+    if tests_on_develop:
+        line.write("tests/test_module.py", tests)
+    if production_on_develop or tests_on_develop:
+        line.commit("fix: the development line's form")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{production}")
+    line.write("tests/test_module.py", tests)
+    return line.commit("fix: the maintenance line's form")
+
+
+@pytest.mark.parametrize(
+    ("production_on_develop", "tests_on_develop", "is_carried"),
+    [
+        (True, False, True),
+        (True, True, True),
+        (False, True, False),
+        (False, False, False),
+    ],
+)
+def test_a_commit_is_judged_on_its_production_lines_alone(
+    lines, production_on_develop, tests_on_develop, is_carried
+):
+    """Each line writes its own tests, so only production text can match.
+
+    A fix whose production lines reached the development line is carried
+    forward however differently the tests there were written, and tests that
+    happen to match do not carry a production change that is missing.
+    """
+    script, line = lines
+    maintenance_commit = _fix_with_tests(
+        line,
+        production_on_develop=production_on_develop,
+        tests_on_develop=tests_on_develop,
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 3
+    assert commit.carried_forward is is_carried
+
+
+def test_a_commit_that_touches_tests_only_is_not_scored(lines):
+    """A test-only commit has no production text to look for."""
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write("tests/test_module.py", _body(5))
+    maintenance_commit = line.commit("test: pin the reported value")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 0
+    assert not commit.scored
+
+
+def test_a_production_line_found_only_in_tests_is_not_carried(lines):
+    """A test quoting a production line does not put the line in place.
+
+    The development line holds the maintenance line's production text only
+    inside a test file, so the fix itself never arrived there.
+    """
+    script, line = lines
+    production = _body(3)
+    line.git("checkout", "-q", "develop")
+    line.write("tests/test_module.py", production)
+    line.commit("test: quote the fix the other line made")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{production}")
+    maintenance_commit = line.commit("fix: the maintenance line's form")
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 3
+    assert not commit.carried_forward
+
+
+def test_a_replaced_line_kept_in_a_test_is_not_a_marker(lines):
+    """The maintenance line's production text decides what it still holds.
+
+    A later commit replaced the lines in production and kept them in a test,
+    so the development line is not asked to hold them.
+    """
+    script, line = lines
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(4)}")
+    intermediate = line.commit("fix: the first attempt")
+    line.write("module.py", f"shared = 1\n{_body(4, start=10)}")
+    line.write("tests/test_module.py", _body(4))
+    line.commit("fix: the final state")
+
+    commit = _measure(script, line, intermediate)
+
+    assert commit.markers == 0
+    assert not commit.scored
+
+
+@pytest.mark.parametrize("successor_on_develop", [True, False])
+def test_a_line_the_maintenance_line_replaced_later_is_not_a_marker(
+    lines, successor_on_develop
+):
+    """An intermediate state is judged by the commit that replaced it.
+
+    The first commit's lines are gone from the maintenance line itself, so the
+    development line cannot be asked to hold them. The commit that replaced
+    them carries the evidence: a gap when its lines are missing on the
+    development line, carried forward when they are there.
+    """
+    script, line = lines
+    successor = _body(4, start=10)
+    if successor_on_develop:
+        line.git("checkout", "-q", "develop")
+        line.write("module.py", f"shared = 1\n{successor}")
+        line.commit("fix: the final state")
+    line.git("checkout", "-q", "maintenance")
+    line.write("module.py", f"shared = 1\n{_body(4)}")
+    intermediate = line.commit("fix: the first attempt")
+    line.write("module.py", f"shared = 1\n{successor}")
+    final = line.commit("fix: the final state (maintenance line)")
+
+    first = _measure(script, line, intermediate)
+    second = _measure(script, line, final)
+
+    assert first.markers == 0
+    assert not first.scored
+    assert second.markers == 4
+    assert second.carried_forward is successor_on_develop
+
+
+GLOSSARY = """\
+[[term]]
+name = "trv"
+rejected = ["trv_data"]
+
+[[term]]
+name = "entity_id"
+rejected = ["heater_entity_id"]
+
+[[term]]
+name = "trv.entity_id_of_the_head"
+rejected = ["heater_entity_id"]
+"""
+
+
+OLD_SPELLING = "trv_data.remember_the_setpoint(heater_entity_id, reported_{i})"
+
+
+def _renamed_fix(
+    line,
+    *,
+    glossary: str | None,
+    develop_spelling: str,
+    maintenance_spelling: str = OLD_SPELLING,
+) -> str:
+    """Commit a fix spelled with rejected names on the maintenance line.
+
+    Each line holds four statements in its spelling, a format string over the
+    statement's index. Returns the maintenance commit.
+    """
+    line.git("checkout", "-q", "develop")
+    if glossary is not None:
+        line.write("glossary.toml", glossary)
+    line.write(
+        "module.py",
+        "shared = 1\n" + "".join(develop_spelling.format(i=i) + "\n" for i in range(4)),
+    )
+    line.commit("refactor: rename onto the glossary")
+    line.git("checkout", "-q", "maintenance")
+    line.write(
+        "module.py",
+        "shared = 1\n"
+        + "".join(maintenance_spelling.format(i=i) + "\n" for i in range(4)),
+    )
+    return line.commit("fix: remember the setpoint")
+
+
+@pytest.mark.parametrize(
+    "develop_spelling",
+    [
+        "trv.remember_the_setpoint(entity_id, reported_{i})",
+        "trv.remember_the_setpoint(entity_id_of_the_head, reported_{i})",
+        "trv_data.remember_the_setpoint(entity_id, reported_{i})",
+        "trv_data.remember_the_setpoint(heater_entity_id, reported_{i})",
+    ],
+)
+def test_a_line_renamed_onto_the_glossary_is_found(lines, develop_spelling):
+    """The development line spells a rejected name the way the glossary says.
+
+    A maintenance-line statement written with the old spelling is found in
+    the development tree under any spelling the glossary lists for it, with
+    one name renamed, all of them or none.
+    """
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line, glossary=GLOSSARY, develop_spelling=develop_spelling
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == 4
+
+
+TWICE_SPELLING = "trv_data.compare_the_heads(heater_entity_id, heater_entity_id, {i})"
+
+
+@pytest.mark.parametrize(
+    "develop_spelling",
+    [
+        "trv.compare_the_heads(entity_id, entity_id_of_the_head, {i})",
+        "trv.compare_the_heads(entity_id_of_the_head, entity_id, {i})",
+        "trv.compare_the_heads(entity_id, heater_entity_id, {i})",
+        "trv_data.compare_the_heads(heater_entity_id, entity_id_of_the_head, {i})",
+    ],
+    ids=["two-terms", "two-terms-swapped", "one-kept", "only-second-renamed"],
+)
+def test_each_occurrence_of_a_rejected_name_is_renamed_on_its_own(
+    lines, develop_spelling
+):
+    """An alias written twice in one statement can end up spelled twice apart.
+
+    The glossary gives one alias two replacements, and the development line
+    may use both in one statement or keep the alias in one place only.
+    """
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=GLOSSARY,
+        develop_spelling=develop_spelling,
+        maintenance_spelling=TWICE_SPELLING,
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == 4
+
+
+def test_the_spellings_of_one_marker_are_bounded(lines):
+    """A line full of aliases costs at most the cap, and still spells them all.
+
+    Past the cap every occurrence of an alias takes the same spelling, so the
+    consistent rename stays among the spellings tried.
+    """
+    script, _ = lines
+    marker = " + ".join(["old"] * 12)
+    renames = {"old": ("first", "second")}
+
+    spellings = script._spellings(marker, renames)
+
+    assert len(spellings) <= script.SPELLINGS_PER_MARKER
+    assert spellings[0] == marker
+    assert " + ".join(["first"] * 12) in spellings
+    assert " + ".join(["second"] * 12) in spellings
+
+
+@pytest.mark.parametrize(
+    ("glossary", "maintenance_spelling", "develop_spelling"),
+    [
+        (None, OLD_SPELLING, "trv.remember_the_setpoint(entity_id, reported_{i})"),
+        (GLOSSARY, OLD_SPELLING, "trv.remember_the_setpoint(entity_id, confirmed_{i})"),
+        (
+            GLOSSARY,
+            OLD_SPELLING,
+            "device.remember_the_setpoint(entity_id, reported_{i})",
+        ),
+        (
+            GLOSSARY,
+            "trv_data.remember_the_setpoint(trv_data_cache, reported_{i})",
+            "trv.remember_the_setpoint(trv_cache, reported_{i})",
+        ),
+    ],
+    ids=["no-glossary", "other-statement", "unlisted-name", "part-of-a-name"],
+)
+def test_a_rename_the_glossary_does_not_list_is_not_found(
+    lines, glossary, maintenance_spelling, develop_spelling
+):
+    """Only the glossary's own renames are undone, and only whole names.
+
+    Without a glossary on the development line the spellings stay apart, and
+    a statement that differs in more than a listed name stays missing.
+    """
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=glossary,
+        develop_spelling=develop_spelling,
+        maintenance_spelling=maintenance_spelling,
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == 0
+
+
+@pytest.mark.parametrize(
+    "glossary",
+    ["[[term]\nname = ", '[[term]]\nname = "trv"\nrejected = "trv_data"\n'],
+    ids=["unparsable", "rejected-not-a-list"],
+)
+def test_a_glossary_the_gate_cannot_read_stops_it(lines, glossary):
+    """A broken glossary is an error, not an empty one that renames nothing."""
+    script, line = lines
+    line.git("checkout", "-q", "develop")
+    line.write("glossary.toml", glossary)
+    line.commit("docs: the glossary")
+
+    with pytest.raises(SystemExit, match=r"glossary\.toml"):
+        script.measure("maintenance", "develop")
 
 
 @pytest.mark.parametrize(
@@ -478,18 +898,21 @@ def test_the_list_mode_names_every_group(lines, capsys):
     script, line = lines
     gap = _partly_present(line, markers=4, found=4)
     line.write("module.py", f"shared = 1\n{_body(4)}{OTHER_DISTINCTIVE}\n")
-    too_small = line.commit("[TASK] bump version")
+    too_small = line.commit("fix: one more line")
+    line.write("tests/test_module.py", _body(3))
+    unmarked = line.commit("test: pin the value")
 
     assert script.show("maintenance", "develop") == 0
 
     printed = capsys.readouterr().out
     assert "against the tree of develop" in printed
-    assert "not carried forward — under 50%:" in printed
-    assert "carried forward — 50% or more:" in printed
-    assert "too few markers to score — under 3:" in printed
+    assert "not carried forward — under 50%, or a marker missing" in printed
+    assert "carried forward — 50% or more, or every marker" in printed
+    assert "no production markers:" in printed
     assert "by commit convention:" in printed
     assert gap[:8] in printed
     assert too_small[:8] in printed
+    assert unmarked[:8] in printed
 
 
 def test_check_fails_on_an_unrecorded_gap(lines, capsys):
