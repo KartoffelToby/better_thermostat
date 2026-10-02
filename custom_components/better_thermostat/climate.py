@@ -223,6 +223,7 @@ from .utils.restore import (
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
+    TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
     collect_cycle_telemetry,
     collect_mpc_v2_debug_attrs,
@@ -483,6 +484,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _attr_has_entity_name = True
     _attr_name = None
     _enable_turn_on_off_backwards_compatibility = False
+    # ``degraded_for_s`` counts up on every write while degraded; the recorded
+    # ``control_mode`` already says when the degradation began.
+    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {"degraded_for_s"}
 
     # Per-channel cooler send bookkeeping: the last successfully sent command,
     # the settled reading of each written channel, the mode the last cycle
