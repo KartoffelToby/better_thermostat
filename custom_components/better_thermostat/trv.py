@@ -88,6 +88,9 @@ class Trv:
     # nothing about how fresh another valve's reading is. ``None`` means no
     # reading has been accepted yet and the next one passes.
     last_internal_sensor_change: datetime | None = None
+    # Whether a reading turned away by that debounce is due to be read again
+    # once the interval is over.
+    internal_reread_pending: bool = False
     # The setpoint BT last sent; the device's own at startup.
     last_temperature: float | None = None
     # The setpoint in °C the device last confirmed, the device's own at

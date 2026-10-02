@@ -7,6 +7,7 @@ and the convert_inbound_states / convert_outbound_states helpers.
 
 import asyncio
 from datetime import timedelta
+from functools import partial
 import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -14,10 +15,12 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
+from homeassistant.util.async_ import create_eager_task
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.trv import (
+    _read_internal_temperature_later,
     convert_inbound_states,
     convert_outbound_states,
     trigger_trv_change,
@@ -37,6 +40,11 @@ PEER_ID = "climate.test_trv_peer"
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the entity instead of running it."""
+    coro.close()
 
 
 @pytest.fixture
@@ -61,6 +69,8 @@ def mock_bt():
     bt.tolerance = 0.3
     bt.startup_running = False
     bt.control_queue_task = AsyncMock()
+    # Background work the handler schedules is not run here.
+    bt._spawn_owned = MagicMock(side_effect=_close_coro)
     bt.bt_update_lock = False
     bt.cooler_entity_id = None
     bt.ignore_states = False
@@ -3964,3 +3974,301 @@ class TestOutageReportThroughTheListener:
                 await handler
 
         assert trv.current_temperature == 21.0
+
+
+# ---------------------------------------------------------------------------
+# Reading a turned-away internal temperature again after the debounce
+# ---------------------------------------------------------------------------
+
+
+class TestInternalRereadAfterTheDebounce:
+    """A head reading the debounce turned away is read again once it is over."""
+
+    T0 = dt_util.now()
+
+    def _prepare(self, mock_bt, *, state, current=18.0):
+        """Hold a head whose last accepted reading came at ``T0``."""
+        mock_bt.is_removed = False
+        mock_bt.hass.loop = asyncio.get_running_loop()
+        mock_bt.hass.states.get.return_value = state
+        trv = mock_bt.real_trvs[ENTITY_ID]
+        trv.current_temperature = current
+        trv.last_internal_sensor_change = self.T0
+        mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        mock_bt.in_maintenance = False
+        return trv
+
+    def _start(self, mock_bt, trv):
+        """Arm the reread and return the work it hands to the entity."""
+        work = []
+        mock_bt._spawn_owned = MagicMock(
+            side_effect=lambda coro, **kwargs: work.append(coro) or MagicMock()
+        )
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (coro,) = work
+        return coro
+
+    async def _run(self, coro, clock, timers, firings):
+        """Run the reread, firing each timer it arms at the next clock value."""
+        with (
+            patch(
+                "custom_components.better_thermostat.events.trv.dt_util.now",
+                side_effect=lambda: clock[0],
+            ),
+            patch(
+                "custom_components.better_thermostat.events.trv.async_call_later",
+                side_effect=lambda _hass, delay, cb: (
+                    timers.append((delay, cb)) or MagicMock()
+                ),
+            ),
+        ):
+            task = asyncio.ensure_future(coro)
+            for at, before in firings:
+                for _ in range(3):
+                    await asyncio.sleep(0)
+                before()
+                clock[0] = at
+                timers[-1][1](at)
+            await asyncio.wait_for(task, 1.0)
+
+    def _own_tasks(self, mock_bt, *, removed):
+        """Spawn the entity's work as real tasks, the way the entity does."""
+        mock_bt.is_removed = removed
+        mock_bt._owned_tasks = set()
+        mock_bt.hass.async_create_background_task = lambda coro, name: (
+            asyncio.ensure_future(coro)
+        )
+        mock_bt._spawn_owned = partial(BetterThermostat._spawn_owned, mock_bt)
+
+    @pytest.mark.asyncio
+    async def test_the_reread_is_pending_while_its_task_exists(self, mock_bt):
+        """A second turned-away reading arms no second reread."""
+        trv = self._prepare(mock_bt, state=None)
+        coro = self._start(mock_bt, trv)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        coro.close()
+        assert trv.internal_reread_pending is True
+        mock_bt._spawn_owned.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_removed_entity_leaves_no_reread_pending(self, mock_bt):
+        """A reread the entity can no longer start does not block later ones."""
+        trv = self._prepare(mock_bt, state=None)
+        self._own_tasks(mock_bt, removed=True)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        assert trv.internal_reread_pending is False
+        mock_bt._spawn_owned = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt._spawn_owned.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_reread_cancelled_before_it_starts_is_not_pending(self, mock_bt):
+        """A task cancelled before its coroutine runs still releases the flag."""
+        trv = self._prepare(mock_bt, state=None)
+        self._own_tasks(mock_bt, removed=False)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        assert trv.internal_reread_pending is True
+        cancelled = list(mock_bt._owned_tasks)
+        for task in cancelled:
+            task.cancel()
+        await asyncio.gather(*cancelled, return_exceptions=True)
+        await asyncio.sleep(0)
+
+        assert [task.cancelled() for task in cancelled] == [True]
+        assert trv.internal_reread_pending is False
+        mock_bt._spawn_owned = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt._spawn_owned.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_an_eagerly_finished_reread_is_not_pending(self, mock_bt):
+        """A reread that runs to its end while its task is created is over.
+
+        Home Assistant starts background tasks eagerly, so a reread whose
+        interval is already over finishes inside the call that creates it.
+        """
+        trv = self._prepare(mock_bt, state=None)
+        trv.last_internal_sensor_change = self.T0 - timedelta(minutes=1)
+        self._own_tasks(mock_bt, removed=False)
+        mock_bt.hass.async_create_background_task = lambda coro, name: (
+            create_eager_task(coro, name=name)
+        )
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        assert [task.done() for task in mock_bt._owned_tasks] == [True]
+        await asyncio.sleep(0)
+        assert trv.internal_reread_pending is False
+        mock_bt._spawn_owned = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt._spawn_owned.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_finished_reread_leaves_the_next_one_pending(self, mock_bt):
+        """The done callback of a reread that ran does not release a newer one.
+
+        The callback runs a loop turn after the coroutine has cleared the
+        flag, and a reread armed in between holds the flag on its own.
+        """
+        trv = self._prepare(mock_bt, state=None)
+        trv.last_internal_sensor_change = None
+        first_task = MagicMock()
+        mock_bt._spawn_owned = MagicMock(return_value=first_task)
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (first_call,) = mock_bt._spawn_owned.call_args_list
+        await first_call.args[0]
+        (done_callback,) = first_task.add_done_callback.call_args.args
+
+        mock_bt._spawn_owned = MagicMock(return_value=MagicMock())
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        done_callback(first_task)
+
+        assert trv.internal_reread_pending is True
+        mock_bt._spawn_owned.call_args.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_reading_is_taken_once_the_interval_is_over(self, mock_bt):
+        """The reading still on the head when the interval ends is applied."""
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert timers[0][0] == pytest.approx(4.0)
+        assert trv.current_temperature == pytest.approx(23.9)
+        assert trv.internal_reread_pending is False
+        assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_an_unavailable_head_restores_no_reading(self, mock_bt):
+        """A head that went away keeps its invalidated reading.
+
+        The attributes an unavailable state still carries are not a live
+        temperature.
+        """
+        trv = self._prepare(
+            mock_bt,
+            state=_make_state("unavailable", {"current_temperature": 23.9}),
+            current=None,
+        )
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert trv.current_temperature is None
+
+    @pytest.mark.asyncio
+    async def test_a_reading_accepted_meanwhile_moves_the_deadline(self, mock_bt):
+        """The interval runs from the latest accepted reading.
+
+        A reading that bypasses the debounce while the reread waits starts a
+        new interval; the reading after it is taken only once that is over.
+        """
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        seen_at_first_deadline = []
+
+        def _bypass():
+            trv.current_temperature = 21.0
+            trv.last_internal_sensor_change = self.T0 + timedelta(seconds=4)
+
+        await self._run(
+            coro,
+            clock,
+            timers,
+            [
+                (self.T0 + timedelta(seconds=5), _bypass),
+                (
+                    self.T0 + timedelta(seconds=9),
+                    lambda: seen_at_first_deadline.append(trv.current_temperature),
+                ),
+            ],
+        )
+
+        assert seen_at_first_deadline == [21.0]
+        assert [round(delay, 3) for delay, _cb in timers] == [4.0, 4.0]
+        assert trv.current_temperature == pytest.approx(23.9)
+
+    @pytest.mark.asyncio
+    async def test_a_full_control_queue_does_not_hold_the_reread(self, mock_bt):
+        """A control request already queued covers the reading.
+
+        The reread does not wait for room in the queue, which the removal
+        could leave without a consumer.
+        """
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        mock_bt.control_queue_task.put_nowait(mock_bt)
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert trv.current_temperature == pytest.approx(23.9)
+        assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_the_room_sensor_fallback_follows_the_reading(self, mock_bt):
+        """During the fallback the room moves with the reading read again.
+
+        The handler leaves the room on the TRV's accepted reading while the
+        debounce holds a report back, so the room moves when the reread takes
+        it, and the room is controlled on.
+        """
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        mock_bt.room_sensor_fallback = True
+        mock_bt.cur_temp = 18.0
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert mock_bt.cur_temp == pytest.approx(23.9)
+        mock_bt.async_write_ha_state.assert_called()
+        assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_valve_maintenance_keeps_the_request_for_its_end(self, mock_bt):
+        """A reading read again during valve maintenance asks for a cycle after it."""
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        mock_bt.in_maintenance = True
+        mock_bt._control_needed_after_maintenance = False
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert trv.current_temperature == pytest.approx(23.9)
+        assert mock_bt.control_queue_task.qsize() == 0
+        assert mock_bt._control_needed_after_maintenance is True

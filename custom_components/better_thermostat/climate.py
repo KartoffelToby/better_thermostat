@@ -851,6 +851,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # Anti-flicker state
         self.flicker_unignore_cancel = None
         self.flicker_candidate = None
+        # Applies a pending reading later, at the end of a plateau or of the
+        # debounce interval.
         self.plateau_timer_cancel = None
         # TRV-internal temperature standing in for a lost room sensor
         self.room_sensor_fallback = False
