@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import State
+from homeassistant.core import Context, State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 import voluptuous as vol
@@ -29,7 +29,7 @@ from custom_components.better_thermostat.adapters import (
 )
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -61,7 +61,7 @@ def _helper_entities_registered_and_enabled():
 
 def _thermostat(adapter, quirks=None):
     """A thermostat with one TRV whose four write channels are ready."""
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.bt_target_temp_step = 0.5
     trv = Trv(entity_id=ENTITY_ID)
@@ -249,6 +249,7 @@ MODE_ADAPTERS = {
 
 def _thermostat_on(adapter_module, service_call):
     thermostat = _thermostat(adapter_module)
+    thermostat.context = Context()
     thermostat.hass = MagicMock()
     thermostat.hass.services.async_call = service_call
     return thermostat

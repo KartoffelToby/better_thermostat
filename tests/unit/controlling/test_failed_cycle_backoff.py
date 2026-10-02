@@ -9,7 +9,7 @@ arriving in the meantime is not held back by the pause.
 
 import asyncio
 import logging
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.components.climate.const import PRESET_BOOST, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -27,7 +27,7 @@ from custom_components.better_thermostat.utils.controlling import (
     control_queue,
 )
 from custom_components.better_thermostat.utils.snapshot import _build_trv_reported
-from tests.factories import make_snapshot, make_state
+from tests.factories import ThermostatStandIn, make_snapshot, make_state
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 _QUIRKS = "custom_components.better_thermostat.model_fixes.model_quirks"
@@ -63,8 +63,8 @@ class _VirtualSleep:
         return result
 
 
-def _make_self() -> Mock:
-    entity = Mock()
+def _make_self() -> ThermostatStandIn:
+    entity = ThermostatStandIn()
     entity.device_name = "room"
     entity.in_maintenance = False
     entity.ignore_states = False
@@ -90,7 +90,7 @@ def _refused(*_args, **_kwargs):
 class _Queue:
     """Run the control queue of one entity against a scripted control_trv."""
 
-    def __init__(self, entity: Mock, outcomes, cycle=None) -> None:
+    def __init__(self, entity: ThermostatStandIn, outcomes, cycle=None) -> None:
         self.entity = entity
         self.outcomes = outcomes
         self.cycle = cycle

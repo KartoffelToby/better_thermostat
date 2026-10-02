@@ -4,7 +4,7 @@ from custom_components.better_thermostat.utils.helpers import (
     find_local_calibration_entity,
     find_valve_entity,
 )
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 
 def _make_entity(eid, uid, device_id, translation_key=None, original_name=None):
@@ -29,7 +29,7 @@ def _make_trv_entry(device_id):
 def _make_bt_instance():
     """Create a mock BT instance with hass."""
     hass = MagicMock()
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = hass
     return bt
 

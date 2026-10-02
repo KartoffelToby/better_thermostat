@@ -13,6 +13,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from tests.factories import ThermostatStandIn
 
 _CLIMATE_LOGGER = "custom_components.better_thermostat.climate"
 
@@ -20,7 +21,7 @@ _CLIMATE_LOGGER = "custom_components.better_thermostat.climate"
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for property access."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_target_temp = 21.0
     mock.bt_target_cooltemp = 25.0

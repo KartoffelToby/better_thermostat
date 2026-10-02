@@ -29,6 +29,7 @@ from custom_components.better_thermostat.adapters.base import (
     wait_for_calibration_entity_or_timeout,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.trv"
 CALIBRATION_ENTITY = "number.trv_local_temperature_calibration"
@@ -58,7 +59,7 @@ def _mock_self(calibration_entity=CALIBRATION_ENTITY):
     MagicMock
         A stand-in for the Better Thermostat climate entity instance.
     """
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "Test BT"
     mock_self.context = None
     mock_self.hass = MagicMock()
@@ -140,7 +141,7 @@ def _mock_self_with_select(options=SELECT_OPTIONS, reported="0.0k"):
     MagicMock
         A stand-in for the Better Thermostat climate entity instance.
     """
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "Test BT"
     mock_self.context = None
     mock_self.hass = MagicMock()

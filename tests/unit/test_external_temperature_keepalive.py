@@ -19,6 +19,7 @@ from custom_components.better_thermostat.climate import (
     BetterThermostat,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 TRV_ID = "climate.trv"
 TRV_ID_2 = "climate.trv2"
@@ -27,7 +28,7 @@ ROOM_TEMPERATURE = 21.4
 
 def _bt_with_two_trvs(quirks):
     """A BT stand-in holding a room reading and two TRVs carrying quirks."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.cur_temp = ROOM_TEMPERATURE
     bt.real_trvs = {
@@ -91,7 +92,7 @@ async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
 @pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.cur_temp = None
     quirks = MagicMock()
