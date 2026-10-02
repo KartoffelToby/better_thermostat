@@ -192,10 +192,12 @@ def _read_internal_temperature_later(
     on Home Assistant's timer, and the task around it is what the entity
     cancels when it is removed.
 
-    The pending flag is set only once the task exists and is cleared however
-    the task ends: by the coroutine once it runs, and by the task's done
-    callback when the task is cancelled before its coroutine starts, which
-    then never runs a line of it.
+    The pending flag is set before the task is created, since Home Assistant
+    starts the task eagerly and its coroutine can run to its end inside the
+    call that creates it. It is cleared however the reread ends: by the
+    coroutine once it runs, here when no task is created, and by the task's
+    done callback when the task is cancelled before its coroutine starts,
+    which then never runs a line of it.
     """
     if trv.internal_reread_pending:
         return
@@ -275,10 +277,11 @@ def _read_internal_temperature_later(
         if not started:
             trv.internal_reread_pending = False
 
+    trv.internal_reread_pending = True
     task = self._spawn_owned(_reread(), name=f"bt_internal_reread_{entity_id}")
     if task is None:
+        trv.internal_reread_pending = False
         return
-    trv.internal_reread_pending = True
     task.add_done_callback(_release_unstarted)
 
 
