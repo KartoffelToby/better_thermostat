@@ -52,6 +52,7 @@ end of this module as a test of its own. A longer search is a manual run, with m
 
 from collections.abc import AsyncGenerator
 import contextlib
+import copy
 from dataclasses import asdict, dataclass, field, replace
 from datetime import timedelta
 import json
@@ -776,9 +777,14 @@ def draw(room: Room, rng: random.Random) -> RoomEvent:
 
 @contextlib.asynccontextmanager
 async def running_room(
-    hass: HomeAssistant, scenario: GroupScenario
+    hass: HomeAssistant, scenario: GroupScenario, *, no_off_system_mode: bool = False
 ) -> AsyncGenerator[Room]:
-    """Boot an entry for ``scenario`` and yield the room once it has settled."""
+    """Boot an entry for ``scenario`` and yield the room once it has settled.
+
+    With ``no_off_system_mode`` every head is configured as one without an
+    off mode, which Better Thermostat holds at its minimum instead of
+    switching it off.
+    """
     scale = SCALES.get(scenario.name, CELSIUS)
     assert all(p.temperature_unit is scale.unit for p in scenario.profiles)
     heads = await build_devices(hass, *scenario.profiles)
@@ -787,6 +793,13 @@ async def running_room(
     set_room_sensor(hass, scale.room_temperature, scale.unit)
     hass.states.async_set(WINDOW_ID, "off")
     entry = make_entry(scenario, with_window=True)
+    if no_off_system_mode:
+        data = copy.deepcopy(dict(entry.data))
+        for head in data["thermostat"]:
+            head["advanced"]["no_off_system_mode"] = True
+        entry = MockConfigEntry(
+            domain=entry.domain, version=entry.version, data=data, title=entry.title
+        )
     # Set up the way Home Assistant boots with the entry already configured,
     # which is how a room first comes up: the platforms are built before the
     # thermostat has read its heads, and nothing saved fills the gap yet.
@@ -1154,3 +1167,33 @@ async def test_a_report_after_the_switch_on_does_not_bring_the_turn_either(hass)
             SwitchHeadAndReport(0, HVACMode.HEAT),
         ):
             await step(room, event)
+
+
+async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(hass):
+    """A knob turned while the window is open is not the user's word.
+
+    The head has no off mode, so the open window leaves it heating at its
+    minimum rather than off, and its being off cannot be what keeps the turn
+    out. The room's target is the same at once and after the reconciler.
+    """
+    async with running_room(hass, SINGLE_HEAD, no_off_system_mode=True) as room:
+        bt, head = room.bt, room.heads[0]
+        target = bt.bt_target_temp
+        await Window(True).happen(room)
+        await _quiet(room)
+        assert await wait_for(room.hass, lambda: bt.window_open, CONVERGE_S)
+        assert head.hvac_mode != HVACMode.OFF, (
+            f"the head without an off mode was switched off: {head.hvac_mode}"
+        )
+        turned_to = target + 3.0
+        _turn(head, turned_to)
+        await _quiet(room)
+        assert bt.bt_target_temp == pytest.approx(target), (
+            f"the room adopted {bt.bt_target_temp} from a knob turned with the "
+            f"window open, its target was {target}"
+        )
+        await _reconcile(room)
+        assert bt.bt_target_temp == pytest.approx(target), (
+            f"after the reconciler the room carries {bt.bt_target_temp}, "
+            f"its target was {target}"
+        )
