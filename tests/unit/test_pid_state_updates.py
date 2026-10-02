@@ -17,6 +17,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
     compute_pid,
+    observe_standby,
 )
 
 _PID_LOGGER = "custom_components.better_thermostat.utils.calibration.pid"
@@ -144,3 +145,25 @@ class TestErrorSign:
             _PARAMS, PIDState(), inp_target_temp_C=target, inp_current_temp_C=current
         )
         assert state.last_error_sign == expected
+
+
+class TestStandbyObservation:
+    """Standby follows the room only when there is a reading to follow."""
+
+    def test_no_reading_leaves_the_measurement_chain(self):
+        """Without a room or smoothed temperature the chain keeps its last point."""
+        state = PIDState(pid_last_meas=20.4, pid_last_time=900.0)
+
+        result = observe_standby(_PARAMS, state, None, now=1000.0)
+
+        assert result is state
+        assert (state.pid_last_meas, state.pid_last_time) == (20.4, 900.0)
+
+    def test_a_reading_moves_the_measurement_chain(self):
+        """A room temperature during standby advances the chain's time stamp."""
+        state = PIDState(pid_last_meas=20.4, pid_last_time=900.0)
+
+        observe_standby(_PARAMS, state, 20.8, now=1000.0)
+
+        assert state.pid_last_time == 1000.0
+        assert state.pid_last_meas != 20.4
