@@ -3,7 +3,7 @@
 The floors are the thing that notices when a change leaves code uncovered, so
 the check itself has to be right about four cases: a module that held its
 level passes, one that dropped fails, one that vanished from the report fails
-too, and one nobody has measured yet does not count as a regression.
+too, and one that arrived without a floor fails until its floor is recorded.
 """
 
 import importlib.util
@@ -143,17 +143,20 @@ def test_update_drops_the_floor_of_a_module_the_report_no_longer_covers(
     assert recorded == {MODULE: 88.7}
 
 
-def test_a_module_without_a_floor_is_not_a_regression(floors, tmp_path, capsys):
-    """A module nobody has measured yet has nothing to fall below.
+def test_a_module_without_a_floor_fails_until_one_is_recorded(floors, tmp_path, capsys):
+    """A new module arrives with its floor, so it is guarded from its first day.
 
-    Failing on it would make every new file a red build until someone
-    re-recorded, which turns the ratchet into a chore rather than a guard.
+    Without one, a module could land untested and stay unguarded until somebody
+    happened to re-record the floors.
     """
     floors.update(_report(tmp_path, **{MODULE: 88.7}))
+    report = _report(tmp_path, **{MODULE: 88.7, OTHER: 12.0})
 
-    assert floors.check(_report(tmp_path, **{MODULE: 88.7, OTHER: 12.0})) == 0
+    assert floors.check(report) == 1
+    assert f"no floor yet: {OTHER} at 12.0%" in capsys.readouterr().out
 
-    assert "no floor yet" in capsys.readouterr().out
+    floors.update(report)
+    assert floors.check(report) == 0
 
 
 def test_update_names_the_floors_it_lowers(floors, tmp_path, capsys):
