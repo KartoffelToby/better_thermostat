@@ -18,6 +18,8 @@ async def test_an_unsupported_mode_is_refused_with_the_offered_modes(hass, fake_
     entry = make_entry(fake_trv.profile)
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
+    mode_before = bt.hvac_mode
+    setpoint_before = bt.target_temperature
 
     with pytest.raises(ServiceValidationError) as refused:
         await hass.services.async_call(
@@ -32,4 +34,5 @@ async def test_an_unsupported_mode_is_refused_with_the_offered_modes(hass, fake_
     assert str(refused.value) == (
         "BT Test does not support the HVAC mode cool. Supported modes: heat, off"
     )
-    assert bt.hvac_mode != "cool"
+    assert bt.hvac_mode == mode_before
+    assert bt.target_temperature == setpoint_before
