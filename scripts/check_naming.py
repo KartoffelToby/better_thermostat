@@ -245,8 +245,9 @@ def check(paths: list[Path] | None) -> int:
     """Compare today's findings against the budget. Return an exit code.
 
     A file under its budget fails like one over it, so a rename records the
-    lower number it reached. Only the scanned files are judged that way: a
-    partial check says nothing about the files it left out.
+    lower number it reached. A full check judges every recorded file, so a
+    deleted file counts as zero and its budget has to be dropped. A partial
+    check judges only the files it scanned and says nothing about the rest.
     """
     glossary = _load_glossary()
     findings: dict[str, list[Finding]] = {}
@@ -273,11 +274,15 @@ def check(paths: list[Path] | None) -> int:
         f"{sum(counts.values())} rejected names across {len(counts)} files, "
         "all within budget"
     )
-    scanned = {path.relative_to(REPO_ROOT).as_posix() for path in _sources(paths)}
+    judged = (
+        budget.keys()
+        if paths is None
+        else {path.relative_to(REPO_ROOT).as_posix() for path in _sources(paths)}
+    )
     slack = sum(
         1
         for path, count in budget.items()
-        if path in scanned and count > counts.get(path, 0)
+        if path in judged and count > counts.get(path, 0)
     )
     if slack:
         print(

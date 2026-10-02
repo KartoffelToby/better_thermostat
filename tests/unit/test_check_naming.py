@@ -331,6 +331,28 @@ def test_a_partial_check_judges_only_the_files_it_scanned(checker, capsys):
     assert "below budget" not in capsys.readouterr().out
 
 
+def test_a_full_check_fails_on_the_budget_of_a_deleted_file(checker, capsys):
+    """A file that is gone holds no names, so its recorded count is slack."""
+    _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    _budget(
+        checker, **{"custom_components/loader.py": 2, "custom_components/gone.py": 3}
+    )
+
+    assert checker.check(None) == 1
+    assert "1 file(s) below budget" in capsys.readouterr().out
+
+
+def test_a_partial_check_leaves_the_budget_of_a_deleted_file_alone(checker, capsys):
+    """A partial check does not judge a recorded file it did not scan."""
+    scanned = _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    _budget(
+        checker, **{"custom_components/loader.py": 2, "custom_components/gone.py": 3}
+    )
+
+    assert checker.check([scanned]) == 0
+    assert "below budget" not in capsys.readouterr().out
+
+
 BINDINGS = textwrap.dedent(
     '''
     """A module that binds rejected spellings without ever reading one."""

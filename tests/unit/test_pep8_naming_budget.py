@@ -172,6 +172,17 @@ def test_check_fails_until_a_fallen_count_is_recorded(budget, monkeypatch, capsy
     assert budget.check() == 0
 
 
+def test_check_fails_on_the_budget_of_a_deleted_file(budget, monkeypatch, capsys):
+    """A file that is gone is not measured, so its recorded count is slack."""
+    _record(budget, monkeypatch, **{FILE: 28, OTHER: 5})
+    capsys.readouterr()
+
+    _counts(budget, monkeypatch, **{FILE: 28})
+
+    assert budget.check() == 1
+    assert f"below budget: {OTHER} at 0 of 5" in capsys.readouterr().out
+
+
 def test_update_refuses_to_record_a_count_that_grew(budget, monkeypatch, capsys):
     """A name that drops the convention does not arrive by accident."""
     _record(budget, monkeypatch, **{FILE: 33})

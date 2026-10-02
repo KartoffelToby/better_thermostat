@@ -476,6 +476,18 @@ def test_check_fails_until_a_fallen_count_is_recorded(script, monkeypatch, capsy
     assert script.check() == 0
 
 
+def test_check_fails_on_the_budget_of_a_deleted_file(script, monkeypatch, capsys):
+    """A file that is gone is not measured, so its recorded count is slack."""
+    _counts(script, monkeypatch, **{FILE: 28, OTHER: 5})
+    script.update()
+    capsys.readouterr()
+
+    _counts(script, monkeypatch, **{FILE: 28})
+
+    assert script.check() == 1
+    assert f"below budget: {OTHER} at 0 of 5" in capsys.readouterr().out
+
+
 def test_update_names_the_budgets_it_raises(script, monkeypatch, capsys):
     """Re-recording a higher number says so, so it cannot pass unnoticed."""
     _counts(script, monkeypatch, **{FILE: 3})
