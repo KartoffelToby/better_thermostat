@@ -76,6 +76,11 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
         hass,
         lambda: first.target_temperature == 17.0 and second.target_temperature == 17.0,
     )
+    # With no cycle running or queued, the cycle the new target starts is the
+    # last one unless the turn read at its end asks for another.
+    assert await wait_for(
+        hass, lambda: bt.control_queue_task.empty() and not bt.ignore_states
+    )
 
     reached, release = asyncio.Event(), asyncio.Event()
     apply = second.async_set_temperature
