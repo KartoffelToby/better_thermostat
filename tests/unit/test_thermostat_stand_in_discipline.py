@@ -16,6 +16,7 @@ in another is seen by neither rule.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 from pathlib import Path
 
 from homeassistant.components.climate import ClimateEntity
@@ -71,11 +72,24 @@ def _bindings(node: ast.stmt) -> list[tuple[ast.expr, ast.expr | None]]:
     return []
 
 
+def _own_nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """Yield the nodes of ``scope`` without the bodies of nested functions."""
+    pending = [scope]
+    while pending:
+        node = pending.pop()
+        yield node
+        pending.extend(
+            child
+            for child in ast.iter_child_nodes(node)
+            if not isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef)
+        )
+
+
 def _bare_stand_ins_in(scope: ast.AST) -> set[int]:
     """Return the lines in ``scope`` that build a bare thermostat stand-in."""
     built: dict[str, set[int]] = {}
     state_set: dict[str, set[str]] = {}
-    for node in ast.walk(scope):
+    for node in _own_nodes(scope):
         if isinstance(node, ast.NamedExpr) and _is_bare_mock(node.value):
             built.setdefault(node.target.id, set()).add(node.lineno)
         if not isinstance(node, ast.stmt):
@@ -131,11 +145,22 @@ def test_a_bare_stand_in_is_found_in_each_spelling(tmp_path):
         "    strict = ThermostatStandIn()\n"
         "    other = MagicMock()\n"
         "    other.kernel_state = None\n"
-        "    mock = MagicMock()\n",
+        "    mock = MagicMock()\n"
+        "bt_climate: MagicMock = MagicMock()\n"
+        "def builds():\n"
+        "    shared = MagicMock()\n"
+        "    def fills():\n"
+        "        shared = object()\n"
+        "        shared.kernel_state = None\n"
+        "        shared.clock = None\n"
+        "def fills_too():\n"
+        "    shared.kernel_state = None\n"
+        "    shared.clock = None\n"
+        "shared = MagicMock()\n",
         encoding="utf-8",
     )
 
-    assert _bare_stand_ins(probe) == [1, 2, 3, 5, 8, 16]
+    assert _bare_stand_ins(probe) == [1, 2, 3, 5, 8, 16, 17]
 
 
 def test_no_file_builds_a_bare_stand_in():
