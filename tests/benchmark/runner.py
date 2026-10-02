@@ -28,6 +28,7 @@ from .adapters.indirect_trv import (
     IndirectTrvAdapter,
 )
 from .adapters.mpc_adapter import MpcAdapter
+from .adapters.mpc_v2_adapter import MpcV2Adapter
 from .adapters.passive_modes import (
     AggressiveCalibrationAdapter,
     DefaultCalibrationAdapter,
@@ -69,6 +70,7 @@ from .sensor import Sensor, SensorParams
 
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
+    "mpc_v2": MpcV2Adapter,
     "tpi": TpiAdapter,
     "pid": PidAdapter,
     "heating_power": HeatingPowerAdapter,
@@ -85,6 +87,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # live in adapters/indirect_trv.py.
     "pid+indirect_tado": lambda: IndirectTrvAdapter(PidAdapter(), TADO_PARAMS),
     "mpc+indirect_tado": lambda: IndirectTrvAdapter(MpcAdapter(), TADO_PARAMS),
+    "mpc_v2+indirect_tado": lambda: IndirectTrvAdapter(MpcV2Adapter(), TADO_PARAMS),
     "tpi+indirect_tado": lambda: IndirectTrvAdapter(TpiAdapter(), TADO_PARAMS),
     "heating_power+indirect_tado": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), TADO_PARAMS
@@ -92,6 +95,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # Bosch BTH-RA — wider hysteresis + command latency.
     "pid+indirect_bosch": lambda: IndirectTrvAdapter(PidAdapter(), BOSCH_PARAMS),
     "mpc+indirect_bosch": lambda: IndirectTrvAdapter(MpcAdapter(), BOSCH_PARAMS),
+    "mpc_v2+indirect_bosch": lambda: IndirectTrvAdapter(MpcV2Adapter(), BOSCH_PARAMS),
     "tpi+indirect_bosch": lambda: IndirectTrvAdapter(TpiAdapter(), BOSCH_PARAMS),
     "heating_power+indirect_bosch": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), BOSCH_PARAMS
@@ -99,6 +103,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # Tuya TS0601 family — 1 K setpoint quantisation.
     "pid+indirect_tuya": lambda: IndirectTrvAdapter(PidAdapter(), TUYA_PARAMS),
     "mpc+indirect_tuya": lambda: IndirectTrvAdapter(MpcAdapter(), TUYA_PARAMS),
+    "mpc_v2+indirect_tuya": lambda: IndirectTrvAdapter(MpcV2Adapter(), TUYA_PARAMS),
     "tpi+indirect_tuya": lambda: IndirectTrvAdapter(TpiAdapter(), TUYA_PARAMS),
     "heating_power+indirect_tuya": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), TUYA_PARAMS
@@ -109,6 +114,9 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     ),
     "mpc+indirect_sonoff": lambda: IndirectTrvAdapter(
         MpcAdapter(), SONOFF_TRVZB_PARAMS
+    ),
+    "mpc_v2+indirect_sonoff": lambda: IndirectTrvAdapter(
+        MpcV2Adapter(), SONOFF_TRVZB_PARAMS
     ),
     "tpi+indirect_sonoff": lambda: IndirectTrvAdapter(
         TpiAdapter(), SONOFF_TRVZB_PARAMS
@@ -330,7 +338,13 @@ def _drive_adapter(
         )
 
         out = adapter.step(ctx)
-        valve_pct = out.valve_percent if out.valve_percent is not None else 0.0
+        # Better Thermostat turns every TRV off while a window is open,
+        # whatever the calibration mode: the kernel's window region decides
+        # that above the controller. The controller still runs and sees the
+        # open window, but the plant gets a closed valve.
+        valve_pct = (
+            0.0 if window_open or out.valve_percent is None else out.valve_percent
+        )
         last_valve_pct = valve_pct
 
         t_s_list.append(t)
