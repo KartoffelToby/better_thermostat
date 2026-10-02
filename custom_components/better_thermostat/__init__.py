@@ -11,7 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir, service
-from homeassistant.helpers.typing import ConfigType
+from homeassistant.helpers.typing import ConfigType, VolDictType, VolSchemaType
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
@@ -49,7 +49,7 @@ RELOAD_LOCKS = f"{DOMAIN}_reload_locks"
 
 # Service name to the climate entity method it runs, with the schema of the
 # fields it takes.
-_ENTITY_SERVICES = (
+_ENTITY_SERVICES: tuple[tuple[str, str, VolDictType | VolSchemaType], ...] = (
     (SERVICE_RESET_HEATING_POWER, "reset_heating_power", {}),
     (SERVICE_RUN_VALVE_MAINTENANCE, "run_valve_maintenance_service", {}),
     (
