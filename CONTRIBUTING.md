@@ -254,7 +254,8 @@ marker comes off with the fix instead of outliving it.
 is worth asking — a shouted quantifier, an `if any` clause, `regardless`, `even
 when`, a bare interval copied out of the source — and
 `.restated-contract-budget.json` holds the count, so the backlog gets worked off
-rather than added to. A hit is a question, not a verdict: a requirement may well
+rather than added to. A file whose count fell fails the check until
+`restated_contracts.py update` records the lower number. A hit is a question, not a verdict: a requirement may well
 say "never". Read the sentence and decide which of the two it is.
 
 Those markers are a sample, not a survey: they reach a small share of the
@@ -378,7 +379,9 @@ never lands in yours. `scripts/check_naming.py` tells you where you stand, and C
 runs it. It matches whole identifiers against the rejected spellings in
 `glossary.toml` and counts them per file in `.naming-budget.json`: a file may not
 exceed its number, and a file that is not in the budget may not carry one at
-all. Only the script writes that file:
+all. A file that drops below its number fails as well until `update` records
+the lower one, so a rename brings its new count along. Only the script writes
+that file:
 
 ```bash
 uv run python scripts/check_naming.py list <path>    # what a file still carries
@@ -405,10 +408,12 @@ under it. Where a single line carries the notation rather than a tree, a
 `# noqa: N8xx` with its reason does the job instead, as the two persisted field
 names in `utils/state_manager.py` do. Both forms are capped by
 `.pep8-naming-budget.json`, which records per file how many findings they hide,
-and CI holds that number:
+and CI holds that number exactly: a count above it or below it fails, and
+`update` records a lower one:
 
 ```bash
 uv run python scripts/pep8_naming_budget.py check    # what CI runs
+uv run python scripts/pep8_naming_budget.py update   # after a rename
 ```
 
 The two gates point in opposite directions inside those paths, and that is not
@@ -424,7 +429,8 @@ come out.
 Ruff's `BLE001` flags an `except Exception` that neither re-raises nor logs the
 traceback. `.blind-except-budget.json` records per file how many such handlers
 the file carries today; a file may not exceed its number, and a file that is not
-in the budget may not have one at all. The scan ignores ruff's configuration and
+in the budget may not have one at all. A file that drops below its number fails
+until `update` records the lower one. The scan ignores ruff's configuration and
 every `noqa`, so the budget file is the only place a silent handler is recorded.
 
 ```bash

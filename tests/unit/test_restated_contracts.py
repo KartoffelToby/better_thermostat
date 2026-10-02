@@ -454,18 +454,26 @@ def test_check_fails_on_the_first_finding_in_an_unbudgeted_file(
     assert f"{OTHER}: 1" in output
 
 
-def test_check_passes_when_a_count_falls(script, monkeypatch, capsys):
-    """Rewording a docstring is the direction the budget exists to allow."""
+def test_check_fails_until_a_fallen_count_is_recorded(script, monkeypatch, capsys):
+    """A count that fell is held at its new level, not at the old one.
+
+    Rewording a docstring is the direction the budget exists to allow, and the lower
+    number is recorded with it, so the slack cannot be spent again later.
+    """
     _counts(script, monkeypatch, **{FILE: 3, OTHER: 1})
     script.update()
     capsys.readouterr()
 
     _counts(script, monkeypatch, **{FILE: 1, OTHER: 0})
 
-    assert script.check() == 0
+    assert script.check() == 1
     output = capsys.readouterr().out
     assert f"below budget: {FILE} at 1 of 3" in output
     assert f"below budget: {OTHER} at 0 of 1" in output
+
+    script.update()
+    capsys.readouterr()
+    assert script.check() == 0
 
 
 def test_update_names_the_budgets_it_raises(script, monkeypatch, capsys):

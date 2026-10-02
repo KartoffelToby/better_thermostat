@@ -151,18 +151,26 @@ def test_check_fails_on_the_first_handler_in_an_unbudgeted_file(
     assert f"{OTHER}: 1" in output
 
 
-def test_check_passes_when_a_count_falls(budget, monkeypatch, capsys):
-    """Converting handlers is the direction the budget exists to allow."""
+def test_check_fails_until_a_fallen_count_is_recorded(budget, monkeypatch, capsys):
+    """A count that fell is held at its new level, not at the old one.
+
+    Converting handlers is the direction the budget exists to allow, and the lower
+    number is recorded with it, so the slack cannot be spent again later.
+    """
     _counts(budget, monkeypatch, **{FILE: 28, OTHER: 5})
     budget.update()
     capsys.readouterr()
 
     _counts(budget, monkeypatch, **{FILE: 24, OTHER: 0})
 
-    assert budget.check() == 0
+    assert budget.check() == 1
     output = capsys.readouterr().out
     assert f"below budget: {FILE} at 24 of 28" in output
     assert f"below budget: {OTHER} at 0 of 5" in output
+
+    budget.update()
+    capsys.readouterr()
+    assert budget.check() == 0
 
 
 def test_update_names_the_budgets_it_raises(budget, monkeypatch, capsys):

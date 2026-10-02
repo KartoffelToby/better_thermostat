@@ -31,8 +31,9 @@ form be chosen on its merits.
 Two modes:
 
 ``check``
-    Count today's findings and exit non-zero when a file is over its budget, or
-    when a file with no budget has a finding at all.
+    Count today's findings and exit non-zero when a file is over its budget,
+    when a file with no budget has a finding at all, or when a file came in
+    under its budget and the lower number has not been recorded yet.
 
 ``update``
     Rewrite the budget from today's counts. Run this after a rename, so the
@@ -185,9 +186,10 @@ def _load_budget() -> dict[str, int]:
 def check() -> int:
     """Report the files over budget and the files with no budget at all.
 
-    Files that came in under budget are named too, with a prompt to re-record.
-    Return 1 when any file is over or unbudgeted, 0 otherwise; exit outright
-    when no budget has been recorded yet.
+    Files that came in under budget fail too, with a prompt to re-record: the
+    lower number is the one that has to be held from then on. Return 1 when any
+    file is over, under or unbudgeted, 0 otherwise; exit outright when no budget
+    has been recorded yet.
     """
     counts = _measure()
     budget = _load_budget()
@@ -213,10 +215,13 @@ def check() -> int:
             f"re-record with '{Path(__file__).name} update' to hold the lower numbers"
         )
 
-    if not over and not unbudgeted:
+    if not over and not unbudgeted and not improved:
         total = sum(counts.values())
         print(f"{total} silenced naming findings across {len(budget)} files, all held")
         return 0
+
+    if not over and not unbudgeted:
+        return 1
 
     if over:
         print("\nmore silenced naming findings than the budget allows:")

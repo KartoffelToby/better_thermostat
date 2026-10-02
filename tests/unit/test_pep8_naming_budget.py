@@ -151,17 +151,25 @@ def test_check_fails_on_the_first_finding_in_an_unbudgeted_file(
     assert f"{OTHER}: 1" in output
 
 
-def test_check_passes_when_a_count_falls(budget, monkeypatch, capsys):
-    """Renaming is the direction the budget exists to allow."""
+def test_check_fails_until_a_fallen_count_is_recorded(budget, monkeypatch, capsys):
+    """A count that fell is held at its new level, not at the old one.
+
+    Renaming is the direction the budget exists to allow, and the lower
+    number is recorded with it, so the slack cannot be spent again later.
+    """
     _record(budget, monkeypatch, **{FILE: 33, OTHER: 12})
     capsys.readouterr()
 
     _counts(budget, monkeypatch, **{FILE: 28, OTHER: 0})
 
-    assert budget.check() == 0
+    assert budget.check() == 1
     output = capsys.readouterr().out
     assert f"below budget: {FILE} at 28 of 33" in output
     assert f"below budget: {OTHER} at 0 of 12" in output
+
+    budget.update(allow_raise=False)
+    capsys.readouterr()
+    assert budget.check() == 0
 
 
 def test_update_refuses_to_record_a_count_that_grew(budget, monkeypatch, capsys):

@@ -212,13 +212,6 @@ def test_update_records_no_entry_for_a_test_file_that_only_mirrors(checker):
     }
 
 
-def test_check_passes_when_a_count_falls(checker):
-    """Improving a file does not fail the build before the budget is updated."""
-    _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
-    _budget(checker, **{"custom_components/loader.py": 5})
-    assert checker.check(None) == 0
-
-
 def test_an_exception_clears_the_alias_only_where_it_is_listed(checker):
     """The excepted path is silent; another path with the same spelling is not."""
     source = "def read(current_temperature):\n    return current_temperature\n"
@@ -318,12 +311,24 @@ def test_the_repository_stays_within_its_recorded_budget():
     assert script.check(None) == 0
 
 
-def test_check_reports_a_budget_that_has_gone_slack(checker, capsys):
-    """A budget nobody tightened after a rename is named, not silently kept."""
+def test_check_fails_on_a_budget_that_has_gone_slack(checker, capsys):
+    """A rename records the lower number with it, so the slack cannot be spent."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
     _budget(checker, **{"custom_components/loader.py": 5})
-    assert checker.check(None) == 0
+    assert checker.check(None) == 1
     assert "1 file(s) below budget" in capsys.readouterr().out
+
+
+def test_a_partial_check_judges_only_the_files_it_scanned(checker, capsys):
+    """Checking one file says nothing about the budget of the files left out."""
+    scanned = _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
+    _write(checker, "custom_components/other.py", ONE_IDENTIFIER)
+    _budget(
+        checker, **{"custom_components/loader.py": 2, "custom_components/other.py": 5}
+    )
+
+    assert checker.check([scanned]) == 0
+    assert "below budget" not in capsys.readouterr().out
 
 
 BINDINGS = textwrap.dedent(
