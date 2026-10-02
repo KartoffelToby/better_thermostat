@@ -1470,6 +1470,13 @@ class TestPendingReadingAfterTheDebounce:
         (callback,) = armed
         return callback
 
+    async def _fire(self, mock_bt, callback):
+        """Fire the timer and run the work it hands to the entity."""
+        mock_bt._spawn_owned = MagicMock()
+        callback(dt_util.now())
+        for spawn in mock_bt._spawn_owned.call_args_list:
+            await spawn.args[0]
+
     @pytest.mark.asyncio
     async def test_the_pending_reading_is_applied_when_the_interval_is_over(
         self, mock_bt
@@ -1480,10 +1487,25 @@ class TestPendingReadingAfterTheDebounce:
             "custom_components.better_thermostat.events.temperature._commit_temperature_update",
             new=AsyncMock(),
         ) as commit:
-            await callback(dt_util.now())
+            await self._fire(mock_bt, callback)
 
         commit.assert_awaited_once_with(mock_bt, 22.3)
         assert mock_bt.plateau_timer_cancel is None
+
+    def test_the_firing_runs_as_work_the_entity_owns(self, mock_bt):
+        """The commit runs in a task the entity's removal cancels.
+
+        A timer callback Home Assistant runs on its own outlives the removal
+        once it has started, and goes on writing to the remaining TRVs.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt._spawn_owned = MagicMock()
+
+        returned = callback(dt_util.now())
+
+        assert returned is None
+        (spawn,) = mock_bt._spawn_owned.call_args_list
+        spawn.args[0].close()
 
     @pytest.mark.asyncio
     async def test_a_reading_that_replaced_the_pending_one_is_left_alone(self, mock_bt):
@@ -1498,20 +1520,20 @@ class TestPendingReadingAfterTheDebounce:
             "custom_components.better_thermostat.events.temperature._commit_temperature_update",
             new=AsyncMock(),
         ) as commit:
-            await callback(dt_util.now())
+            await self._fire(mock_bt, callback)
 
         commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_removed_entity_applies_nothing(self, mock_bt):
-        """The timer is scheduled on hass and outlives an entity removed meanwhile."""
+        """Work that got the filter only after the removal writes nothing."""
         callback = self._arm(mock_bt)
         mock_bt.is_removed = True
         with patch(
             "custom_components.better_thermostat.events.temperature._commit_temperature_update",
             new=AsyncMock(),
         ) as commit:
-            await callback(dt_util.now())
+            await self._fire(mock_bt, callback)
 
         commit.assert_not_awaited()
 
