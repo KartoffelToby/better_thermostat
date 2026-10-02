@@ -1,7 +1,6 @@
 """Tests for utils/telemetry.py — collect_cycle/balance/pid_debug helpers."""
 
 import json
-from unittest.mock import MagicMock
 
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.telemetry import (
@@ -11,6 +10,7 @@ from custom_components.better_thermostat.utils.telemetry import (
     collect_mpc_v2_debug_attrs,
     collect_pid_debug_attrs,
 )
+from tests.factories import ThermostatStandIn
 
 # ---------------------------------------------------------------------------
 # collect_cycle_telemetry
@@ -22,7 +22,7 @@ class TestCollectCycleTelemetry:
 
     def _bt(self, **overrides):
         """BT mock with all Protocol-required attrs set to safe defaults."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.heating_cycles = None
         bt.loss_cycles = None
         bt.last_heat_loss_stats = None
@@ -77,7 +77,7 @@ class TestCollectBalanceAttrs:
 
     def test_empty_when_no_slope_no_balance(self):
         """Nothing is emitted when both slope and per-TRV balance are absent."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.temp_slope = None
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
@@ -85,7 +85,7 @@ class TestCollectBalanceAttrs:
 
     def test_slope_rounded_to_4_decimals(self):
         """temp_slope is rounded to 4 decimal places for readability."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.temp_slope = 0.001234567
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
@@ -93,7 +93,7 @@ class TestCollectBalanceAttrs:
 
     def test_balance_aggregated_across_trvs(self):
         """Per-TRV calibration balance is collected into one JSON map."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.temp_slope = None
         bt.real_trvs = {
             "climate.a": Trv.from_legacy_dict(
@@ -109,7 +109,7 @@ class TestCollectBalanceAttrs:
 
     def test_trv_without_balance_skipped(self):
         """TRVs with missing or None balance are skipped, not serialised."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.temp_slope = None
         bt.real_trvs = {
             "climate.a": Trv.from_legacy_dict(
@@ -132,7 +132,7 @@ class TestCollectBalanceAttrs:
 
 def _bt_with_pid(trvs, real_trv_entries):
     """Build a mock BT with PID-bearing real_trvs."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.real_trvs = {
         entity_id: Trv.from_legacy_dict(entity_id, entry)
         for entity_id, entry in zip(trvs, real_trv_entries)
@@ -145,7 +145,7 @@ class TestCollectPidDebugAttrs:
 
     def test_empty_when_no_trvs(self):
         """Nothing is emitted when real_trvs is empty."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.real_trvs = {}
         out = collect_pid_debug_attrs(bt)
         assert out == {}
@@ -293,7 +293,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
 
     def _bt(self, **overrides):
         """BT mock with all Protocol-required attrs set to safe defaults."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.heating_cycles = None
         bt.loss_cycles = None
         bt.last_heat_loss_stats = None
@@ -374,8 +374,8 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
 # ---------------------------------------------------------------------------
 
 
-def _fully_populated_bt(debug: dict) -> MagicMock:
-    """Build a BT mock on which every collector emits every key it knows."""
+def _fully_populated_bt(debug: dict) -> ThermostatStandIn:
+    """Build a stand-in on which every collector emits every key it knows."""
     bt = _bt_with_pid(
         ["climate.a"],
         [

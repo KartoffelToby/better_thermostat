@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
     build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn
 
 
 class TestCapabilityNesting:
@@ -119,16 +120,26 @@ class TestStrategyRegistry:
         "mode",
         [
             CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
             CalibrationMode.TPI_CALIBRATION,
             CalibrationMode.PID_CALIBRATION,
         ],
     )
     def test_run_extracts_the_percent(self, mode):
-        """Each strategy reads its own result shape into a plain percent."""
+        """Each strategy reads its own result shape into a plain percent.
+
+        The percent also feeds the TRV's oscillation history.
+        """
         registry = self._registry(percent=55.0)
-        percent, use_valve = registry[mode].run(MagicMock(), "climate.trv")
+        bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
+        bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+
+        percent, use_valve = registry[mode].run(bt, "climate.trv")
+
         assert percent == 55.0
         assert use_valve is False
+        assert list(bt.real_trvs["climate.trv"].balance_percent_history) == [55.0]
 
     def test_none_result_yields_no_percent(self):
         """A failed computation yields (None, use_valve)."""

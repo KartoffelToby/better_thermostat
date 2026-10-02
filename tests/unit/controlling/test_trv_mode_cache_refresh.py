@@ -52,6 +52,12 @@ def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
     )
 
 
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the task manager instead of running it."""
+    coro.close()
+    return MagicMock()
+
+
 @pytest.fixture
 def reported_states() -> dict[str, State]:
     """Hold what each device publishes, so a test can change it mid-cycle."""
@@ -86,6 +92,8 @@ def thermostat(reported_states):
     bt.cooler_entity_id = None
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
+    # Background work the handler schedules is not run here.
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_close_coro))
     bt.calculate_heating_power = AsyncMock()
     bt.calculate_heat_loss = AsyncMock()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
@@ -975,3 +983,103 @@ class TestALockedPressHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         assert request.called is requested
+
+
+class TestHeldCoolingTurn:
+    """A turn at a reversible unit the cooling channel drives, read at cycle end."""
+
+    @staticmethod
+    def _cool(thermostat, cooling_target: float) -> Trv:
+        """Let the cooling channel drive the TRV, holding ``cooling_target``."""
+        thermostat.cooler_entity_id = ENTITY_ID
+        thermostat._cooler_last_sent = {
+            "hvac_mode_decided": HVACMode.COOL,
+            "hvac_mode": (HVACMode.COOL, 1.0),
+            "temperature": (cooling_target, 1.0),
+        }
+        thermostat.bt_target_cooltemp = cooling_target
+        thermostat.cool_min_temperature = None
+        thermostat.cool_max_temperature = None
+        thermostat._clamp_inbound_cool_target = lambda value: (
+            BetterThermostat._clamp_inbound_cool_target(thermostat, value)
+        )
+        thermostat._enforce_heat_below_cool = lambda **kwargs: (
+            BetterThermostat._enforce_heat_below_cool(thermostat, **kwargs)
+        )
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "cool"
+        trv.last_hvac_mode = "cool"
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+        return trv
+
+    @staticmethod
+    def _turn(old_state: State, new_state: State):
+        """Build the event a turn at the device reaches the handler as."""
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": new_state,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        return event
+
+    @pytest.mark.asyncio
+    async def test_a_turn_the_cooling_target_already_holds_is_corrected(
+        self, thermostat, reported_states
+    ):
+        """A turn adopted at the cooling target it already had requests a cycle.
+
+        The unit carries both roles and cools, with the cooling target one
+        step above the heating target. Its setpoint is turned inside a cycle
+        below the heating target, so the room adopts the turn at the cooling
+        target it already holds. The unit holds the turn, and the cycle
+        requested at the end is what writes the target back.
+        """
+        cooling_target, turned_to = 19.5, 18.0
+        trv = self._cool(thermostat, cooling_target)
+        previous = _reported_state("cool", setpoint=cooling_target)
+        turned = _reported_state("cool", setpoint=turned_to)
+        reported_states[ENTITY_ID] = turned
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, self._turn(previous, turned))
+        assert trv.report_unread is True
+        thermostat.ignore_states = False
+        await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_cooltemp == cooling_target
+        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_the_same_turn_after_the_write_back_is_a_turn_again(
+        self, thermostat, reported_states
+    ):
+        """A turn repeated once the cooling target is written back is not an echo.
+
+        The first turn is adopted at the cooling target it already had, and
+        the cooling channel writes that target back over it. Turning the unit
+        to the same value again is a new turn, and it asks for the cycle that
+        writes the target back once more.
+        """
+        cooling_target, turned_to = 19.5, 18.0
+        self._cool(thermostat, cooling_target)
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        held = _reported_state("cool", setpoint=cooling_target)
+        turned = _reported_state("cool", setpoint=turned_to)
+
+        reported_states[ENTITY_ID] = turned
+        await trigger_trv_change(thermostat, self._turn(held, turned))
+        assert thermostat.control_queue_task.qsize() == 1
+        thermostat.control_queue_task.get_nowait()
+        thermostat._cooler_last_sent["temperature"] = (cooling_target, 2.0)
+        reported_states[ENTITY_ID] = held
+        await trigger_trv_change(thermostat, self._turn(turned, held))
+        assert thermostat.control_queue_task.empty()
+
+        reported_states[ENTITY_ID] = turned
+        await trigger_trv_change(thermostat, self._turn(held, turned))
+
+        assert thermostat.control_queue_task.qsize() == 1

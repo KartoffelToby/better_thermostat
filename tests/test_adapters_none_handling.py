@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters import generic, mqtt, zwave_js
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 # Adapters whose offset bounds come from an entity discovery found.
 ENTITY_ADAPTERS = (generic, mqtt, zwave_js)
@@ -70,7 +71,7 @@ def mock_hass():
 @pytest.fixture
 def mock_bt_instance(mock_hass):
     """Create a mock BetterThermostat instance."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.real_trvs = {
