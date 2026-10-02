@@ -297,9 +297,7 @@ async def test_a_valve_without_a_device_reports_its_integration_only(device_id):
         patch(f"{_DIAGNOSTICS}.er.async_get", return_value=entities),
         patch(f"{_DIAGNOSTICS}.dr.async_get", return_value=_devices(None)),
     ):
-        diagnostics = await async_get_config_entry_diagnostics(
-            _hass(), _config_entry()
-        )
+        diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
     assert diagnostics["thermostat"]["climate.trv"]["device"] == {"integration": "zha"}
 
 
@@ -314,3 +312,19 @@ async def test_an_entity_without_a_flight_recorder_still_reports_its_state():
 
     assert diagnostics["climate"]["entity_id"] == "climate.trv"
     assert "flight_recorder" not in diagnostics
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+@pytest.mark.parametrize("key", ["ip", "ip_address"])
+async def test_no_network_address_reaches_the_download(key):
+    """An address a valve publishes under either key is redacted."""
+    hass = _hass()
+    hass.states.get.return_value = State(
+        "climate.trv", "heat", {"temperature": 21.0, key: "192.0.2.17"}
+    )
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
+
+    assert diagnostics["thermostat"]["climate.trv"]["attributes"][key] == "**REDACTED**"
+    assert "192.0.2.17" not in repr(diagnostics)

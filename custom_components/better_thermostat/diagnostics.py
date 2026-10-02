@@ -30,6 +30,7 @@ TO_REDACT = {
     "ieee_address",
     "mac",
     "mac_address",
+    "ip",
     "ip_address",
     "serial",
     "serial_number",
