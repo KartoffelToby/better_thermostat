@@ -139,6 +139,40 @@ class TestSnapshotCompleteness:
         assert snapshot.now_monotonic == 1234.5
 
 
+class TestWindowReading:
+    """The snapshot carries the raw window-sensor reading, or None without one."""
+
+    @staticmethod
+    def _with_window(state: str | None) -> MagicMock:
+        bt = _make_bt()
+        bt.window_id = "binary_sensor.window"
+        states = {
+            "climate.trv": State("climate.trv", "heat"),
+            "binary_sensor.window": (
+                None if state is None else State("binary_sensor.window", state)
+            ),
+        }
+        bt.hass.states.get.side_effect = states.get
+        return bt
+
+    def test_no_sensor_configured_reads_none(self):
+        """Without a window sensor there is no reading."""
+        assert build_snapshot(_make_bt()).window_open is None
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [("on", True), ("open", True), ("off", False), ("closed", False)],
+    )
+    def test_a_reporting_sensor_is_read(self, state, expected):
+        """A sensor that reports gives open or closed."""
+        assert build_snapshot(self._with_window(state)).window_open is expected
+
+    @pytest.mark.parametrize("state", [None, "unavailable", "unknown"])
+    def test_a_silent_sensor_reads_none(self, state):
+        """A configured sensor that is missing or says nothing gives no reading."""
+        assert build_snapshot(self._with_window(state)).window_open is None
+
+
 class TestTrvReportedBuilding:
     """The TRV part is condensed into typed TrvReported entries."""
 
