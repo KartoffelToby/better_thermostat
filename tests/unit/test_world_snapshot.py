@@ -139,38 +139,43 @@ class TestSnapshotCompleteness:
         assert snapshot.now_monotonic == 1234.5
 
 
-class TestWindowReading:
-    """The snapshot carries the raw window-sensor reading, or None without one."""
+class TestRawWindowState:
+    """The window sensor's own reading, before any delay, enters the snapshot."""
 
-    @staticmethod
-    def _with_window(state: str | None) -> MagicMock:
+    WINDOW_ID = "binary_sensor.window"
+
+    def _snapshot_with_window(self, window_state: State | None):
         bt = _make_bt()
-        bt.window_id = "binary_sensor.window"
-        states = {
-            "climate.trv": State("climate.trv", "heat"),
-            "binary_sensor.window": (
-                None if state is None else State("binary_sensor.window", state)
-            ),
-        }
-        bt.hass.states.get.side_effect = states.get
-        return bt
+        bt.window_id = self.WINDOW_ID
+        trv_state = State("climate.trv", "heat")
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            window_state if entity_id == self.WINDOW_ID else trv_state
+        )
+        return build_snapshot(bt)
 
-    def test_no_sensor_configured_reads_none(self):
-        """Without a window sensor there is no reading."""
-        assert build_snapshot(_make_bt()).window_open is None
+    def test_no_window_sensor_reads_as_unknown(self):
+        """Without a configured sensor the snapshot carries no window reading."""
+        bt = _make_bt()
+        bt.window_id = None
+        assert build_snapshot(bt).window_open is None
 
     @pytest.mark.parametrize(
-        ("state", "expected"),
+        "window_state",
+        [None, State(WINDOW_ID, "unavailable"), State(WINDOW_ID, "unknown")],
+        ids=["missing", "unavailable", "unknown"],
+    )
+    def test_a_sensor_without_a_reading_reads_as_unknown(self, window_state):
+        """A sensor that is gone or reports no state gives no window reading."""
+        assert self._snapshot_with_window(window_state).window_open is None
+
+    @pytest.mark.parametrize(
+        ("reported", "expected"),
         [("on", True), ("open", True), ("off", False), ("closed", False)],
     )
-    def test_a_reporting_sensor_is_read(self, state, expected):
-        """A sensor that reports gives open or closed."""
-        assert build_snapshot(self._with_window(state)).window_open is expected
-
-    @pytest.mark.parametrize("state", [None, "unavailable", "unknown"])
-    def test_a_silent_sensor_reads_none(self, state):
-        """A configured sensor that is missing or says nothing gives no reading."""
-        assert build_snapshot(self._with_window(state)).window_open is None
+    def test_a_sensor_reading_is_carried(self, reported, expected):
+        """A sensor that reports a state gives its open or closed reading."""
+        window_state = State(self.WINDOW_ID, reported)
+        assert self._snapshot_with_window(window_state).window_open is expected
 
 
 class TestTrvReportedBuilding:
