@@ -77,6 +77,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     dual_role_entity_id,
     get_current_set_temperatures,
+    last_sent_cooler_temperature,
     matches_any_setpoint,
     normalize_step,
     on_cooler_grid,
@@ -1081,8 +1082,9 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     head switched on inside the cycle asks for one as well, as its mode
     change does outside a cycle: the cache already holds the commanded mode,
     so the report moves nothing, yet the setpoint it was not adopted for
-    has to be driven back to the room target. A device answering inside every cycle with a report that carries nothing
-    new would otherwise keep one cycle following the next.
+    has to be driven back to the room target. A device answering inside
+    every cycle with a report that carries nothing new would otherwise keep
+    one cycle following the next.
 
     Parameters
     ----------
@@ -1194,6 +1196,7 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, 
         self.bt_hvac_mode,
         trv.hvac_mode,
         trv.confirmed_setpoint,
+        last_sent_cooler_temperature(self),
         trv.current_temperature,
     )
 
