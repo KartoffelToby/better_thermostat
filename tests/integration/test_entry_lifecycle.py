@@ -303,10 +303,8 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
     does not have to wait out real wall-clock spacing.
 
     A dropped write leaves the entity waiting for a confirmation that
-    never comes, and the reconciler stands down while a write is in
-    flight. The healing tick is therefore the one after that wait ends,
-    not the first one to fire, and the loop below is what carries the
-    scenario across it.
+    never comes, and no cycle re-sends while a write is in flight. The
+    healing tick is therefore one that fires after that wait ends.
     """
     from homeassistant.util import dt as dt_util
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
@@ -349,16 +347,15 @@ async def test_reconcile_tick_heals_a_lost_setpoint_write(hass, fake_trv):
         assert lost != fake_trv._attr_target_temperature  # really lost
         assert_on_device_grid(lost, fake_trv.profile)
 
-        # The first tick lands inside the confirmation wait and stands
-        # down; the one after it finds the divergence and re-sends.
+        # The entity waits out the confirmation the device never sends;
+        # the tick after that finds the divergence and re-sends.
+        trv = bt.real_trvs[fake_trv.entity_id]
+        assert await wait_for(hass, lambda: trv.target_temp_received)
         resend_baseline = len(fake_trv.set_temperature_calls)
-        for minutes in (6, 12):
-            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=minutes))
-            if await wait_for(
-                hass, lambda: len(fake_trv.set_temperature_calls) > resend_baseline
-            ):
-                break
-        assert len(fake_trv.set_temperature_calls) > resend_baseline
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=6))
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > resend_baseline
+        )
 
     assert fake_trv.set_temperature_calls[-1] == lost
     assert fake_trv._attr_target_temperature == lost

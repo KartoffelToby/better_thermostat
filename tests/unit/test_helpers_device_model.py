@@ -15,14 +15,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 _HELPERS = "custom_components.better_thermostat.utils.helpers"
 
 
 def _bt(model: str | None = None) -> MagicMock:
     """Build the caller surface get_device_model reads."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Test BT"
     bt.model = model

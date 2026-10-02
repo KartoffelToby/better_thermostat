@@ -14,13 +14,14 @@ from custom_components.better_thermostat.utils.helpers import (
     round_by_step,
     supports_temperature_range,
 )
+from tests.factories import ThermostatStandIn
 
 RANGE_BIT = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
 
 
 def _fake_self():
     """Create a minimal BetterThermostat mock for attr_to_celsius."""
-    mock_self = Mock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     return mock_self

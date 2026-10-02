@@ -23,6 +23,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 TRV_ID = "climate.fine_trv"
 COOLER_ID = "climate.coarse_ac"
@@ -51,7 +52,7 @@ def _child_state(
 @pytest.fixture
 def bt():
     """Mock thermostat wired to one fine TRV and one coarse cooler."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
@@ -73,6 +74,7 @@ def bt():
     mock.ignore_states = False
     mock.contact_open = False
     mock.window_open = False
+    mock.kernel_state = make_state()
     mock.control_queue_task = MagicMock()
     mock.context = MagicMock()
     mock._clamp_inbound_heat_target = lambda v: (

@@ -26,6 +26,7 @@ from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
+from tests.factories import ThermostatStandIn
 from tests.unit.test_climate_startup_registration import (
     _run_finalize_startup,
     _startup_bt,
@@ -105,7 +106,7 @@ async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, recompu
 @pytest.mark.asyncio
 async def test_the_availability_tick_advances_the_ladder_and_rechecks_entities():
     """What the tick does when it fires: one ladder step and one re-check."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     calls = []
     degraded = AsyncMock(side_effect=lambda _self: calls.append("ladder"))
@@ -127,7 +128,7 @@ async def test_the_availability_tick_queues_no_control_cycle():
     A mode without the recompute gets this tick precisely so that the
     ladder keeps stepping without the writes the recompute brings.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     request = MagicMock()
 
@@ -148,7 +149,7 @@ async def test_an_unreachable_valve_does_not_stop_the_ladder():
     A room sensor lost while a valve is offline is the combined case the
     ladder has to keep stepping through.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.devices_errors = []
     degraded = AsyncMock()
