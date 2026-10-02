@@ -1590,6 +1590,41 @@ class TestPendingReadingAfterTheDebounce:
         commit.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_a_sensor_that_moved_on_leaves_its_new_reading_to_its_event(
+        self, mock_bt
+    ):
+        """A timer that fires after the sensor moved on applies nothing.
+
+        The newer reading's event waits for the filter behind the timer, and
+        committing the pending reading first would control on a value the
+        sensor no longer reports.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "22.8")
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_sensor_reading_the_pending_value_more_finely_applies_it(
+        self, mock_bt
+    ):
+        """The sensor's reading is compared at the precision readings are kept."""
+        callback = self._arm(mock_bt)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "22.3004")
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_awaited_once_with(mock_bt, 22.3)
+
+    @pytest.mark.asyncio
     async def test_the_room_sensor_fallback_keeps_the_trv_temperature(self, mock_bt):
         """A timer that fires during the room sensor fallback leaves the room alone.
 
