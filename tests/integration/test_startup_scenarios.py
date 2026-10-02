@@ -114,7 +114,7 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     await setup_entry(hass, entry)
 
     await let_the_wait_loop_run(hass)
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"
     assert bt_issues(hass) == []
@@ -146,7 +146,7 @@ async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes
         await setup_entry(hass, entry)
         assert await wait_for(hass, lambda: bt_issues(hass))
 
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert bt_issues(hass) == [missing_entity_issue(TRV_ID)]
     assert bt.devices_errors == [TRV_ID]
     assert bt.startup_running
@@ -578,7 +578,7 @@ async def test_a_room_sensor_that_arrives_within_the_grace_window_starts_normall
     await setup_entry(hass, entry)
 
     await let_the_wait_loop_run(hass)
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"
     assert fake_trv.set_temperature_calls == []

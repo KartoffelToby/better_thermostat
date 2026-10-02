@@ -349,7 +349,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
-    hass.data[DOMAIN][entry.entry_id]["climate"] = bt_entity
+    entry.runtime_data.climate = bt_entity
     async_normalize_bt_entity_ids(hass, entry, Platform.CLIMATE)
     async_add_entities([bt_entity])
     _LOGGER.debug(

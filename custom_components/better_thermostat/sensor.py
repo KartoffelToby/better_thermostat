@@ -25,6 +25,7 @@ from homeassistant.helpers.entity_registry import (
 )
 from homeassistant.helpers.event import async_track_state_change_event
 
+from . import BetterThermostatConfigEntry
 from .calibration import _get_current_solar_intensity
 from .entity import remove_unclaimed_registry_entries
 from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
@@ -42,8 +43,8 @@ _DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
 # Global tracking variables for active preset number entities
 _ACTIVE_PRESET_NUMBERS: dict[
-    str, dict[str | None, dict[str, str]]
-] = {}  # {entry_id: {unique_id: {"preset": preset_name}, ...}}
+    str, dict[str | None, dict[str, str | bool]]
+] = {}  # {entry_id: {unique_id: {"preset": preset_name, "cool": True}, ...}}
 _ACTIVE_PID_NUMBERS: dict[
     str, dict[str | None, dict[str, str]]
 ] = {}  # {entry_id: {unique_id: {"trv": trv_entity_id, "param": parameter}, ...}}
@@ -53,10 +54,12 @@ _ACTIVE_SWITCH_ENTITIES: dict[
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Better Thermostat sensors."""
-    bt_climate = hass.data[DOMAIN][entry.entry_id].get("climate")
+    bt_climate = entry.runtime_data.climate
     if not bt_climate:
         _LOGGER.warning(
             "Better Thermostat climate entity not found for entry %s. "
