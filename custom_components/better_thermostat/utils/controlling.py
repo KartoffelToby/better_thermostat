@@ -27,7 +27,9 @@ from homeassistant.core import (
     EventStateChangedData,
     HomeAssistant,
     State,
+    callback,
 )
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -335,6 +337,10 @@ def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None
     boost heating, and the region's step advances the exponential
     backoff. Availability events still trigger an immediate cycle when
     the device returns by itself.
+
+    The wait runs on Home Assistant's timer rather than a sleep, so it
+    follows Home Assistant's clock; the task around it is what the entity
+    cancels when it is removed.
     """
     region = self.kernel_state.reachability.get(entity_id)
     if region is None or region.online or region.retry_at is None:
@@ -346,9 +352,18 @@ def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None
     delay = max(region.retry_at - self.clock.monotonic(), 0.0)
 
     async def _retry() -> None:
+        due: asyncio.Future[None] = self.hass.loop.create_future()
+
+        @callback
+        def _due(_now: Any) -> None:
+            if not due.done():
+                due.set_result(None)
+
+        cancel_timer = async_call_later(self.hass, delay, _due)
         try:
-            await asyncio.sleep(delay)
+            await due
         finally:
+            cancel_timer()
             trv.reachability_retry_pending = False
         request_control_cycle(self)
 

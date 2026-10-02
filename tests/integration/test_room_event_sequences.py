@@ -18,11 +18,15 @@ Then:
   inside its range.
 * **bulkhead**: nothing is commanded to a head that was off the air for the
   whole step.
+* **surfaces**: every preset number offers the range the room accepts, from
+  the moment the thermostat has started.
 
 The events are a setpoint set on the entity, a knob turn at a head, a
 setpoint set on the entity while the write to one head is held and another
-head is turned, and a head dropping off the air or coming back. At least one
-head stays reachable; a room with none has nothing to converge.
+head is turned, a head dropping off the air or coming back, a reload of the
+entry, and a restart of Home Assistant, in the order a real boot sets the
+platforms up. At least one head stays reachable; a room with none has nothing
+to converge.
 
 Each room is searched with sequences from fixed seeds, so a red case
 reproduces by its id. Its failure message names the broken rule, lists the
@@ -50,18 +54,23 @@ from homeassistant.components.climate.const import (
     SERVICE_SET_TEMPERATURE,
 )
 from homeassistant.const import EVENT_CALL_SERVICE
-from homeassistant.core import Context, Event, HomeAssistant
+from homeassistant.core import Context, CoreState, Event, HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
     async_capture_events,
     async_fire_time_changed,
 )
 
 from custom_components.better_thermostat.climate import BetterThermostat
 
+from .boot_sequence import finish_boot, set_up_during_boot
 from .conftest import (
     BT_ENTITY,
+    CRITICAL_GRACE,
+    DEGRADED_GRACE,
     WRITE_BUDGET,
     SimulatedClimate,
     build_devices,
@@ -69,7 +78,6 @@ from .conftest import (
     mode_commands,
     set_room_sensor,
     setpoint_commands,
-    setup_entry,
     wait_for,
     wait_for_startup,
 )
@@ -110,15 +118,11 @@ CONVERGE_S = 3.0
 
 RECONCILE_INTERVAL = timedelta(minutes=6)
 
-# The retry that looks in on a head off the air waits out an exponential
-# backoff of real minutes. The compressed sleeps turn that into milliseconds,
-# so the room would cycle without pause for as long as a head is gone and
-# never come to rest. A head that comes back announces itself with its own
-# availability event, which queues a cycle at once; the retry is what notices
-# a head that returns without one, and no event here does that.
-REACHABILITY_RETRY = (
-    "custom_components.better_thermostat.utils.controlling._schedule_reachability_retry"
-)
+# A room restarted while a head is off the air waits out the startup grace
+# windows for it, minutes of wall-clock time. Closed at once, startup goes
+# ahead with the heads that are there, which is what it does once they have
+# run out.
+NO_GRACE = timedelta(0)
 
 
 @dataclass
@@ -127,6 +131,7 @@ class Room:
 
     hass: HomeAssistant
     bt: BetterThermostat
+    entry: MockConfigEntry
     scenario: GroupScenario
     heads: list[SimulatedClimate]
     intent: float | None
@@ -340,6 +345,57 @@ class BringBack(RoomEvent):
         return f"head {self.head} back on the air"
 
 
+@dataclass(frozen=True)
+class Reload(RoomEvent):
+    """The entry is reloaded, as saving its options does."""
+
+    kind: ClassVar[str] = "reload"
+
+    def possible(self, room: Room) -> bool:
+        """An entry can always be reloaded."""
+        return True
+
+    async def happen(self, room: Room) -> None:
+        """Reload the entry and pick up the thermostat it starts."""
+        await room.hass.config_entries.async_reload(room.entry.entry_id)
+        await room.hass.async_block_till_done()
+        room.bt = await wait_for_startup(room.hass, room.entry)
+        await assert_surfaces(room)
+
+    def __str__(self) -> str:
+        return "entry reloaded"
+
+
+@dataclass(frozen=True)
+class Restart(RoomEvent):
+    """Home Assistant restarts and sets the entry up the way a boot does.
+
+    Every platform is built while Home Assistant is still starting, and the
+    thermostat's startup waits for it to have started. What the thermostat
+    knows afterwards is what it saved and what the heads report.
+    """
+
+    kind: ClassVar[str] = "restart"
+
+    def possible(self, room: Room) -> bool:
+        """Home Assistant can always restart."""
+        return True
+
+    async def happen(self, room: Room) -> None:
+        """Unload the entry, then set it up again during a boot."""
+        hass = room.hass
+        assert await hass.config_entries.async_unload(room.entry.entry_id)
+        await hass.async_block_till_done()
+        hass.set_state(CoreState.starting)
+        assert await hass.config_entries.async_setup(room.entry.entry_id)
+        await hass.async_block_till_done()
+        room.bt = await finish_boot(hass, room.entry)
+        await assert_surfaces(room)
+
+    def __str__(self) -> str:
+        return "Home Assistant restarted"
+
+
 def _within_step(
     room: Room, index: int, value: float | None, target: float | None
 ) -> bool:
@@ -391,6 +447,7 @@ def draw(room: Room, rng: random.Random) -> RoomEvent:
         candidates.append(Drop(rng.choice(reachable)))
     if gone:
         candidates.append(BringBack(rng.choice(gone)))
+    candidates += [Reload(), Restart()]
     possible = [event for event in candidates if event.possible(room)]
     return rng.choice(possible)
 
@@ -404,25 +461,34 @@ def draw(room: Room, rng: random.Random) -> RoomEvent:
 async def running_room(
     hass: HomeAssistant, scenario: GroupScenario
 ) -> AsyncGenerator[Room]:
-    """Set up an entry for ``scenario`` and yield the room once it has settled."""
+    """Boot an entry for ``scenario`` and yield the room once it has settled."""
     heads = await build_devices(hass, *scenario.profiles)
     for head in heads:
         head._attr_current_temperature = ROOM_TEMPERATURE
     set_room_sensor(hass, ROOM_TEMPERATURE)
     entry = make_entry(scenario)
-    await setup_entry(hass, entry)
-    bt = await wait_for_startup(hass, entry)
+    # Set up the way Home Assistant boots with the entry already configured,
+    # which is how a room first comes up: the platforms are built before the
+    # thermostat has read its heads, and nothing saved fills the gap yet.
+    await set_up_during_boot(hass, entry)
+    bt = await finish_boot(hass, entry)
 
-    with patch(WRITE_BUDGET, 0.0), patch(REACHABILITY_RETRY):
+    with (
+        patch(WRITE_BUDGET, 0.0),
+        patch(CRITICAL_GRACE, NO_GRACE),
+        patch(DEGRADED_GRACE, NO_GRACE),
+    ):
         room = Room(
             hass,
             bt,
+            entry,
             scenario,
             heads,
             intent=None,
             available=set(range(len(heads))),
             service_calls=async_capture_events(hass, EVENT_CALL_SERVICE),
         )
+        await assert_surfaces(room)
         await _settle(room)
         room.intent = bt.bt_target_temp
         await assert_rules(room, _Before(room))
@@ -532,6 +598,53 @@ async def assert_rules(room: Room, before: _Before) -> None:
             f"[bulkhead] head {index} was off the air and was sent {sent}\n"
             f"{room.describe()}"
         )
+
+    await assert_surfaces(room)
+
+
+async def assert_surfaces(room: Room) -> None:
+    """Fail unless every preset number offers the range the room accepts.
+
+    Checked once the thermostat has started and before any time passes: Home
+    Assistant polls the numbers every thirty seconds, and a poll republishes
+    a stale range as the current one, so a check after the room has settled
+    would only ever see the range half a minute late.
+    """
+    bt = room.bt
+    numbers = _preset_numbers(room)
+    assert numbers, f"[surfaces] the room has no preset number\n{room.describe()}"
+
+    def offered_ranges() -> dict[str, tuple]:
+        ranges = {}
+        for entity_id in numbers:
+            state = room.hass.states.get(entity_id)
+            if state is not None:
+                ranges[entity_id] = (
+                    state.attributes.get("min"),
+                    state.attributes.get("max"),
+                )
+        return ranges
+
+    accepted = (bt.min_temp, bt.max_temp)
+    assert await wait_for(
+        room.hass,
+        lambda: all(offered == accepted for offered in offered_ranges().values()),
+        CONVERGE_S,
+    ), (
+        f"[surfaces] the room accepts {accepted}, its preset numbers offer "
+        f"{offered_ranges()}\n{room.describe()}"
+    )
+
+
+def _preset_numbers(room: Room) -> list[str]:
+    """Return the entity ids of the room's preset numbers."""
+    prefix = f"{room.bt.unique_id}_preset_"
+    registry = er.async_get(room.hass)
+    return [
+        entry.entity_id
+        for entry in er.async_entries_for_config_entry(registry, room.entry.entry_id)
+        if entry.domain == "number" and entry.unique_id.startswith(prefix)
+    ]
 
 
 # ---------------------------------------------------------------------------

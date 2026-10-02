@@ -35,7 +35,7 @@ REPLAY_TEST = (
     "::test_a_replayed_sequence_keeps_every_rule"
 )
 RULE = re.compile(
-    r"^E\s+(?:AssertionError:\s+)?\[(intent|convergence|grid|bulkhead|settle)\]",
+    r"^E\s+(?:AssertionError:\s+)?\[(intent|convergence|grid|bulkhead|settle|surfaces)\]",
     re.MULTILINE,
 )
 PREFIX = "BT_ROOM_REPLAY="
