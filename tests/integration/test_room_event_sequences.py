@@ -61,6 +61,7 @@ from homeassistant.components.climate.const import (
     DOMAIN as CLIMATE_DOMAIN,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.const import EVENT_CALL_SERVICE
@@ -435,6 +436,29 @@ class SwitchHead(RoomEvent):
 
     def __str__(self) -> str:
         return f"head {self.head} switched {self.mode} at the device"
+
+
+@dataclass(frozen=True)
+class SwitchHeadAndReport(SwitchHead):
+    """A head switched on at the device reports again before the room answers.
+
+    A head reports whatever else it has to say, here that it started to heat,
+    and that report can arrive before the cycle the switch asked for. It
+    carries the same setpoint the knob left on the head while it was off.
+    """
+
+    kind: ClassVar[str] = "switch_head_and_report"
+
+    async def happen(self, room: Room) -> None:
+        """Switch the head, then publish a second report right after."""
+        await super().happen(room)
+        head = room.heads[self.head]
+        head._attr_hvac_action = HVACAction.HEATING
+        head.async_set_context(Context())
+        head.async_write_ha_state()
+
+    def __str__(self) -> str:
+        return f"head {self.head} switched {self.mode} at the device, reporting twice"
 
 
 @dataclass(frozen=True)
@@ -868,4 +892,19 @@ async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_of
             SwitchHead(0, HVACMode.HEAT),
         )
         for event in events:
+            await step(room, event)
+
+
+async def test_a_report_after_the_switch_on_does_not_bring_the_turn_either(hass):
+    """A head that reports again right after it was switched on keeps the room's target.
+
+    The second report carries the setpoint the knob was turned to while the
+    head was off, and the head is on by then. The value is still no press.
+    """
+    async with running_room(hass, SINGLE_HEAD) as room:
+        for event in (
+            SetMode(HVACMode.OFF),
+            Turn(0, 22.5),
+            SwitchHeadAndReport(0, HVACMode.HEAT),
+        ):
             await step(room, event)
