@@ -49,11 +49,19 @@ _SENSOR_KEYS = (
 
 
 def _state(hass: HomeAssistant, entity_id: object) -> dict[str, Any] | None:
-    """Return the state of ``entity_id`` as a dict, or None without one."""
+    """Return the state of ``entity_id`` as a dict, or None without one.
+
+    The context is left out: it names the user who triggered the change and
+    links to logbook entries, and a bug report gains nothing from either.
+    """
     if not isinstance(entity_id, str) or not entity_id:
         return None
     state = hass.states.get(entity_id)
-    return dict(state.as_dict()) if state is not None else None
+    if state is None:
+        return None
+    facts = dict(state.as_dict())
+    facts.pop("context", None)
+    return facts
 
 
 def _device(hass: HomeAssistant, entity_id: str) -> dict[str, Any] | None:

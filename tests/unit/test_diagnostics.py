@@ -3,7 +3,7 @@
 import copy
 from unittest.mock import MagicMock, patch
 
-from homeassistant.core import State
+from homeassistant.core import Context, State
 from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -155,7 +155,32 @@ async def test_window_sensor_state_is_included_when_configured():
     entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
     hass = _hass(None)
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
-    assert diagnostics["window_sensor"] == hass.states.get.return_value.as_dict()
+    expected = dict(hass.states.get.return_value.as_dict())
+    del expected["context"]
+    assert diagnostics["window_sensor"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+async def test_no_state_in_the_download_carries_its_context():
+    """A user-triggered change leaves no user or logbook id in the download."""
+    from custom_components.better_thermostat.utils.const import CONF_SENSOR_WINDOW
+
+    context = Context(user_id="user-4711", parent_id="parent-4711", id="context-4711")
+    entry = _config_entry()
+    entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
+    bt = ThermostatStandIn()
+    bt.entity_id = "climate.bt"
+    hass = _hass(bt)
+    hass.states.get.return_value = State(
+        "climate.trv", "heat", {"temperature": 21.0}, context=context
+    )
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    for section in ("external_temperature_sensor", "window_sensor", "climate"):
+        assert "context" not in diagnostics[section]
+    assert "4711" not in repr(diagnostics)
 
 
 @pytest.mark.asyncio
