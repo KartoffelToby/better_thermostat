@@ -120,6 +120,7 @@ class TestStrategyRegistry:
         "mode",
         [
             CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
             CalibrationMode.TPI_CALIBRATION,
             CalibrationMode.PID_CALIBRATION,
         ],
