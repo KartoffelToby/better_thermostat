@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "La maintenance des vannes sur {device_name} a échoué. Le journal contient les détails."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} n'a pas encore chargé son état appris. Réessayez une fois qu'il a démarré."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} n'a pas de température cible à laquelle appliquer les valeurs PID par défaut. Rien n'a été réinitialisé."
+    },
+    "pid_reset_failed": {
+      "message": "La réinitialisation de l'apprentissage PID de {device_name} a échoué. Le journal contient les détails."
     }
   }
 }

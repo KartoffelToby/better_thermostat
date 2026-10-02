@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "Die Ventilwartung auf {device_name} ist fehlgeschlagen. Details stehen im Log."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} hat seinen gelernten Zustand noch nicht geladen. Versuche es erneut, sobald es gestartet ist."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} hat keine Zieltemperatur, auf die die PID-Standardwerte angewendet werden können. Es wurde nichts zurückgesetzt."
+    },
+    "pid_reset_failed": {
+      "message": "Das Zurücksetzen der PID-Lernwerte von {device_name} ist fehlgeschlagen. Details stehen im Log."
     }
   }
 }

@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "Údržba ventilov na {device_name} zlyhala. Podrobnosti sú v logu."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} ešte nenačítal naučený stav. Skúste to znova, keď sa spustí."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} nemá cieľovú teplotu, na ktorú by sa dali použiť predvolené hodnoty PID. Nič sa neresetovalo."
+    },
+    "pid_reset_failed": {
+      "message": "Resetovanie učenia PID pre {device_name} zlyhalo. Podrobnosti sú v logu."
     }
   }
 }

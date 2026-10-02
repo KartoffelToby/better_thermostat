@@ -557,6 +557,15 @@
     },
     "valve_maintenance_failed": {
       "message": "Valve maintenance on {device_name} failed. The log has the details."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} has not loaded its learned state yet. Try again once it has started."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} has no target temperature to apply the PID defaults to. Nothing was reset."
+    },
+    "pid_reset_failed": {
+      "message": "Resetting the PID learnings of {device_name} failed. The log has the details."
     }
   }
 }
