@@ -907,7 +907,7 @@ class TestCheckAndUpdateDegradedMode:
     async def test_ladder_reaches_hold_when_all_trvs_unavailable(
         self, mock_bt_instance
     ):
-        """A full TRV outage steps the ladder down to HOLD.
+        """A full TRV outage steps the ladder down to HOLD and requests control.
 
         Stored temperatures from before the outage must not keep the
         ladder off the HOLD rung.
@@ -921,6 +921,10 @@ class TestCheckAndUpdateDegradedMode:
 
         for trv in mock_bt_instance.real_trvs.values():
             trv.current_temperature = 21.0
+        # ``in_maintenance`` is a read-only property, so the stand-in would
+        # answer it with a truthy mock and suppress the control request.
+        mock_bt_instance.in_maintenance = False
+        mock_bt_instance.control_queue_task = asyncio.Queue(maxsize=1)
 
         def mock_get(entity_id):
             value = "unavailable"
@@ -930,11 +934,13 @@ class TestCheckAndUpdateDegradedMode:
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             await check_and_update_degraded_mode(mock_bt_instance)
+            assert mock_bt_instance.control_queue_task.empty()
             # Downgrades commit after the down-debounce window.
             mock_bt_instance.clock.advance(121.0)
             await check_and_update_degraded_mode(mock_bt_instance)
 
         assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
+        assert mock_bt_instance.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
