@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.better_thermostat import DOMAIN
+from custom_components.better_thermostat import DOMAIN, BetterThermostatData
 from custom_components.better_thermostat.core.decide import decide, running_kernel_state
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import (
@@ -39,9 +39,14 @@ def _snapshot() -> WorldSnapshot:
     )
 
 
-def _config_entry():
+def _config_entry(bt=None, *, loaded=True):
     entry = MagicMock()
     entry.entry_id = "entry-1"
+    if loaded:
+        entry.runtime_data = BetterThermostatData(climate=bt)
+    else:
+        # Home Assistant drops the runtime data when the entry unloads.
+        del entry.runtime_data
     entry.data = {
         CONF_HEATER: [
             {
@@ -56,23 +61,20 @@ def _config_entry():
     return entry
 
 
-def _hass(bt=None):
+def _hass():
     hass = MagicMock()
     trv_state = Mock()
     trv_state.name = "TRV"
     trv_state.state = "heat"
     trv_state.attributes = {"temperature": 21.0}
     hass.states.get.return_value = trv_state
-    hass.data = {"better_thermostat": {"entry-1": {"climate": bt}}}
     return hass
 
 
 @pytest.mark.asyncio
 async def test_diagnostics_contains_the_basic_sections():
     """The download carries config info, TRV state, and the sensors."""
-    diagnostics = await async_get_config_entry_diagnostics(
-        _hass(bt=None), _config_entry()
-    )
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
     assert "info" in diagnostics
     assert CONF_HEATER not in diagnostics["info"]
     assert diagnostics["thermostat"]["climate.trv"]["model"] == "TRVZB"
@@ -91,7 +93,7 @@ async def test_diagnostics_exports_the_flight_recorder():
     bt = ThermostatStandIn()
     bt.flight_recorder = recorder
 
-    diagnostics = await async_get_config_entry_diagnostics(_hass(bt), _config_entry())
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
     exported = diagnostics["flight_recorder"]
     assert len(exported) == 1
     assert exported[0]["snapshot"]["trvs"]["climate.trv"]["current_temp"] == 20.0
@@ -100,17 +102,17 @@ async def test_diagnostics_exports_the_flight_recorder():
 
 @pytest.mark.asyncio
 async def test_diagnostics_without_entity_has_no_recorder_section():
-    """Without a climate entity (e.g. before setup) the key is absent."""
-    hass = _hass(bt=None)
-    hass.data = {}
-    diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
+    """An entry that is not loaded has no climate entity and no recorder."""
+    diagnostics = await async_get_config_entry_diagnostics(
+        _hass(), _config_entry(loaded=False)
+    )
     assert "flight_recorder" not in diagnostics
 
 
 @pytest.mark.asyncio
 async def test_diagnostics_skips_unknown_trvs():
     """A TRV without a hass state is left out of the thermostat section."""
-    hass = _hass(bt=None)
+    hass = _hass()
     hass.states.get.return_value = None
     diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
     assert diagnostics["thermostat"] == {}
@@ -121,7 +123,7 @@ async def test_missing_integration_falls_back_to_unknown_adapter():
     """A TRV without integration reports adapter 'unknown'."""
     entry = _config_entry()
     entry.data[CONF_HEATER][0]["integration"] = None
-    diagnostics = await async_get_config_entry_diagnostics(_hass(None), entry)
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
     assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == "unknown"
 
 
@@ -132,7 +134,7 @@ async def test_window_sensor_state_is_included_when_configured():
 
     entry = _config_entry()
     entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
-    hass = _hass(None)
+    hass = _hass()
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
     assert diagnostics["window_sensor"] is hass.states.get.return_value
 
@@ -144,7 +146,7 @@ async def test_window_sensor_lookup_error_is_swallowed():
 
     entry = _config_entry()
     entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
-    hass = _hass(None)
+    hass = _hass()
     trv_state = hass.states.get.return_value
 
     def _get(entity_id):
@@ -186,7 +188,7 @@ async def test_diagnostics_leave_the_entry_data_untouched(
     )
     before = copy.deepcopy(dict(entry.data))
 
-    diagnostics = await async_get_config_entry_diagnostics(_hass(None), entry)
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
 
     assert dict(entry.data) == before
     assert "adapter" not in entry.data[CONF_HEATER][0]
