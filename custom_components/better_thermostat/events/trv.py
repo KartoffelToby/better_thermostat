@@ -127,21 +127,24 @@ def _held_setpoint(self, state: State | None) -> float | None:
 
 
 def _read_internal_temperature_later(
-    self, trv: Trv, entity_id: str, delay_s: float
+    self, trv: Trv, entity_id: str, interval_s: float
 ) -> None:
     """Read a device's internal temperature again once its debounce is over.
 
     A reading turned away only because it came within the debounce interval
     of the last one is the device's temperature once the interval is over: a
     device that reports on change says nothing more until it moves again.
-    The wait runs on Home Assistant's timer; an entity removed meanwhile
-    reads nothing.
+    The interval runs from the reading the device last had accepted, which a
+    reading that bypasses the debounce can move while the wait is on, so the
+    wait lasts until the interval from the latest one is over. The wait runs
+    on Home Assistant's timer, and the task around it is what the entity
+    cancels when it is removed.
     """
     if trv.internal_reread_pending:
         return
     trv.internal_reread_pending = True
 
-    async def _reread() -> None:
+    async def _wait(delay_s: float) -> None:
         due: asyncio.Future[None] = self.hass.loop.create_future()
 
         @callback
@@ -154,15 +157,35 @@ def _read_internal_temperature_later(
             await due
         finally:
             cancel_timer()
+
+    async def _reread() -> None:
+        try:
+            while True:
+                _last = trv.last_internal_sensor_change
+                if _last is None:
+                    break
+                _remaining = interval_s - (dt_util.now() - _last).total_seconds()
+                if _remaining <= 0:
+                    break
+                await _wait(max(0.1, _remaining))
+        finally:
             trv.internal_reread_pending = False
         if self.is_removed or self.real_trvs.get(entity_id) is not trv:
             return
+        _state = self.hass.states.get(entity_id)
+        # A device that is gone has had its reading invalidated; the
+        # attributes it still carries are not a live temperature.
+        if (
+            _state is None
+            or _state.state == STATE_UNAVAILABLE
+            or (
+                _state.state == STATE_UNKNOWN
+                and not trv_state_unknown_as_available(self, entity_id)
+            )
+        ):
+            return
         _reading = attr_to_celsius(
-            self,
-            self.hass.states.get(entity_id),
-            "current_temperature",
-            None,
-            "TRV_current_temp",
+            self, _state, "current_temperature", None, "TRV_current_temp"
         )
         if (
             _reading is None
@@ -180,11 +203,14 @@ def _read_internal_temperature_later(
         )
         trv.current_temperature = _reading
         trv.last_internal_sensor_change = dt_util.now()
-        await self.control_queue_task.put(self)
+        # Waiting for room in the queue could outlast the control loop
+        # that empties it; a request already queued covers this reading.
+        try:
+            self.control_queue_task.put_nowait(self)
+        except asyncio.QueueFull:
+            pass
 
-    self.hass.async_create_background_task(
-        _reread(), name=f"bt_internal_reread_{entity_id}"
-    )
+    self._spawn_owned(_reread(), name=f"bt_internal_reread_{entity_id}")
 
 
 async def trigger_trv_change(
@@ -350,10 +376,7 @@ async def trigger_trv_change(
     ):
         # Turned away by the debounce alone: the reading is read again once
         # the interval is over.
-        _elapsed = (dt_util.now() - _last_internal_change).total_seconds()
-        _read_internal_temperature_later(
-            self, trv, entity_id, max(0.1, _time_diff - _elapsed)
-        )
+        _read_internal_temperature_later(self, trv, entity_id, _time_diff)
 
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)

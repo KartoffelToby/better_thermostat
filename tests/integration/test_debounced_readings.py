@@ -1,6 +1,7 @@
 """Readings that arrive inside a debounce interval are taken once it is over."""
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from homeassistant.core import Context
 from homeassistant.util import dt as dt_util
@@ -66,8 +67,15 @@ async def test_a_head_reading_inside_the_debounce_is_taken_once_it_is_over(
     fake_trv._attr_current_temperature = 23.9
     _report(fake_trv)
     await hass.async_block_till_done()
-    async_fire_time_changed(hass, dt_util.utcnow() + DEBOUNCE_OVER)
+    # The reread measures the interval on the wall clock, which the timer
+    # firing early does not move.
+    _later = dt_util.now() + DEBOUNCE_OVER
+    with patch(
+        "custom_components.better_thermostat.events.trv.dt_util.now",
+        return_value=_later,
+    ):
+        async_fire_time_changed(hass, dt_util.utcnow() + DEBOUNCE_OVER)
 
-    assert await wait_for(
-        hass, lambda: trv.current_temperature == pytest.approx(23.9), 3.0
-    ), f"the head stayed at {trv.current_temperature}"
+        assert await wait_for(
+            hass, lambda: trv.current_temperature == pytest.approx(23.9), 3.0
+        ), f"the head stayed at {trv.current_temperature}"

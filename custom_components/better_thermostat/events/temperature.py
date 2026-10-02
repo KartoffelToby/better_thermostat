@@ -13,6 +13,7 @@ from datetime import timedelta
 import logging
 import math
 from time import monotonic
+from typing import Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import callback
@@ -221,7 +222,6 @@ async def _commit_temperature_update(self, new_temp):
     )
 
 
-@callback
 def _commit_pending_after(self, delay_s: float) -> None:
     """Apply the pending reading once the debounce interval has run out.
 
@@ -229,15 +229,15 @@ def _commit_pending_after(self, delay_s: float) -> None:
     is the room's temperature as soon as the interval is over: a sensor that
     reports on change says nothing more until the room moves again. The
     timer shares the plateau timer's handle, so a newer reading, a commit or
-    the entity's removal cancels it the same way.
+    the entity's removal cancels it the same way. Its firing runs as work the
+    entity owns, so a removal also stops a commit already writing to the TRVs.
     """
     if self.plateau_timer_cancel is not None:
         self.plateau_timer_cancel()
     _value = self.pending_temp
     _since = self.pending_since
 
-    async def _interval_cb(_now):
-        self.plateau_timer_cancel = None
+    async def _interval_cb() -> None:
         async with temperature_filter_lock(self):
             if self.is_removed:
                 return
@@ -251,9 +251,15 @@ def _commit_pending_after(self, delay_s: float) -> None:
             )
             await _commit_temperature_update(self, _value)
 
-    self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_cb)
+    @callback
+    def _interval_due(_now: Any) -> None:
+        self.plateau_timer_cancel = None
+        self._spawn_owned(_interval_cb(), name=f"bt_debounce_commit_{self.device_name}")
+
+    self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_due)
 
 
+@callback
 async def trigger_temperature_change(self, event):
     """Handle temperature changes.
 
