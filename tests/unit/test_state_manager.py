@@ -2529,3 +2529,55 @@ class TestAFailedCopyThatRecovers:
         assert flushed != self._PAYLOAD
         assert hass_storage[self._LIVE_KEY]["data"] == flushed
         assert manager.dirty is False
+
+    async def test_the_final_flush_waits_for_a_runtime_copy_under_way(
+        self, hass, hass_storage
+    ):
+        """A flush during a copy a runtime save started saves the state itself.
+
+        The runtime save tries the due copy in the background and returns. A
+        second try beside it may fail where it succeeds, and that copy
+        schedules no save after ``close()``, so the flush has to wait for it
+        and write the state itself.
+        """
+        clock = {"now": 1000.0}
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        write = storage.Store._async_write_data
+        gated_writes = {"count": 0}
+
+        async def _gated(store, data):
+            if ".corrupt" in store.key:
+                gated_writes["count"] += 1
+                if gated_writes["count"] > 1:
+                    raise WriteError("disk busy")
+                entered.set()
+                await release.wait()
+            await write(store, data)
+
+        with patch(f"{_SM}.monotonic", lambda: clock["now"]):
+            with self._disk(disk):
+                manager = await self._loaded(hass, hass_storage)
+                disk["full"] = False
+            with patch.object(storage.Store, "_async_write_data", _gated):
+                clock["now"] += 61
+                manager.mark_dirty()
+                manager.schedule_delay_save(delay_s=1.0)
+                await asyncio.wait_for(entered.wait(), timeout=5)
+
+                manager.close()
+                flush = hass.async_create_task(manager.flush())
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                release.set()
+                await asyncio.wait_for(flush, timeout=5)
+                flushed = hass_storage[self._LIVE_KEY]["data"]
+
+                await hass.async_block_till_done(wait_background_tasks=True)
+
+        assert gated_writes["count"] == 1
+        assert hass_storage[self._COPY_KEY]["data"] == self._PAYLOAD
+        assert flushed != self._PAYLOAD
+        assert hass_storage[self._LIVE_KEY]["data"] == flushed
+        assert manager.dirty is False
