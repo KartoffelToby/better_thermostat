@@ -548,6 +548,15 @@
     },
     "non_numeric_temperature": {
       "message": "{device_name} получил значение {value} для {attribute}, которое не является числом."
+    },
+    "valve_maintenance_running": {
+      "message": "Обслуживание клапанов на {device_name} уже выполняется."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "У {device_name} нет клапана с включённым обслуживанием клапанов."
+    },
+    "valve_maintenance_failed": {
+      "message": "Обслуживание клапанов на {device_name} не удалось. Подробности в журнале."
     }
   }
 }

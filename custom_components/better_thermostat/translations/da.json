@@ -548,6 +548,15 @@
     },
     "non_numeric_temperature": {
       "message": "{device_name} modtog {value} for {attribute}, hvilket ikke er et tal."
+    },
+    "valve_maintenance_running": {
+      "message": "Ventilvedligeholdelse kører allerede på {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} har ingen ventil med ventilvedligeholdelse aktiveret."
+    },
+    "valve_maintenance_failed": {
+      "message": "Ventilvedligeholdelse på {device_name} mislykkedes. Loggen har detaljerne."
     }
   }
 }

@@ -548,6 +548,15 @@
     },
     "non_numeric_temperature": {
       "message": "{device_name} dostal pre {attribute} hodnotu {value}, ktorá nie je číslo."
+    },
+    "valve_maintenance_running": {
+      "message": "Údržba ventilov na {device_name} už prebieha."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} nemá žiadny ventil so zapnutou údržbou ventilov."
+    },
+    "valve_maintenance_failed": {
+      "message": "Údržba ventilov na {device_name} zlyhala. Podrobnosti sú v logu."
     }
   }
 }
