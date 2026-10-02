@@ -29,6 +29,7 @@ from tests.factories import ThermostatStandIn
 def _make_bt() -> MagicMock:
     """Return a fully populated BetterThermostat stand-in."""
     bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
     bt.clock = FakeClock(
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
     )
@@ -136,6 +137,45 @@ class TestSnapshotCompleteness:
         snapshot = build_snapshot(bt)
         assert snapshot.now == datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
         assert snapshot.now_monotonic == 1234.5
+
+
+class TestRawWindowState:
+    """The window sensor's own reading, before any delay, enters the snapshot."""
+
+    WINDOW_ID = "binary_sensor.window"
+
+    def _snapshot_with_window(self, window_state: State | None):
+        bt = _make_bt()
+        bt.window_id = self.WINDOW_ID
+        trv_state = State("climate.trv", "heat")
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            window_state if entity_id == self.WINDOW_ID else trv_state
+        )
+        return build_snapshot(bt)
+
+    def test_no_window_sensor_reads_as_unknown(self):
+        """Without a configured sensor the snapshot carries no window reading."""
+        bt = _make_bt()
+        bt.window_id = None
+        assert build_snapshot(bt).window_open is None
+
+    @pytest.mark.parametrize(
+        "window_state",
+        [None, State(WINDOW_ID, "unavailable"), State(WINDOW_ID, "unknown")],
+        ids=["missing", "unavailable", "unknown"],
+    )
+    def test_a_sensor_without_a_reading_reads_as_unknown(self, window_state):
+        """A sensor that is gone or reports no state gives no window reading."""
+        assert self._snapshot_with_window(window_state).window_open is None
+
+    @pytest.mark.parametrize(
+        ("reported", "expected"),
+        [("on", True), ("open", True), ("off", False), ("closed", False)],
+    )
+    def test_a_sensor_reading_is_carried(self, reported, expected):
+        """A sensor that reports a state gives its open or closed reading."""
+        window_state = State(self.WINDOW_ID, reported)
+        assert self._snapshot_with_window(window_state).window_open is expected
 
 
 class TestTrvReportedBuilding:

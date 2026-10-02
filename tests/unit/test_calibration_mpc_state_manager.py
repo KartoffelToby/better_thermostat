@@ -1,6 +1,6 @@
 """Tests that MPC calibration reads and writes state through the state manager."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
 from custom_components.better_thermostat.trv import Trv
@@ -9,6 +9,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     build_mpc_group_key,
     build_mpc_key,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 
 class _MpcStateStub:
@@ -30,9 +31,10 @@ class _MpcStateStub:
         self.mpc[key] = mpc
 
 
-def _make_bt(state_mgr: _MpcStateStub) -> MagicMock:
+def _make_bt(state_mgr: _MpcStateStub) -> ThermostatStandIn:
     """Return a BetterThermostat mock wired for a single heating TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.bt_target_temp = 22.0
@@ -41,6 +43,7 @@ def _make_bt(state_mgr: _MpcStateStub) -> MagicMock:
     bt.temp_slope = 0.0
     bt.tolerance = 0.0
     bt.window_open = False
+    bt.contact_open = False
     bt.bt_hvac_mode = "heat"
     bt.outdoor_sensor = None
     bt.weather_entity = None

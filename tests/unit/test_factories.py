@@ -1,6 +1,6 @@
 """Smoke tests: the shared factories work against production functions."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACAction
 import pytest
@@ -9,6 +9,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.decide import decide
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
@@ -51,6 +52,8 @@ def test_make_snapshot_and_state_run_through_the_kernel():
         "kernel_state",  # assigned in __init__
         "real_trvs",  # assigned in __init__
         "call_for_heat",  # a property with a setter
+        "in_maintenance",  # a read-only property
+        "task_manager",  # declared in the class body without a value
     ],
 )
 def test_the_stand_in_refuses_state_it_was_not_given(name):
@@ -68,15 +71,14 @@ def test_the_stand_in_answers_state_it_was_given():
     assert bt.call_for_heat is False
 
 
-def test_the_stand_in_still_mocks_methods_and_read_only_properties():
-    """Methods and computed properties are not state, so a mock answers them."""
+def test_the_stand_in_still_mocks_methods():
+    """A method is behaviour, not state, so a mock answers it."""
     bt = ThermostatStandIn()
 
     bt.async_write_ha_state()
 
     bt.async_write_ha_state.assert_called_once_with()
     assert "async_write_ha_state" not in THERMOSTAT_STATE
-    assert isinstance(bt.hvac_mode, MagicMock)
 
 
 def test_the_stand_ins_children_stay_permissive():
@@ -86,3 +88,13 @@ def test_the_stand_ins_children_stay_permissive():
     assert "config" in THERMOSTAT_STATE
     assert not isinstance(bt.hass, ThermostatStandIn)
     assert isinstance(bt.hass.config, MagicMock)
+
+
+async def test_a_specced_stand_in_keeps_coroutine_methods_awaitable():
+    """Under a spec, a coroutine method is an AsyncMock as on a plain spec mock."""
+    bt = ThermostatStandIn(spec=BetterThermostat)
+
+    await bt.async_set_temperature(temperature=21.0)
+
+    bt.async_set_temperature.assert_awaited_once_with(temperature=21.0)
+    assert not isinstance(bt.async_write_ha_state, AsyncMock)

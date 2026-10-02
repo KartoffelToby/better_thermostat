@@ -24,7 +24,7 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 DEVICE_ID = "device-1"
@@ -62,8 +62,9 @@ def _thermostat(child_lock=None, states=None):
         A stand-in for the Better Thermostat climate entity instance.
     """
     states = states or {}
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
+    thermostat.context = None
     thermostat.hass = MagicMock()
     thermostat.hass.services.async_call = AsyncMock()
     thermostat.hass.states.get = lambda requested: (

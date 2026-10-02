@@ -10,6 +10,10 @@ from custom_components.better_thermostat.core.calibrator import (
     CalibratorHealth,
     Capability,
 )
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
@@ -21,7 +25,7 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
     build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, make_state
 
 
 class TestCapabilityNesting:
@@ -157,9 +161,10 @@ class TestStrategyRegistry:
         registry = self._registry()
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.cur_temp = 20.0
         bt.bt_target_temp = 21.0
+        bt.kernel_state = make_state()
         bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
 
         cap = strategy.capability(bt, "climate.trv")
@@ -181,17 +186,16 @@ class TestStrategyRegistry:
         judge the same input instead of flagging the calibrator unhealthy
         while it is actively controlling.
         """
-        from custom_components.better_thermostat.core.fsm.control_mode import (
-            ControlMode,
-        )
-
         registry = self._registry()
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
-        bt = MagicMock()
+        bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
         bt.cur_temp = None
         bt.bt_target_temp = 21.0
-        bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        bt.kernel_state = make_state(
+            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
+        )
         bt.real_trvs = {
             "climate.trv": Trv(entity_id="climate.trv", current_temperature=20.5)
         }
@@ -219,9 +223,10 @@ class TestBalanceCalibrator:
             lambda bt, e: (MagicMock(duty_cycle_pct=percent), use_valve),
             lambda bt, e: (percent, use_valve),
         )
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.cur_temp = 20.0
         bt.bt_target_temp = 21.0
+        bt.kernel_state = make_state()
         bt.real_trvs = {
             "climate.trv": Trv(entity_id="climate.trv", calibration_balance=balance)
         }

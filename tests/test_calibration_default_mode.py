@@ -14,12 +14,14 @@ from custom_components.better_thermostat.calibration import (
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn, make_state
 
 
 @pytest.fixture
 def bt_default_mode():
     """Return a minimal BetterThermostat mock configured for DEFAULT mode."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = 0.5

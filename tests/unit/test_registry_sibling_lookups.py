@@ -45,7 +45,7 @@ from custom_components.better_thermostat.model_fixes import (
 from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils import helpers
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 TRV_ID = "climate.trv"
 TRV_DEVICE = "device_trv"
@@ -297,7 +297,7 @@ def _host(registry: Any, lookup: Lookup, candidate: str) -> MagicMock:
             value, attributes = lookup.state
         return State(entity_id, value, attributes)
 
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.unique_id = "bt_test"
     host.model = None
@@ -513,7 +513,7 @@ def _written_to(host: Any, entity_id: str) -> bool:
 
 def _runtime_host(helper: Any) -> MagicMock:
     """A running thermostat that adopted ``helper`` while it was enabled."""
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.hass.services.async_call = AsyncMock(return_value=None)

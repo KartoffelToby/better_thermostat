@@ -14,9 +14,11 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.state_manager import StateManager
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.trv"
 
@@ -32,7 +34,7 @@ def build_bt(
     protect_overheating=False,
 ):
     """Return a BetterThermostat mock carrying a single configured TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
@@ -45,10 +47,13 @@ def build_bt(
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.window_open = False
+    bt.contact_open = False
     bt.temp_slope = None
     bt.heating_power = 0.04
     bt.heat_loss_rate = 0.02
     bt.hass = None
+    bt.kernel_state = make_state()
+    bt.clock = FakeClock()
     bt.state_mgr = StateManager(MagicMock(), "cooling_gates")
 
     quirks = MagicMock()

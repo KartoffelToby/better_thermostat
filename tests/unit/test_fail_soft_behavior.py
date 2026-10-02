@@ -39,6 +39,7 @@ from tests.factories import ThermostatStandIn
 
 def _bt(mode: ControlMode) -> MagicMock:
     bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
     bt.cur_temp = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {

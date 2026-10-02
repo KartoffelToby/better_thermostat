@@ -19,7 +19,10 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.decide import (
+    KernelState,
+    running_kernel_state,
+)
 from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
@@ -33,6 +36,7 @@ from custom_components.better_thermostat.events.temperature import (
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
+from tests.factories import ThermostatStandIn
 
 SENSOR_ID = "sensor.external_temp"
 
@@ -45,7 +49,8 @@ SENSOR_ID = "sensor.external_temp"
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = running_kernel_state()
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = SENSOR_ID
