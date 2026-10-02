@@ -50,6 +50,28 @@ def test_the_first_rule_in_the_output_is_the_one_broken():
     assert shrinker.broken_rule_in(output) == "convergence"
 
 
+def test_the_rule_comes_from_the_message_not_the_source_above_it():
+    """Source lines above the message can name other rules; they do not count.
+
+    The output is what pytest prints for a failed ``[convergence]`` check
+    when the traceback shows the rule function's source, which spells out
+    the ``[intent]`` check before it.
+    """
+    output = (
+        "    async def assert_rules(room, before):\n"
+        "        assert await wait_for(...), (\n"
+        '            f"[intent] the room\'s target is {bt.bt_target_temp}"\n'
+        "        )\n"
+        ">       assert await wait_for(...), (\n"
+        '            "[convergence] reachable heads carry "\n'
+        "        )\n"
+        "E       AssertionError: [convergence] reachable heads carry head 0: 21.0\n"
+        "E         room single_head:\n"
+        "E       assert False\n"
+    )
+    assert shrinker.broken_rule_in(output) == "convergence"
+
+
 def test_output_naming_no_rule_breaks_none():
     """A failure that is not a rule, a crash in setup say, is no finding."""
     assert shrinker.broken_rule_in("E  AssertionError: something else") is None
