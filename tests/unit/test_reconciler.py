@@ -15,6 +15,7 @@ import pytest
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.fsm.mode import ModeState
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
 from custom_components.better_thermostat.trv import Trv
@@ -26,13 +27,16 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
     reconcile_tick,
 )
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
 
 def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.attr_hvac_action = None
+    bt.device_name = "Test BT"
+    bt.cooler_entity_id = None
     bt.device_name = "Test BT"
     bt.clock = FakeClock()
     bt.kernel_state = running_kernel_state()
@@ -54,6 +58,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.bt_max_temp = 30.0
     bt.outdoor_sensor = None
     bt.weather_entity = None
+    bt.flight_recorder = FlightRecorder()
     trv = Trv.from_legacy_dict(
         "climate.trv",
         {"last_temperature": commanded, "min_temp": 5.0, "max_temp": 30.0},
@@ -293,7 +298,7 @@ class TestReconcileTick:
         """
         bt = _make_bt()
         await reconcile_tick(bt)
-        bt.flight_recorder.record.assert_not_called()
+        assert len(bt.flight_recorder) == 0
 
     @pytest.mark.asyncio
     async def test_reconcile_probe_leaves_kernel_state_untouched(self):

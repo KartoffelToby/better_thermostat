@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def mock_hass():
 @pytest.fixture
 def mock_bt_instance(mock_hass):
     """Create a mock BetterThermostat instance."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = mock_hass
     return bt
 

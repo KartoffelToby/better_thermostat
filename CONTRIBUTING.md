@@ -207,6 +207,23 @@ happens while entities are still coming up, belongs in
 `tests/integration/test_startup_scenarios.py` instead; those drive
 configurations and timelines rather than devices.
 
+## Where a test goes
+
+- `tests/unit/` drives one module or function with its collaborators stood in.
+- `tests/integration/` runs the integration inside a Home Assistant test
+  instance against simulated devices.
+- `tests/benchmark/` scores the calibration modes in a simulated room.
+- `tests/gates/` checks the repository rather than the integration: the
+  recorded budgets, the scripts that hold them, the release metadata, and the
+  rules the suite keeps for its own fixtures.
+
+A unit test that needs a thermostat builds it with `make_bt()` or
+`ThermostatStandIn` from `tests/factories.py`, never a bare `MagicMock`. The
+stand-in raises when the code under test reads state the test did not set,
+where a bare mock would answer with a truthy mock and quietly take the test
+down another branch. `tests/gates/test_thermostat_stand_in_discipline.py`
+holds that rule.
+
 ## Fixtures never use the value they are meant to rule out
 
 A test that restores a setting and asserts it came back has to configure it to
@@ -482,7 +499,7 @@ Three more checks run on every pull request:
   `[tool.pyrefly]` in `pyproject.toml` declares. The `sub-config` entries below
   it name the files that do not meet it yet and the rules each is exempt from.
   That list only shrinks: a new file is strict from the start, and
-  `tests/unit/test_type_strictness_exemptions.py` holds it to a recorded
+  `tests/gates/test_type_strictness_exemptions.py` holds it to a recorded
   ceiling.
 - **hassfest:** Home Assistant's validator for the integration manifest and
   its metadata.

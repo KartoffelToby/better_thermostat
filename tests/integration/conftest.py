@@ -615,7 +615,7 @@ async def wait_for_startup(hass, entry):
     be lost. ``_async_unsub_state_changed`` is assigned in the listener
     registration block at the end of the sequence.
     """
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert await wait_for(
         hass,
         lambda: not bt.startup_running and bt._async_unsub_state_changed is not None,

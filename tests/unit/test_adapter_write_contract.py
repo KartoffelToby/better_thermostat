@@ -38,7 +38,7 @@ from custom_components.better_thermostat.adapters import (
     zwave_js,
 )
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -114,7 +114,7 @@ def _thermostat(
         A stand-in for the Better Thermostat climate entity instance.
     """
     minimum, maximum, step = valve_bounds
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.context = None
     thermostat.hass = MagicMock()

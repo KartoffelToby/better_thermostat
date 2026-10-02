@@ -12,7 +12,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.const import DOMAIN
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 BT_UID = "bt_uid"
@@ -20,7 +20,7 @@ BT_UID = "bt_uid"
 
 def _bt(all_trvs):
     """Build the minimum a device_info read touches."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = BT_UID
     bt.device_name = "Test BT"
     bt.model = "TRVZB"

@@ -11,7 +11,7 @@ set up while Home Assistant is still starting, and the startup waits for
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState
 
-from .conftest import DOMAIN, wait_for_startup
+from .conftest import wait_for_startup
 
 
 async def set_up_during_boot(hass, entry):
@@ -24,7 +24,7 @@ async def set_up_during_boot(hass, entry):
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     # The state listeners are registered at the end of the startup, so their
     # absence shows the startup is still waiting for Home Assistant.
     assert bt._async_unsub_state_changed is None

@@ -223,6 +223,7 @@ from .utils.restore import (
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
+    TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
     collect_cycle_telemetry,
     collect_mpc_v2_debug_attrs,
@@ -349,7 +350,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
-    hass.data[DOMAIN][entry.entry_id]["climate"] = bt_entity
+    entry.runtime_data.climate = bt_entity
     async_normalize_bt_entity_ids(hass, entry, Platform.CLIMATE)
     async_add_entities([bt_entity])
     _LOGGER.debug(
@@ -483,6 +484,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     _attr_has_entity_name = True
     _attr_name = None
     _enable_turn_on_off_backwards_compatibility = False
+    # ``degraded_for_s`` counts up on every write while degraded; the recorded
+    # ``control_mode`` already says when the degradation began.
+    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {"degraded_for_s"}
 
     # Per-channel cooler send bookkeeping: the last successfully sent command,
     # the settled reading of each written channel, the mode the last cycle
@@ -1116,7 +1120,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.last_known_external_temp = None
         self._slope_periodic_last_ts = None
 
-        # Anti-flicker state
+        # Anti-flicker state; the timer applies a pending reading later, at
+        # the end of a plateau or of the debounce interval.
         self.plateau_timer_cancel = None
         self.last_change_direction = 0
         self.prev_stable_temp = None

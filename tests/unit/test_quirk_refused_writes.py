@@ -36,7 +36,7 @@ import pytest
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationType
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 # The device name carries a hyphen, so the module is reached by name.
 TV02 = import_module("custom_components.better_thermostat.model_fixes.TV02-Zigbee")
@@ -61,7 +61,7 @@ REFUSAL_IDS = ["unreachable", "unsupported", "transport"]
 
 def _host(state=None, model=None, advanced=None):
     """A Better Thermostat stand-in whose every service call is refused."""
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.hass = MagicMock()
