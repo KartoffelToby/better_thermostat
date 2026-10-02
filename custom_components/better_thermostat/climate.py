@@ -37,6 +37,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     CONF_NAME,
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
     PRECISION_TENTHS,
     PRECISION_WHOLE,
     STATE_UNAVAILABLE,
@@ -44,7 +45,14 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import CALLBACK_TYPE, Context, ServiceCall, State, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Context,
+    Event,
+    ServiceCall,
+    State,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -814,6 +822,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._window_task = None
         self._door_task = None
         self._owned_tasks: set[asyncio.Task] = set()
+        self._final_flush_task: asyncio.Task | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
         self.is_removed = False
@@ -1052,12 +1061,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self._save_cancel()
                 self._save_cancel = None
             if self.state_mgr is not None:
+                self.state_mgr.close()
                 try:
                     self._record_thermal_to_state()
-                    # The last save is left to hass rather than owned: the
-                    # on_remove callbacks run before async_will_remove_from_hass,
-                    # so an owned task would be cancelled before it writes.
-                    self.hass.async_create_background_task(
+                    # The last save is not an owned task: the on_remove
+                    # callbacks run before async_will_remove_from_hass, which
+                    # cancels owned tasks, so it would never write. That
+                    # method awaits it instead, so the unload, and a removal
+                    # that deletes the stores after it, follow the write.
+                    self._final_flush_task = self.hass.async_create_background_task(
                         self.state_mgr.flush(),
                         name=f"bt_state_flush_{self.device_name}",
                     )
@@ -1065,6 +1077,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     pass
 
         self.async_on_remove(on_remove)
+
+        async def _save_on_stop(_event: Event) -> None:
+            # Home Assistant does not remove entities when it stops, so a
+            # save still waiting out its delay is written now instead. The
+            # final write is the stage in which the Store writes at once, so
+            # a copy the state waits for can be confirmed before the save.
+            if self._save_cancel is not None:
+                self._save_cancel()
+                self._save_cancel = None
+            if self.state_mgr is not None:
+                self._record_thermal_to_state()
+                await self.state_mgr.flush()
+
+        self.async_on_remove(
+            self.hass.bus.async_listen(EVENT_HOMEASSISTANT_FINAL_WRITE, _save_on_stop)
+        )
 
         await super().async_added_to_hass()
 
@@ -4453,4 +4481,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 pass
         if owned:
             await asyncio.gather(*owned, return_exceptions=True)
+        # The final save started by the on_remove callback finishes before
+        # the unload does; removing the entry deletes the stores after the
+        # unload, and a write landing later would recreate them. The wait
+        # has no timeout of its own: Home Assistant cancels the background
+        # task when it starts to stop, which ends the wait.
+        final_flush = self._final_flush_task
+        if final_flush is not None and not final_flush.done():
+            await asyncio.wait({final_flush})
         await super().async_will_remove_from_hass()

@@ -34,6 +34,7 @@ from .utils.const import (
     CalibrationMode,
 )
 from .utils.helpers import get_device_model
+from .utils.state_manager import async_remove_stores
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
@@ -248,7 +249,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     deleted, so they have to be cleaned up here to avoid stale warnings
     after a config entry is gone. The reload lock and the recorded
     entity-id names outlive the entry's unload by design, so removal is
-    where they are dropped.
+    where they are dropped, together with the entry's stored runtime state.
 
     Parameters
     ----------
@@ -262,6 +263,14 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     hass.data.get(RELOAD_LOCKS, {}).pop(entry.entry_id, None)
     hass.data.get(NORMALIZED_ID_NAMES, {}).pop(entry.entry_id, None)
+
+    try:
+        await async_remove_stores(hass, entry.entry_id)
+    except Exception:
+        _LOGGER.exception(
+            "better_thermostat: failed to remove state store for entry %s",
+            entry.entry_id,
+        )
 
     device_name = entry.data.get(CONF_NAME, entry.title)
 
