@@ -15,6 +15,7 @@ from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
+from homeassistant.util.async_ import create_eager_task
 import pytest
 
 from custom_components.better_thermostat.calibration import effective_room_temp
@@ -4267,6 +4268,31 @@ class TestInternalRereadAfterTheDebounce:
         await asyncio.sleep(0)
 
         assert [task.cancelled() for task in cancelled] == [True]
+        assert trv.internal_reread_pending is False
+        mock_bt.task_manager = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt.task_manager.create_task.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_an_eagerly_finished_reread_is_not_pending(self, mock_bt):
+        """A reread that runs to its end while its task is created is over.
+
+        Home Assistant starts background tasks eagerly, so a reread whose
+        interval is already over finishes inside the call that creates it.
+        """
+        trv = self._prepare(mock_bt, state=None)
+        trv.last_internal_sensor_change = self.T0 - timedelta(minutes=1)
+        hass = MagicMock()
+        hass.async_create_background_task = lambda coro, name: create_eager_task(
+            coro, name=name
+        )
+        mock_bt.task_manager = TaskManager(hass)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        assert [task.done() for task in mock_bt.task_manager.tasks] == [True]
+        await asyncio.sleep(0)
         assert trv.internal_reread_pending is False
         mock_bt.task_manager = MagicMock()
         _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
