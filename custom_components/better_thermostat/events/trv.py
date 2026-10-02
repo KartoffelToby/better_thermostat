@@ -591,6 +591,14 @@ async def trigger_trv_change(
             contact_open=self.contact_open,
             was_off=_was_off,
         )
+        if _was_off and trv.hvac_mode != HVACMode.OFF and not _is_echo:
+            # The report that switches the device on shows the setpoint it
+            # held while it was off. That is the device's own value, as it
+            # is at startup: the reports after this one carry it as well and
+            # are no press either, until a write replaces it.
+            trv.remember_setpoint_confirmed(
+                _raw_heating_setpoint, trv.confirmed_write_id
+            )
         if _accept_user_setpoint:
             if _setpoint.clamped:
                 _LOGGER.warning(

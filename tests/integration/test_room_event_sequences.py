@@ -10,10 +10,12 @@ including one run of the five-minute reconciler, because a cycle that starts
 before a report has been read is where a user's change gets written away.
 Then:
 
-* **intent**: the room's target is the user's latest word, whether set on
-  the Better Thermostat entity or turned at a head that is on the air.
-* **convergence**: every head on the air carries that target, as close as
-  its own setpoint grid allows.
+* **intent**: the room's target and mode are the user's latest word, whether
+  set on the Better Thermostat entity or at a head that is on the air, and
+  the room knows whether its window is open.
+* **convergence**: while the room heats, every head on the air heats and
+  carries the room's target, as close as its own setpoint grid allows; while
+  it is off or its window is open, every head on the air is off.
 * **grid**: every setpoint written to a head lies on that head's grid and
   inside its range.
 * **bulkhead**: nothing is commanded to a head that was off the air for the
@@ -23,10 +25,16 @@ Then:
 
 The events are a setpoint set on the entity, a knob turn at a head, a
 setpoint set on the entity while the write to one head is held and another
-head is turned, a head dropping off the air or coming back, a reload of the
-entry, and a restart of Home Assistant, in the order a real boot sets the
-platforms up. At least one head stays reachable; a room with none has nothing
-to converge.
+head is turned, the room's mode set on the entity, a head switched on or off
+at the device, the window opening or closing, a head dropping off the air or
+coming back, a reload of the entry, and a restart of Home Assistant, in the
+order a real boot sets the platforms up. At least one head stays reachable; a
+room with none has nothing to converge.
+
+A head that is off speaks for nobody: a knob turned while the room is off or
+its window is open is not the user's word, and neither is one head switched
+off while another reachable head still heats. A head switched on is, and turns
+the room on, but not the setpoint a knob turned while it was off left on it.
 
 Each room is searched with sequences from fixed seeds, so a red case
 reproduces by its id. Its failure message names the broken rule, lists the
@@ -41,6 +49,7 @@ end of this module as a test of its own. A longer search is a manual run::
 
 from collections.abc import AsyncGenerator
 import contextlib
+import copy
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 import json
@@ -51,7 +60,10 @@ from unittest.mock import patch
 
 from homeassistant.components.climate.const import (
     DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
+    HVACAction,
+    HVACMode,
 )
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import Context, CoreState, Event, HomeAssistant
@@ -71,6 +83,7 @@ from .conftest import (
     BT_ENTITY,
     CRITICAL_GRACE,
     DEGRADED_GRACE,
+    WINDOW_ID,
     WRITE_BUDGET,
     SimulatedClimate,
     build_devices,
@@ -135,14 +148,25 @@ class Room:
     scenario: GroupScenario
     heads: list[SimulatedClimate]
     intent: float | None
+    mode: HVACMode = HVACMode.HEAT
+    window_open: bool = False
     available: set[int] = field(default_factory=set)
     events: list[RoomEvent] = field(default_factory=list)
     service_calls: list[Event] = field(default_factory=list)
     reconciles: int = 0
+    checked: str = "at startup"
 
     def reachable(self) -> list[int]:
         """Return the indices of the heads on the air, in configured order."""
         return sorted(self.available)
+
+    def device_mode(self, index: int, mode: HVACMode) -> HVACMode:
+        """Return the name one head has for ``mode``; some call heating otherwise."""
+        return self.heads[index].profile.hvac_mode if mode == HVACMode.HEAT else mode
+
+    def heating(self) -> bool:
+        """Return whether the user lets the room heat and its window is shut."""
+        return self.mode == HVACMode.HEAT and not self.window_open
 
     def step_of(self, index: int) -> float:
         """Return the setpoint grid of one head."""
@@ -165,7 +189,8 @@ class Room:
     def describe(self) -> str:
         """Return the events as numbered lines, and how to replay them."""
         lines = [f"  {n}. {event}" for n, event in enumerate(self.events, 1)]
-        return "\n".join([f"room {self.scenario.name}:", *lines, self.replay_line()])
+        header = f"room {self.scenario.name}, checked {self.checked}:"
+        return "\n".join([header, *lines, self.replay_line()])
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +265,13 @@ class Turn(RoomEvent):
         )
 
     async def happen(self, room: Room) -> None:
-        """Change the head's setpoint and publish it as the head's own report."""
+        """Change the head's setpoint and publish it as the head's own report.
+
+        A head that is off takes the turn but does not speak for the room.
+        """
         _turn(room.heads[self.head], self.value)
-        room.intent = self.value
+        if room.heating():
+            room.intent = self.value
 
     def __str__(self) -> str:
         return f"knob at head {self.head} -> {self.value}"
@@ -264,9 +293,10 @@ class TurnDuringCycle(RoomEvent):
     turned_to: float
 
     def possible(self, room: Room) -> bool:
-        """Both heads are reachable and both are written to by the command."""
+        """The room heats, and both heads are reachable and written to."""
         return (
-            self.turned < self.held
+            room.heating()
+            and self.turned < self.held
             and {self.turned, self.held} <= room.available
             and self.commanded != room.intent
             and _write_reaches(room, self.turned, self.commanded)
@@ -343,6 +373,113 @@ class BringBack(RoomEvent):
 
     def __str__(self) -> str:
         return f"head {self.head} back on the air"
+
+
+@dataclass(frozen=True)
+class SetMode(RoomEvent):
+    """The user sets the room's mode on the Better Thermostat entity."""
+
+    kind: ClassVar[str] = "set_mode"
+    mode: str
+
+    def possible(self, room: Room) -> bool:
+        """Only a mode the room is not in yet is set."""
+        return self.mode != room.mode
+
+    async def happen(self, room: Room) -> None:
+        """Call the entity's set_hvac_mode service."""
+        await room.hass.services.async_call(
+            CLIMATE_DOMAIN,
+            SERVICE_SET_HVAC_MODE,
+            {"entity_id": BT_ENTITY, "hvac_mode": self.mode},
+            blocking=True,
+        )
+        room.mode = HVACMode(self.mode)
+
+    def __str__(self) -> str:
+        return f"entity mode -> {self.mode}"
+
+
+@dataclass(frozen=True)
+class SwitchHead(RoomEvent):
+    """The user switches one head on or off at the device.
+
+    Switched on, the head turns the room on; the room keeps its target, and
+    a setpoint turned at the head while it was off is written over. Switched
+    off, it turns the room off only if every other head on the air is off
+    already; otherwise one head would switch off a room the others still heat.
+    """
+
+    kind: ClassVar[str] = "switch_head"
+    head: int
+    mode: str
+
+    def possible(self, room: Room) -> bool:
+        """Only a reachable head can be switched, and only to a new mode."""
+        return (
+            self.head in room.available
+            and room.device_mode(self.head, HVACMode(self.mode))
+            != room.heads[self.head].hvac_mode
+        )
+
+    async def happen(self, room: Room) -> None:
+        """Change the head's mode and publish it as the head's own report."""
+        others_off = all(
+            room.heads[i].hvac_mode == HVACMode.OFF
+            for i in room.available - {self.head}
+        )
+        head = room.heads[self.head]
+        head._attr_hvac_mode = room.device_mode(self.head, HVACMode(self.mode))
+        head.async_set_context(Context())
+        head.async_write_ha_state()
+        if self.mode == HVACMode.HEAT or others_off:
+            room.mode = HVACMode(self.mode)
+
+    def __str__(self) -> str:
+        return f"head {self.head} switched {self.mode} at the device"
+
+
+@dataclass(frozen=True)
+class SwitchHeadAndReport(SwitchHead):
+    """A head switched on at the device reports again before the room answers.
+
+    A head reports whatever else it has to say, here that it started to heat,
+    and that report can arrive before the cycle the switch asked for. It
+    carries the same setpoint the knob left on the head while it was off.
+    """
+
+    kind: ClassVar[str] = "switch_head_and_report"
+
+    async def happen(self, room: Room) -> None:
+        """Switch the head, then publish a second report right after."""
+        await super().happen(room)
+        head = room.heads[self.head]
+        head._attr_hvac_action = HVACAction.HEATING
+        head.async_set_context(Context())
+        head.async_write_ha_state()
+
+    def __str__(self) -> str:
+        return f"head {self.head} switched {self.mode} at the device, reporting twice"
+
+
+@dataclass(frozen=True)
+class Window(RoomEvent):
+    """The room's window opens or shuts."""
+
+    kind: ClassVar[str] = "window"
+    open: bool
+
+    def possible(self, room: Room) -> bool:
+        """The window only moves to the position it is not in."""
+        return self.open != room.window_open
+
+    async def happen(self, room: Room) -> None:
+        """Publish the window sensor's new reading."""
+        room.hass.states.async_set(WINDOW_ID, "on" if self.open else "off")
+        room.window_open = self.open
+
+    def __str__(self) -> str:
+        return "window opened" if self.open else "window shut"
 
 
 @dataclass(frozen=True)
@@ -447,6 +584,11 @@ def draw(room: Room, rng: random.Random) -> RoomEvent:
         candidates.append(Drop(rng.choice(reachable)))
     if gone:
         candidates.append(BringBack(rng.choice(gone)))
+    candidates.append(SetMode(rng.choice([HVACMode.HEAT, HVACMode.OFF]).value))
+    candidates.append(
+        SwitchHead(rng.choice(reachable), rng.choice([HVACMode.HEAT, HVACMode.OFF]))
+    )
+    candidates.append(Window(not room.window_open))
     candidates += [Reload(), Restart()]
     possible = [event for event in candidates if event.possible(room)]
     return rng.choice(possible)
@@ -459,14 +601,27 @@ def draw(room: Room, rng: random.Random) -> RoomEvent:
 
 @contextlib.asynccontextmanager
 async def running_room(
-    hass: HomeAssistant, scenario: GroupScenario
+    hass: HomeAssistant, scenario: GroupScenario, *, no_off_system_mode: bool = False
 ) -> AsyncGenerator[Room]:
-    """Boot an entry for ``scenario`` and yield the room once it has settled."""
+    """Boot an entry for ``scenario`` and yield the room once it has settled.
+
+    With ``no_off_system_mode`` every head is configured as one without an
+    off mode, which Better Thermostat holds at its minimum instead of
+    switching it off.
+    """
     heads = await build_devices(hass, *scenario.profiles)
     for head in heads:
         head._attr_current_temperature = ROOM_TEMPERATURE
     set_room_sensor(hass, ROOM_TEMPERATURE)
-    entry = make_entry(scenario)
+    hass.states.async_set(WINDOW_ID, "off")
+    entry = make_entry(scenario, with_window=True)
+    if no_off_system_mode:
+        data = copy.deepcopy(dict(entry.data))
+        for head in data["thermostat"]:
+            head["advanced"]["no_off_system_mode"] = True
+        entry = MockConfigEntry(
+            domain=entry.domain, version=entry.version, data=data, title=entry.title
+        )
     # Set up the way Home Assistant boots with the entry already configured,
     # which is how a room first comes up: the platforms are built before the
     # thermostat has read its heads, and nothing saved fills the gap yet.
@@ -496,12 +651,20 @@ async def running_room(
 
 
 async def step(room: Room, event: RoomEvent) -> None:
-    """Let one event happen, let the room settle, and check every rule."""
+    """Let one event happen and check every rule, at once and after the reconciler.
+
+    The first check is what makes the room answer the event itself: a change
+    the reconciler carries out minutes later passes the second check alone.
+    """
     assert event.possible(room), f"{event} cannot happen here\n{room.describe()}"
     before = _Before(room)
     room.events.append(event)
     await event.happen(room)
-    await _settle(room)
+    await _quiet(room)
+    room.checked = "at once"
+    await assert_rules(room, before)
+    await _reconcile(room)
+    room.checked = "after the reconciler"
     await assert_rules(room, before)
 
 
@@ -524,6 +687,11 @@ async def _quiet(room: Room) -> None:
 async def _settle(room: Room) -> None:
     """Let the room come to rest, including one run of the reconciler."""
     await _quiet(room)
+    await _reconcile(room)
+
+
+async def _reconcile(room: Room) -> None:
+    """Run the reconciler once and let the room come to rest again."""
     room.reconciles += 1
     async_fire_time_changed(
         room.hass, dt_util.utcnow() + room.reconciles * RECONCILE_INTERVAL
@@ -556,20 +724,37 @@ async def assert_rules(room: Room, before: _Before) -> None:
         f"[intent] the room's target is {bt.bt_target_temp}, the user last "
         f"asked for {room.intent}\n{room.describe()}"
     )
+    assert await wait_for(room.hass, lambda: bt.hvac_mode == room.mode, CONVERGE_S), (
+        f"[intent] the room is {bt.hvac_mode}, the user last asked for "
+        f"{room.mode}\n{room.describe()}"
+    )
+    assert bt.window_open == room.window_open, (
+        f"[intent] the room has its window {'open' if bt.window_open else 'shut'}, "
+        f"the sensor says {'open' if room.window_open else 'shut'}\n"
+        f"{room.describe()}"
+    )
 
-    assert await wait_for(
-        room.hass,
-        lambda: all(
-            _within_step(room, i, room.heads[i].target_temperature, bt.bt_target_temp)
+    def heads_carry_the_room() -> bool:
+        if not room.heating():
+            return all(
+                room.heads[i].hvac_mode == HVACMode.OFF for i in room.reachable()
+            )
+        return all(
+            room.heads[i].hvac_mode == room.device_mode(i, HVACMode.HEAT)
+            and _within_step(
+                room, i, room.heads[i].target_temperature, bt.bt_target_temp
+            )
             for i in room.reachable()
-        ),
-        CONVERGE_S,
-    ), (
-        "[convergence] reachable heads carry "
-        + ", ".join(
-            f"head {i}: {room.heads[i].target_temperature}" for i in room.reachable()
         )
-        + f", the room's target is {bt.bt_target_temp}\n{room.describe()}"
+
+    assert await wait_for(room.hass, heads_carry_the_room, CONVERGE_S), (
+        f"[convergence] the room {'heats' if room.heating() else 'is off'} at "
+        f"{bt.bt_target_temp}, reachable heads carry "
+        + ", ".join(
+            f"head {i}: {room.heads[i].hvac_mode} {room.heads[i].target_temperature}"
+            for i in room.reachable()
+        )
+        + f"\n{room.describe()}"
     )
 
     for index, head in enumerate(room.heads):
@@ -695,3 +880,74 @@ async def test_a_head_turned_back_to_its_last_confirmed_setpoint_is_adopted(hass
     async with running_room(hass, SINGLE_HEAD) as room:
         for event in (Command(20.5), Turn(0, 22.0), Turn(0, 20.5)):
             await step(room, event)
+
+
+@pytest.mark.parametrize(
+    "between", [(), (Restart(),)], ids=["straight_on", "across_a_restart"]
+)
+async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_off(
+    hass, between
+):
+    """Switching a head on turns the room on at the room's own target.
+
+    The user switches the room off, turns the head's knob while it is off,
+    and switches the head on at the device. The knob turn was not the user's
+    word while the head was off, and the report that switches it on does not
+    make it one. The answer is the same whether or not Home Assistant
+    restarted in between, when the setpoint the head shows is the one Better
+    Thermostat reads back at startup.
+    """
+    async with running_room(hass, SINGLE_HEAD) as room:
+        events = (
+            SetMode(HVACMode.OFF),
+            Turn(0, 22.5),
+            *between,
+            SwitchHead(0, HVACMode.HEAT),
+        )
+        for event in events:
+            await step(room, event)
+
+
+async def test_a_report_after_the_switch_on_does_not_bring_the_turn_either(hass):
+    """A head that reports again right after it was switched on keeps the room's target.
+
+    The second report carries the setpoint the knob was turned to while the
+    head was off, and the head is on by then. The value is still no press.
+    """
+    async with running_room(hass, SINGLE_HEAD) as room:
+        for event in (
+            SetMode(HVACMode.OFF),
+            Turn(0, 22.5),
+            SwitchHeadAndReport(0, HVACMode.HEAT),
+        ):
+            await step(room, event)
+
+
+async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(hass):
+    """A knob turned while the window is open is not the user's word.
+
+    The head has no off mode, so the open window leaves it heating at its
+    minimum rather than off, and its being off cannot be what keeps the turn
+    out. The room's target is the same at once and after the reconciler.
+    """
+    async with running_room(hass, SINGLE_HEAD, no_off_system_mode=True) as room:
+        bt, head = room.bt, room.heads[0]
+        target = bt.bt_target_temp
+        await Window(True).happen(room)
+        await _quiet(room)
+        assert await wait_for(room.hass, lambda: bt.window_open, CONVERGE_S)
+        assert head.hvac_mode != HVACMode.OFF, (
+            f"the head without an off mode was switched off: {head.hvac_mode}"
+        )
+        turned_to = target + 3.0
+        _turn(head, turned_to)
+        await _quiet(room)
+        assert bt.bt_target_temp == pytest.approx(target), (
+            f"the room adopted {bt.bt_target_temp} from a knob turned with the "
+            f"window open, its target was {target}"
+        )
+        await _reconcile(room)
+        assert bt.bt_target_temp == pytest.approx(target), (
+            f"after the reconciler the room carries {bt.bt_target_temp}, "
+            f"its target was {target}"
+        )
