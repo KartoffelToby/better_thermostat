@@ -268,6 +268,7 @@ async def test_service_refuses_while_maintenance_runs(bt):
 @pytest.mark.asyncio
 async def test_service_reports_a_failed_run(bt, caplog):
     """A run that fails surfaces as an error and leaves its cause in the log."""
+    bt.in_maintenance = False
     bt.real_trvs = {
         "climate.trv": Trv(
             entity_id="climate.trv", advanced={"valve_maintenance": True}
