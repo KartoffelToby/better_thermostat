@@ -58,6 +58,7 @@ def mock_bt():
     # HVAC
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
+    bt.hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     bt.window_open = False
     bt.contact_open = False
     bt.ignore_states = False
