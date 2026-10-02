@@ -642,6 +642,11 @@ async def trigger_trv_change(
                     _adopted_cooling_setpoint,
                 )
                 self.bt_target_cooltemp = _adopted_cooling_setpoint
+                # The turn takes the place of the cooling channel's last write
+                # as what the device holds, so the cycle compares the cooling
+                # target with the turn rather than with a write the device no
+                # longer holds.
+                self.last_sent_cooler_temp = _raw_heating_setpoint
                 # Residual tie-break only, the counterpart of the one below.
                 self._enforce_heat_below_cool()
             else:

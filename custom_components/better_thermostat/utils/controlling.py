@@ -657,6 +657,7 @@ def _held_report_control_inputs(self, trv) -> tuple:
         self.bt_hvac_mode,
         trv.hvac_mode,
         trv.confirmed_setpoint,
+        self.last_sent_cooler_temp,
         trv.current_temperature,
         self.cur_temp,
     )
