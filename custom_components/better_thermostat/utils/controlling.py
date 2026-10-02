@@ -27,7 +27,9 @@ from homeassistant.core import (
     EventStateChangedData,
     HomeAssistant,
     State,
+    callback,
 )
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -335,6 +337,10 @@ def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None
     boost heating, and the region's step advances the exponential
     backoff. Availability events still trigger an immediate cycle when
     the device returns by itself.
+
+    The wait runs on Home Assistant's timer rather than a sleep, so it
+    follows Home Assistant's clock; the task around it is what the entity
+    cancels when it is removed.
     """
     region = self.kernel_state.reachability.get(entity_id)
     if region is None or region.online or region.retry_at is None:
@@ -346,9 +352,18 @@ def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None
     delay = max(region.retry_at - self.clock.monotonic(), 0.0)
 
     async def _retry() -> None:
+        due: asyncio.Future[None] = self.hass.loop.create_future()
+
+        @callback
+        def _due(_now: Any) -> None:
+            if not due.done():
+                due.set_result(None)
+
+        cancel_timer = async_call_later(self.hass, delay, _due)
         try:
-            await asyncio.sleep(delay)
+            await due
         finally:
+            cancel_timer()
             trv.reachability_retry_pending = False
         request_control_cycle(self)
 
@@ -1052,13 +1067,25 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     one reporting ``unknown`` unless its model reads that as operating, the
     way the handler reads it.
 
+    The setpoint such a state carries is judged against the mode the device
+    was cached in before the held report, not the mode
+    ``refresh_cached_trv_modes`` settled since, so a head switched on inside
+    the cycle does not bring a setpoint turned while it was off, as it does
+    not outside a cycle.
+
     A control cycle is requested only when the report moved what the next
-    cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran.
+    cycle acts on: the room's targets or mode, the setpoint or mode the
+    device is known to hold, or the internal temperature it reported while
+    the cycle ran. A turn the room adopts at a target it already had moves
+    only the setpoint the device holds, and the cycle is what writes the
+    device's own share of that target back over the turn.
     The handler takes that reading as it arrives, as it does outside a cycle,
     unless it came too soon after the previous one; such a reading is taken
     here once that interval has passed, and asks for a cycle all the same. A
-    device answering inside every cycle with a report that carries nothing
+    head switched on inside the cycle asks for one as well, as its mode
+    change does outside a cycle: the cache already holds the commanded mode,
+    so the report moves nothing, yet the setpoint it was not adopted for
+    has to be driven back to the room target. A device answering inside every cycle with a report that carries nothing
     new would otherwise keep one cycle following the next.
 
     Parameters
@@ -1072,6 +1099,8 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         trv.report_unread = False
         previous = trv.state_before_held_report
         trv.state_before_held_report = None
+        prior_hvac_mode = trv.hvac_mode_before_held_report
+        trv.hvac_mode_before_held_report = None
         temperature_moved = trv.temperature_moved_while_held
         trv.temperature_moved_while_held = False
         state = self.hass.states.get(entity_id)
@@ -1091,6 +1120,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 held_report,
                 mode_settled=trv.system_mode_received is False,
                 request_cycle=False,
+                prior_hvac_mode=prior_hvac_mode,
             )
         except Exception:
             _LOGGER.exception(
@@ -1100,8 +1130,14 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 entity_id,
             )
             continue
+        switched_on = (
+            prior_hvac_mode == HVACMode.OFF
+            and state is not None
+            and state.state != HVACMode.OFF
+        )
         if (
             temperature_moved
+            or switched_on
             or _held_report_control_inputs(self, trv) != acted_on_before
             or _locked_device_moved(self, entity_id, trv, state)
         ):
@@ -1161,6 +1197,7 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, 
         self.bt_target_cooltemp,
         self.bt_hvac_mode,
         trv.hvac_mode,
+        trv.confirmed_setpoint,
         trv.current_temperature,
     )
 
@@ -2500,6 +2537,12 @@ async def control_trv(
                             entity_id,
                             _budget_remaining(self, entity_id, "setpoint"),
                         )
+                else:
+                    # The device already holds what the room wants, whoever
+                    # put it there: a knob turned while the room was off can
+                    # land on the setpoint the room asks for once it heats
+                    # again. That value is BT's own from here on.
+                    self.real_trvs[entity_id].remember_setpoint_held(_temperature)
 
         # Watchdog heartbeat: the control loop demonstrably ran.
         _stamp_heartbeat(self)

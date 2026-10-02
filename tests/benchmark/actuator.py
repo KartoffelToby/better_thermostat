@@ -91,7 +91,11 @@ class Actuator:
         p = self.params
         pct = max(0.0, min(100.0, cmd_pct))
 
-        if p.hysteresis_pct > 0.0:
+        # A close command drives the valve onto its seat, so hysteresis
+        # holds intermediate positions only: a valve at 5 % commanded to
+        # 0 % closes. The drive loop relies on this to close the valve
+        # while a window is open.
+        if p.hysteresis_pct > 0.0 and pct > 0.0:
             if abs(pct - self._last_applied_pct) < p.hysteresis_pct:
                 pct = self._last_applied_pct
 

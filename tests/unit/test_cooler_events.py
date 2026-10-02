@@ -1024,6 +1024,40 @@ class TestCoolerUnitHandling:
         assert mock_bt.bt_target_cooltemp == 22.22  # 72 °F
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("pressed", "adopted"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_cooler_without_a_published_step_is_read_on_whole_fahrenheit(
+        self, mock_bt, pressed, adopted
+    ):
+        """A °F cooler that publishes no step is compared on whole degrees.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+        old_state = _make_state(attributes={"temperature": 75.0})
+        new_state = _make_state(attributes={"temperature": pressed})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        if adopted:
+            assert mock_bt.bt_target_cooltemp == pytest.approx(24.44, abs=0.01)
+            mock_bt.control_queue_task.put_nowait.assert_called_once()
+        else:
+            assert mock_bt.bt_target_cooltemp == 24.0
+            mock_bt.control_queue_task.put_nowait.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # 8. Range mode

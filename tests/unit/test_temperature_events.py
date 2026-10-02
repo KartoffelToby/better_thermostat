@@ -1544,3 +1544,66 @@ class TestPendingReadingAfterTheDebounce:
         self._arm(mock_bt)
 
         earlier.assert_called_once_with()
+
+
+class TestLadderSeesTheHandledReading:
+    """The reading a handler takes is the one the ladder observes."""
+
+    @pytest.mark.asyncio
+    async def test_a_recovery_handled_after_a_new_outage_restarts_the_debounce(
+        self, mock_bt
+    ):
+        """A new outage waits a full debounce after the reading that ended the last one.
+
+        The handler for the returning reading can wait for the filter lock
+        until the sensor has dropped out again. It still applies that
+        reading, so the outage before it is over, and the next one has to
+        last the whole debounce before the room moves onto the TRVs.
+        """
+        TestArrivalOrder._make_thermostat_checkable(mock_bt)
+        mock_bt._degraded_warning_emitted = False
+        trv_entity_id = "climate.trv1"
+        mock_bt.real_trvs = {
+            trv_entity_id: Trv.from_legacy_dict(
+                trv_entity_id, {"current_temperature": 21.0}
+            )
+        }
+        live = {SENSOR_ID: State(SENSOR_ID, "unavailable")}
+
+        def states_get(entity_id):
+            if entity_id == trv_entity_id:
+                return State(trv_entity_id, "heat", {"current_temperature": 21.0})
+            return live.get(entity_id, State(entity_id, "21.0"))
+
+        mock_bt.hass.states.get = states_get
+
+        with (
+            patch("custom_components.better_thermostat.utils.watcher.ir"),
+            patch(
+                "custom_components.better_thermostat.climate.trigger_temperature_change",
+                AsyncMock(),
+            ) as filter_reading,
+        ):
+            await BetterThermostat._handle_temperature_reading(
+                mock_bt, _make_event(State(SENSOR_ID, "unavailable"))
+            )
+            mock_bt.clock.advance(121.0)
+            # The sensor reported 21.0 and has dropped out again by the time
+            # the handler for that reading runs.
+            await BetterThermostat._handle_temperature_reading(
+                mock_bt, _make_event(State(SENSOR_ID, "21.0"))
+            )
+            assert filter_reading.await_count == 2
+            assert mock_bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+
+            await BetterThermostat._handle_temperature_reading(
+                mock_bt, _make_event(State(SENSOR_ID, "unavailable"))
+            )
+            mock_bt.clock.advance(60.0)
+            await BetterThermostat._availability_tick(mock_bt)
+            assert mock_bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+
+            mock_bt.clock.advance(61.0)
+            await BetterThermostat._availability_tick(mock_bt)
+
+        assert mock_bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
