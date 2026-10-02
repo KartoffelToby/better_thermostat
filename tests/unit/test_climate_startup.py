@@ -37,6 +37,7 @@ from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.events.temperature import (
     PLATEAU_ACCEPT_WINDOW,
@@ -55,6 +56,7 @@ from custom_components.better_thermostat.utils.const import (
     MAX_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
+from tests.factories import ThermostatStandIn
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -85,11 +87,11 @@ def _discard_background_work(coro, *, name):
 @pytest.fixture
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
-    mock = MagicMock(spec=BetterThermostat)
+    mock = ThermostatStandIn(spec=BetterThermostat)
     # The coroutine handed over was created by the caller; a mock that drops
     # it leaves it unawaited.
     mock._spawn_owned = MagicMock(side_effect=_discard_background_work)
-    mock.clock = MagicMock()
+    mock.clock = FakeClock()
     mock.kernel_state = KernelState()
     mock._degraded_grace_until = None
     mock.state_mgr = None
@@ -377,7 +379,12 @@ SUB_THRESHOLD_TEMP = 20.05
 
 
 async def _feed_sensor_reading(entity, temperature):
-    """Deliver one external temperature reading to the event handler."""
+    """Publish one external temperature reading and hand it to the handler.
+
+    Home Assistant stores the sensor's state before its change event is
+    handled, and the plateau timer reads the stored state back.
+    """
+    entity.hass.states.async_set(SENSOR_ID, str(temperature))
     event = MagicMock()
     event.data = {"new_state": State(SENSOR_ID, str(temperature))}
     await trigger_temperature_change(entity, event)
@@ -990,8 +997,7 @@ class TestCheckEntitiesReady:
 
 def _arm_grace(bt, *, remaining: timedelta) -> None:
     """Arm the critical grace window to end ``remaining`` from the clock's now."""
-    now = dt_util.utcnow()
-    bt.clock.now.return_value = now
+    now = bt.clock.now()
     bt._critical_grace_until = now + remaining
 
 
@@ -2116,6 +2122,7 @@ class TestRestoreState:
         bt.bt_min_temp = 20.28
         bt._configured_target_temp_step = 0.5
         bt.bt_hvac_mode = HVACMode.HEAT
+        bt.hvac_mode = HVACMode.HEAT
         bt.control_queue_task = asyncio.Queue()
 
         await BetterThermostat.async_set_preset_mode(bt, "eco")
@@ -2511,7 +2518,7 @@ def _trv_refusing_every_write(attempts: list[str]):
     trv.adapter = MagicMock()
     trv.adapter.set_temperature = refuse
 
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.bt_target_temp_step = None
     thermostat.real_trvs = {TRV_ID: trv}

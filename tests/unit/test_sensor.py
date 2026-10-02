@@ -57,7 +57,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
 )
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 DOMAIN = "better_thermostat"
 
@@ -69,7 +69,7 @@ DOMAIN = "better_thermostat"
 
 def _make_bt_climate(**overrides):
     """Create a mock BT climate entity with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = "test_bt_123"
     bt.device_name = "Test BT"
     bt.entity_id = "climate.test_bt"

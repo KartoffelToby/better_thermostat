@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_cooler"
 
@@ -26,7 +27,7 @@ ENTITY_ID = "climate.test_cooler"
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Test Thermostat"

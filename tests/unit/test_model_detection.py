@@ -13,7 +13,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 
 @pytest.mark.parametrize(
@@ -68,7 +68,7 @@ class TestGetDeviceModelFunction:
     @pytest.fixture
     def mock_self(self):
         """Create a mock BetterThermostat instance."""
-        mock = MagicMock()
+        mock = ThermostatStandIn()
         mock.hass = MagicMock()
         mock.device_name = "Test Thermostat"
         mock.model = "configured_model"

@@ -10,7 +10,7 @@ import re
 import pytest
 import yaml
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 COMPONENT = ROOT / "custom_components" / "better_thermostat"
 TRANSLATIONS = COMPONENT / "translations"
 PROJECT_INLANG = ROOT / "project.inlang.json"

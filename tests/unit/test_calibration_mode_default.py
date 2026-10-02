@@ -31,17 +31,19 @@ from custom_components.better_thermostat.utils.helpers import (
     is_calibration_mode,
     normalize_calibration_mode,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 _RUNTIME_MODULES = (calibration_module, controlling_module)
 
 
-def _thermostat_without_target(stored_mode: object) -> MagicMock:
+def _thermostat_without_target(stored_mode: object) -> ThermostatStandIn:
     """A thermostat carrying *stored_mode* and no target temperature.
 
     Without a target, only a mode that needs none produces a value, which
     makes the resolved mode observable from the return value alone.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = 0.5

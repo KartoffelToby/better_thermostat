@@ -16,6 +16,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters.delegate import set_offset
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.trv"
 # The retry decorator doubles a one-second base delay per attempt.
@@ -27,7 +28,7 @@ RETRY_JITTER = 0.2
 @pytest.fixture
 def bt():
     """Mock thermostat whose adapter accepts every offset write."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     trv = Trv(
