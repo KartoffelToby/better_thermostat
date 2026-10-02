@@ -216,6 +216,28 @@ RECONCILE_INTERVAL = timedelta(minutes=6)
 # a sensor that holds its reading does.
 DEBOUNCE = timedelta(seconds=6)
 
+# The head handler measures its debounce interval on the wall clock. Events
+# follow each other within the interval, and the room runs that clock forward
+# by the interval whenever a head waits to read its own sensor again.
+HEAD_CLOCK = "custom_components.better_thermostat.events.trv.dt_util"
+
+
+class HeadClock:
+    """The wall clock the head handler reads, ahead of real time by ``offset``."""
+
+    def __init__(self) -> None:
+        """Start level with real time."""
+        self.offset = timedelta(0)
+
+    def now(self, time_zone=None):
+        """Return the time the room has reached."""
+        return dt_util.now(time_zone) + self.offset
+
+    def __getattr__(self, name: str):
+        """Leave everything but the current time to Home Assistant."""
+        return getattr(dt_util, name)
+
+
 # A room restarted while a head is off the air waits out the startup grace
 # windows for it, minutes of wall-clock time. Closed at once, startup goes
 # ahead with the heads that are there, which is what it does once they have
@@ -242,6 +264,7 @@ class Room:
     service_calls: list[Event] = field(default_factory=list)
     reconciles: int = 0
     checked: str = "at startup"
+    clock: HeadClock = field(default_factory=HeadClock)
 
     def reachable(self) -> list[int]:
         """Return the indices of the heads on the air, in configured order."""
@@ -724,6 +747,8 @@ def _turn(head: SimulatedClimate, value: float) -> None:
 async def _let_debounce_pass(room: Room) -> None:
     """Let Home Assistant's clock run past a reading's debounce interval."""
     await room.hass.async_block_till_done()
+    if any(trv.internal_reread_pending for trv in room.bt.real_trvs.values()):
+        room.clock.offset += DEBOUNCE
     async_fire_time_changed(room.hass, dt_util.utcnow() + DEBOUNCE)
     await room.hass.async_block_till_done()
 
@@ -806,10 +831,12 @@ async def running_room(
     await set_up_during_boot(hass, entry)
     bt = await finish_boot(hass, entry)
 
+    clock = HeadClock()
     with (
         patch(WRITE_BUDGET, 0.0),
         patch(CRITICAL_GRACE, NO_GRACE),
         patch(DEGRADED_GRACE, NO_GRACE),
+        patch(HEAD_CLOCK, clock),
     ):
         room = Room(
             hass,
@@ -822,6 +849,7 @@ async def running_room(
             room_temperature=scale.room_temperature,
             available=set(range(len(heads))),
             service_calls=async_capture_events(hass, EVENT_CALL_SERVICE),
+            clock=clock,
         )
         await assert_surfaces(room)
         await _settle(room)
