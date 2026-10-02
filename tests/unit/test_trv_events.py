@@ -4248,6 +4248,31 @@ class TestInternalRereadAfterTheDebounce:
         request.assert_called_once_with(mock_bt)
 
     @pytest.mark.asyncio
+    async def test_the_sensor_fallback_room_follows_the_reading(self, mock_bt):
+        """Under SENSOR_FALLBACK the room the control law reads moves with it.
+
+        The fallback takes the room from the stored TRV readings, so the
+        reading read again is the room temperature of the cycle it requests.
+        """
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        mock_bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        assert effective_room_temp(mock_bt) == pytest.approx(18.0)
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        with patch(
+            "custom_components.better_thermostat.events.trv.request_control_cycle"
+        ) as request:
+            await self._run(
+                coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+            )
+
+        assert effective_room_temp(mock_bt) == pytest.approx(23.9)
+        request.assert_called_once_with(mock_bt)
+
+    @pytest.mark.asyncio
     async def test_an_unavailable_head_restores_no_reading(self, mock_bt):
         """A head that went away keeps its invalidated reading.
 

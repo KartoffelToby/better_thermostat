@@ -1458,7 +1458,11 @@ class TestPendingReadingAfterTheDebounce:
     """A reading turned away by the debounce interval alone is applied after it."""
 
     def _arm(self, mock_bt, value=22.3):
-        """Leave ``value`` pending and arm its timer; return the timer callback."""
+        """Leave ``value`` pending and arm its timer; return the timer callback.
+
+        The sensor still reports the pending reading.
+        """
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, str(value))
         mock_bt.pending_temp = value
         mock_bt.pending_since = dt_util.now()
         armed = []
@@ -1544,6 +1548,23 @@ class TestPendingReadingAfterTheDebounce:
         self._arm(mock_bt)
 
         earlier.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_a_sensor_that_went_away_has_withdrawn_the_reading(self, mock_bt):
+        """A sensor without a usable reading when the timer fires applies nothing.
+
+        The room keeps its last reading while the ladder waits out the
+        outage, as it does for any outage.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "unavailable")
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
 
 
 class TestLadderSeesTheHandledReading:
