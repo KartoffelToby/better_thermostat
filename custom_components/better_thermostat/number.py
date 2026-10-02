@@ -189,17 +189,6 @@ async def async_setup_entry(
     async_add_entities(numbers)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload number entry and cleanup tracking."""
-    entry_id = entry.entry_id
-
-    # Cleanup tracking data
-    _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
-    _ACTIVE_PID_NUMBERS.pop(entry_id, None)
-
-    return True
-
-
 class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 

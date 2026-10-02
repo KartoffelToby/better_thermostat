@@ -48,9 +48,9 @@ from custom_components.better_thermostat.sensor import (
     _get_active_algorithms,
     _get_filtered_temp,
     _handle_dynamic_entity_update,
+    _release_entry,
     _setup_algorithm_sensors,
     async_setup_entry,
-    async_unload_entry,
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
@@ -1021,28 +1021,24 @@ class TestAsyncSetupEntry:
 
 
 # ===========================================================================
-# 9. async_unload_entry
+# 9. _release_entry
 # ===========================================================================
 
 
-class TestAsyncUnloadEntry:
-    """Tests for async_unload_entry."""
+class TestReleaseEntry:
+    """Tests for _release_entry, which the entry's unload runs."""
 
-    @pytest.mark.asyncio
-    async def test_unsubscribes_dispatcher(self):
+    def test_unsubscribes_dispatcher(self):
         """Unsubscribes dispatcher."""
         entry = _make_entry()
         unsub = MagicMock()
         _DISPATCHER_UNSUBSCRIBES["entry_1"] = unsub
-        hass = MagicMock()
 
-        result = await async_unload_entry(hass, entry)
-        assert result is True
+        _release_entry(entry.entry_id)
         unsub.assert_called_once()
         assert "entry_1" not in _DISPATCHER_UNSUBSCRIBES
 
-    @pytest.mark.asyncio
-    async def test_cleans_all_tracking_dicts(self):
+    def test_cleans_all_tracking_dicts(self):
         """Cleans all tracking dicts."""
         entry = _make_entry()
         _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {"algo": ["id1"]}
@@ -1050,9 +1046,8 @@ class TestAsyncUnloadEntry:
         _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": {}}
         _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": {}}
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {"uid": {}}
-        hass = MagicMock()
 
-        await async_unload_entry(hass, entry)
+        _release_entry(entry.entry_id)
 
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
         assert "entry_1" not in _ENTITY_CLEANUP_CALLBACKS
@@ -1060,13 +1055,10 @@ class TestAsyncUnloadEntry:
         assert "entry_1" not in _ACTIVE_PID_NUMBERS
         assert "entry_1" not in _ACTIVE_SWITCH_ENTITIES
 
-    @pytest.mark.asyncio
-    async def test_no_dispatcher_no_error(self):
+    def test_no_dispatcher_no_error(self):
         """Unloading an entry without registered dispatcher should not fail."""
-        entry = _make_entry()
-        hass = MagicMock()
-        result = await async_unload_entry(hass, entry)
-        assert result is True
+        _release_entry("entry_1")
+        assert "entry_1" not in _DISPATCHER_UNSUBSCRIBES
 
 
 # ===========================================================================
