@@ -1471,10 +1471,95 @@ class TestPlateauTimerTurn:
                 await trigger_temperature_change(
                     mock_bt, _make_event(State(SENSOR_ID, "20.05"))
                 )
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "20.05")
         await timers[0](dt_util.now())
 
         assert quirks.writes == [("climate.trv1", 20.05)]
         assert mock_bt.cur_temp == 20.05
+
+    async def _arm_plateau_timer(self, mock_bt, quirks):
+        """Leave 20.05 pending and return the plateau timer it arms."""
+        mock_bt.real_trvs = {
+            "climate.trv1": Trv.from_legacy_dict(
+                "climate.trv1", {"model_quirks": quirks}
+            )
+        }
+        mock_bt.cur_temp = 20.0
+        mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
+        timers = []
+
+        def _capture_timer(_hass, _delay, callback):
+            timers.append(callback)
+            return MagicMock()
+
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            _capture_timer,
+        ):
+            async with temperature_filter_lock(mock_bt):
+                await trigger_temperature_change(
+                    mock_bt, _make_event(State(SENSOR_ID, "20.05"))
+                )
+        assert (mock_bt.pending_temp, len(timers)) == (20.05, 1)
+        return timers[0]
+
+    @pytest.mark.asyncio
+    async def test_a_plateau_timer_first_in_turn_leaves_a_newer_reading_to_its_event(
+        self, mock_bt
+    ):
+        """Apply only the newer reading when the plateau timer takes the turn first.
+
+        The sensor has already reported the newer reading, whose event waits
+        for the filter behind the timer. Committing the pending value first
+        would control on a value the sensor no longer reports.
+        """
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+
+        newer_state = State(SENSOR_ID, "21.0")
+        mock_bt.hass.states.get.return_value = newer_state
+
+        async def _newer_reading():
+            async with temperature_filter_lock(mock_bt):
+                await trigger_temperature_change(mock_bt, _make_event(newer_state))
+
+        lock = temperature_filter_lock(mock_bt)
+        await lock.acquire()
+        timer = asyncio.create_task(plateau_timer(dt_util.now()))
+        await asyncio.sleep(0)
+        reading = asyncio.create_task(_newer_reading())
+        await asyncio.sleep(0)
+        lock.release()
+        await asyncio.gather(timer, reading)
+
+        assert quirks.writes == [("climate.trv1", 21.0)]
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_a_plateau_value_of_a_sensor_without_a_reading_is_not_applied(
+        self, mock_bt
+    ):
+        """A sensor that gives no usable reading any more withdrew the value."""
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "unavailable")
+
+        await plateau_timer(dt_util.now())
+
+        assert quirks.writes == []
+        assert (mock_bt.cur_temp, mock_bt.pending_temp) == (20.0, 20.05)
+
+    @pytest.mark.asyncio
+    async def test_a_plateau_value_during_the_fallback_is_not_applied(self, mock_bt):
+        """During the room sensor fallback the room is the TRVs'."""
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "20.05")
+        mock_bt.room_sensor_fallback = True
+
+        await plateau_timer(dt_util.now())
+
+        assert quirks.writes == []
 
 
 class TestPendingReadingAfterTheDebounce:
