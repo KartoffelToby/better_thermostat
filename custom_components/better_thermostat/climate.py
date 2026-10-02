@@ -2894,7 +2894,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # A via device link written while the setup had (or was
                 # treated as having) a single valve would keep the BT device
                 # attached to one arbitrary TRV; clear it.
-                await async_unbind_trv_device(self.hass, self._unique_id)
+                await async_unbind_trv_device(
+                    self.hass, self._unique_id, self._config_entry_id
+                )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
