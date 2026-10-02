@@ -18,7 +18,7 @@ import pytest
 from custom_components.better_thermostat.adapters import delegate
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
 VALVE_ENTITY = "number.trv_valve_position"
@@ -43,7 +43,7 @@ def _helper_entities_registered_and_enabled():
 
 def _thermostat(adapter, quirks=None):
     """A thermostat with one TRV whose valve channel is ready to write to."""
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     trv = Trv(entity_id=ENTITY_ID)
     trv.valve_position_entity = VALVE_ENTITY
@@ -205,7 +205,7 @@ class TestAnAdapterThatCannotBeImported:
         import error itself is the only thing that tells them apart.
         """
         generic = SimpleNamespace(name="generic")
-        thermostat = MagicMock()
+        thermostat = ThermostatStandIn()
         thermostat.device_name = "Test BT"
         imports = AsyncMock(
             side_effect=[ImportError("cannot import name draft_mode"), generic]

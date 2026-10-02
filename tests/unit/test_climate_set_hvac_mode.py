@@ -12,6 +12,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -19,11 +20,13 @@ _CLIMATE = "custom_components.better_thermostat.climate"
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for setting the HVAC mode."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_hvac_mode = HVACMode.HEAT
+    mock.hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     mock.in_maintenance = False
     mock._control_needed_after_maintenance = False
+    mock.clock = FakeClock()
     mock.async_write_ha_state = MagicMock()
     mock.control_queue_task = MagicMock()
     return mock

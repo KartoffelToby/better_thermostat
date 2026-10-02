@@ -17,12 +17,13 @@ from homeassistant.components.climate import HVACMode
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 
 @pytest.fixture
 def mock_bt_instance_no_calibration():
     """Create a mock BetterThermostat instance without calibration configured."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
@@ -54,7 +55,7 @@ def mock_bt_instance_no_calibration():
 @pytest.fixture
 def mock_bt_instance_no_calibration_with_remap():
     """Create a mock BT instance that needs heat->auto remapping."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat Remap"
     bt.bt_hvac_mode = HVACMode.HEAT
@@ -88,7 +89,7 @@ def mock_bt_instance_no_calibration_with_remap():
 @pytest.fixture
 def mock_bt_instance_no_calibration_no_off():
     """Create a mock BT instance with no_off_system_mode in fallback mode."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat No Off"
     bt.bt_hvac_mode = HVACMode.OFF

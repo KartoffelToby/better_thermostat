@@ -34,10 +34,12 @@ from custom_components.better_thermostat.core.snapshot import (
 from custom_components.better_thermostat.core.watchdog import control_loop_stalled
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn
 
 
 def _bt(mode: ControlMode) -> MagicMock:
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
     bt.cur_temp = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {
@@ -137,7 +139,7 @@ class TestFallbackSetpointChannel:
         quirks.fix_target_temperature_calibration.side_effect = (
             lambda _self, _eid, temperature: float(temperature)
         )
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.name = "better_thermostat"
         bt.device_name = "Test BT"
         bt.tolerance = 0.0

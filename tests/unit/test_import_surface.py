@@ -22,7 +22,7 @@ import sys
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "custom_components.better_thermostat"
 
 #: The integration root and modules that import it for ``DOMAIN`` alone.

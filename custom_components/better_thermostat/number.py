@@ -25,6 +25,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from . import BetterThermostatConfigEntry
 from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
@@ -36,7 +37,6 @@ from .utils.calibration.pid import (
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    DOMAIN,
     CalibrationMode,
     CalibrationType,
 )
@@ -88,10 +88,12 @@ def _is_usable_setting(bt_climate, value: float, setting: str) -> bool:
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Better Thermostat numbers."""
-    bt_climate = hass.data[DOMAIN][entry.entry_id].get("climate")
+    bt_climate = entry.runtime_data.climate
     if not bt_climate:
         _LOGGER.warning(
             "Better Thermostat climate entity not found for entry %s. "
@@ -101,7 +103,7 @@ async def async_setup_entry(
         return
 
     numbers: list[NumberEntity] = []
-    preset_unique_ids = {}
+    preset_unique_ids: dict[str | None, dict[str, str | bool]] = {}
     pid_unique_ids = {}
     # Create number entities for each preset mode (except NONE)
     _LOGGER.debug(

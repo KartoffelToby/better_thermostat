@@ -18,15 +18,18 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import (
     EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
     BetterThermostat,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -61,13 +64,13 @@ def _startup_bt(**overrides):
     the branch it gates.
     """
     config = {**_BARE, **overrides}
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.is_removed = False
     mock.kernel_state = KernelState()
-    mock.clock = MagicMock()
-    mock.clock.now.return_value = _NOW
-    mock.clock.monotonic.return_value = 1000.0
+    mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
+    mock._degraded_grace_until = None
+    mock.bt_hvac_mode = HVACMode.HEAT
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced=config.pop("advanced"))}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None

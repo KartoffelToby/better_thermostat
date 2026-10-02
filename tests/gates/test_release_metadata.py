@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import tomllib
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 MANIFEST = ROOT / "custom_components" / "better_thermostat" / "manifest.json"
 PYPROJECT = ROOT / "pyproject.toml"
 HACS = ROOT / "hacs.json"

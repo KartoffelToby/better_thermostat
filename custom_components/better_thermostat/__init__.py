@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from asyncio import Lock
 import copy
+from dataclasses import dataclass
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
@@ -40,11 +42,28 @@ from .utils.const import (
 )
 from .utils.helpers import get_device_model
 
+if TYPE_CHECKING:
+    from .climate import BetterThermostat
+
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.CLIMATE, Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 
 RELOAD_LOCKS = f"{DOMAIN}_reload_locks"
+
+
+@dataclass
+class BetterThermostatData:
+    """What a loaded entry holds at runtime.
+
+    The climate entity is set by the climate platform; the platforms set up
+    after it find it here.
+    """
+
+    climate: BetterThermostat | None = None
+
+
+type BetterThermostatConfigEntry = ConfigEntry[BetterThermostatData]
 
 
 # Service name to the climate entity method it runs, with the schema of the
@@ -66,8 +85,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     The services are registered here rather than with each entry, so they
     exist, and validate, while no thermostat is set up.
     """
-    if DOMAIN in config:
-        hass.data.setdefault(DOMAIN, {})
     for name, method, schema in _ENTITY_SERVICES:
         service.async_register_platform_entity_service(
             hass, DOMAIN, name, entity_domain=CLIMATE_DOMAIN, func=method, schema=schema
@@ -207,12 +224,13 @@ def _warn_about_an_off_temperature_below_freezing(
         )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> bool:
     """Set up entry."""
-    hass.data.setdefault(DOMAIN, {})
     _warn_about_an_off_temperature_below_freezing(hass, entry)
     _sync_shared_trv_issues(hass, entry)
-    hass.data[DOMAIN][entry.entry_id] = {}
+    entry.runtime_data = BetterThermostatData()
     try:
         # Setup climate platform first to ensure entity is available for other platforms
         await hass.config_entries.async_forward_entry_setups(entry, [Platform.CLIMATE])
@@ -235,7 +253,8 @@ def _reload_lock(hass: HomeAssistant, entry: ConfigEntry) -> Lock:
     The lock lives on the Home Assistant instance and is keyed by entry, so
     two thermostats reload independently and a lock never outlives the
     instance it was created for. It has to survive the reload it guards,
-    which is why it does not live in the per-entry data the unload clears.
+    which is why it does not live in the entry's runtime data, which Home
+    Assistant drops on unload.
 
     Parameters
     ----------
@@ -258,12 +277,11 @@ async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) 
         await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(
+    hass: HomeAssistant, entry: BetterThermostatConfigEntry
+) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

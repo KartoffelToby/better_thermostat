@@ -17,6 +17,7 @@ import pytest
 
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.hvac_action import ToleranceHysteresis
+from tests.factories import ThermostatStandIn
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -26,7 +27,7 @@ from custom_components.better_thermostat.utils.hvac_action import ToleranceHyste
 @pytest.fixture
 def mock_bt():
     """Minimal BetterThermostat-like mock for tolerance tests."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.tolerance = 0.5
     bt.bt_target_temp = 21.0
     bt.bt_target_cooltemp = None
