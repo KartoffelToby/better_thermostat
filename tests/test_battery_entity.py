@@ -66,6 +66,7 @@ class TestFindBatteryEntity:
         mock_battery_entity.device_id = "device_123"
         mock_battery_entity.device_class = "battery"
         mock_battery_entity.original_device_class = "battery"
+        mock_battery_entity.disabled_by = None
         mock_battery_entity.entity_id = "sensor.window_battery"
 
         mock_registry = MagicMock()
@@ -130,12 +131,14 @@ class TestFindBatteryEntity:
         mock_battery1.device_id = "device_1"
         mock_battery1.device_class = "battery"
         mock_battery1.original_device_class = "battery"
+        mock_battery1.disabled_by = None
         mock_battery1.entity_id = "sensor.window1_battery"
 
         mock_battery2 = MagicMock()
         mock_battery2.device_id = "device_2"
         mock_battery2.device_class = "battery"
         mock_battery2.original_device_class = "battery"
+        mock_battery2.disabled_by = None
         mock_battery2.entity_id = "sensor.window2_battery"
 
         def mock_entities_get(entity_id):

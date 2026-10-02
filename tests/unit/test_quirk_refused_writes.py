@@ -248,6 +248,7 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
             device_id="device1",
             unique_id="0x1234_trv_mode",
             original_name="Trv mode",
+            disabled_by=None,
         )
         registry = MagicMock()
         registry.async_get.return_value = climate_entry

@@ -46,6 +46,7 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
@@ -89,6 +90,7 @@ def bt():
             advanced={},
         )
     }
+    mock.state_mgr = None
     mock.cooler_entity_id = None
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
@@ -134,6 +136,17 @@ def bt():
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
+    # The range is resolved before the state is restored, so the bounds the
+    # entity reports are the configured ones.
+    type(mock).min_temp = property(lambda self: self.bt_min_temp)
+    type(mock).max_temp = property(lambda self: self.bt_max_temp)
+    mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
+        mock, value
+    )
+    mock._applied_target = lambda value: BetterThermostat._applied_target(mock, value)
+    mock._first_plausible_trv_temperature = lambda: (
+        BetterThermostat._first_plausible_trv_temperature(mock)
+    )
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     return mock
 
@@ -163,6 +176,9 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_cancel = None
+    bt.room_sensor_fallback_due = False
     bt.is_removed = False
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     trv = MagicMock()
@@ -294,6 +310,7 @@ class TestStartupUnloadBailout:
         bt._window_task = None
         bt._door_task = None
         bt.plateau_timer_cancel = None
+        bt.room_sensor_fallback_cancel = None
         bt.startup_running = True
 
         await BetterThermostat.async_will_remove_from_hass(bt)
@@ -677,22 +694,134 @@ class TestOwnedBackgroundTasks:
 class TestCheckEntitiesReady:
     """Tests for _check_entities_ready."""
 
-    def test_sensor_none_returns_false(self, bt):
-        """Return False when sensor state is None."""
-        result = BetterThermostat._check_entities_ready(bt, None)
-        assert result is False
+    @pytest.mark.parametrize(
+        "sensor",
+        [
+            None,
+            State(SENSOR_ID, STATE_UNAVAILABLE),
+            State(SENSOR_ID, STATE_UNKNOWN),
+            State(SENSOR_ID, "not a number", {"unit_of_measurement": "°C"}),
+            State(SENSOR_ID, "126.5", {"unit_of_measurement": "°C"}),
+        ],
+        ids=["absent", "unavailable", "unknown", "non_numeric", "implausible"],
+    )
+    def test_a_missing_room_sensor_is_waited_for_inside_the_grace_window(
+        self, bt, sensor
+    ):
+        """A sensor integration that is still loading is not replaced.
 
-    def test_sensor_unavailable_returns_false(self, bt):
-        """Return False when sensor is unavailable."""
-        sensor = State(SENSOR_ID, STATE_UNAVAILABLE)
-        result = BetterThermostat._check_entities_ready(bt, sensor)
-        assert result is False
+        A slow sensor looks exactly like a dead one at boot, and one that
+        turns up in time is the one the room should start on.
+        """
+        bt._critical_grace_until = dt_util.now() + timedelta(seconds=30)
+        bt.hass.states.get.return_value = _make_trv_state()
 
-    def test_sensor_unknown_returns_false(self, bt):
-        """Return False when sensor state is unknown."""
-        sensor = State(SENSOR_ID, STATE_UNKNOWN)
-        result = BetterThermostat._check_entities_ready(bt, sensor)
+        assert BetterThermostat._check_entities_ready(bt, sensor) is False
+
+    @pytest.mark.parametrize(
+        "sensor",
+        [None, State(SENSOR_ID, STATE_UNAVAILABLE), State(SENSOR_ID, STATE_UNKNOWN)],
+        ids=["absent", "unavailable", "unknown"],
+    )
+    def test_a_missing_room_sensor_lets_startup_go_ahead_after_the_grace_window(
+        self, bt, caplog, sensor
+    ):
+        """Past the grace window a TRV temperature stands in for the sensor.
+
+        The room controls on the TRV's internal temperature when its sensor
+        drops out at runtime, so a sensor that is already gone at boot must
+        not keep it from starting at all. The missing sensor is named.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.hass.states.get.return_value = _make_trv_state()
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, sensor)
+
+        assert result is True
+        assert SENSOR_ID in caplog.text
+
+    @pytest.mark.parametrize(
+        "current_temperature", [None, 126.5], ids=["no_reading", "implausible"]
+    )
+    def test_a_missing_room_sensor_without_a_trv_temperature_keeps_waiting(
+        self, bt, current_temperature
+    ):
+        """Without the sensor, a room needs a TRV temperature to control on.
+
+        Starting on no reading at all would regulate the room on a made-up
+        default temperature.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.hass.states.get.return_value = _make_trv_state(
+            attrs={"current_temperature": current_temperature}
+        )
+
+        assert BetterThermostat._check_entities_ready(bt, None) is False
+
+    def test_a_missing_room_sensor_with_every_trv_gone_keeps_waiting_quietly(
+        self, bt, caplog
+    ):
+        """A room with no TRV to stand in for its sensor is not named yet.
+
+        The warning says the room starts without its sensor, so it belongs
+        to the pass that actually lets startup go ahead, not to every pass
+        of the wait loop.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.real_trvs = {
+            TRV_ID: Trv(entity_id=TRV_ID),
+            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+        }
+        _install_states(
+            bt,
+            {
+                TRV_ID: State(TRV_ID, STATE_UNAVAILABLE),
+                TRV_ID_2: State(TRV_ID_2, STATE_UNAVAILABLE),
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, None)
+
         assert result is False
+        assert SENSOR_ID not in caplog.text
+
+    def test_a_missing_room_sensor_with_a_trv_gone_starts_on_the_one_left(
+        self, bt, caplog
+    ):
+        """Past the grace window both stand-ins apply at once.
+
+        The TRV that is there drives the room and its temperature stands in
+        for the sensor; the sensor and the TRV left behind are both named.
+        """
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.real_trvs = {
+            TRV_ID: Trv(entity_id=TRV_ID),
+            TRV_ID_2: Trv(entity_id=TRV_ID_2),
+        }
+        _install_states(
+            bt,
+            {
+                TRV_ID: _make_trv_state(TRV_ID),
+                TRV_ID_2: State(TRV_ID_2, STATE_UNAVAILABLE),
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = BetterThermostat._check_entities_ready(bt, None)
+
+        assert result is True
+        assert SENSOR_ID in caplog.text
+        assert TRV_ID_2 in caplog.text
+
+    def test_a_missing_room_sensor_ignores_the_reading_of_an_unavailable_trv(self, bt):
+        """Only a TRV that is there can stand in for the room sensor."""
+        bt._critical_grace_until = dt_util.now() - timedelta(seconds=1)
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
+        bt.hass.states.get.return_value = _make_trv_state(state=STATE_UNAVAILABLE)
+
+        assert BetterThermostat._first_plausible_trv_temperature(bt) is None
 
     def test_trv_none_returns_false(self, bt):
         """Return False when TRV state is None."""
@@ -766,13 +895,6 @@ class TestCheckEntitiesReady:
         )
 
         assert BetterThermostat._check_entities_ready(bt, sensor) is False
-
-    def test_a_missing_room_sensor_is_waited_for_after_the_grace_window(self, bt):
-        """The grace window lets startup go ahead without a TRV, not the sensor."""
-        _arm_grace(bt, remaining=timedelta(seconds=-1))
-        bt.hass.states.get.return_value = _make_trv_state()
-
-        assert BetterThermostat._check_entities_ready(bt, None) is False
 
 
 def _arm_grace(bt, *, remaining: timedelta) -> None:
@@ -959,6 +1081,7 @@ class TestInitializeSensors:
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.cur_temp == 19.5
+        assert bt.room_sensor_fallback is True
 
     def test_implausible_trv_value_falls_back_to_default(self, bt):
         """If both sensor and TRV are implausible, the default fallback is used."""
@@ -1358,6 +1481,7 @@ async def _run_finalize_startup(bt):
         patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
         patch(f"{climate}.await_optional_sensors", AsyncMock()),
         patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
+        patch(f"{climate}.reconcile_room_sensor", AsyncMock()),
         patch(f"{climate}.asyncio.sleep", AsyncMock()),
         patch(f"{climate}.async_track_time_interval"),
         patch(f"{climate}.async_track_state_change_event"),
@@ -1398,6 +1522,7 @@ class TestStartupStopsOnceTheEntityIsGone:
             patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
             patch(f"{climate}.await_optional_sensors", removed_during_the_wait),
             patch(f"{climate}.check_and_update_degraded_mode", degraded),
+            patch(f"{climate}.reconcile_room_sensor", AsyncMock()),
             patch(f"{climate}.asyncio.sleep", AsyncMock()),
             patch(f"{climate}.async_track_time_interval"),
             patch(f"{climate}.async_track_state_change_event"),
@@ -1811,6 +1936,58 @@ class TestInitializeTrvCurrentTemperature:
         assert bt.real_trvs[TRV_ID].current_temperature is None
 
 
+class TestInitializeTrvRangeFallback:
+    """A device that publishes no range is given 5 to 30 °C, on any system.
+
+    The fallback is Better Thermostat's own range, stated in the Celsius it
+    computes in. It stands in for a value the device never published, so no
+    unit the device might have published in applies to it.
+    """
+
+    def _trv_only_bt(self, bt, unit, state):
+        bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, calibration=1)}
+        bt.hass.config.units.temperature_unit = unit
+        bt.hass.states.get.return_value = state
+        return bt
+
+    async def _run(self, bt):
+        with (
+            patch("custom_components.better_thermostat.climate.init", AsyncMock()),
+            patch(
+                "custom_components.better_thermostat.climate.initial_tweak", AsyncMock()
+            ),
+            patch(
+                "custom_components.better_thermostat.climate.control_trv",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            await BetterThermostat._initialize_trvs(bt)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "unit",
+        [
+            pytest.param(UnitOfTemperature.CELSIUS, id="celsius"),
+            pytest.param(UnitOfTemperature.FAHRENHEIT, id="fahrenheit"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "published",
+        [
+            pytest.param(State(TRV_ID, "heat", {}), id="no_range_attributes"),
+            pytest.param(None, id="no_state"),
+        ],
+    )
+    async def test_a_device_without_a_range_gets_5_to_30_celsius(
+        self, bt, unit, published
+    ):
+        """The range fallback is 5 to 30 °C whatever the system unit."""
+        bt = self._trv_only_bt(bt, unit, published)
+        await self._run(bt)
+        trv = bt.real_trvs[TRV_ID]
+        assert (trv.min_temp, trv.max_temp) == (5.0, 30.0)
+
+
 class TestInitializeTrvSetpointSeed:
     """At startup the device's own setpoint is the one it may echo."""
 
@@ -1957,6 +2134,39 @@ class TestRestoreState:
         assert bt.cur_temp_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param((0.012345, 0.001234), (0.012345, 0.001234), id="store"),
+            pytest.param((None, None), (0.0123, 0.00123), id="attributes"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_store_keeps_the_learned_rates_at_full_precision(
+        self, bt, stored, expected
+    ):
+        """The rates the store holds win over the rounded state attributes.
+
+        The attributes publish the rates rounded for display; they fill in
+        only for an entry whose store carries none yet.
+        """
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_STATE_HEATING_POWER: 0.0123,
+            ATTR_STATE_HEAT_LOSS: 0.00123,
+            ATTR_TEMPERATURE: 21.0,
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+        bt.state_mgr = MagicMock()
+        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.heating_power, bt.heat_loss_rate = stored
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert (bt.heating_power, bt.heat_loss_rate) == expected
+
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
         """Test Target clamped to min."""
@@ -2042,6 +2252,90 @@ class TestRestoreState:
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
         assert bt.bt_target_cooltemp == 25.5
+
+    @pytest.mark.asyncio
+    async def test_a_restored_preset_off_the_step_applies_the_targets_it_applied_before(
+        self, bt
+    ):
+        """A preset stored between two steps comes back as the targets it applied.
+
+        Comfort heats to the 72 °F a user typed, 22.22 °C, and cools to
+        77.5 °F, 25.28 °C. Selecting it puts both on the configured 0.5 °C
+        step, 22 °C and 25.5 °C. After a restart the restored preset applies
+        those same two targets, not the stored values beneath them.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt._configured_target_temp_step = 0.5
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
+        bt._preset_cool_temperature = None
+        bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+        bt.control_queue_task = None
+
+        await BetterThermostat.async_set_preset_mode(bt, "comfort")
+        selected = (bt.bt_target_temp, bt.bt_target_cooltemp)
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected[0],
+            "preset_mode": "comfort",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+            ),
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+        bt.bt_target_cooltemp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == (22.0, 25.5)
+        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == selected
+        assert bt.preset_mgr.mode == "comfort"
+
+    @pytest.mark.asyncio
+    async def test_a_preset_below_a_bound_off_the_step_applies_one_target(self, bt):
+        """A preset below the range applies the same target on every path.
+
+        The range starts at 68.5 °F, 20.28 °C, between two steps of the
+        configured 0.5 °C, and Eco is stored at 18 °C. Selecting Eco, setting
+        the target it applied or Eco's stored 18 °C directly, as Eco's number
+        does, and restoring Eco after a restart all land on 20.5 °C, the step
+        nearest the bound inside the range, and Eco stays active throughout.
+        """
+        bt.bt_min_temp = 20.28
+        bt._configured_target_temp_step = 0.5
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.control_queue_task = asyncio.Queue()
+
+        await BetterThermostat.async_set_preset_mode(bt, "eco")
+        selected = bt.bt_target_temp
+
+        for requested in (selected, 18.0):
+            await BetterThermostat.async_set_temperature(
+                bt, **{ATTR_TEMPERATURE: requested}
+            )
+            assert bt.bt_target_temp == selected
+            assert bt.preset_mgr.mode == "eco"
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected,
+            "preset_mode": "eco",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.0, "eco": 18.0}
+            ),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == 20.5
+        assert bt.bt_target_temp == selected
+        assert bt.preset_mgr.mode == "eco"
 
     def _cooling_bt(self, bt, minimum, maximum):
         """Configure *bt* with a cooling channel and a real ordering method."""
@@ -2469,14 +2763,14 @@ class TestValidateHvacMode:
         # humidity should be re-read
         assert bt._current_humidity is not None
 
-    def test_humidity_sensor_none_sets_zero(self, bt):
-        """Test Humidity sensor none sets zero."""
+    def test_a_missing_humidity_sensor_leaves_the_humidity_unknown(self, bt):
+        """A humidity sensor with no state publishes no humidity, not 0 %."""
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.humidity_sensor_entity_id = HUMIDITY_ID
         bt.hass.states.get.return_value = None
         states = [_make_trv_state()]
         BetterThermostat._validate_hvac_mode(bt, states)
-        assert bt._current_humidity == 0
+        assert bt._current_humidity is None
 
 
 class TestFinalizeStartupOnADualRoleEntity:
@@ -2505,6 +2799,7 @@ class TestFinalizeStartupOnADualRoleEntity:
             patch(f"{climate}.check_critical_entities", AsyncMock(return_value=True)),
             patch(f"{climate}.await_optional_sensors", AsyncMock()),
             patch(f"{climate}.check_and_update_degraded_mode", AsyncMock()),
+            patch(f"{climate}.reconcile_room_sensor", AsyncMock()),
             patch(f"{climate}.asyncio.sleep", AsyncMock()),
             patch(f"{climate}.async_track_time_interval"),
             patch(f"{climate}.async_track_time_change"),

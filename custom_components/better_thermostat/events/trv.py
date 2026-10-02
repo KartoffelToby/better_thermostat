@@ -22,6 +22,10 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
+from custom_components.better_thermostat.events.temperature import (
+    queue_control_cycle,
+    refresh_room_temperature_from_trvs,
+)
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
     trv_state_unknown_as_available,
@@ -44,10 +48,12 @@ from custom_components.better_thermostat.utils.helpers import (
     is_reasonable_temperature,
     mode_remap,
     normalize_step,
+    published_in_whole_fahrenheit,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     room_mode_intent,
+    setpoint_at_minimum,
     setpoint_echo_window,
 )
 
@@ -58,7 +64,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def accepts_user_setpoint(
-    trv: Trv, *, is_echo: bool, child_lock: bool | None, contact_open: bool
+    trv: Trv,
+    *,
+    is_echo: bool,
+    child_lock: bool | None,
+    contact_open: bool,
+    was_off: bool,
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
 
@@ -77,6 +88,10 @@ def accepts_user_setpoint(
         option and reads as not locked.
     contact_open
         Whether a window or door contact of the room is open.
+    was_off
+        Whether the device was off before this report. A report that
+        switches it on carries a setpoint turned while it was off, which is
+        no more a press than one reported while it is still off.
 
     Returns
     -------
@@ -90,6 +105,7 @@ def accepts_user_setpoint(
         and trv.target_temp_received is True
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
+        and not was_off
         and contact_open is False
         and not trv.ignore_trv_states
     )
@@ -108,15 +124,51 @@ def _hold_report(
     came back from becomes the reference. A later report that moves the
     setpoint the device came back with makes the state before that move the
     reference, so a knob turned after the return is still read as a press.
+    A later report that switches the device on makes the off state it
+    switched on from the reference, and off the mode it is judged against,
+    as the handler would have cached the earlier report outside a cycle.
+    A report that moves the setpoint of a device that is on, after the
+    reference was set to off, makes the state before that move the reference
+    and its mode the mode it is judged against: outside a cycle the handler
+    has cached the device as on by then, and reads the move as a press.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
         self, trv.state_before_held_report
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    switched_on_after_first_report = (
+        trv.report_unread
+        and old_state is not None
+        and old_state.state == HVACMode.OFF
+        and _reports_on(new_state)
+    )
+    pressed_after_switch_on = (
+        trv.report_unread
+        and trv.hvac_mode_before_held_report == HVACMode.OFF
+        and _reports_on(old_state)
+        and _reports_on(new_state)
+        and previous_setpoint != _held_setpoint(self, new_state)
+    )
     if not trv.report_unread or returned or moved_after_return:
         trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = trv.hvac_mode
+    if switched_on_after_first_report:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = HVACMode.OFF
+    if pressed_after_switch_on and old_state is not None:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = old_state.state
     trv.report_unread = True
+
+
+def _reports_on(state: State | None) -> bool:
+    """Return whether a held report's state names a mode other than off."""
+    return state is not None and state.state not in (
+        HVACMode.OFF,
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+    )
 
 
 def _held_setpoint(self, state: State | None) -> float | None:
@@ -125,7 +177,12 @@ def _held_setpoint(self, state: State | None) -> float | None:
 
 
 async def trigger_trv_change(
-    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+    self,
+    event,
+    *,
+    mode_settled: bool = False,
+    request_cycle: bool = True,
+    prior_hvac_mode: str | None = None,
 ):
     """Trigger a change in the trv state.
 
@@ -133,6 +190,9 @@ async def trigger_trv_change(
     has already settled, so the mode it carries is left to the device's next
     report. ``request_cycle=False`` reads the report without requesting a
     control cycle for it, for a caller that decides that itself.
+    ``prior_hvac_mode`` is the mode the device was cached in before the
+    report, for a caller whose cache has moved since; without it the cache
+    is that mode.
     """
     if self.startup_running:
         return
@@ -143,6 +203,7 @@ async def trigger_trv_change(
     if self.bt_update_lock:
         return
     _main_change = False
+    _room_temperature_changed = False
     resolved_event = resolve_state_change_event(self, event, "TRV")
     if resolved_event is None:
         return
@@ -184,6 +245,11 @@ async def trigger_trv_change(
             # The next valid reading is the first live data after the
             # outage and must not be dropped by the debounce below.
             trv.accept_next_internal_temp = True
+        # During the room sensor fallback the room is taken from a TRV that
+        # still reports, and a room temperature that moves is controlled on.
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
+            queue_control_cycle(self)
         return
 
     advanced = trv.advanced or {}
@@ -228,6 +294,24 @@ async def trigger_trv_change(
     _new_current_temp = attr_to_celsius(
         self, _org_trv_state, "current_temperature", None, "TRV_current_temp"
     )
+    # Only a report that carries no readable internal temperature invalidates
+    # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
+    # below and leaves the stored reading in place.
+    _reports_no_temp = _new_current_temp is None
+    # The room sensor fallback takes the room from the first TRV whose report
+    # carries a plausible temperature. A report that turns a marker value back
+    # into a plausible reading puts the TRV back into that choice while the
+    # stored reading it carries is unchanged or held back by the debounce.
+    _previous_temp = attr_to_celsius(
+        self, old_state, "current_temperature", None, "TRV_previous_temp"
+    )
+    _marker_cleared = (
+        self.room_sensor_fallback
+        and _new_current_temp is not None
+        and _previous_temp is not None
+        and is_reasonable_temperature(_new_current_temp)
+        and not is_reasonable_temperature(_previous_temp)
+    )
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -247,7 +331,25 @@ async def trigger_trv_change(
     # not hold back the internal temperature of the other valves in the room.
     _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
-    if (
+    _internal_temp_taken = False
+    if _reports_no_temp:
+        # A report without an internal temperature leaves no live value to
+        # keep: the stored one would otherwise feed the calibration for as
+        # long as the device keeps reporting without it.
+        if trv.current_temperature is not None:
+            _LOGGER.debug(
+                "better_thermostat %s: TRV %s reports no internal "
+                "temperature; invalidating %s",
+                self.device_name,
+                entity_id,
+                trv.current_temperature,
+            )
+            trv.current_temperature = None
+            # The next valid reading is the first live data after the gap
+            # and must not be dropped by the debounce below.
+            trv.accept_next_internal_temp = True
+            _main_change = True
+    elif (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
         and (
@@ -257,6 +359,7 @@ async def trigger_trv_change(
             or (trv.calibration_received is False and trv.calibration != 1)
         )
     ):
+        _internal_temp_taken = True
         _old_temp = trv.current_temperature
         trv.current_temperature = _new_current_temp
         _LOGGER.debug(
@@ -268,6 +371,9 @@ async def trigger_trv_change(
         )
         trv.last_internal_sensor_change = dt_util.now()
         _main_change = True
+        _room_temperature_changed = refresh_room_temperature_from_trvs(self)
+        if _room_temperature_changed:
+            self.async_write_ha_state()
 
         # async def in controlling? (left as note)
         if trv.calibration_received is False:
@@ -281,7 +387,31 @@ async def trigger_trv_change(
             if trv.calibration == 0:
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
+        # A room temperature the room sensor fallback takes from the report,
+        # including the one that starts a due fallback, is controlled on
+        # even when the report also confirms an offset write.
+        if _room_temperature_changed:
+            _main_change = True
+
+    # The room sensor fallback reads the TRVs' live reports, so a due
+    # fallback starts on the first report that carries a usable temperature,
+    # and an active one moves off a TRV whose report carries none, whether or
+    # not the stored internal temperature changed. A usable reading that the
+    # debounce held back moves the active fallback no more than the TRV,
+    # unless the report is the one that clears a marker value.
+    if not _internal_temp_taken and (
+        self.room_sensor_fallback_due or _new_current_temp is None or _marker_cleared
+    ):
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
+            _main_change = True
+
     if self.ignore_states:
+        # A control cycle is running and the rest of the report is held
+        # for its end. An internal temperature it took, and with it a room
+        # temperature it changed during the room sensor fallback, asks the
+        # end of the cycle for one more; the confirmation of an offset
+        # write, which cleared _main_change, does not.
         _hold_report(self, trv, old_state, new_state)
         if _main_change:
             trv.temperature_moved_while_held = True
@@ -336,6 +466,9 @@ async def trigger_trv_change(
     except Exception:
         pass
 
+    _was_off = (
+        prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode
+    ) == HVACMode.OFF
     if (
         mapped_state in (HVACMode.OFF, HVACMode.HEAT, HVACMode.HEAT_COOL)
         and not mode_settled
@@ -414,7 +547,7 @@ async def trigger_trv_change(
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *cooling_writes_as_held(self, _step),
+            *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (
@@ -461,14 +594,18 @@ async def trigger_trv_change(
             _reported_setpoint,
             trv.last_temperature,
         )
-        # The no_off OFF detection compares against the device's true min_temp,
-        # so it uses the reported value, not one the clamp may have raised into
+        # The no_off OFF detection compares against the TRV's minimum, so it
+        # uses the reported value, not one the clamp may have raised into
         # [bt_min_temp, bt_max_temp].
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
         _accept_user_setpoint = accepts_user_setpoint(
-            trv, is_echo=_is_echo, child_lock=child_lock, contact_open=self.contact_open
+            trv,
+            is_echo=_is_echo,
+            child_lock=child_lock,
+            contact_open=self.contact_open,
+            was_off=_was_off,
         )
         if _accept_user_setpoint:
             if _setpoint.clamped:
@@ -596,7 +733,14 @@ async def trigger_trv_change(
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
             _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
-            if _raw_heating_setpoint == trv.min_temp:
+            if setpoint_at_minimum(
+                _raw_heating_setpoint,
+                trv.min_temp,
+                step=trv.target_temp_step,
+                whole_degrees=published_in_whole_fahrenheit(
+                    new_state, self.hass.config.units.temperature_unit
+                ),
+            ):
                 # Only set OFF if no window/door contact is open - min_temp
                 # during an open contact was set by BT, not by the user turning
                 # off heating - and only

@@ -63,6 +63,9 @@ def mock_bt():
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt.room_sensor_fallback = False
+    bt.room_sensor_fallback_cancel = None
+    bt.room_sensor_fallback_due = False
 
     # Serialisation of concurrent readings
     bt._temperature_filter_lock = None

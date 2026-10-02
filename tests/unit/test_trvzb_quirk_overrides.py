@@ -209,6 +209,7 @@ def _registry_entry(entity_id, *, domain, translation_key=None, device_id="dev1"
     entry.unique_id = entity_id
     entry.translation_key = translation_key
     entry.original_name = None
+    entry.disabled_by = None
     return entry
 
 

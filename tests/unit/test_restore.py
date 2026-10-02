@@ -99,6 +99,28 @@ class TestMeanTrvTarget:
         )
         assert result == pytest.approx(20.0)
 
+    def test_range_trv_contributes_its_low_setpoint(self):
+        """A range TRV's heating setpoint counts as its target."""
+        ranged = State(
+            "climate.trv",
+            "heat_cool",
+            attributes={ATTR_TARGET_TEMP_LOW: 22.0, ATTR_TARGET_TEMP_HIGH: 26.0},
+        )
+        assert mean_trv_target([ranged, _trv(20.0)], DEV) == pytest.approx(21.0)
+
+    def test_range_trv_low_setpoint_converted_to_celsius(self):
+        """A range TRV's Fahrenheit heating setpoint is read in Celsius."""
+        ranged = State(
+            "climate.trv",
+            "heat_cool",
+            attributes={
+                ATTR_TARGET_TEMP_LOW: 68.0,
+                ATTR_TARGET_TEMP_HIGH: 77.0,
+                "temperature_unit": UnitOfTemperature.FAHRENHEIT,
+            },
+        )
+        assert mean_trv_target([ranged], DEV) == pytest.approx(20.0)
+
 
 # ---------------------------------------------------------------------------
 # saved_heating_target / saved_cooling_target
