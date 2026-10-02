@@ -541,5 +541,22 @@
       "set_hvac_mode": "Imposta la modalità HVAC",
       "set_temperature": "Imposta la temperatura target"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} non supporta la modalità HVAC {mode}. Modalità supportate: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} ha ricevuto {value} per {attribute}, che non è un numero."
+    },
+    "valve_maintenance_running": {
+      "message": "La manutenzione delle valvole è già in corso su {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} non ha alcuna valvola con la manutenzione delle valvole attivata."
+    },
+    "valve_maintenance_failed": {
+      "message": "La manutenzione delle valvole su {device_name} non è riuscita. I dettagli sono nel log."
+    }
   }
 }

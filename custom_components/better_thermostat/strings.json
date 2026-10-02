@@ -541,5 +541,22 @@
       "set_hvac_mode": "Set HVAC mode",
       "set_temperature": "Set target temperature"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} does not support the HVAC mode {mode}. Supported modes: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} received {value} for {attribute}, which is not a number."
+    },
+    "valve_maintenance_running": {
+      "message": "Valve maintenance is already running on {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} has no valve with valve maintenance enabled."
+    },
+    "valve_maintenance_failed": {
+      "message": "Valve maintenance on {device_name} failed. The log has the details."
+    }
   }
 }

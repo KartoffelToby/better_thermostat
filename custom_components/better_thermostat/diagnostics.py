@@ -123,11 +123,9 @@ async def async_get_config_entry_diagnostics(
         },
     }
 
-    bt = (
-        hass.data.get("better_thermostat", {})
-        .get(config_entry.entry_id, {})
-        .get("climate")
-    )
+    # An entry that is not loaded has no runtime data.
+    runtime_data = getattr(config_entry, "runtime_data", None)
+    bt = runtime_data.climate if runtime_data is not None else None
     if bt is not None:
         # What the thermostat itself reports: mode, targets and the
         # annunciation attributes.

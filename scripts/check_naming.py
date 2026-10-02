@@ -29,8 +29,9 @@ spelling the old name is over budget and has to follow.
 Three modes:
 
 ``check``
-    Count today's findings and exit non-zero when a file is over its budget, or
-    when a file with no budget has a finding at all.
+    Count today's findings and exit non-zero when a file is over its budget,
+    when a file with no budget has a finding at all, or when a file came in
+    under its budget and the lower number has not been recorded yet.
 
 ``update``
     Rewrite the budget from today's counts. Run this after a rename, so the
@@ -241,7 +242,13 @@ def _load_budget() -> dict[str, int]:
 
 
 def check(paths: list[Path] | None) -> int:
-    """Compare today's findings against the budget. Return an exit code."""
+    """Compare today's findings against the budget. Return an exit code.
+
+    A file under its budget fails like one over it, so a rename records the
+    lower number it reached. A full check judges every recorded file, so a
+    deleted file counts as zero and its budget has to be dropped. A partial
+    check judges only the files it scanned and says nothing about the rest.
+    """
     glossary = _load_glossary()
     findings: dict[str, list[Finding]] = {}
     for finding in _findings(paths, glossary):
@@ -267,11 +274,21 @@ def check(paths: list[Path] | None) -> int:
         f"{sum(counts.values())} rejected names across {len(counts)} files, "
         "all within budget"
     )
-    slack = sum(1 for path, count in budget.items() if count > counts.get(path, 0))
+    judged = (
+        budget.keys()
+        if paths is None
+        else {path.relative_to(REPO_ROOT).as_posix() for path in _sources(paths)}
+    )
+    slack = sum(
+        1
+        for path, count in budget.items()
+        if path in judged and count > counts.get(path, 0)
+    )
     if slack:
         print(
             f"{slack} file(s) below budget. Run `check_naming.py update` to record it."
         )
+        return 1
     return 0
 
 

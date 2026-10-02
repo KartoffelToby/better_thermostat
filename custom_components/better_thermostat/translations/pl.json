@@ -541,5 +541,22 @@
       "set_hvac_mode": "Ustaw tryb HVAC",
       "set_temperature": "Ustaw temperaturę docelową"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} nie obsługuje trybu HVAC {mode}. Obsługiwane tryby: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} otrzymał {value} dla {attribute}, co nie jest liczbą."
+    },
+    "valve_maintenance_running": {
+      "message": "Konserwacja zaworów jest już uruchomiona na {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} nie ma zaworu z włączoną konserwacją zaworów."
+    },
+    "valve_maintenance_failed": {
+      "message": "Konserwacja zaworów na {device_name} nie powiodła się. Szczegóły są w logu."
+    }
   }
 }

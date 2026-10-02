@@ -49,13 +49,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import Context, Event, EventStateChangedData, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import (
-    device_registry as dr,
-    entity_platform,
-    entity_registry as er,
-)
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -135,7 +130,6 @@ from .utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
-    BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
@@ -160,9 +154,6 @@ from .utils.const import (
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
-    SERVICE_RESET_HEATING_POWER,
-    SERVICE_RESET_PID_LEARNINGS,
-    SERVICE_RUN_VALVE_MAINTENANCE,
     SUPPORT_FLAGS,
     TARGET_TEMP_BOUND_AUTO,
     VERSION,
@@ -223,6 +214,7 @@ from .utils.restore import (
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
+    TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
     collect_cycle_telemetry,
     collect_mpc_v2_debug_attrs,
@@ -292,9 +284,6 @@ STARTUP_CONTROL_BUDGET_S = 45.0
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
-# Signal for dynamic entity updates
-SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
-
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Better Thermostat platform."""
@@ -307,20 +296,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
         entry.data.get(CONF_NAME),
         entry.entry_id,
-    )
-
-    platform = entity_platform.async_get_current_platform()
-    # Register entity services (validator done manually inside method)
-    platform.async_register_entity_service(
-        SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
-    )
-    platform.async_register_entity_service(
-        SERVICE_RUN_VALVE_MAINTENANCE, {}, "run_valve_maintenance_service"
-    )
-    platform.async_register_entity_service(
-        SERVICE_RESET_PID_LEARNINGS,
-        BETTERTHERMOSTAT_RESET_PID_SCHEMA,
-        "reset_pid_learnings_service",
     )
 
     bt_entity = BetterThermostat(
@@ -349,7 +324,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         device_class="better_thermostat",
         state_class="better_thermostat_state",
     )
-    hass.data[DOMAIN][entry.entry_id]["climate"] = bt_entity
+    entry.runtime_data.climate = bt_entity
     async_normalize_bt_entity_ids(hass, entry, Platform.CLIMATE)
     async_add_entities([bt_entity])
     _LOGGER.debug(
@@ -477,12 +452,30 @@ def _target_temp_step_celsius(
     )
 
 
+def unsupported_hvac_mode_error(
+    bt: BetterThermostat, hvac_mode: object
+) -> ServiceValidationError:
+    """Build the error refusing ``hvac_mode``, naming the modes ``bt`` offers."""
+    mode = hvac_mode.value if isinstance(hvac_mode, HVACMode) else hvac_mode
+    return ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key="unsupported_hvac_mode",
+        translation_placeholders={
+            "device_name": bt.device_name,
+            "mode": str(mode),
+            "modes": ", ".join(bt.hvac_modes),
+        },
+    )
+
+
 class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     """Representation of a Better Thermostat device."""
 
     _attr_has_entity_name = True
     _attr_name = None
-    _enable_turn_on_off_backwards_compatibility = False
+    # ``degraded_for_s`` counts up on every write while degraded; the recorded
+    # ``control_mode`` already says when the degradation began.
+    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {"degraded_for_s"}
 
     # Per-channel cooler send bookkeeping: the last successfully sent command,
     # the settled reading of each written channel, the mode the last cycle
@@ -2895,7 +2888,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # A via device link written while the setup had (or was
                 # treated as having) a single valve would keep the BT device
                 # attached to one arbitrary TRV; clear it.
-                await async_unbind_trv_device(self.hass, self._unique_id)
+                await async_unbind_trv_device(
+                    self.hass, self._unique_id, self._config_entry_id
+                )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
@@ -3987,10 +3982,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         hvac_mode_norm = normalize_hvac_mode(hvac_mode)
         if hvac_mode_norm not in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-            raise ServiceValidationError(
-                f"Unsupported hvac_mode {hvac_mode!r} for {self.device_name}; "
-                f"supported: heat, heat_cool, off"
-            )
+            raise unsupported_hvac_mode_error(self, hvac_mode)
         self.bt_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
         self.last_user_change_monotonic = self.clock.monotonic()
         self.async_write_ha_state()
@@ -4470,10 +4462,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 else None
             )
             if hvac_mode_norm not in (HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF):
-                raise ServiceValidationError(
-                    f"Unsupported hvac_mode {hvac_mode_val!r} for "
-                    f"{self.device_name}; supported: heat, heat_cool, off"
-                )
+                raise unsupported_hvac_mode_error(self, hvac_mode_val)
             # Same normalization as async_set_hvac_mode, so both service
             # entry points map HEAT/HEAT_COOL identically.
             _new_hvac_mode = room_mode_intent(HVACMode(hvac_mode_norm))
@@ -4492,8 +4481,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             if value is None:
                 raise ServiceValidationError(
-                    f"Invalid {attr} {kwargs.get(attr)!r} for "
-                    f"{self.device_name}; must be numeric"
+                    translation_domain=DOMAIN,
+                    translation_key="non_numeric_temperature",
+                    translation_placeholders={
+                        "device_name": self.device_name,
+                        "attribute": attr,
+                        "value": str(kwargs.get(attr)),
+                    },
                 )
             return value
 
@@ -4643,38 +4637,43 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """Turn the entity on."""
         await self.async_set_hvac_mode(HVACMode.HEAT)
 
-    def _signal_config_change(self) -> None:
-        """Signal a configuration change to trigger entity cleanup/recreation."""
-        signal_key = f"bt_config_changed_{self._config_entry_id}"
-        dispatcher_send(self.hass, signal_key, {"entry_id": self._config_entry_id})
-        _LOGGER.debug(
-            "better_thermostat %s: Signaled configuration change", self.device_name
-        )
-
     async def run_valve_maintenance_service(self) -> None:
-        """Entity service: run valve maintenance immediately (ignores schedule)."""
-        try:
-            if self.in_maintenance:
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance already running",
-                    self.device_name,
-                )
-                return
-            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
-            if not trvs_to_service:
-                _LOGGER.debug(
-                    "better_thermostat %s: valve maintenance requested, but no TRV has it enabled",
-                    self.device_name,
-                )
-                return
-            # force immediate run
-            self.next_valve_maintenance = self.clock.now()
-            await self._run_valve_maintenance(trvs_to_service)
-        except Exception:
-            _LOGGER.debug(
-                "better_thermostat %s: valve maintenance service encountered an error",
-                self.device_name,
+        """Entity service: run valve maintenance immediately (ignores schedule).
+
+        Raises
+        ------
+        ServiceValidationError
+            when a run is already in progress, or no valve of this thermostat
+            has valve maintenance enabled
+        HomeAssistantError
+            when the run fails
+        """
+        if self.in_maintenance:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="valve_maintenance_running",
+                translation_placeholders={"device_name": self.device_name},
             )
+        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
+        if not trvs_to_service:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="valve_maintenance_not_enabled",
+                translation_placeholders={"device_name": self.device_name},
+            )
+        # force immediate run
+        self.next_valve_maintenance = self.clock.now()
+        try:
+            await self._run_valve_maintenance(trvs_to_service)
+        except Exception as err:
+            _LOGGER.exception(
+                "better_thermostat %s: valve maintenance failed", self.device_name
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="valve_maintenance_failed",
+                translation_placeholders={"device_name": self.device_name},
+            ) from err
 
     @property
     def min_temp(self):

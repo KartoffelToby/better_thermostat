@@ -541,5 +541,22 @@
       "set_hvac_mode": "HVAC-Modus setzen",
       "set_temperature": "Zieltemperatur setzen"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} unterstützt den HVAC-Modus {mode} nicht. Unterstützte Modi: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} hat für {attribute} den Wert {value} erhalten; das ist keine Zahl."
+    },
+    "valve_maintenance_running": {
+      "message": "Auf {device_name} läuft bereits eine Ventilwartung."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} hat kein Ventil mit aktivierter Ventilwartung."
+    },
+    "valve_maintenance_failed": {
+      "message": "Die Ventilwartung auf {device_name} ist fehlgeschlagen. Details stehen im Log."
+    }
   }
 }

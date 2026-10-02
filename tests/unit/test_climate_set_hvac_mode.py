@@ -23,6 +23,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_hvac_mode = HVACMode.HEAT
+    mock.hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     mock.in_maintenance = False
     mock._control_needed_after_maintenance = False
     mock.clock = FakeClock()

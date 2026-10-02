@@ -26,7 +26,7 @@ BT_ENTRY_ID = "bt_entry_id"
 def _registry_with(bt_device):
     """Build a device-registry mock returning the given BT device entry."""
     registry = MagicMock()
-    registry.async_get_device.return_value = bt_device
+    registry.async_get_device_by_identifier.return_value = bt_device
     return registry
 
 
@@ -173,10 +173,12 @@ async def test_unbind_clears_a_stale_via_device_link():
     registry = _registry_with(bt_device)
 
     with patch(f"{_BINDING}.dr.async_get", return_value=registry):
-        result = await async_unbind_trv_device(MagicMock(), BT_UID)
+        result = await async_unbind_trv_device(MagicMock(), BT_UID, BT_ENTRY_ID)
 
     assert result is True
-    registry.async_get_device.assert_called_once_with(identifiers={(DOMAIN, BT_UID)})
+    registry.async_get_device_by_identifier.assert_called_once_with(
+        (DOMAIN, BT_UID), BT_ENTRY_ID
+    )
     registry.async_update_device.assert_called_once_with(
         "bt_device_id", via_device_id=None
     )
@@ -190,7 +192,7 @@ async def test_unbind_is_a_noop_without_a_via_device_link():
     registry = _registry_with(bt_device)
 
     with patch(f"{_BINDING}.dr.async_get", return_value=registry):
-        result = await async_unbind_trv_device(MagicMock(), BT_UID)
+        result = await async_unbind_trv_device(MagicMock(), BT_UID, BT_ENTRY_ID)
 
     assert result is False
     registry.async_update_device.assert_not_called()
@@ -202,7 +204,7 @@ async def test_unbind_is_a_noop_without_a_registry_entry():
     registry = _registry_with(None)
 
     with patch(f"{_BINDING}.dr.async_get", return_value=registry):
-        result = await async_unbind_trv_device(MagicMock(), BT_UID)
+        result = await async_unbind_trv_device(MagicMock(), BT_UID, BT_ENTRY_ID)
 
     assert result is False
     registry.async_update_device.assert_not_called()

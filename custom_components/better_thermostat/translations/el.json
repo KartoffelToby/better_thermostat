@@ -541,5 +541,22 @@
       "set_hvac_mode": "Ορισμός λειτουργίας HVAC",
       "set_temperature": "Ορισμός θερμοκρασίας στόχου"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "Το {device_name} δεν υποστηρίζει τη λειτουργία HVAC {mode}. Υποστηριζόμενες λειτουργίες: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "Το {device_name} έλαβε {value} για το {attribute}, που δεν είναι αριθμός."
+    },
+    "valve_maintenance_running": {
+      "message": "Η συντήρηση βαλβίδων εκτελείται ήδη στο {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "Το {device_name} δεν έχει βαλβίδα με ενεργοποιημένη συντήρηση βαλβίδων."
+    },
+    "valve_maintenance_failed": {
+      "message": "Η συντήρηση βαλβίδων στο {device_name} απέτυχε. Οι λεπτομέρειες βρίσκονται στο αρχείο καταγραφής."
+    }
   }
 }

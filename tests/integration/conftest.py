@@ -111,7 +111,7 @@ DEGRADED_GRACE = (
 
 @pytest.fixture(autouse=True)
 async def _recorder(recorder_mock):
-    """Provide the recorder the integration's manifest depends on.
+    """Provide the recorder the integration reads outdoor history from.
 
     Must be instantiated before anything pulls up the hass fixture.
     """
@@ -615,7 +615,7 @@ async def wait_for_startup(hass, entry):
     be lost. ``_async_unsub_state_changed`` is assigned in the listener
     registration block at the end of the sequence.
     """
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert await wait_for(
         hass,
         lambda: not bt.startup_running and bt._async_unsub_state_changed is not None,
