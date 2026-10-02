@@ -360,6 +360,20 @@ class Trv:
         value : float
             the setpoint in °C as the device reported it
         """
+        self.remember_setpoint_held(value)
+
+    def remember_setpoint_held(self, value: float) -> None:
+        """Record a setpoint the device holds as the one BT wants it to hold.
+
+        However the value got onto the device, once BT would write it there
+        itself it is BT's own: the device reporting it again is no press.
+        The writes still on the wire are not retired.
+
+        Parameters
+        ----------
+        value : float
+            the setpoint in °C the device holds
+        """
         self.last_temperature = value
         self.remember_setpoint_confirmed(value, self.confirmed_write_id)
 
