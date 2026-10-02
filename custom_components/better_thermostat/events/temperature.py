@@ -252,8 +252,8 @@ def _commit_pending_after(self, delay_s: float) -> None:
     timer shares the plateau timer's handle, so a newer reading, a commit or
     the entity's removal cancels it the same way. Its firing runs as work the
     entity owns, so a removal also stops a commit already writing to the TRVs.
-    A sensor that has since stopped giving a usable reading has withdrawn the
-    pending one.
+    A sensor that has since stopped giving a usable reading, or that now
+    reads a different value, has withdrawn the pending one.
     """
     if self.plateau_timer_cancel is not None:
         self.plateau_timer_cancel()
@@ -266,10 +266,12 @@ def _commit_pending_after(self, delay_s: float) -> None:
                 return
             if self.pending_temp != _value or self.pending_since != _since:
                 return
-            if (
-                room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
-                is None
-            ):
+            _reading = room_sensor_reading(
+                self, self.hass.states.get(self.sensor_entity_id)
+            )
+            # A sensor that has moved on since carries a newer reading, whose
+            # own event is still waiting for the lock and is judged there.
+            if _reading is None or round(_reading, 2) != _value:
                 return
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature accepted after the "
