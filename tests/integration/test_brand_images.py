@@ -6,6 +6,8 @@ served locally, ahead of the brands CDN. HACS requires the directory.
 
 from pathlib import Path
 
+from aiohttp import web
+from homeassistant.components.brands import BrandsIntegrationView
 from homeassistant.setup import async_setup_component
 import pytest
 
@@ -13,14 +15,23 @@ from custom_components.better_thermostat.utils.const import DOMAIN
 
 BRAND_DIR = Path(__file__).parents[2] / "custom_components" / DOMAIN / "brand"
 
+NOT_LOCAL = b"served by the disk cache or the brands CDN"
+
 
 @pytest.mark.parametrize(
     "image", ["icon.png", "icon@2x.png", "logo.png", "logo@2x.png"]
 )
 async def test_the_brand_images_are_served_from_the_integration(
-    hass, hass_client, image
+    hass, hass_client, monkeypatch, image
 ):
     """Each image comes from the integration's folder, not from the CDN."""
+
+    async def serve_not_local(*_args, **_kwargs):
+        return web.Response(body=NOT_LOCAL, content_type="image/png")
+
+    monkeypatch.setattr(
+        BrandsIntegrationView, "_serve_from_cache_or_cdn", serve_not_local
+    )
     assert await async_setup_component(hass, "brands", {})
     client = await hass_client()
 
@@ -29,4 +40,6 @@ async def test_the_brand_images_are_served_from_the_integration(
     )
 
     assert response.status == 200
-    assert await response.read() == (BRAND_DIR / image).read_bytes()
+    body = await response.read()
+    assert body != NOT_LOCAL
+    assert body == (BRAND_DIR / image).read_bytes()
