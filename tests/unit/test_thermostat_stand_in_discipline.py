@@ -30,23 +30,12 @@ _BARE_MOCKS = frozenset(
 # Bare stand-ins per file, as they stand. Lower a count, never raise it.
 _REMAINING = {
     "tests/factories.py": 1,
-    "tests/test_adapters_none_handling.py": 1,
     "tests/test_aggressive_calibration.py": 1,
-    "tests/test_battery_entity.py": 1,
     "tests/test_calibration_default_mode.py": 1,
-    "tests/test_distribute_valve.py": 5,
-    "tests/test_fallback_mode.py": 3,
-    "tests/test_heating_tolerance.py": 1,
-    "tests/test_helpers_valve.py": 1,
-    "tests/test_off_temperature_attribute.py": 5,
-    "tests/test_window_no_off_mode.py": 1,
     "tests/unit/controlling/test_control_cooler.py": 1,
     "tests/unit/controlling/test_control_queue.py": 20,
     "tests/unit/controlling/test_control_trv.py": 7,
-    "tests/unit/controlling/test_helpers.py": 26,
     "tests/unit/controlling/test_trv_mode_cache_refresh.py": 1,
-    "tests/unit/test_adapter_offset_contract.py": 2,
-    "tests/unit/test_bth_rm_quirks.py": 1,
     "tests/unit/test_calibration_cooling_gates.py": 1,
     "tests/unit/test_calibration_heating_power.py": 1,
     "tests/unit/test_calibration_mode_default.py": 1,
@@ -54,41 +43,14 @@ _REMAINING = {
     "tests/unit/test_calibration_pid_state_manager.py": 1,
     "tests/unit/test_calibration_sensor_fallback.py": 1,
     "tests/unit/test_calibration_tpi_state_manager.py": 1,
-    "tests/unit/test_calibrator_health_annunciation.py": 1,
     "tests/unit/test_calibrator_strategy.py": 3,
-    "tests/unit/test_climate_availability_tick.py": 3,
     "tests/unit/test_climate_baseline.py": 1,
-    "tests/unit/test_climate_device_info.py": 1,
-    "tests/unit/test_climate_hvac_action_cache.py": 1,
-    "tests/unit/test_climate_persistence.py": 2,
-    "tests/unit/test_cooler_events.py": 1,
-    "tests/unit/test_diagnostics.py": 1,
-    "tests/unit/test_door_events.py": 1,
-    "tests/unit/test_dual_role_entity.py": 1,
-    "tests/unit/test_external_temperature_keepalive.py": 2,
-    "tests/unit/test_fail_soft_behavior.py": 2,
-    "tests/unit/test_helpers_device_model.py": 1,
-    "tests/unit/test_helpers_inbound_setpoint.py": 1,
-    "tests/unit/test_helpers_logbook_entry.py": 1,
-    "tests/unit/test_helpers_setpoint_range.py": 1,
     "tests/unit/test_hvac_action_cooling_report.py": 1,
     "tests/unit/test_mqtt_adapter_init.py": 2,
-    "tests/unit/test_pid_entity_state_access.py": 1,
-    "tests/unit/test_quirk_missing_room_state.py": 1,
     "tests/unit/test_reconciler.py": 1,
-    "tests/unit/test_scheduler.py": 1,
-    "tests/unit/test_sensor.py": 1,
-    "tests/unit/test_solar_context.py": 1,
     "tests/unit/test_standby_contract.py": 1,
-    "tests/unit/test_telemetry.py": 8,
     "tests/unit/test_temperature_events.py": 1,
     "tests/unit/test_trv_events.py": 2,
-    "tests/unit/test_trvzb_quirk_overrides.py": 1,
-    "tests/unit/test_valve_maintenance.py": 1,
-    "tests/unit/test_watcher.py": 1,
-    "tests/unit/test_window_events.py": 1,
-    "tests/unit/test_world_snapshot.py": 1,
-    "tests/unit/test_zwave_js_adapter.py": 1,
 }
 
 
@@ -96,7 +58,13 @@ def _bare_stand_ins(path: Path) -> int:
     """Count ``bt = MagicMock()`` and its spellings in one file."""
     count = 0
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not isinstance(node.value, ast.Call):
             continue
         func = node.value.func
         called = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
@@ -104,7 +72,7 @@ def _bare_stand_ins(path: Path) -> int:
             continue
         count += sum(
             isinstance(target, ast.Name) and target.id in _STAND_IN_NAMES
-            for target in node.targets
+            for target in targets
         )
     return count
 
@@ -119,18 +87,20 @@ def _suite_counts() -> dict[str, int]:
 
 
 def test_a_bare_stand_in_is_counted_in_each_spelling(tmp_path):
-    """Both mock classes and both import styles count; the strict stand-in does not."""
+    """Both mock classes, both import styles and annotated assignments count."""
     probe = tmp_path / "test_probe.py"
     probe.write_text(
         "bt = MagicMock()\n"
         "mock_bt = mock.Mock()\n"
         "mock_self = Mock()\n"
+        "bt: MagicMock = MagicMock()\n"
+        "bt: MagicMock\n"
         "bt = ThermostatStandIn()\n"
         "trv = MagicMock()\n",
         encoding="utf-8",
     )
 
-    assert _bare_stand_ins(probe) == 3
+    assert _bare_stand_ins(probe) == 4
 
 
 def test_no_file_adds_a_bare_stand_in():

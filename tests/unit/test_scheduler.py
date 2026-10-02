@@ -9,10 +9,11 @@ from custom_components.better_thermostat.utils.scheduler import (
     empty_queue,
     request_control_cycle,
 )
+from tests.factories import ThermostatStandIn
 
 
 def _make_bt() -> MagicMock:
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.control_queue_task = asyncio.Queue(maxsize=1)
     return bt

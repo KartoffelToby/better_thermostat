@@ -40,7 +40,7 @@ from custom_components.better_thermostat.utils.controlling import (
     check_system_mode,
     check_target_temperature,
 )
-from tests.factories import make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -74,7 +74,7 @@ class TestCheckSystemMode:
             mock_state if live_state is not None else None
         )
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -303,7 +303,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -328,7 +328,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -358,7 +358,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -413,7 +413,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -443,7 +443,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -467,7 +467,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -491,7 +491,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -523,7 +523,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -581,7 +581,7 @@ class TestCheckTargetTemperature:
         mock_hass = MagicMock()
         mock_hass.states.get.side_effect = report
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {"climate.trv1": trv}
@@ -617,7 +617,7 @@ class TestCheckTargetTemperature:
             "climate.trv1", HVACMode.HEAT, {"temperature": 24.0}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {"climate.trv1": trv}
@@ -654,7 +654,7 @@ class TestCheckTargetTemperature:
             "climate.trv1", HVACMode.HEAT, {"temperature": 22.0}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {"climate.trv1": trv}
@@ -695,7 +695,7 @@ class TestCheckTargetTemperature:
             "climate.trv1", HVACMode.HEAT, {"temperature": 24.0}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {"climate.trv1": trv}
@@ -737,7 +737,7 @@ class TestCheckTargetTemperature:
         mock_hass = MagicMock()
         mock_hass.states.get.side_effect = report
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {"climate.trv1": trv}
@@ -763,7 +763,7 @@ class TestCheckTargetTemperature:
             "climate.trv1", HVACMode.HEAT, {"temperature": 25.004}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -801,7 +801,7 @@ class TestCheckTargetTemperature:
             "climate.trv1", HVACMode.HEAT, {"temperature": None}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -837,7 +837,7 @@ class TestCheckTargetTemperature:
             "climate.trv1", HVACMode.HEAT, {"temperature": 26.0}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -871,7 +871,7 @@ class TestCheckTargetTemperature:
         mock_hass = Mock()
         mock_hass.states.get.return_value = mock_state
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -896,7 +896,7 @@ class TestGetValveControlBoostCalibrationType:
     """Boost mode controls the valve only on TRVs with direct valve control."""
 
     def _mock_in_boost(self):
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
         mock_self.bt_target_temp = 22.0
@@ -952,7 +952,7 @@ class TestGetValveControlBoostMaxOpening:
     """Boost mode should clamp valve_percent to the user's valve_max_opening."""
 
     def _mock_in_boost(self, max_opening):
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
         mock_self.bt_target_temp = 22.0
@@ -1044,7 +1044,7 @@ class TestReconcileTolerance:
 
     @staticmethod
     def _mock_self(system_unit=UnitOfTemperature.CELSIUS):
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "Test"
         mock_self.hass.config.units.temperature_unit = system_unit
         return mock_self
@@ -1101,7 +1101,7 @@ class TestAdvanceHvacAction:
         Mock
             an entity whose ``_compute_hvac_action_pure`` raises a ValueError
         """
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self._compute_hvac_action_pure.side_effect = ValueError("no snapshot")
         return mock_self
@@ -1178,7 +1178,7 @@ class TestCheckCalibration:
         }
         cfg.update(trv_overrides)
 
-        mock_self = Mock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -1505,7 +1505,7 @@ class TestCalibrationMatchTolerance:
 
     @staticmethod
     def _mock_self(step):
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "Test"
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
@@ -1554,7 +1554,7 @@ class TestWriteConfirmTimeout:
         mock_hass = MagicMock()
         mock_hass.states.get.return_value = State("climate.trv1", HVACMode.OFF)
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
@@ -1578,7 +1578,7 @@ class TestWriteConfirmTimeout:
             "climate.trv1", HVACMode.HEAT, {"temperature": 20.0}
         )
 
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {

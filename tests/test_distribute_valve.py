@@ -10,8 +10,6 @@ based on their internal temperatures:
   deficit relative to the warmest TRV.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc import (
@@ -20,6 +18,7 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     build_mpc_key,
     distribute_valve_percent,
 )
+from tests.factories import ThermostatStandIn
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +163,7 @@ class TestBuildMpcGroupKey:
 
     def test_group_key_format(self):
         """Group key should contain 'group' instead of entity_id."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.unique_id = "bt_living_room"
         bt.bt_target_temp = 22.0
 
@@ -175,7 +174,7 @@ class TestBuildMpcGroupKey:
 
     def test_group_key_differs_from_entity_key(self):
         """Group key should differ from per-TRV key."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
         bt.bt_target_temp = 21.0
 
@@ -188,7 +187,7 @@ class TestBuildMpcGroupKey:
 
     def test_group_key_same_bucket(self):
         """Group key should use the same bucket logic as entity key."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
         bt.bt_target_temp = 21.3  # rounds to t21.5
 
@@ -202,7 +201,7 @@ class TestBuildMpcGroupKey:
 
     def test_group_key_none_target(self):
         """Group key handles None target temp gracefully."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
         bt.bt_target_temp = None
 
@@ -211,7 +210,7 @@ class TestBuildMpcGroupKey:
 
     def test_group_key_fallback_uid(self):
         """Group key falls back to _unique_id if unique_id is None."""
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.unique_id = None
         bt._unique_id = "fallback_id"
         bt.bt_target_temp = 20.0

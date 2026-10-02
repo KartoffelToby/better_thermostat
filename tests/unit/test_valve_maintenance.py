@@ -43,6 +43,7 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     run_valve_maintenance,
     wake_step,
 )
+from tests.factories import ThermostatStandIn
 
 _MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenance"
 
@@ -594,7 +595,7 @@ class TestRunValveMaintenance:
         watchdog confirms any of those writes. Were they remembered, a knob
         turned down to the device minimum afterwards would read as an echo.
         """
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.device_name = "Test"
         bt.bt_target_temp_step = 0.5
         trv = Trv(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
