@@ -243,6 +243,32 @@ async def _commit_temperature_update(self, new_temp):
     )
 
 
+def _sensor_still_reads(self, value: float) -> bool:
+    """Tell whether the room sensor still reports a pending reading.
+
+    A timer that commits a pending reading queues on the filter lock with
+    the sensor's next state change. A sensor that has moved on carries a
+    newer reading, whose own event is still waiting for the lock and is
+    judged there, and a sensor that gives no usable reading any more has
+    withdrawn the pending one. The reading is compared at the precision
+    readings are kept.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    value : float
+            The pending reading, rounded to two decimals
+
+    Returns
+    -------
+    bool
+            True if the sensor still reads ``value``.
+    """
+    reading = room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
+    return reading is not None and round(reading, 2) == value
+
+
 def _commit_pending_after(self, delay_s: float) -> None:
     """Apply the pending reading once the debounce interval has run out.
 
@@ -266,12 +292,7 @@ def _commit_pending_after(self, delay_s: float) -> None:
                 return
             if self.pending_temp != _value or self.pending_since != _since:
                 return
-            _reading = room_sensor_reading(
-                self, self.hass.states.get(self.sensor_entity_id)
-            )
-            # A sensor that has moved on since carries a newer reading, whose
-            # own event is still waiting for the lock and is judged there.
-            if _reading is None or round(_reading, 2) != _value:
+            if not _sensor_still_reads(self, _value):
                 return
             _LOGGER.debug(
                 "better_thermostat %s: external_temperature accepted after the "
@@ -465,6 +486,8 @@ async def trigger_temperature_change(self, event):
                         or self.pending_temp != _plateau_value
                         or self.pending_since != _plateau_since
                     ):
+                        return
+                    if not _sensor_still_reads(self, _plateau_value):
                         return
                     # Re-check the debounce interval at the time the timer fires
                     _cb_age = (
