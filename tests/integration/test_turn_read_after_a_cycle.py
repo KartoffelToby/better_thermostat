@@ -103,8 +103,13 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
     assert await wait_for(
         hass, lambda: first.target_temperature == 20.0 and trv.target_temp_received
     )
+    assert not trv.report_unread
     first._attr_target_temperature = 23.0
     _report(first)
+    # The turn is held for the end of the cycle, which the blocked write to
+    # the second head keeps running until the turn is parked.
+    assert await wait_for(hass, lambda: trv.report_unread)
+    assert bt.ignore_states
     second.async_set_temperature = apply
     release.set()
     await command
