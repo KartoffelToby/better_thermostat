@@ -10,14 +10,18 @@ instead of re-declaring the MagicMock shape per file.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
+import inspect
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import (
     KernelState,
@@ -117,6 +121,74 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
     return Trv.from_legacy_dict(entity_id, defaults)
 
 
+def _thermostat_state_names() -> frozenset[str]:
+    """Return the state a BetterThermostat holds: attributes and settable properties.
+
+    The attributes are the ones the class assigns on ``self``; a settable
+    property stands for state just the same. Methods and read-only
+    properties are left out, since a mock may answer those.
+    """
+    source = Path(inspect.getfile(BetterThermostat)).read_text(encoding="utf-8")
+    cls = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == BetterThermostat.__name__
+    )
+    assigned: set[str] = set()
+    for node in ast.walk(cls):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+            targets = [node.target]
+        else:
+            continue
+        assigned.update(
+            target.attr
+            for target in targets
+            if isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+        )
+    names: set[str] = set()
+    for name in assigned:
+        try:
+            on_class = inspect.getattr_static(BetterThermostat, name)
+        except AttributeError:
+            names.add(name)
+            continue
+        if isinstance(on_class, property) and on_class.fset is not None:
+            names.add(name)
+    return frozenset(names)
+
+
+THERMOSTAT_STATE = _thermostat_state_names()
+
+
+class ThermostatStandIn(MagicMock):
+    """A BetterThermostat stand-in that refuses to invent state.
+
+    A plain ``MagicMock`` answers an attribute nobody set with a truthy
+    mock, so a missing ``in_maintenance`` reads as maintenance running and
+    the test exercises a branch it never meant to. This stand-in raises
+    for any state attribute the test did not set and still answers
+    methods with mocks. Its children are plain ``MagicMock``s, so
+    ``bt.hass.config`` stays as permissive as before.
+    """
+
+    def __getattr__(self, name: str):
+        """Refuse thermostat state the test did not set."""
+        if name in THERMOSTAT_STATE:
+            raise AttributeError(
+                f"the stand-in has no {name!r}; set it on the stand-in "
+                "instead of letting MagicMock invent a truthy value"
+            )
+        return super().__getattr__(name)
+
+    def _get_child_mock(self, **kw):
+        """Build children as plain mocks; only the thermostat itself is strict."""
+        return MagicMock(**kw)
+
+
 def make_bt(
     *,
     trv_ids: tuple[str, ...] = (DEFAULT_TRV_ID,),
@@ -148,7 +220,7 @@ def make_bt(
     MagicMock
         The entity mock with clock, kernel regions, queues and TRVs.
     """
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
