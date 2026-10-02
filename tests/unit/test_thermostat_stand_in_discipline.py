@@ -72,24 +72,26 @@ def _bindings(node: ast.stmt) -> list[tuple[ast.expr, ast.expr | None]]:
     return []
 
 
-def _own_nodes(scope: ast.AST) -> Iterator[ast.AST]:
-    """Yield the nodes of ``scope`` without the bodies of nested functions."""
-    pending = [scope]
+# Nodes that open a scope of their own; a name bound inside one is not the
+# same name in the scope around it.
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+
+
+def _walk_own_scope(scope: ast.AST) -> Iterator[ast.AST]:
+    """Yield the nodes of ``scope`` without entering the scopes nested in it."""
+    pending = list(ast.iter_child_nodes(scope))
     while pending:
         node = pending.pop()
         yield node
-        pending.extend(
-            child
-            for child in ast.iter_child_nodes(node)
-            if not isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef)
-        )
+        if not isinstance(node, _SCOPES):
+            pending.extend(ast.iter_child_nodes(node))
 
 
 def _bare_stand_ins_in(scope: ast.AST) -> set[int]:
     """Return the lines in ``scope`` that build a bare thermostat stand-in."""
     built: dict[str, set[int]] = {}
     state_set: dict[str, set[str]] = {}
-    for node in _own_nodes(scope):
+    for node in _walk_own_scope(scope):
         if isinstance(node, ast.NamedExpr) and _is_bare_mock(node.value):
             built.setdefault(node.target.id, set()).add(node.lineno)
         if not isinstance(node, ast.stmt):
@@ -115,14 +117,7 @@ def _bare_stand_ins_in(scope: ast.AST) -> set[int]:
 def _bare_stand_ins(path: Path) -> list[int]:
     """Return the lines in one file that build a bare thermostat stand-in."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    scopes = [
-        tree,
-        *(
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        ),
-    ]
+    scopes = [tree, *(node for node in ast.walk(tree) if isinstance(node, _SCOPES))]
     return sorted(set().union(*(_bare_stand_ins_in(scope) for scope in scopes)))
 
 
@@ -145,22 +140,32 @@ def test_a_bare_stand_in_is_found_in_each_spelling(tmp_path):
         "    strict = ThermostatStandIn()\n"
         "    other = MagicMock()\n"
         "    other.kernel_state = None\n"
-        "    mock = MagicMock()\n"
-        "bt_climate: MagicMock = MagicMock()\n"
-        "def builds():\n"
-        "    shared = MagicMock()\n"
-        "    def fills():\n"
-        "        shared = object()\n"
-        "        shared.kernel_state = None\n"
-        "        shared.clock = None\n"
-        "def fills_too():\n"
-        "    shared.kernel_state = None\n"
-        "    shared.clock = None\n"
-        "shared = MagicMock()\n",
+        "    mock = MagicMock()\n",
         encoding="utf-8",
     )
 
-    assert _bare_stand_ins(probe) == [1, 2, 3, 5, 8, 16, 17]
+    assert _bare_stand_ins(probe) == [1, 2, 3, 5, 8, 16]
+
+
+def test_a_name_reused_in_another_scope_is_a_different_mock(tmp_path):
+    """State set in one function does not mark a same-named mock elsewhere."""
+    probe = tmp_path / "test_probe.py"
+    probe.write_text(
+        "def collaborator():\n"
+        "    mock = MagicMock()\n"
+        "def thermostat():\n"
+        "    mock = ThermostatStandIn()\n"
+        "    mock.kernel_state = None\n"
+        "    mock.clock = None\n"
+        "class Holder:\n"
+        "    mock = MagicMock()\n"
+        "    def method(self):\n"
+        "        mock.kernel_state = None\n"
+        "        mock.clock = None\n",
+        encoding="utf-8",
+    )
+
+    assert _bare_stand_ins(probe) == []
 
 
 def test_no_file_builds_a_bare_stand_in():
