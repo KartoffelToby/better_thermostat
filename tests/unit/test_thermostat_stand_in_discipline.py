@@ -62,7 +62,6 @@ _REMAINING = {
     "tests/unit/test_climate_hvac_action_cache.py": 1,
     "tests/unit/test_climate_persistence.py": 2,
     "tests/unit/test_cooler_events.py": 1,
-    "tests/unit/test_diagnostics.py": 1,
     "tests/unit/test_door_events.py": 1,
     "tests/unit/test_dual_role_entity.py": 1,
     "tests/unit/test_external_temperature_keepalive.py": 2,
