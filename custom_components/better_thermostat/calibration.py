@@ -1409,12 +1409,14 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _new_trv_calibration += (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already add 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _new_trv_calibration += (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
 
     # Direction-aware rounding for local calibration offset.
     # Calibration offset works inversely to setpoint: a positive offset makes
@@ -1614,12 +1616,14 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _calibrated_setpoint -= (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _calibrated_setpoint -= (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.
