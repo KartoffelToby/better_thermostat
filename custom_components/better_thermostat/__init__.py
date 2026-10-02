@@ -6,15 +6,17 @@ from asyncio import Lock
 import copy
 import logging
 
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import issue_registry as ir, service
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
 from .utils.const import (
+    BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CALIBRATION_MODE,
     CONF_COOLER,
     CONF_HEATER,
@@ -31,6 +33,9 @@ from .utils.const import (
     DOMAIN,
     GENERIC_MODEL,
     NORMALIZED_ID_NAMES,
+    SERVICE_RESET_HEATING_POWER,
+    SERVICE_RESET_PID_LEARNINGS,
+    SERVICE_RUN_VALVE_MAINTENANCE,
     CalibrationMode,
 )
 from .utils.helpers import get_device_model
@@ -42,10 +47,31 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema({})}, extra=vol.ALLOW_EXTRA)
 RELOAD_LOCKS = f"{DOMAIN}_reload_locks"
 
 
+# Service name to the climate entity method it runs, with the schema of the
+# fields it takes.
+_ENTITY_SERVICES = (
+    (SERVICE_RESET_HEATING_POWER, "reset_heating_power", {}),
+    (SERVICE_RUN_VALVE_MAINTENANCE, "run_valve_maintenance_service", {}),
+    (
+        SERVICE_RESET_PID_LEARNINGS,
+        "reset_pid_learnings_service",
+        BETTERTHERMOSTAT_RESET_PID_SCHEMA,
+    ),
+)
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up this integration using YAML."""
+    """Set up this integration using YAML and register its services.
+
+    The services are registered here rather than with each entry, so they
+    exist, and validate, while no thermostat is set up.
+    """
     if DOMAIN in config:
         hass.data.setdefault(DOMAIN, {})
+    for name, method, schema in _ENTITY_SERVICES:
+        service.async_register_platform_entity_service(
+            hass, DOMAIN, name, entity_domain=CLIMATE_DOMAIN, func=method, schema=schema
+        )
     return True
 
 

@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 import pytest
 import voluptuous as vol
 import yaml
@@ -42,7 +43,7 @@ from .conftest import (
 )
 from .device_profiles import GENERIC_HEAT_TRV
 
-# Name to entity method, as async_setup_entry registers them.
+# Name to entity method, as async_setup registers them.
 _EXPECTED_SERVICES = {
     SERVICE_RESET_HEATING_POWER: "reset_heating_power",
     SERVICE_RESET_PID_LEARNINGS: "reset_pid_learnings_service",
@@ -62,6 +63,19 @@ async def entry_set_up(hass, fake_trv):
 @pytest.mark.parametrize("fake_trv", [GENERIC_HEAT_TRV], indirect=True, ids=profile_id)
 async def test_setup_registers_exactly_the_expected_services(hass, entry_set_up):
     """No service missing and none registered that nothing documents."""
+    assert set(hass.services.async_services().get(DOMAIN, {})) == set(
+        _EXPECTED_SERVICES
+    )
+
+
+async def test_the_services_exist_before_any_entry(hass):
+    """Loading the integration registers its services, with no entry set up.
+
+    A service that only appears once a thermostat is running makes an
+    automation that names it fail validation whenever it is checked before
+    that, at startup or while every entry is unloaded.
+    """
+    assert await async_setup_component(hass, DOMAIN, {})
     assert set(hass.services.async_services().get(DOMAIN, {})) == set(
         _EXPECTED_SERVICES
     )

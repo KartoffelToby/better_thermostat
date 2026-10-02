@@ -49,11 +49,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import Context, Event, EventStateChangedData, State, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import (
-    device_registry as dr,
-    entity_platform,
-    entity_registry as er,
-)
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
@@ -135,7 +131,6 @@ from .utils.const import (
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
     ATTR_STATE_WINDOW_OPEN,
-    BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
@@ -160,9 +155,6 @@ from .utils.const import (
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
     DOMAIN,
-    SERVICE_RESET_HEATING_POWER,
-    SERVICE_RESET_PID_LEARNINGS,
-    SERVICE_RUN_VALVE_MAINTENANCE,
     SUPPORT_FLAGS,
     TARGET_TEMP_BOUND_AUTO,
     VERSION,
@@ -307,20 +299,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
         entry.data.get(CONF_NAME),
         entry.entry_id,
-    )
-
-    platform = entity_platform.async_get_current_platform()
-    # Register entity services (validator done manually inside method)
-    platform.async_register_entity_service(
-        SERVICE_RESET_HEATING_POWER, {}, "reset_heating_power"
-    )
-    platform.async_register_entity_service(
-        SERVICE_RUN_VALVE_MAINTENANCE, {}, "run_valve_maintenance_service"
-    )
-    platform.async_register_entity_service(
-        SERVICE_RESET_PID_LEARNINGS,
-        BETTERTHERMOSTAT_RESET_PID_SCHEMA,
-        "reset_pid_learnings_service",
     )
 
     bt_entity = BetterThermostat(
