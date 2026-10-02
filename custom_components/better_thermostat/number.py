@@ -17,7 +17,6 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -189,17 +188,6 @@ async def async_setup_entry(
     )
     async_normalize_bt_entity_ids(hass, entry, Platform.NUMBER)
     async_add_entities(numbers)
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload number entry and cleanup tracking."""
-    entry_id = entry.entry_id
-
-    # Cleanup tracking data
-    _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
-    _ACTIVE_PID_NUMBERS.pop(entry_id, None)
-
-    return True
 
 
 class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):

@@ -55,7 +55,6 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.dispatcher import dispatcher_send
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
@@ -293,9 +292,6 @@ STARTUP_CONTROL_BUDGET_S = 45.0
 # Default temperature when no sensor data is available (last resort fallback)
 DEFAULT_FALLBACK_TEMPERATURE = 20.0
 
-# Signal for dynamic entity updates
-SIGNAL_BT_CONFIG_CHANGED = "bt_config_changed_{}"
-
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the Better Thermostat platform."""
@@ -483,7 +479,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     _attr_has_entity_name = True
     _attr_name = None
-    _enable_turn_on_off_backwards_compatibility = False
     # ``degraded_for_s`` counts up on every write while degraded; the recorded
     # ``control_mode`` already says when the degradation began.
     _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {"degraded_for_s"}
@@ -2899,7 +2894,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # A via device link written while the setup had (or was
                 # treated as having) a single valve would keep the BT device
                 # attached to one arbitrary TRV; clear it.
-                await async_unbind_trv_device(self.hass, self._unique_id)
+                await async_unbind_trv_device(
+                    self.hass, self._unique_id, self._config_entry_id
+                )
 
         _LOGGER.debug("better_thermostat %s: sleeping 15s...", self.device_name)
         await asyncio.sleep(15)
@@ -4646,14 +4643,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     async def async_turn_on(self) -> None:
         """Turn the entity on."""
         await self.async_set_hvac_mode(HVACMode.HEAT)
-
-    def _signal_config_change(self) -> None:
-        """Signal a configuration change to trigger entity cleanup/recreation."""
-        signal_key = f"bt_config_changed_{self._config_entry_id}"
-        dispatcher_send(self.hass, signal_key, {"entry_id": self._config_entry_id})
-        _LOGGER.debug(
-            "better_thermostat %s: Signaled configuration change", self.device_name
-        )
 
     async def run_valve_maintenance_service(self) -> None:
         """Entity service: run valve maintenance immediately (ignores schedule)."""

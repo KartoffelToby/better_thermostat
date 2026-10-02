@@ -111,7 +111,7 @@ DEGRADED_GRACE = (
 
 @pytest.fixture(autouse=True)
 async def _recorder(recorder_mock):
-    """Provide the recorder the integration's manifest depends on.
+    """Provide the recorder the integration reads outdoor history from.
 
     Must be instantiated before anything pulls up the hass fixture.
     """

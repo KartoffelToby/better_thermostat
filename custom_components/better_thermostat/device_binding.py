@@ -102,7 +102,9 @@ async def async_bind_trv_device(
     return True
 
 
-async def async_unbind_trv_device(hass: HomeAssistant, bt_unique_id: str) -> bool:
+async def async_unbind_trv_device(
+    hass: HomeAssistant, bt_unique_id: str, bt_entry_id: str
+) -> bool:
     """Clear a stale ``via_device_id`` link on the BT device.
 
     Multi-TRV setups carry no via device link (it is single-valued), but
@@ -114,7 +116,9 @@ async def async_unbind_trv_device(hass: HomeAssistant, bt_unique_id: str) -> boo
     Returns True when a link was cleared, False otherwise.
     """
     dr_reg = dr.async_get(hass)
-    bt_device = dr_reg.async_get_device(identifiers={(DOMAIN, bt_unique_id)})
+    bt_device = dr_reg.async_get_device_by_identifier(
+        (DOMAIN, bt_unique_id), bt_entry_id
+    )
     if bt_device is None or bt_device.via_device_id is None:
         return False
 

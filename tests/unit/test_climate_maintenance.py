@@ -315,4 +315,4 @@ async def test_via_device_binding_skipped_and_cleared_for_multi_trv():
         await _run_finalize_startup(bt)
 
     bind.assert_not_awaited()
-    unbind.assert_awaited_once_with(bt.hass, "bt_uid")
+    unbind.assert_awaited_once_with(bt.hass, "bt_uid", "entry_1")

@@ -22,7 +22,7 @@ from homeassistant.components.climate.const import (
 from homeassistant.const import CONF_NAME, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, selector
-from homeassistant.helpers.dispatcher import dispatcher_send
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
 
@@ -1198,7 +1198,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if algorithms_changed:
                 # Dynamic entity management adds and removes algorithm sensors.
                 signal_key = f"bt_config_changed_{self._config_entry.entry_id}"
-                dispatcher_send(
+                async_dispatcher_send(
                     self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
                 )
             self._active_trv_config = None

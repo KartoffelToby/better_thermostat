@@ -655,12 +655,6 @@ async def _cleanup_pid_switch_entities(
         )
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload sensor entry and cleanup tracking."""
-    _release_entry(entry.entry_id)
-    return True
-
-
 def _release_entry(entry_id: str) -> None:
     """Drop the dispatcher subscription and the entity tracking of one entry.
 
