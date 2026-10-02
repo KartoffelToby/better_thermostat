@@ -12,7 +12,6 @@
   "tests/integration/test_device_automation.py": 1,
   "tests/integration/test_device_matrix.py": 1,
   "tests/unit/controlling/test_control_cooler.py": 5,
-  "tests/unit/controlling/test_control_queue.py": 1,
   "tests/unit/controlling/test_control_trv.py": 1,
   "tests/unit/controlling/test_helpers.py": 4,
   "tests/unit/controlling/test_task_manager.py": 1,
