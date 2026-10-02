@@ -7,14 +7,17 @@ Covers:
   - Skip when unified store already has data
   - Import from all four legacy stores
   - Partial availability (some stores missing/empty/corrupt)
-  - save() called only when data was actually imported
+  - the state saved only when data was actually imported
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.helpers import storage
+from homeassistant.util.file import WriteError
 import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc import MpcState
@@ -316,58 +319,58 @@ class TestMigrateV0Stores:
         """Migration is skipped when the unified store already has MPC data."""
         mgr = _make_state_manager()
         mgr.set_mpc("existing_key", MpcState(gain_est=1.0))
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
         )
 
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_when_pid_already_present(self) -> None:
         """Migration is skipped when the unified store already has PID data."""
         mgr = _make_state_manager()
         mgr.set_pid("existing_key", PIDState(pid_kp=2.0))
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
         )
 
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_when_tpi_already_present(self) -> None:
         """Migration is skipped when the unified store already has TPI data."""
         mgr = _make_state_manager()
         mgr.set_tpi("existing_key", TpiState(last_percent=50.0))
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
         )
 
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_skips_when_thermal_already_present(self) -> None:
         """Migration is skipped when thermal stats already have values."""
         mgr = _make_state_manager()
         mgr.thermal = ThermalStats(heating_power=1000.0)
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         await migrate_v0_stores(
             AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
         )
 
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_imports_all_four_stores(self) -> None:
         """All four legacy stores are read and their data imported."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         mpc_store = _make_mock_store(
             {"uid1:trv_a:t22": {"gain_est": 0.5, "loss_est": 0.02}}
@@ -405,14 +408,14 @@ class TestMigrateV0Stores:
         assert mgr.thermal.heating_power == pytest.approx(1200.0)
         assert mgr.thermal.heat_loss_rate == pytest.approx(0.03)
 
-        # save() called exactly once
-        mgr.save.assert_awaited_once()
+        # the state saved exactly once
+        mgr.save_unless_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_filters_by_entity_prefix(self) -> None:
         """Only entries matching the entity prefix are imported."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         mpc_store = _make_mock_store(
             {"uid1:trv_a:t22": {"gain_est": 0.5}, "uid2:trv_a:t22": {"gain_est": 0.9}}
@@ -437,7 +440,7 @@ class TestMigrateV0Stores:
     async def test_partial_stores_some_empty(self) -> None:
         """Migration succeeds when some legacy stores return None."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         mpc_store = _make_mock_store({"uid1:trv_a:t22": {"gain_est": 0.5}})
         empty_store = _make_mock_store(None)
@@ -456,13 +459,13 @@ class TestMigrateV0Stores:
         assert "uid1:trv_a:t22" in mgr.state.mpc
         assert mgr.state.pid == {}
         assert mgr.state.tpi == {}
-        mgr.save.assert_awaited_once()
+        mgr.save_unless_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_no_data_for_entity_no_save(self) -> None:
-        """When no legacy store has matching data, save() is not called."""
+        """When no legacy store has matching data, nothing is saved."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         # Stores exist but contain only data for a different entity
         mpc_store = _make_mock_store({"uid2:trv_a:t22": {"gain_est": 0.5}})
@@ -479,13 +482,13 @@ class TestMigrateV0Stores:
                 AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
             )
 
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_all_stores_empty_no_save(self) -> None:
-        """When all legacy stores return None, save() is not called."""
+        """When all legacy stores return None, nothing is saved."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         empty_store = _make_mock_store(None)
         stores = [empty_store, empty_store, empty_store, empty_store]
@@ -499,13 +502,13 @@ class TestMigrateV0Stores:
                 AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
             )
 
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_store_load_exception_is_swallowed(self) -> None:
         """Exceptions during Store.async_load are caught and do not crash."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         # MPC store raises, but PID store has valid data
         mpc_store = MagicMock()
@@ -528,13 +531,13 @@ class TestMigrateV0Stores:
         # PID was still imported despite MPC store failure
         assert "uid1:trv_a" in mgr.state.pid
         assert mgr.state.pid["uid1:trv_a"].pid_kp == pytest.approx(3.0)
-        mgr.save.assert_awaited_once()
+        mgr.save_unless_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_thermal_uses_config_entry_id(self) -> None:
         """Thermal store is keyed by config_entry_id, not entity prefix."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         thermal_store = _make_mock_store(
             {"entry1": {"heating_power": 900.0}, "entry2": {"heating_power": 1100.0}}
@@ -554,13 +557,13 @@ class TestMigrateV0Stores:
 
         # Only entry1's thermal data is imported
         assert mgr.thermal.heating_power == pytest.approx(900.0)
-        mgr.save.assert_awaited_once()
+        mgr.save_unless_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_thermal_non_dict_entry_ignored(self) -> None:
         """Non-dict thermal entry for the config entry is ignored."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         thermal_store = _make_mock_store({"entry1": "corrupted"})
         empty_store = _make_mock_store(None)
@@ -578,13 +581,13 @@ class TestMigrateV0Stores:
 
         # Nothing imported, thermal stays at defaults
         assert mgr.thermal.heating_power is None
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_store_returns_non_dict_is_ignored(self) -> None:
         """If a Store returns a non-dict (e.g. list), that store is skipped."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         # MPC store returns a list instead of a dict
         mpc_store = _make_mock_store([1, 2, 3])
@@ -605,13 +608,13 @@ class TestMigrateV0Stores:
         # MPC skipped (non-dict), PID imported
         assert mgr.state.mpc == {}
         assert "uid1:trv_a" in mgr.state.pid
-        mgr.save.assert_awaited_once()
+        mgr.save_unless_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_only_thermal_imported(self) -> None:
         """Migration works when only thermal data exists."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         thermal_store = _make_mock_store(
             {"entry1": {"heating_power": 500.0, "heat_loss_rate": 0.01}}
@@ -631,7 +634,7 @@ class TestMigrateV0Stores:
 
         assert mgr.thermal.heating_power == pytest.approx(500.0)
         assert mgr.thermal.heat_loss_rate == pytest.approx(0.01)
-        mgr.save.assert_awaited_once()
+        mgr.save_unless_closed.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_all_stores_raise_no_crash(self) -> None:
@@ -642,7 +645,7 @@ class TestMigrateV0Stores:
         defaults, rather than an integration that fails to load.
         """
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         failing_store = MagicMock()
         failing_store.async_load = AsyncMock(side_effect=OSError("boom"))
@@ -659,7 +662,7 @@ class TestMigrateV0Stores:
             )
 
         # No data imported, no save
-        mgr.save.assert_not_called()
+        mgr.save_unless_closed.assert_not_called()
 
 
 class TestUnreadableLegacyStoreIsTraced:
@@ -669,7 +672,7 @@ class TestUnreadableLegacyStoreIsTraced:
     async def test_every_failing_store_is_named(self, caplog) -> None:
         """All four store names and the config entry appear in the trace."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         failing_store = MagicMock()
         failing_store.async_load = AsyncMock(side_effect=OSError("boom"))
@@ -695,7 +698,7 @@ class TestUnreadableLegacyStoreIsTraced:
     async def test_readable_stores_leave_no_trace(self, caplog) -> None:
         """Stores that read cleanly report nothing."""
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         stores = [
             _make_mock_store({"uid1:trv_a": {"gain_est": 0.5}}),
@@ -737,7 +740,7 @@ class TestUnusableLegacyThermalValues:
         power was corrupt.
         """
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         with caplog.at_level(logging.WARNING, logger=_MIGRATE_LOGGER):
             _import_legacy_data(
@@ -786,7 +789,7 @@ class TestUnusableLegacyThermalValues:
         scan again.
         """
         mgr = _make_state_manager()
-        mgr.save = AsyncMock()  # type: ignore[method-assign]
+        mgr.save_unless_closed = AsyncMock()  # type: ignore[method-assign]
 
         thermal_store = _make_mock_store({"entry1": {"heating_power": "n/a"}})
         empty_store = _make_mock_store(None)
@@ -800,4 +803,154 @@ class TestUnusableLegacyThermalValues:
                 AsyncMock(), mgr, entity_prefix="uid1:", config_entry_id="entry1"
             )
 
-        mgr.save.assert_awaited_once()
+        mgr.save_unless_closed.assert_awaited_once()
+
+
+class TestTheMigrationSaveWaitsLikeEveryOtherSave:
+    """The migration's save runs as the task the entity's final flush waits for.
+
+    It runs inside the entity's startup, after the removal hook is in place,
+    so the entity can be removed while it is under way. A store that load()
+    could not read and could not set aside makes that save try the copy
+    first; the flush has to see that try's outcome, and once the manager is
+    closed the migration writes nothing of its own.
+    """
+
+    _ENTRY = "v0_entry"
+    _LIVE_KEY = f"better_thermostat_{_ENTRY}_state"
+    _COPY_KEY = f"better_thermostat_{_ENTRY}_state.corrupt"
+    _UNREADABLE = {"version": "unreadable", "mpc": {}}
+    _LEGACY_KEY = "better_thermostat_mpc_states"
+
+    def _seed(self, hass_storage, *, live: dict | None) -> None:
+        if live is not None:
+            hass_storage[self._LIVE_KEY] = {
+                "version": 1,
+                "minor_version": 1,
+                "key": self._LIVE_KEY,
+                "data": live,
+            }
+        hass_storage[self._LEGACY_KEY] = {
+            "version": 1,
+            "minor_version": 1,
+            "key": self._LEGACY_KEY,
+            "data": {"uid1:trv_a:t22": {"gain_est": 0.5}},
+        }
+
+    async def _migrate(self, hass, manager: StateManager) -> None:
+        await migrate_v0_stores(
+            hass, manager, entity_prefix="uid1:", config_entry_id=self._ENTRY
+        )
+
+    async def test_a_startup_with_legacy_stores_saves_the_migrated_state(
+        self, hass, hass_storage
+    ):
+        """On a normal startup the imported state reaches the live store."""
+        self._seed(hass_storage, live=None)
+        manager = StateManager(hass, self._ENTRY)
+        await manager.load()
+
+        await self._migrate(hass, manager)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+        saved = hass_storage[self._LIVE_KEY]["data"]
+        assert saved["mpc"]["uid1:trv_a:t22"]["gain_est"] == pytest.approx(0.5)
+        assert manager.dirty is False
+
+    async def test_a_pending_copy_that_lands_lets_the_migration_save(
+        self, hass, hass_storage
+    ):
+        """A copy that failed at load and succeeds now is taken, then the save."""
+        self._seed(hass_storage, live=self._UNREADABLE)
+        write = storage.Store._async_write_data
+        disk = {"full": True}
+
+        async def _write(store, data):
+            if ".corrupt" in store.key and disk["full"]:
+                raise WriteError("disk full")
+            await write(store, data)
+
+        with patch.object(storage.Store, "_async_write_data", _write):
+            manager = StateManager(hass, self._ENTRY)
+            await manager.load()
+            assert manager.copy_pending
+            disk["full"] = False
+
+            await self._migrate(hass, manager)
+            await hass.async_block_till_done(wait_background_tasks=True)
+            manager.close()
+
+        assert hass_storage[self._COPY_KEY]["data"] == self._UNREADABLE
+        saved = hass_storage[self._LIVE_KEY]["data"]
+        assert saved["mpc"]["uid1:trv_a:t22"]["gain_est"] == pytest.approx(0.5)
+        assert manager.dirty is False
+
+    async def test_a_removal_during_the_migration_copy_waits_and_leaves_no_store(
+        self, hass, hass_storage
+    ):
+        """The flush waits for the migration's copy; nothing is written after it.
+
+        A copy tried beside the migration's may fail where that one
+        succeeds, and a migration that saved after the flush would recreate
+        the store the removal deletes.
+        """
+        self._seed(hass_storage, live=self._UNREADABLE)
+        write = storage.Store._async_write_data
+        disk = {"full": True}
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        gated_writes = {"count": 0}
+
+        async def _write(store, data):
+            if ".corrupt" in store.key:
+                if disk["full"]:
+                    raise WriteError("disk full")
+                gated_writes["count"] += 1
+                if gated_writes["count"] > 1:
+                    raise WriteError("disk busy")
+                entered.set()
+                await release.wait()
+            await write(store, data)
+
+        with patch.object(storage.Store, "_async_write_data", _write):
+            manager = StateManager(hass, self._ENTRY)
+            await manager.load()
+            disk["full"] = False
+
+            migration = hass.async_create_task(self._migrate(hass, manager))
+            await asyncio.wait_for(entered.wait(), timeout=5)
+
+            manager.close()
+            flush = hass.async_create_task(manager.flush())
+            for _ in range(20):
+                await asyncio.sleep(0)
+            release.set()
+            await asyncio.wait_for(flush, timeout=5)
+            flushed = hass_storage[self._LIVE_KEY]["data"]
+
+            await StateManager.async_remove_store(hass, self._ENTRY)
+            await asyncio.wait_for(migration, timeout=5)
+            await hass.async_block_till_done(wait_background_tasks=True)
+
+        assert flushed["mpc"]["uid1:trv_a:t22"]["gain_est"] == pytest.approx(0.5)
+        assert self._LIVE_KEY not in hass_storage
+        assert self._COPY_KEY not in hass_storage
+
+    async def test_a_manager_closed_before_the_save_writes_nothing(
+        self, hass, hass_storage
+    ):
+        """A removal that ran while the legacy stores were read leaves no store.
+
+        Its flush wrote what was imported by then; a save after it would
+        recreate the store the removal deletes.
+        """
+        self._seed(hass_storage, live=None)
+        manager = StateManager(hass, self._ENTRY)
+        await manager.load()
+        manager.close()
+
+        await self._migrate(hass, manager)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+        assert self._LIVE_KEY not in hass_storage
+        assert manager.dirty is True

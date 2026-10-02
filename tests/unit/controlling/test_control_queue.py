@@ -18,6 +18,17 @@ from custom_components.better_thermostat.utils.controlling import (
 from tests.factories import ThermostatStandIn
 
 
+@pytest.fixture(autouse=True)
+def _scaled_sleeps():
+    """Keep sleeps at full length in this module.
+
+    The tests here hand the queue consumer a wall-clock window to work in
+    (``await asyncio.sleep(0.05)``). Scaled, that window ends after a
+    fraction of the loop iterations the consumer needs.
+    """
+    yield
+
+
 def _tracked_trv(entity_id: str) -> Trv:
     """Build the record the entity keeps for one controlled TRV."""
     return Trv.from_legacy_dict(entity_id, {})

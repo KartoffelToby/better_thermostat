@@ -1055,8 +1055,11 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     not outside a cycle.
 
     A control cycle is requested only when the report moved what the next
-    cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran.
+    cycle acts on: the room's targets or mode, the setpoint or mode the
+    device is known to hold, or the internal temperature it reported while
+    the cycle ran. A turn the room adopts at a target it already had moves
+    only the setpoint the device holds, and the cycle is what writes the
+    device's own share of that target back over the turn.
     The handler takes that reading as it arrives, as it does outside a cycle,
     unless it came too soon after the previous one; such a reading is taken
     here once that interval has passed, and asks for a cycle all the same. A
@@ -1175,6 +1178,7 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, 
         self.bt_target_cooltemp,
         self.bt_hvac_mode,
         trv.hvac_mode,
+        trv.confirmed_setpoint,
         trv.current_temperature,
     )
 
@@ -2514,6 +2518,12 @@ async def control_trv(
                             entity_id,
                             _budget_remaining(self, entity_id, "setpoint"),
                         )
+                else:
+                    # The device already holds what the room wants, whoever
+                    # put it there: a knob turned while the room was off can
+                    # land on the setpoint the room asks for once it heats
+                    # again. That value is BT's own from here on.
+                    self.real_trvs[entity_id].remember_setpoint_held(_temperature)
 
         # Watchdog heartbeat: the control loop demonstrably ran.
         _stamp_heartbeat(self)

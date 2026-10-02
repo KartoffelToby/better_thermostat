@@ -264,3 +264,69 @@ def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
 
     assert out is not None and supports is True
     assert real_trvs["climate.x"].calibration_balance is not None
+
+
+def _capture_controller_input(monkeypatch) -> list[Any]:
+    """Record every MpcV2Input the dispatcher hands to the controller."""
+    from custom_components.better_thermostat import calibration
+
+    seen: list[Any] = []
+    real_compute = calibration.compute_mpc_v2
+
+    def _recording_compute(inp, params, state=None, **kwargs):
+        seen.append(inp)
+        return real_compute(inp, params, state=state, **kwargs)
+
+    monkeypatch.setattr(calibration, "compute_mpc_v2", _recording_compute)
+    return seen
+
+
+def test_setpoint_steered_trv_keeps_its_reported_opening_out_of_the_controller(
+    monkeypatch,
+) -> None:
+    """A TRV BT steers through its setpoint must not feed its opening back as BT's command.
+
+    Between re-plans the controller returns its applied input unchanged, so a
+    reported opening the TRV chose itself would become BT's next command.
+    """
+    seen = _capture_controller_input(monkeypatch)
+    trv = _trv_info("climate.x", current_temp=19.0, supports_valve=False)
+    trv.valve_position = 80.0
+    bt = _make_bt(real_trvs={"climate.x": trv})
+
+    _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert len(seen) == 1
+    assert seen[0].applied_valve_pct is None
+
+
+def test_setpoint_steered_trv_reported_opening_still_feeds_re_identification(
+    monkeypatch,
+) -> None:
+    """The reported opening must stay a re-identification sample of the room's input."""
+    _capture_controller_input(monkeypatch)
+    trv = _trv_info("climate.x", current_temp=19.0, supports_valve=False)
+    trv.valve_position = 80.0
+    bt = _make_bt(real_trvs={"climate.x": trv})
+
+    _compute_mpc_v2_balance(bt, "climate.x")
+
+    runtimes = list(bt.state_mgr._mpc_v2_reid_live.values())
+    assert len(runtimes) == 1
+    samples = runtimes[0].buffer.samples
+    assert [s.u_frac for s in samples] == [0.8]
+
+
+def test_direct_valve_trv_feeds_its_reported_opening_to_the_controller(
+    monkeypatch,
+) -> None:
+    """A valve BT writes itself must reach the controller as the applied input."""
+    seen = _capture_controller_input(monkeypatch)
+    trv = _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+    trv.valve_position = 80.0
+    bt = _make_bt(real_trvs={"climate.x": trv})
+
+    _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert len(seen) == 1
+    assert seen[0].applied_valve_pct == 80.0
