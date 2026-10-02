@@ -8,6 +8,7 @@ is and when it still counts as the same finding.
 import importlib.util
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -70,6 +71,25 @@ def test_the_rule_comes_from_the_message_not_the_source_above_it():
         "E       assert False\n"
     )
     assert shrinker.broken_rule_in(output) == "convergence"
+
+
+def test_a_surfaces_failure_is_read_as_the_surfaces_rule():
+    """The preset surfaces check is a rule the shrinker can shrink for."""
+    output = (
+        "E       AssertionError: [surfaces] the room has no preset number\n"
+        "E         room single_head:\n"
+    )
+    assert shrinker.broken_rule_in(output) == "surfaces"
+
+
+def test_every_rule_the_room_search_reports_is_read():
+    """Each tag the room search opens a failure message with names a rule."""
+    source = (REPO_ROOT / shrinker.REPLAY_TEST.split("::")[0]).read_text()
+    tags = set(re.findall(r"f?[\"']\[([a-z_]+)\] ", source))
+    assert tags
+    for tag in sorted(tags):
+        output = f"E       AssertionError: [{tag}] message\n"
+        assert shrinker.broken_rule_in(output) == tag
 
 
 def test_output_naming_no_rule_breaks_none():
