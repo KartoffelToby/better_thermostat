@@ -1086,8 +1086,9 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     head switched on inside the cycle asks for one as well, as its mode
     change does outside a cycle: the cache already holds the commanded mode,
     so the report moves nothing, yet the setpoint it was not adopted for
-    has to be driven back to the room target. A device answering inside every cycle with a report that carries nothing
-    new would otherwise keep one cycle following the next.
+    has to be driven back to the room target. A device answering inside
+    every cycle with a report that carries nothing new would otherwise keep
+    one cycle following the next.
 
     Parameters
     ----------
