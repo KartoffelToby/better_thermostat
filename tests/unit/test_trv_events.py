@@ -7,6 +7,7 @@ and the convert_inbound_states / convert_outbound_states helpers.
 
 import asyncio
 from datetime import timedelta
+from functools import partial
 import logging
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -4000,7 +4001,7 @@ class TestInternalRereadAfterTheDebounce:
         """Arm the reread and return the work it hands to the entity."""
         work = []
         mock_bt._spawn_owned = MagicMock(
-            side_effect=lambda coro, **kwargs: work.append(coro)
+            side_effect=lambda coro, **kwargs: work.append(coro) or MagicMock()
         )
         _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
         (coro,) = work
@@ -4028,6 +4029,85 @@ class TestInternalRereadAfterTheDebounce:
                 clock[0] = at
                 timers[-1][1](at)
             await asyncio.wait_for(task, 1.0)
+
+    def _own_tasks(self, mock_bt, *, removed):
+        """Spawn the entity's work as real tasks, the way the entity does."""
+        mock_bt.is_removed = removed
+        mock_bt._owned_tasks = set()
+        mock_bt.hass.async_create_background_task = lambda coro, name: (
+            asyncio.ensure_future(coro)
+        )
+        mock_bt._spawn_owned = partial(BetterThermostat._spawn_owned, mock_bt)
+
+    @pytest.mark.asyncio
+    async def test_the_reread_is_pending_while_its_task_exists(self, mock_bt):
+        """A second turned-away reading arms no second reread."""
+        trv = self._prepare(mock_bt, state=None)
+        coro = self._start(mock_bt, trv)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        coro.close()
+        assert trv.internal_reread_pending is True
+        mock_bt._spawn_owned.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_removed_entity_leaves_no_reread_pending(self, mock_bt):
+        """A reread the entity can no longer start does not block later ones."""
+        trv = self._prepare(mock_bt, state=None)
+        self._own_tasks(mock_bt, removed=True)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+
+        assert trv.internal_reread_pending is False
+        mock_bt._spawn_owned = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt._spawn_owned.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_reread_cancelled_before_it_starts_is_not_pending(self, mock_bt):
+        """A task cancelled before its coroutine runs still releases the flag."""
+        trv = self._prepare(mock_bt, state=None)
+        self._own_tasks(mock_bt, removed=False)
+
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        assert trv.internal_reread_pending is True
+        cancelled = list(mock_bt._owned_tasks)
+        for task in cancelled:
+            task.cancel()
+        await asyncio.gather(*cancelled, return_exceptions=True)
+        await asyncio.sleep(0)
+
+        assert [task.cancelled() for task in cancelled] == [True]
+        assert trv.internal_reread_pending is False
+        mock_bt._spawn_owned = MagicMock()
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (call,) = mock_bt._spawn_owned.call_args_list
+        call.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_finished_reread_leaves_the_next_one_pending(self, mock_bt):
+        """The done callback of a reread that ran does not release a newer one.
+
+        The callback runs a loop turn after the coroutine has cleared the
+        flag, and a reread armed in between holds the flag on its own.
+        """
+        trv = self._prepare(mock_bt, state=None)
+        trv.last_internal_sensor_change = None
+        first_task = MagicMock()
+        mock_bt._spawn_owned = MagicMock(return_value=first_task)
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        (first_call,) = mock_bt._spawn_owned.call_args_list
+        await first_call.args[0]
+        (done_callback,) = first_task.add_done_callback.call_args.args
+
+        mock_bt._spawn_owned = MagicMock(return_value=MagicMock())
+        _read_internal_temperature_later(mock_bt, trv, ENTITY_ID, 5)
+        done_callback(first_task)
+
+        assert trv.internal_reread_pending is True
+        mock_bt._spawn_owned.call_args.args[0].close()
 
     @pytest.mark.asyncio
     async def test_a_reading_is_taken_once_the_interval_is_over(self, mock_bt):
