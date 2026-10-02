@@ -69,9 +69,10 @@ itself.
 The option "Minimum seconds between repeated cooler commands" is gone.
 Better Thermostat now holds back an unchanged temperature or mode command
 if it sent the same value less than 240 seconds earlier, to protect the
-compressor. A changed value goes out at once. A failed command is retried
-with its own growing pause, from 30 seconds up to 30 minutes. You don't
-need to do anything; a value you set before is ignored.
+compressor. A changed value goes out at once, or within 30 seconds if the
+previous command failed. A failed command is retried with its own growing
+pause, from 30 seconds up to 30 minutes. You don't need to do anything; a
+value you set before is ignored.
 
 ### Entities of a calibration mode you no longer use
 
@@ -119,15 +120,16 @@ The missing one joins when it reports.
 
 Without an outdoor sensor, Better Thermostat uses the weather forecast to
 decide whether the room needs heat. 1.9.2 switched heating on as soon as a
-forecast failed. 2.0 keeps its last decision for three hours and then
-resumes heating with the logbook entry "resumed heating because the weather
-forecast is unavailable".
+forecast failed. 2.0 keeps its last decision for three hours. If that
+decision was not to heat, it then resumes heating with the logbook entry
+"resumed heating because the weather forecast is unavailable".
 
 ### A thermostat keeps rejecting commands
 
 1.9.2 retried a failed control cycle right away, over and over. 2.0 doubles
-the pause after each failure, up to five minutes. A successful cycle or a
-new target temperature resets it. Your logs get much quieter.
+the pause after each failure, up to five minutes. A retry that gets
+through, a new target temperature or a new HVAC mode resets it. Your logs
+get much quieter.
 
 ### Smaller changes
 
@@ -145,9 +147,8 @@ new target temperature resets it. Your logs get much quieter.
 - **Climate attributes:** `control_mode` and `degraded_for_s` (see above),
   and `calibrator_health`, which reports per thermostat whether its
   controller is healthy.
-- **Direct valve control** is offered, and used by default for new
-  thermostats, on the Sonoff TRVZB and the Eurotronic Spirit Z / Aeotec
-  ZWA021.
+- **Direct valve control** is now also offered for a Sonoff TRVZB paired
+  through ZHA.
 
 ## Going back to 1.9.2
 
