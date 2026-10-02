@@ -541,5 +541,13 @@
       "set_hvac_mode": "HVAC-Modus setzen",
       "set_temperature": "Zieltemperatur setzen"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} unterstützt den HVAC-Modus {mode} nicht. Unterstützte Modi: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} hat für {attribute} den Wert {value} erhalten; das ist keine Zahl."
+    }
   }
 }

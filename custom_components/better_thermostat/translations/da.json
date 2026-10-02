@@ -541,5 +541,13 @@
       "set_hvac_mode": "Indstil HVAC-tilstand",
       "set_temperature": "Indstil måltemperatur"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} understøtter ikke HVAC-tilstanden {mode}. Understøttede tilstande: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} modtog {value} for {attribute}, hvilket ikke er et tal."
+    }
   }
 }

@@ -326,3 +326,64 @@ def test_every_form_field_has_a_label(lang: str):
         for (section, step), published in _published_form_fields().items()
     }
     assert {step: keys for step, keys in unlabelled.items() if keys} == {}
+
+
+_USER_FACING_ERRORS = {"HomeAssistantError", "ServiceValidationError"}
+
+
+def _constructed_user_errors() -> list[tuple[str, int, ast.Call]]:
+    """Return every construction of a user-facing Home Assistant error.
+
+    A construction rather than a ``raise``: a helper may build the error and
+    leave the raise to its caller.
+    """
+    found: list[tuple[str, int, ast.Call]] = []
+    for path in sorted(COMPONENT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            )
+            if name in _USER_FACING_ERRORS:
+                found.append((str(path.relative_to(COMPONENT)), node.lineno, node))
+    return found
+
+
+def test_user_errors_name_a_catalog_message():
+    """An error the user can see carries a translation key the catalog defines.
+
+    Home Assistant shows the message of a raised error to the user; without
+    a translation key it shows the English text the code was written with,
+    whatever the user's language. The placeholders the call passes must be
+    the ones the English message uses.
+    """
+    messages = _load_json(TRANSLATIONS / "en.json").get("exceptions", {})
+    raised = _constructed_user_errors()
+    assert raised, "the scan found no error construction at all"
+
+    problems: list[str] = []
+    for path, line, call in raised:
+        kwargs = {kw.arg: kw.value for kw in call.keywords}
+        where = f"{path}:{line}"
+        if call.args:
+            problems.append(f"{where}: passes a message instead of a translation key")
+            continue
+        domain = kwargs.get("translation_domain")
+        if not (isinstance(domain, ast.Name) and domain.id == "DOMAIN"):
+            problems.append(f"{where}: translation_domain is not DOMAIN")
+        key = kwargs.get("translation_key")
+        if not (isinstance(key, ast.Constant) and key.value in messages):
+            problems.append(f"{where}: translation_key is missing from en.json")
+            continue
+        passed = kwargs.get("translation_placeholders")
+        names = (
+            sorted(f"{{{k.value}}}" for k in passed.keys if isinstance(k, ast.Constant))
+            if isinstance(passed, ast.Dict)
+            else []
+        )
+        if names != _placeholders(messages[key.value]["message"]):
+            problems.append(f"{where}: placeholders {names} differ from en.json")
+    assert not problems, "\n".join(problems)

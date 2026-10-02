@@ -541,5 +541,13 @@
       "set_hvac_mode": "Nastaviť režim HVAC",
       "set_temperature": "Nastaviť cieľovú teplotu"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} nepodporuje režim HVAC {mode}. Podporované režimy: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} dostal pre {attribute} hodnotu {value}, ktorá nie je číslo."
+    }
   }
 }

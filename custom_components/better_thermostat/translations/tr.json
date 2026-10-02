@@ -541,5 +541,13 @@
       "set_hvac_mode": "HVAC modunu ayarla",
       "set_temperature": "Hedef sıcaklığı ayarla"
     }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name}, {mode} HVAC modunu desteklemiyor. Desteklenen modlar: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name}, {attribute} için sayı olmayan {value} değerini aldı."
+    }
   }
 }
