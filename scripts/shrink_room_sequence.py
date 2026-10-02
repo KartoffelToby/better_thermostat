@@ -34,7 +34,10 @@ REPLAY_TEST = (
     "tests/integration/test_room_event_sequences.py"
     "::test_a_replayed_sequence_keeps_every_rule"
 )
-RULE = re.compile(r"\[(intent|convergence|grid|bulkhead|settle)\]")
+RULE = re.compile(
+    r"^E\s+(?:AssertionError:\s+)?\[(intent|convergence|grid|bulkhead|settle|surfaces)\]",
+    re.MULTILINE,
+)
 PREFIX = "BT_ROOM_REPLAY="
 
 
@@ -57,7 +60,12 @@ def replay_line(sequence: dict[str, Any]) -> str:
 
 
 def broken_rule_in(output: str) -> str | None:
-    """Return the first rule a test run's output reports as broken."""
+    """Return the first rule a test run's output reports as broken.
+
+    Only a failure message counts: a line pytest marks with ``E`` whose text
+    opens with the rule's tag. Source lines in the traceback can spell out
+    the tags of other checks and are not read.
+    """
     match = RULE.search(output)
     return match.group(1) if match else None
 
@@ -111,6 +119,7 @@ def run_replay(sequence: dict[str, Any]) -> str | None:
             "-p",
             "no:cacheprovider",
             "--show-capture=no",
+            "--tb=short",
         ],
         cwd=REPO_ROOT,
         env=environment,
