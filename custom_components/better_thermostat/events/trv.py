@@ -255,12 +255,14 @@ def _read_internal_temperature_later(
         )
         trv.current_temperature = _reading
         trv.last_internal_sensor_change = dt_util.now()
-        # Waiting for room in the queue could outlast the control loop
-        # that empties it; a request already queued covers this reading.
-        try:
-            self.control_queue_task.put_nowait(self)
-        except asyncio.QueueFull:
-            pass
+        # During the room sensor fallback the room follows the reading the
+        # TRV takes, as it does for a reading the handler takes.
+        if refresh_room_temperature_from_trvs(self):
+            self.async_write_ha_state()
+        # The request does not wait for room in the queue, which could
+        # outlast the control loop that empties it; a request already queued
+        # covers this reading.
+        queue_control_cycle(self)
 
     self._spawn_owned(_reread(), name=f"bt_internal_reread_{entity_id}")
 
@@ -475,6 +477,12 @@ async def trigger_trv_change(
             _main_change = False
             if trv.calibration == 0:
                 trv.last_calibration = await get_current_offset(self, entity_id)
+
+        # A room temperature the room sensor fallback takes from the report,
+        # including the one that starts a due fallback, is controlled on
+        # even when the report also confirms an offset write.
+        if _room_temperature_changed:
+            _main_change = True
     elif (
         _new_current_temp is not None
         and trv.current_temperature != _new_current_temp
@@ -483,12 +491,6 @@ async def trigger_trv_change(
         # Turned away by the debounce alone: the reading is read again once
         # the interval is over.
         _read_internal_temperature_later(self, trv, entity_id, _time_diff)
-
-        # A room temperature the room sensor fallback takes from the report,
-        # including the one that starts a due fallback, is controlled on
-        # even when the report also confirms an offset write.
-        if _room_temperature_changed:
-            _main_change = True
 
     # The room sensor fallback reads the TRVs' live reports, so a due
     # fallback starts on the first report that carries a usable temperature,

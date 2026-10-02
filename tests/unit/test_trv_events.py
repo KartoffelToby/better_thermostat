@@ -3993,6 +3993,7 @@ class TestInternalRereadAfterTheDebounce:
         trv.current_temperature = current
         trv.last_internal_sensor_change = self.T0
         mock_bt.control_queue_task = asyncio.Queue(maxsize=1)
+        mock_bt.in_maintenance = False
         return trv
 
     def _start(self, mock_bt, trv):
@@ -4123,3 +4124,46 @@ class TestInternalRereadAfterTheDebounce:
 
         assert trv.current_temperature == pytest.approx(23.9)
         assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_the_room_sensor_fallback_follows_the_reading(self, mock_bt):
+        """During the fallback the room moves with the reading read again.
+
+        The handler leaves the room on the TRV's accepted reading while the
+        debounce holds a report back, so the room moves when the reread takes
+        it, and the room is controlled on.
+        """
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        mock_bt.room_sensor_fallback = True
+        mock_bt.cur_temp = 18.0
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert mock_bt.cur_temp == pytest.approx(23.9)
+        mock_bt.async_write_ha_state.assert_called()
+        assert mock_bt.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_valve_maintenance_keeps_the_request_for_its_end(self, mock_bt):
+        """A reading read again during valve maintenance asks for a cycle after it."""
+        trv = self._prepare(
+            mock_bt, state=_make_state(attributes={"current_temperature": 23.9})
+        )
+        mock_bt.in_maintenance = True
+        mock_bt._control_needed_after_maintenance = False
+        clock = [self.T0 + timedelta(seconds=1)]
+        timers = []
+        coro = self._start(mock_bt, trv)
+        await self._run(
+            coro, clock, timers, [(self.T0 + timedelta(seconds=5), lambda: None)]
+        )
+
+        assert trv.current_temperature == pytest.approx(23.9)
+        assert mock_bt.control_queue_task.qsize() == 0
+        assert mock_bt._control_needed_after_maintenance is True
