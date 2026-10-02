@@ -23,7 +23,7 @@ from custom_components.better_thermostat.utils.hvac_action import (
     compute_hvac_action,
     should_cool_with_tolerance,
 )
-from tests.factories import make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot
 
 COOLER_ID = "climate.air_conditioner"
 
@@ -38,10 +38,11 @@ def build_bt(
     cooler_entity_id=COOLER_ID,
 ):
     """Return a BT mock with the real hvac-action methods bound to it."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.tolerance = tolerance
     bt.bt_target_temp = target_temp
     bt.bt_target_cooltemp = cool_target
+    bt.bt_target_temp_step = None
     bt.cur_temp = cur_temp
     bt.hvac_mode = HVACMode.HEAT_COOL
     bt.bt_hvac_mode = HVACMode.HEAT

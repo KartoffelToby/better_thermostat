@@ -7,15 +7,16 @@ away.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
 from homeassistant.components.climate.const import HVACAction
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from tests.factories import ThermostatStandIn
 
 
 def _bt():
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.attr_hvac_action = None
     bt._compute_hvac_action_pure = Mock(
         return_value=SimpleNamespace(action=HVACAction.IDLE)

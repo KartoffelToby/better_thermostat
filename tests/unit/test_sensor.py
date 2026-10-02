@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.helpers import entity_registry as er
 import pytest
 
+from custom_components.better_thermostat import BetterThermostatData
 from custom_components.better_thermostat.sensor import (
     _ACTIVE_ALGORITHM_ENTITIES,
     _ACTIVE_PID_NUMBERS,
@@ -57,7 +58,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
 )
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 DOMAIN = "better_thermostat"
 
@@ -69,7 +70,7 @@ DOMAIN = "better_thermostat"
 
 def _make_bt_climate(**overrides):
     """Create a mock BT climate entity with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = "test_bt_123"
     bt.device_name = "Test BT"
     bt.entity_id = "climate.test_bt"
@@ -83,6 +84,7 @@ def _make_bt_climate(**overrides):
     bt.heating_power = None
     bt.heat_loss_rate = None
     bt.real_trvs = {}
+    bt.all_trvs = []
     bt.preset_modes = []
     bt.door_open = False
     for k, v in overrides.items():
@@ -91,10 +93,11 @@ def _make_bt_climate(**overrides):
     return bt
 
 
-def _make_entry(entry_id="entry_1"):
-    """Create a mock ConfigEntry."""
+def _make_entry(entry_id="entry_1", climate=None):
+    """Create a mock ConfigEntry loaded with ``climate`` as its climate entity."""
     entry = MagicMock()
     entry.entry_id = entry_id
+    entry.runtime_data = BetterThermostatData(climate=climate)
     return entry
 
 
@@ -765,8 +768,7 @@ class TestSetupAlgorithmSensors:
     async def test_mpc_creates_four_sensors(self):
         """Mpc creates four sensors."""
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": None}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=None)
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv.from_legacy_dict(
@@ -955,8 +957,7 @@ class TestAsyncSetupEntry:
     async def test_no_climate_returns_early(self):
         """If climate entity not found, no sensors should be added."""
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": None}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=None)
         async_add_entities = MagicMock()
 
         await async_setup_entry(hass, entry, async_add_entities)
@@ -967,8 +968,7 @@ class TestAsyncSetupEntry:
         """Should create 6 core sensors when climate exists."""
         bt = _make_bt_climate()
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": bt}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=bt)
         async_add_entities = MagicMock()
 
         with (
@@ -995,8 +995,7 @@ class TestAsyncSetupEntry:
         """
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": bt}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=bt)
         async_add_entities = MagicMock()
 
         with (
@@ -1758,28 +1757,6 @@ class TestEdgeCasesAndPotentialBugs:
         sensor._update_ema(float("nan"))
         # NaN math: 20 + alpha * (nan - 20) = nan
         assert math.isnan(sensor._ema_value)
-
-    @pytest.mark.asyncio
-    async def test_setup_entry_missing_domain_key_crashes(self):
-        """If hass.data doesn't have the DOMAIN key, it should crash with KeyError."""
-        hass = MagicMock()
-        hass.data = {}  # no DOMAIN key
-        entry = _make_entry()
-        async_add_entities = MagicMock()
-
-        with pytest.raises(KeyError):
-            await async_setup_entry(hass, entry, async_add_entities)
-
-    @pytest.mark.asyncio
-    async def test_setup_entry_missing_entry_id_crashes(self):
-        """If the entry_id is not in hass.data[DOMAIN], KeyError should occur."""
-        hass = MagicMock()
-        hass.data = {DOMAIN: {}}  # no entry_id
-        entry = _make_entry()
-        async_add_entities = MagicMock()
-
-        with pytest.raises(KeyError):
-            await async_setup_entry(hass, entry, async_add_entities)
 
 
 # ===========================================================================

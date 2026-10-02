@@ -9,14 +9,14 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 quirk = importlib.import_module("custom_components.better_thermostat.model_fixes.TRVZB")
 
 
 def _make_self():
     """Create a mock BetterThermostat with a spied service-call layer."""
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()

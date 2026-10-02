@@ -6,7 +6,6 @@ delta), the non-overlapping-range warning, and the step-already-set guard.
 """
 
 import logging
-from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -29,6 +28,7 @@ from custom_components.better_thermostat.utils.helpers import (
     bound_to_celsius,
     convert_to_float_celsius,
 )
+from tests.factories import ThermostatStandIn, make_trv
 
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
@@ -36,7 +36,7 @@ HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for range resolution."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_min_temp = None
     mock.bt_max_temp = None
@@ -317,7 +317,7 @@ def test_non_overlapping_ranges_still_assigned(bt, caplog):
 def _with_cooler(bt, cooler_id="climate.cooler"):
     """Configure ``bt`` with a cooler and one head, ``climate.trv``."""
     bt.cooler_entity_id = cooler_id
-    bt.real_trvs = {"climate.trv": MagicMock()}
+    bt.real_trvs = {"climate.trv": make_trv("climate.trv")}
 
 
 def test_a_cooler_bounds_the_cooling_channel_alone(bt):

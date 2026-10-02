@@ -7,7 +7,7 @@ the queue handler committing or cancelling them, and the control kicks.
 
 import asyncio
 from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -19,13 +19,14 @@ from custom_components.better_thermostat.events.window import (
     window_queue,
 )
 from custom_components.better_thermostat.utils.const import DOMAIN
+from tests.factories import ThermostatStandIn
 
 _CONTACT = "custom_components.better_thermostat.events.contact"
 _LOGBOOK = f"{_CONTACT}.async_fire_logbook_entry"
 
 
 def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay=0):
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.window_id = "binary_sensor.window"
     bt.window_open = window_open

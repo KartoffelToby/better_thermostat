@@ -14,7 +14,6 @@ import pytest
 
 from .conftest import (
     BT_ENTITY,
-    DOMAIN,
     WRITE_BUDGET,
     make_entry,
     set_room_sensor,
@@ -69,4 +68,4 @@ async def test_a_pending_write_watchdog_ends_with_the_entity(hass, fake_trv, rem
     if removal == "unload":
         assert entry.state is ConfigEntryState.NOT_LOADED
     else:
-        assert hass.data[DOMAIN][entry.entry_id]["climate"] is not bt
+        assert entry.runtime_data.climate is not bt

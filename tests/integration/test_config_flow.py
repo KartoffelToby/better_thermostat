@@ -474,7 +474,7 @@ async def test_one_thermostat_reload_does_not_wait_on_another(hass):
     await _run_options_flow(
         hass, holding, _user_step_input(trv.entity_id, name="Primed Room")
     )
-    before = hass.data[DOMAIN][waiting.entry_id]["climate"]
+    before = waiting.runtime_data.climate
     async with hass.data[RELOAD_LOCKS][holding.entry_id]:
         async with asyncio.timeout(RELOAD_TIMEOUT_S):
             await _run_options_flow(
@@ -560,7 +560,7 @@ async def test_a_settled_options_pass_that_changes_nothing_leaves_the_entry_alon
         await click_through_the_options(hass, entry)
 
     assert reloads == []
-    assert hass.data[DOMAIN][entry.entry_id]["climate"] is before
+    assert entry.runtime_data.climate is before
 
 
 async def test_a_configured_range_holds_the_thermostat_below_what_its_device_allows(
