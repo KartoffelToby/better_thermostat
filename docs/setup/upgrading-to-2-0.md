@@ -149,8 +149,9 @@ the pause. Your logs get much quieter.
 - **Climate attributes:** `control_mode` and `degraded_for_s` (see above),
   and `calibrator_health`, which reports per thermostat whether its
   controller is healthy.
-- **Direct valve control** is now also offered for a Sonoff TRVZB paired
-  through ZHA.
+- **Direct valve control** is now also offered for a Sonoff TRVZB outside
+  Zigbee2MQTT, for example one paired through ZHA, as long as its valve
+  opening shows up as an enabled number entity on the same device.
 
 ## Going back to 1.9.2
 
