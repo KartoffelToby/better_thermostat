@@ -14,9 +14,11 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.state_manager import StateManager
+from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.trv"
 
@@ -32,7 +34,7 @@ def build_bt(
     protect_overheating=False,
 ):
     """Return a BetterThermostat mock carrying a single configured TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.name = "better_thermostat"
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
@@ -41,14 +43,17 @@ def build_bt(
     bt.cur_temp = cur_temp
     bt.cur_temp_filtered = None
     bt.bt_target_temp = bt_target_temp
-    bt.bt_hvac_mode = HVACMode.HEAT_COOL
+    bt.bt_hvac_mode = HVACMode.HEAT
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.window_open = False
+    bt.contact_open = False
     bt.temp_slope = None
     bt.heating_power = 0.04
     bt.heat_loss_rate = 0.02
     bt.hass = None
+    bt.kernel_state = make_state()
+    bt.clock = FakeClock()
     bt.state_mgr = StateManager(MagicMock(), "cooling_gates")
 
     quirks = MagicMock()
@@ -193,12 +198,11 @@ def test_cooling_applies_tolerance_delay_to_setpoint():
 
 
 def test_overheating_protection_applies_to_idle_only():
-    """The overheating term is signed against the heating target and stays idle-only.
+    """The overheating term counts from the heating target and stays idle-only.
 
-    Its magnitude is calibrated against the heating tolerance, and below
-    ``heating target + tolerance`` it turns negative and opens the valve —
-    which is the region a cooling room occupies once the cooling target sits
-    one step above the heating target.
+    It is sized against the heating tolerance and measured from
+    ``heating target + tolerance``; the cooling arm closes the valve through
+    its own gates and does not take the term.
     """
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,

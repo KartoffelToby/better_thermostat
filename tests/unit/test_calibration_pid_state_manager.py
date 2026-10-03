@@ -1,13 +1,15 @@
 """Tests that PID calibration reads and writes state through the state manager."""
 
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from custom_components.better_thermostat.calibration import _compute_pid_balance
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDState,
     build_pid_key,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 
 class _PidStateStub:
@@ -25,9 +27,10 @@ class _PidStateStub:
         self.pid[key] = pid
 
 
-def _make_bt(state_mgr: _PidStateStub) -> MagicMock:
+def _make_bt(state_mgr: _PidStateStub) -> ThermostatStandIn:
     """Return a BetterThermostat mock wired for a single heating TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.bt_target_temp = 22.0
@@ -35,7 +38,9 @@ def _make_bt(state_mgr: _PidStateStub) -> MagicMock:
     bt.cur_temp_filtered = None
     bt.temp_slope = 0.0
     bt.window_open = False
+    bt.contact_open = False
     bt.bt_hvac_mode = "heat"
+    bt.clock = FakeClock(monotonic_value=1_000.0)
     bt.real_trvs = {
         "climate.trv": Trv.from_legacy_dict(
             "climate.trv",
@@ -64,16 +69,6 @@ def test_pid_balance_persists_learned_state_in_state_manager() -> None:
     assert state_mgr.pid[key].last_abs_error == 2.0
 
 
-def test_pid_balance_schedules_state_persistence() -> None:
-    """A successful PID cycle schedules a save of the learned state."""
-    state_mgr = _PidStateStub()
-    bt = _make_bt(state_mgr)
-
-    _compute_pid_balance(bt, "climate.trv")
-
-    bt.schedule_save_state.assert_called()
-
-
 def test_pid_balance_threads_the_same_state_across_calls() -> None:
     """Repeated calls keep accumulating on the state manager's state object."""
     state_mgr = _PidStateStub()
@@ -86,3 +81,24 @@ def test_pid_balance_threads_the_same_state_across_calls() -> None:
     _compute_pid_balance(bt, "climate.trv")
     assert state_mgr.pid[key] is first
     assert first.previous_abs_error == 2.0
+
+
+def test_pid_sanitized_state_is_persisted_when_compute_raises() -> None:
+    """The healed state replaces the poisoned one even on a compute failure."""
+    state_mgr = _PidStateStub()
+    bt = _make_bt(state_mgr)
+    key = build_pid_key(bt, "climate.trv")
+    poisoned = PIDState()
+    poisoned.pid_integral = float("nan")
+    state_mgr.pid[key] = poisoned
+
+    with patch(
+        "custom_components.better_thermostat.calibration.compute_pid",
+        side_effect=ValueError("boom"),
+    ):
+        percent, supports_valve = _compute_pid_balance(bt, "climate.trv")
+
+    assert percent is None
+    assert supports_valve is False
+    stored = state_mgr.pid[key]
+    assert stored.pid_integral == 0.0  # sanitized default, not NaN

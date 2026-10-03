@@ -37,6 +37,7 @@ import pytest
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 QUIRKS_DIR = Path(default_quirk.__file__).parent
 PRODUCTION_ROOT = QUIRKS_DIR.parent
@@ -59,6 +60,7 @@ OPTIONAL = (
     "override_set_valve",
     "initial_tweak",
     "maybe_set_external_temperature",
+    "trv_state_unknown_as_available",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -72,6 +74,7 @@ CALL_CONTRACT = {
     "override_set_temperature": ((21.0,), bool),
     "override_set_valve": ((50,), bool),
     "initial_tweak": ((), type(None)),
+    "trv_state_unknown_as_available": ((), bool),
 }
 
 
@@ -108,7 +111,7 @@ def _host():
     the promised shape, so a quirk that trips over one is tripping over
     the contract and not over the fixture.
     """
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.cur_temp = 19.5
@@ -190,9 +193,9 @@ def _is_a_quirk_module(node, holders=frozenset()):
 
     Only the wrappers the shell actually puts around one are unwrapped:
     an ``await``, a guard against a missing TRV, a fallback chain. What
-    a quirk function *returns* is not a quirk module, so a call only
-    counts when it is the loader, and a bare name only when it was bound
-    from one of these in the first place.
+    a quirk function *returns* is not a quirk module, so a call counts
+    only when it is the loader or the attribute lookup itself, and a bare
+    name only when it was bound from one of these in the first place.
     """
     if isinstance(node, ast.Await):
         return _is_a_quirk_module(node.value, holders)
@@ -213,7 +216,18 @@ def _is_a_quirk_module(node, holders=frozenset()):
             if isinstance(called, ast.Attribute)
             else getattr(called, "id", None)
         )
-        return name == QUIRK_LOADER
+        if name == QUIRK_LOADER:
+            return True
+        # ``getattr(trv, "model_quirks", None)`` reaches the same attribute as
+        # ``trv.model_quirks``; the shell spells it that way wherever the
+        # record it reads from may be absent, and the dispatch that writes the
+        # valve is one of those places.
+        return (
+            name == "getattr"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == QUIRK_ATTRIBUTE
+        )
     return False
 
 
@@ -499,15 +513,33 @@ class TestTheDispatchAlwaysFindsWhatItReachesFor:
         assert _dispatched_from_the_shell(name), f"{name} is dispatched from nowhere"
 
 
-class TestAnImplementationMatchesTheDefault:
-    """A model's version is callable wherever the default one is."""
+def _reference_for(name):
+    """The implementation every other one of that name has to match.
+
+    ``default.py`` is it wherever it carries the function. An optional
+    one it leaves out has no such anchor, so the models implementing it
+    are each other's: the dispatch reaches all of them through the same
+    call, so they all have to answer it the same way.
+    """
+    reference = getattr(default_quirk, name, None)
+    if reference is not None:
+        return reference
+    implementers = [
+        getattr(MODEL_MODULES[model], name)
+        for model in MODEL_IDS
+        if hasattr(MODEL_MODULES[model], name)
+    ]
+    return implementers[0] if implementers else None
+
+
+class TestAnImplementationMatchesTheReference:
+    """A model's version is callable wherever the reference one is."""
 
     @pytest.mark.parametrize(("model", "name"), IMPLEMENTED, ids=IMPLEMENTED_IDS)
     def test_the_signature_and_kind_match(self, model, name):
         """The dispatch awaits some of these and calls others plainly."""
-        reference = getattr(default_quirk, name, None)
-        if reference is None:
-            pytest.skip(f"{name} has no counterpart in default.py")
+        reference = _reference_for(name)
+        assert reference is not None, f"{name} has no implementation to match"
         assert _signature(getattr(MODEL_MODULES[model], name)) == _signature(reference)
 
 

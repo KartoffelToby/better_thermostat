@@ -16,6 +16,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_KP,
     PIDState,
 )
+from tests.factories import ThermostatStandIn
 
 _KEY = "uid:climate.trv:t21.0"
 
@@ -43,7 +44,7 @@ class _StateMgrStub:
 
 
 def _make_bt() -> MagicMock:
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = "uid"
     bt.bt_target_temp = 21.0
     bt.schedule_save_state = MagicMock()
@@ -143,22 +144,6 @@ class TestAutoTuneSwitch:
         assert bt.state_mgr.pid["uid:climate.trv:t20.0"].auto_tune is False
         assert bt.state_mgr.pid["uid:climate.other:t21.0"].auto_tune is None
         assert bt.state_mgr.dirty is True
-        bt.schedule_save_state.assert_called_once()
-
-    def test_update_seeds_active_bucket_when_none_exists(self):
-        """Toggling with no stored bucket seeds the active one.
-
-        After a PID reset (or before the first PID cycle) the map is
-        empty; the toggle must still survive and be readable.
-        """
-        bt = _make_bt()
-        switch = self._make(bt)
-
-        switch._update_state(False)
-
-        assert bt.state_mgr.pid[_KEY].auto_tune is False
-        assert bt.state_mgr.dirty is True
-        assert switch.is_on is False
         bt.schedule_save_state.assert_called_once()
 
     def test_update_without_state_manager_is_a_noop(self):

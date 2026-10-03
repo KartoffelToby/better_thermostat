@@ -1,13 +1,15 @@
 """Tests that MPC calibration reads and writes state through the state manager."""
 
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
+    build_mpc_group_key,
     build_mpc_key,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 
 class _MpcStateStub:
@@ -29,9 +31,10 @@ class _MpcStateStub:
         self.mpc[key] = mpc
 
 
-def _make_bt(state_mgr: _MpcStateStub) -> MagicMock:
+def _make_bt(state_mgr: _MpcStateStub) -> ThermostatStandIn:
     """Return a BetterThermostat mock wired for a single heating TRV."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = make_state()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.bt_target_temp = 22.0
@@ -40,6 +43,7 @@ def _make_bt(state_mgr: _MpcStateStub) -> MagicMock:
     bt.temp_slope = 0.0
     bt.tolerance = 0.0
     bt.window_open = False
+    bt.contact_open = False
     bt.bt_hvac_mode = "heat"
     bt.outdoor_sensor = None
     bt.weather_entity = None
@@ -71,6 +75,27 @@ def test_mpc_balance_persists_state_in_state_manager() -> None:
     assert state_mgr.mpc[key].last_integration_ts > 0.0
 
 
+def test_mpc_balance_handles_multiple_trvs() -> None:
+    """Multi-TRV setups aggregate TRV temperatures via attribute access."""
+    state_mgr = _MpcStateStub()
+    bt = _make_bt(state_mgr)
+    bt.real_trvs["climate.trv2"] = Trv.from_legacy_dict(
+        "climate.trv2",
+        {
+            "advanced": {},
+            "current_temperature": 23.5,
+            "min_temp": 5.0,
+            "max_temp": 30.0,
+        },
+    )
+
+    payload, skipped = _compute_mpc_balance(bt, "climate.trv")
+
+    assert skipped is False
+    assert payload is not None
+    assert build_mpc_group_key(bt) in state_mgr.mpc
+
+
 def test_mpc_balance_threads_the_same_state_across_calls() -> None:
     """Repeated calls keep accumulating on the state manager's state object."""
     state_mgr = _MpcStateStub()
@@ -82,3 +107,26 @@ def test_mpc_balance_threads_the_same_state_across_calls() -> None:
 
     _compute_mpc_balance(bt, "climate.trv")
     assert state_mgr.mpc[key] is first
+
+
+def test_mpc_sanitized_state_is_persisted_when_compute_raises() -> None:
+    """The healed state replaces the poisoned one even on a compute failure.
+
+    Without this, the poisoned entry stays on disk and is re-healed on
+    every cycle for as long as the compute keeps failing.
+    """
+    state_mgr = _MpcStateStub()
+    bt = _make_bt(state_mgr)
+    key = build_mpc_key(bt, "climate.trv")
+    state_mgr.mpc[key] = MpcState(last_percent=float("nan"))
+
+    with patch(
+        "custom_components.better_thermostat.calibration.compute_mpc",
+        side_effect=ValueError("boom"),
+    ):
+        payload, supports_valve = _compute_mpc_balance(bt, "climate.trv")
+
+    assert payload is None
+    assert supports_valve is False
+    stored = state_mgr.mpc[key]
+    assert stored.last_percent is None  # sanitized default, not NaN

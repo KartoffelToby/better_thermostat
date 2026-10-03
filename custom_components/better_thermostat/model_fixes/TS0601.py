@@ -6,13 +6,19 @@ Contains model-specific handling for known quirks in TS0601-based devices.
 from __future__ import annotations
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float_celsius,
+    state_temperature_unit,
+)
 
 
 def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
     """Normalize local calibration offset for TS0601 devices.
 
     This function performs model-specific rounding/adjustment to avoid
-    spurious values that would lead to incorrect behavior.
+    spurious values that would lead to incorrect behavior. The adjustment
+    compares the room temperature against the setpoint; without either of
+    them the offset is returned unchanged.
 
     Parameters
     ----------
@@ -30,6 +36,9 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     """
     _cur_external_temp = self.cur_temp
     _target_temp = self.bt_target_temp
+
+    if _cur_external_temp is None or _target_temp is None:
+        return offset
 
     if (_cur_external_temp + 0.1) >= _target_temp:
         offset = round(offset + 0.5, 1)
@@ -63,11 +72,18 @@ def fix_target_temperature_calibration(
     """
     _state = self.hass.states.get(entity_id)
     _cur_trv_temp = None
-    if _state is not None:
-        _cur_trv_temp = _state.attributes.get("current_temperature")
+    if _state is not None and _state.attributes.get("current_temperature") is not None:
+        # A climate entity reports in the system unit; the setpoint is °C.
+        _cur_trv_temp = convert_to_float_celsius(
+            _state.attributes.get("current_temperature"),
+            self.device_name,
+            "fix_target_temperature_calibration",
+            state_temperature_unit(
+                _state.attributes, self.hass.config.units.temperature_unit
+            ),
+        )
     if _cur_trv_temp is None:
         return temperature
-    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5

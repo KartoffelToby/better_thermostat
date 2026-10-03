@@ -5,16 +5,18 @@ import contextlib
 import importlib
 from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 quirk = importlib.import_module("custom_components.better_thermostat.model_fixes.TRVZB")
 
 
 def _make_self():
     """Create a mock BetterThermostat with a spied service-call layer."""
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()
@@ -199,16 +201,11 @@ class TestOverrideSetValve:
         assert "_trvzb_valve_bump_task" not in trv_state.extra
 
 
-def _registry_entry(entity_id, *, domain, translation_key=None, device_id="dev1"):
-    """A registry entry stand-in with the fields the lookup reads."""
-    entry = MagicMock()
-    entry.entity_id = entity_id
-    entry.domain = domain
-    entry.device_id = device_id
-    entry.unique_id = entity_id
-    entry.translation_key = translation_key
-    entry.original_name = None
-    return entry
+def _registry_entry(entity_id, *, translation_key=None, device_id="dev1"):
+    """A registry entry on the TRV's device; its domain is the entity id's."""
+    return make_registry_entry(
+        entity_id, translation_key=translation_key, device_id=device_id
+    )
 
 
 def _make_selector_self(
@@ -223,18 +220,14 @@ def _make_selector_self(
     """
     mock_self = _make_self()
     if trv is None:
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
     selector = _registry_entry(
         "select.trv1_temperature_sensor_select",
-        domain="select",
         translation_key="temperature_sensor_select",
     )
-    registry = MagicMock()
-    registry.async_get.return_value = trv
-    registry.entities.values.return_value = (
-        entries if entries is not None else [trv, selector]
+    mock_self._registry = make_entity_registry(
+        *(entries if entries is not None else [trv, selector])
     )
-    mock_self._registry = registry
 
     selector_state = None
     if state is not None:
@@ -318,10 +311,9 @@ class TestMaybeSelectExternalSensor:
         to the selector's translation key or id fragment would be written
         as if it sat on this TRV.
         """
-        trv = _registry_entry("climate.trv1", domain="climate", device_id=None)
+        trv = _registry_entry("climate.trv1", device_id=None)
         stray = _registry_entry(
             "select.somewhere_else_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
             device_id=None,
         )
@@ -362,18 +354,15 @@ class TestMaybeSelectExternalSensor:
     async def test_the_translation_key_wins_over_an_earlier_id_match(self, monkeypatch):
         """The key names the selector; the id fragment only guesses at it.
 
-        A device that carries a second select whose id reads like the
-        selector — a leftover from a rename, say — hands it out first, and
-        matching per entry would write to it and never reach the entry that
-        names itself.
+        A device can carry a second select whose id reads like the
+        selector, a leftover from a rename. The registry hands that one
+        out first, so matching per entry would write to it and never
+        reach the entry that names itself.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
-        decoy = _registry_entry(
-            "select.trv1_temperature_sensor_select_old", domain="select"
-        )
+        trv = _registry_entry("climate.trv1")
+        decoy = _registry_entry("select.trv1_temperature_sensor_select_old")
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, decoy, selector])
@@ -388,9 +377,57 @@ class TestMaybeSelectExternalSensor:
         ]
 
     @pytest.mark.asyncio
+    async def test_a_selector_that_names_itself_nothing_is_found_by_its_id(
+        self, monkeypatch
+    ):
+        """Not every integration publishes a translation key.
+
+        The id is the only handle left on such an entry, so it stays the
+        fallback for the siblings that carry no key.
+        """
+        trv = _registry_entry("climate.trv1")
+        unnamed = _registry_entry("select.trv1_temperature_sensor_select")
+        mock_self = _make_selector_self("internal", entries=[trv, unnamed])
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {"entity_id": "select.trv1_temperature_sensor_select", "option": "external"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_sibling_that_names_something_else_is_left_alone(self, monkeypatch):
+        """An entry with a key of its own has said what it is.
+
+        Guessing at its id would write the sensor choice into whatever
+        else the device exposes, so the fallback passes it by.
+        """
+        trv = _registry_entry("climate.trv1")
+        named_otherwise = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="valve_opening_degree",
+        )
+        unrelated = _registry_entry("select.trv1_backlight")
+        mock_self = _make_selector_self(
+            "internal", entries=[trv, named_otherwise, unrelated]
+        )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert (
+            await quirk.maybe_select_external_sensor(mock_self, "climate.trv1") is False
+        )
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
     async def test_a_device_without_a_selector_is_not_written(self, monkeypatch):
         """Nothing on the device answers for the sensor choice."""
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         mock_self = _make_selector_self("internal", entries=[trv])
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
@@ -414,15 +451,13 @@ class TestExternalTemperatureWriteSelectsTheSensor:
         has to happen on the path that writes the value, because that is
         the only path that knows a value was written.
         """
-        trv = _registry_entry("climate.trv1", domain="climate")
+        trv = _registry_entry("climate.trv1")
         number = _registry_entry(
             "number.trv1_external_temperature_input",
-            domain="number",
             translation_key="external_temperature_input",
         )
         selector = _registry_entry(
             "select.trv1_temperature_sensor_select",
-            domain="select",
             translation_key="temperature_sensor_select",
         )
         mock_self = _make_selector_self("internal", entries=[trv, number, selector])
@@ -447,3 +482,176 @@ class TestExternalTemperatureWriteSelectsTheSensor:
                 "option": "external",
             },
         ]
+
+
+VALVE_OPENING = "number.trv1_valve_opening_degree"
+VALVE_CLOSING = "number.trv1_valve_closing_degree"
+VALVE_GENERIC = "number.trv1_valve_position"
+
+WRITE_REFUSALS = [
+    HomeAssistantError("device did not answer"),
+    ServiceValidationError("value is out of range"),
+    OSError("connection reset"),
+]
+WRITE_REFUSAL_IDS = ["unreachable", "out_of_range", "transport"]
+
+
+def _valve_number(entity_id, translation_key=None):
+    """A number entity on the TRV's device that the valve write can pick up."""
+    return _registry_entry(entity_id, translation_key=translation_key)
+
+
+class TestValveWriteTheDeviceRefuses:
+    """A refused valve write is reported, not raised.
+
+    Batteries sleep, devices go out of reach, an integration reloads its
+    config entry, and a number entity may declare a narrower range than the
+    percentage handed to it. All of these answer a blocking service call with
+    a ``HomeAssistantError``. Raising it strands the caller in two ways: the
+    complement of a written opening degree never goes out, leaving the valve
+    on a range nobody asked for, and the deferred half of the de-sticking bump
+    runs in a background task where nothing is left to catch it.
+    """
+
+    @staticmethod
+    def _trvzb_carrying(monkeypatch, numbers):
+        """A TRVZB whose device carries the given number entities."""
+        trv = _registry_entry(ENTITY)
+        registry = make_entity_registry(trv, *numbers)
+        monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
+
+        mock_self = _make_self()
+        mock_self.in_maintenance = False
+        mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model="TRVZB")}
+        mock_self.hass.async_create_background_task = lambda coro, name=None: (
+            asyncio.ensure_future(coro)
+        )
+        return mock_self
+
+    @pytest.mark.parametrize(
+        "refused_entity", [VALVE_OPENING, VALVE_CLOSING], ids=["opening", "closing"]
+    )
+    @pytest.mark.parametrize("refusal", WRITE_REFUSALS, ids=WRITE_REFUSAL_IDS)
+    @pytest.mark.asyncio
+    async def test_the_refusal_is_reported_as_a_declined_write(
+        self, monkeypatch, refused_entity, refusal
+    ):
+        """Either degree may be refused; both yield False."""
+        mock_self = self._trvzb_carrying(
+            monkeypatch,
+            [
+                _valve_number(VALVE_OPENING, "valve_opening_degree"),
+                _valve_number(VALVE_CLOSING, "valve_closing_degree"),
+            ],
+        )
+
+        async def _refuse(_domain, _service, data, **_kwargs):
+            if data["entity_id"] == refused_entity:
+                raise refusal
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse)
+
+        assert (
+            await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30) is False
+        )
+
+    @pytest.mark.parametrize("refusal", WRITE_REFUSALS, ids=WRITE_REFUSAL_IDS)
+    @pytest.mark.asyncio
+    async def test_a_refused_fallback_write_is_reported_too(self, monkeypatch, refusal):
+        """A device naming neither degree is written through the same handler."""
+        mock_self = self._trvzb_carrying(monkeypatch, [_valve_number(VALVE_GENERIC)])
+        mock_self.hass.services.async_call = AsyncMock(side_effect=refusal)
+
+        assert (
+            await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30) is False
+        )
+
+    @pytest.mark.parametrize("refusal", WRITE_REFUSALS, ids=WRITE_REFUSAL_IDS)
+    @pytest.mark.asyncio
+    async def test_a_refused_deferred_write_does_not_strand_its_task(
+        self, monkeypatch, refusal
+    ):
+        """The write carrying the requested position has no caller left.
+
+        The de-sticking bump has already driven the valve further open by the
+        time it goes out, and the commanded position is recorded as taken. An
+        error escaping the background task leaves the valve on the bump.
+        """
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self = self._trvzb_carrying(
+            monkeypatch, [_valve_number(VALVE_OPENING, "valve_opening_degree")]
+        )
+        mock_self.real_trvs[ENTITY].last_valve_percent = 40
+
+        async def _refuse(_domain, _service, data, **_kwargs):
+            if data["value"] == 30:
+                raise refusal
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = mock_self.real_trvs[ENTITY].extra["_trvzb_valve_bump_task"]
+        await asyncio.wait([task])
+
+        assert task.exception() is None
+
+
+class TestExternalTemperatureWriteTheDeviceRefuses:
+    """A refused write is reported, not raised.
+
+    Batteries sleep, devices go out of reach, an integration reloads its
+    config entry, and a device may declare a narrower range than the clamp
+    the quirk applies. All of these answer a blocking service call with a
+    ``HomeAssistantError``. Raising it here would abandon the caller's own
+    work on the room temperature it just accepted, so the quirk reports the
+    write as declined instead.
+    """
+
+    @staticmethod
+    def _device_on_the_internal_sensor(monkeypatch):
+        """A TRVZB whose device carries both the input and the selector."""
+        trv = _registry_entry("climate.trv1")
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
+            translation_key="external_temperature_input",
+        )
+        selector = _registry_entry(
+            "select.trv1_temperature_sensor_select",
+            translation_key="temperature_sensor_select",
+        )
+        mock_self = _make_selector_self("internal", entries=[trv, number, selector])
+        mock_self.real_trvs = {
+            "climate.trv1": Trv(entity_id="climate.trv1", model="TRVZB")
+        }
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+        return mock_self
+
+    @pytest.mark.parametrize("failing_domain", ["number", "select"])
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            HomeAssistantError("device did not answer"),
+            ServiceValidationError("value is out of range"),
+            OSError("connection reset"),
+        ],
+        ids=["unreachable", "out_of_range", "transport"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_refusal_is_reported_as_a_declined_write(
+        self, monkeypatch, failing_domain, refusal
+    ):
+        """Either half of the write may be refused; both yield False."""
+        mock_self = self._device_on_the_internal_sensor(monkeypatch)
+
+        async def _refuse(domain, *args, **kwargs):
+            if domain == failing_domain:
+                raise refusal
+
+        mock_self.hass.services.async_call = AsyncMock(side_effect=_refuse)
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.42)
+            is False
+        )

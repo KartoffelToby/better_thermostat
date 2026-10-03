@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -35,4 +38,11 @@ jobs:
         run: uv sync --locked
 
       - name: Run pytest
-        run: uv run --locked pytest tests
+        run: >-
+          uv run --locked pytest tests
+          --cov=custom_components/better_thermostat
+          --cov-report=json:coverage.json
+          --cov-report=term:skip-covered
+
+      - name: Check per-module coverage floors
+        run: uv run --locked python scripts/coverage_floors.py check

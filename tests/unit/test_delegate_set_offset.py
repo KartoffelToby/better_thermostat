@@ -16,6 +16,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters.delegate import set_offset
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.trv"
 # The retry decorator doubles a one-second base delay per attempt.
@@ -27,7 +28,7 @@ RETRY_JITTER = 0.2
 @pytest.fixture
 def bt():
     """Mock thermostat whose adapter accepts every offset write."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     trv = Trv(
@@ -40,8 +41,8 @@ def bt():
 
 
 @pytest.mark.asyncio
-async def test_successful_write_records_the_requested_offset(bt):
-    """A write the adapter accepted records the requested value."""
+async def test_accepted_write_records_the_requested_offset(bt):
+    """A write the adapter accepted reports success and records what was asked."""
     result = await set_offset(bt, ENTITY_ID, -2.0)
 
     assert result is True
@@ -52,8 +53,10 @@ async def test_successful_write_records_the_requested_offset(bt):
 async def test_failed_write_leaves_the_requested_offset_untouched(bt):
     """A write that raised on every retry records nothing and reports failure.
 
-    The backoff between the attempts is recorded rather than slept through,
-    so the retry schedule is asserted without spending it.
+    A recorded intent would suppress the retry on the next cycle for a write
+    that never left the house. The backoff between the attempts is recorded
+    rather than slept through, so the retry schedule is asserted without
+    spending it.
     """
     bt.real_trvs[ENTITY_ID].last_calibration_requested = -1.0
     bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
@@ -76,6 +79,23 @@ async def test_failed_write_leaves_the_requested_offset_untouched(bt):
     assert len(delays) == len(RETRY_BACKOFF_S)
     for actual, base in zip(delays, RETRY_BACKOFF_S, strict=True):
         assert base * (1 - RETRY_JITTER) <= actual <= base * (1 + RETRY_JITTER)
+
+
+@pytest.mark.asyncio
+async def test_failed_write_on_a_blank_record_records_nothing(bt):
+    """A connection error on an unrecorded offset leaves the record blank."""
+    bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
+        side_effect=ConnectionError("boom")
+    )
+
+    async def _skip_delay(seconds):
+        return None
+
+    with patch("asyncio.sleep", new=_skip_delay):
+        result = await set_offset(bt, ENTITY_ID, -2.0)
+
+    assert result is False
+    assert bt.real_trvs[ENTITY_ID].last_calibration_requested is None
 
 
 @pytest.mark.asyncio

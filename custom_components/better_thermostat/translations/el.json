@@ -8,7 +8,6 @@
           "name": "Όνομα",
           "thermostat": "Ο πραγματικός θερμοστάτης",
           "cooler": "Η συσκευή ψύξης (προαιρετικό)",
-          "min_cooler_resend_interval": "Ελάχιστα δευτερόλεπτα μεταξύ επαναλαμβανόμενων εντολών ψύξης (0 = απενεργοποιημένο)",
           "temperature_sensor": "Αισθητήρας θερμοκρασίας",
           "humidity_sensor": "Αισθητήρας υγρασίας",
           "window_sensors": "Αισθητήρας παραθύρου",
@@ -40,11 +39,14 @@
           "valve_maintenance": "Εάν ο θερμοστάτης σας δεν διαθέτει δικό του τρόπο συντήρησης, μπορείτε να χρησιμοποιήσετε αυτήν την επιλογή",
           "calibration": "Τύπος βαθμονόμησης",
           "calibration_mode": "Λειτουργία βαθμονόμησης",
-          "no_off_system_mode": "Εάν το TRV σας δεν μπορεί να διαχειριστεί τη λειτουργία απενεργοποίησης, μπορείτε να ενεργοποιήσετε αυτήν την επιλογή για να χρησιμοποιήσετε ως θερμοκρασία στόχο 5°C"
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 μέγεθος δωματίου"
         },
         "data_description": {
           "protect_overheating": "Μερικά TRVs δεν κλείνουν πλήρως τη βαλβίδα όταν επιτυγχάνεται η επιθυμητή θερμοκρασία. Ή ο θερμοσίφωνας διαθέτει πολλή υπολειμματική θερμότητα. Αυτό μπορεί να προκαλέσει υπερθέρμανση. Αυτή η επιλογή μπορεί να το αποτρέψει.",
-          "calibration_mode": "Ο τρόπος υπολογισμού της βαθμονόμησης\n***Κανονική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας.\n***Επιθετική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας αλλά ρυθμίζεται πολύ χαμηλότερα/υψηλότερα για ταχύτερη ενίσχυση.\n***Βασισμένη στον Χρόνο με AI***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας, αλλά μια προσαρμοσμένη αλγοριθμική μέθοδος υπολογίζει την τιμή για τη βελτίωση του εσωτερικού αλγορίθμου του TRV.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Πώς πρέπει να εφαρμοστεί η βαθμονόμηση στο TRV (Θερμοκρασία στόχος ή μετατόπιση)\n***Βασισμένη στη Θερμοκρασία Στόχο***: Εφαρμόστε τη βαθμονόμηση στη θερμοκρασία στόχο.\n***Βασισμένη στη Μετατόπιση***: Εφαρμόστε τη βαθμονόμηση στη μετατόπιση."
         }
       },
@@ -58,13 +60,15 @@
       "no_name": "Παρακαλώ εισάγετε ένα όνομα.",
       "no_heater": "Παρακαλώ επιλέξτε τουλάχιστον ένα πραγματικό θερμοστάτη.",
       "no_off_mode": "Η συσκευή σας είναι πολύ ιδιαίτερη και δεν διαθέτει λειτουργία απενεργοποίησης :(\nΤο Better Thermostat θα χρησιμοποιήσει αντί αυτού τη ελάχιστη θερμοκρασία στόχο.",
-      "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο.",
       "no_outside_temp": "Δεν έχετε αισθητήρα εξωτερικής θερμοκρασίας. Το Better Thermostat θα χρησιμοποιήσει αντί αυτού την οντότητα καιρού.",
+      "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο.",
       "no_data": "Δεν ελήφθησαν δεδομένα. Παρακαλώ προσπαθήστε ξανά."
     },
     "abort": {
       "single_instance_allowed": "Επιτρέπεται μόνο μία εμφάνιση θερμοστάτη για κάθε πραγματικό θερμοστάτη.",
-      "no_devices_found": "Δεν βρέθηκε καμία οντότητα θερμοστάτη, βεβαιωθείτε ότι έχετε μια οντότητα κλιματισμού στο Home Assistant"
+      "no_devices_found": "Δεν βρέθηκε καμία οντότητα θερμοστάτη, βεβαιωθείτε ότι έχετε μια οντότητα κλιματισμού στο Home Assistant",
+      "already_configured": "Ένα Better Thermostat με αυτό το όνομα ελέγχει ήδη αυτούς τους θερμοστάτες.",
+      "trv_in_use": "Το {trv} ελέγχεται ήδη από το Better Thermostat {entry}. Ένας θερμοστάτης μπορεί να ανήκει μόνο σε ένα Better Thermostat· αφαιρέστε τον πρώτα από εκεί."
     }
   },
   "options": {
@@ -94,7 +98,8 @@
           "calibration": "Ο τύπος βαθμονόμησης",
           "heat_auto_swapped": "Αν το αυτόματο σημαίνει θέρμανση για το TRV σας και θέλετε να το ανταλλάξετε",
           "child_lock": "Αγνοήστε όλες τις εισόδους στο TRV όπως λειτουργία κλειδώματος παιδιών",
-          "homematicip": "Εάν χρησιμοποιείτε HomematicIP, θα πρέπει να το ενεργοποιήσετε για να επιβραδύνει τα αιτήματα και να αποτρέψει τον κύκλο λειτουργίας"
+          "homematicip": "Εάν χρησιμοποιείτε HomematicIP, θα πρέπει να το ενεργοποιήσετε για να επιβραδύνει τα αιτήματα και να αποτρέψει τον κύκλο λειτουργίας",
+          "cooler": "Η συσκευή ψύξης (προαιρετικό)"
         },
         "data_description": {
           "presets": "Επιλέξτε τις προεπιλογές που θα είναι διαθέσιμες για αυτόν τον θερμοστάτη."
@@ -110,23 +115,23 @@
           "valve_maintenance": "Εάν ο θερμοστάτης σας δεν διαθέτει δικό του τρόπο συντήρησης, μπορείτε να χρησιμοποιήσετε αυτήν την επιλογή",
           "calibration": "Ο τύπος βαθμονόμησης που θέλετε να χρησιμοποιήσετε",
           "calibration_mode": "Λειτουργία βαθμονόμησης",
-          "no_off_system_mode": "Εάν το TRV σας δεν μπορεί να διαχειριστεί τη λειτουργία απενεργοποίησης, μπορείτε να ενεργοποιήσετε αυτήν την επιλογή για να χρησιμοποιήσετε ως θερμοκρασία στόχο 5°C"
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 μέγεθος δωματίου"
         },
         "data_description": {
           "protect_overheating": "Μερικά TRVs δεν κλείνουν πλήρως τη βαλβίδα όταν επιτυγχάνεται η επιθυμητή θερμοκρασία. Ή ο θερμοσίφωνας διαθέτει πολλή υπολειμματική θερμότητα. Αυτό μπορεί να προκαλέσει υπερθέρμανση. Αυτή η επιλογή μπορεί να το αποτρέψει.",
-          "calibration_mode": "Ο τρόπος υπολογισμού της βαθμονόμησης\n***Κανονική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας.\n***Επιθετική***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας αλλά ρυθμίζεται πολύ χαμηλότερα/υψηλότερα για ταχύτερη ενίσχυση.\n***Βασισμένη στον Χρόνο με AI***: Σε αυτή τη λειτουργία, ο εσωτερικός αισθητήρας θερμοκρασίας του TRV καθορίζεται από τον εξωτερικό αισθητήρα θερμοκρασίας, αλλά μια προσαρμοσμένη αλγοριθμική μέθοδος υπολογίζει την τιμή για τη βελτίωση του εσωτερικού αλγορίθμου του TRV.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Πώς πρέπει να εφαρμοστεί η βαθμονόμηση στο TRV (Θερμοκρασία στόχος ή μετατόπιση)\n***Βασισμένη στη Θερμοκρασία Στόχο***: Εφαρμόστε τη βαθμονόμηση στη θερμοκρασία στόχο.\n***Βασισμένη στη Μετατόπιση***: Εφαρμόστε τη βαθμονόμηση στη μετατόπιση."
         }
       }
     },
     "error": {
-      "failed": "Κάτι πήγε στραβά.",
-      "no_name": "Παρακαλώ εισάγετε ένα όνομα.",
       "no_heater": "Παρακαλώ επιλέξτε τουλάχιστον ένα πραγματικό θερμοστάτη.",
-      "no_off_mode": "Η συσκευή σας είναι πολύ ιδιαίτερη και δεν διαθέτει λειτουργία απενεργοποίησης :(\nΤο Better Thermostat θα χρησιμοποιήσει αντί αυτού τη ελάχιστη θερμοκρασία στόχο.",
       "target_temp_min_above_max": "Η ελάχιστη θερμοκρασία στόχος δεν πρέπει να υπερβαίνει τη μέγιστη θερμοκρασία στόχο.",
-      "no_outside_temp": "Δεν έχετε αισθητήρα εξωτερικής θερμοκρασίας. Το Better Thermostat θα χρησιμοποιήσει αντί αυτού την οντότητα καιρού.",
-      "no_data": "Δεν ελήφθησαν δεδομένα. Παρακαλώ προσπαθήστε ξανά."
+      "no_sensor": "Επιλέξτε έναν αισθητήρα θερμοκρασίας δωματίου.",
+      "trv_in_use": "Το {trv} ελέγχεται ήδη από το Better Thermostat {entry}. Ένας θερμοστάτης μπορεί να ανήκει μόνο σε ένα Better Thermostat."
     }
   },
   "issues": {
@@ -143,7 +148,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - σφάλμα αισθητήρα: {sensors} λειτουργεί σε υποβαθμισμένη λειτουργία",
-      "description": "Το Better Thermostat λειτουργεί σε υποβαθμισμένη λειτουργία επειδή ορισμένοι αισθητήρες δεν είναι διαθέσιμοι: {sensors}\n\nΟ θερμοστάτης θα συνεχίσει να λειτουργεί με μειωμένη λειτουργικότητα. Για παράδειγμα:\n- Εάν ο αισθητήρας θερμοκρασίας δωματίου δεν είναι διαθέσιμος, θα χρησιμοποιηθεί ο εσωτερικός αισθητήρας του TRV.\n- Εάν οι αισθητήρες παραθύρων δεν είναι διαθέσιμοι, τα παράθυρα θεωρούνται κλειστά.\n- Εάν οι αισθητήρες εξωτερικού χώρου/καιρού δεν είναι διαθέσιμοι, η θέρμανση θα είναι πάντα ενεργοποιημένη.\n\nΕλέγξτε αν οι επηρεαζόμενες συσκευές έχουν προβλήματα μπαταρίας ή συνδεσιμότητας."
+      "description": "Το Better Thermostat λειτουργεί σε υποβαθμισμένη λειτουργία επειδή ορισμένοι αισθητήρες δεν είναι διαθέσιμοι: {sensors}\n\nΟ θερμοστάτης συνεχίζει να ελέγχει και υποβαθμίζεται σταδιακά:\n- Αν ο αισθητήρας θερμοκρασίας δωματίου δεν είναι διαθέσιμος, τον αντικαθιστά ο μέσος όρος των εσωτερικών θερμοκρασιών των TRV.\n- Αν ούτε ο αισθητήρας δωματίου ούτε κάποια θερμοκρασία TRV είναι αξιοποιήσιμη, ο θερμοστάτης σταματά να ρυθμίζει και διατηρεί την τελευταία εντολή· η προστασία από παγετό παραμένει ενεργή.\n- Αν ο αισθητήρας παραθύρου δεν είναι διαθέσιμος, το παράθυρο θεωρείται κλειστό και η θέρμανση συνεχίζεται· ένας χαμένος αισθητήρας δεν πρέπει να σταματά τη θέρμανση.\n- Αν οι εξωτερικοί/μετεωρολογικοί αισθητήρες δεν είναι διαθέσιμοι, η θέρμανση παραμένει ενεργοποιημένη.\n\nΕλέγξτε αν οι επηρεαζόμενες συσκευές έχουν προβλήματα μπαταρίας ή συνδεσιμότητας. Αυτό το ζήτημα επιλύεται από μόνο του μόλις όλοι οι αισθητήρες γίνουν ξανά διαθέσιμοι."
     },
     "invalid_window_state": {
       "title": "BT: {name} - μη έγκυρη κατάσταση αισθητήρα παραθύρου",
@@ -156,6 +161,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - μη έγκυρη εξωτερική θερμοκρασία",
       "description": "Ο αισθητήρας εξωτερικής θερμοκρασίας για το Better Thermostat {name} ανέφερε μια μη εύλογη τιμή: {value}.\n\nΗ ένδειξη ήταν εκτός του εύλογου εύρους και αγνοήθηκε. Ελέγξτε τη διαμόρφωση του αισθητήρα θερμοκρασίας σας."
+    },
+    "shared_trv": {
+      "title": "BT: Το {trv} ελέγχεται από περισσότερα από ένα Better Thermostat",
+      "description": "Ο θερμοστάτης {trv} ανήκει σε αυτά τα Better Thermostat: {entries}. Γράφουν ανταγωνιστικές θερμοκρασίες-στόχους και λειτουργίες σε αυτόν. Αφαιρέστε τον από όλα εκτός από ένα στις ρυθμίσεις τους· το ζήτημα θα εξαφανιστεί μετά από μόνο του."
     }
   },
   "services": {
@@ -444,6 +453,7 @@
           "window_close": "συνέχιση θέρμανσης επειδή έκλεισε ένα παράθυρο",
           "summer_mode_on": "απενεργοποιήθηκε επειδή η εξωτερική θερμοκρασία είναι πολύ υψηλή",
           "summer_mode_off": "συνέχιση θέρμανσης επειδή η εξωτερική θερμοκρασία μειώθηκε",
+          "weather_forecast_missing": "συνέχιση θέρμανσης επειδή η πρόγνωση καιρού δεν είναι διαθέσιμη",
           "degraded_mode_entered": "εισήλθε σε υποβαθμισμένη λειτουργία επειδή ορισμένοι αισθητήρες δεν είναι διαθέσιμοι",
           "degraded_mode_resolved": "εξήλθε από υποβαθμισμένη λειτουργία επειδή όλοι οι αισθητήρες είναι διαθέσιμοι",
           "door_open": "turned off because a door was opened",
@@ -476,6 +486,18 @@
       },
       "mpc_ka": {
         "name": "Μόνωση MPC (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "Εικονική θερμοκρασία MPC v2"
+      },
+      "mpc_v2_coupling": {
+        "name": "Σύζευξη MPC v2"
+      },
+      "mpc_v2_disturbance": {
+        "name": "Διαταραχή MPC v2"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "Σταθερά χρόνου δωματίου MPC v2"
       },
       "pid_kp": {
         "name": "PID Kp"
@@ -518,6 +540,32 @@
     "action_type": {
       "set_hvac_mode": "Ορισμός λειτουργίας HVAC",
       "set_temperature": "Ορισμός θερμοκρασίας στόχου"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "Το {device_name} δεν υποστηρίζει τη λειτουργία HVAC {mode}. Υποστηριζόμενες λειτουργίες: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "Το {device_name} έλαβε {value} για το {attribute}, που δεν είναι αριθμός."
+    },
+    "valve_maintenance_running": {
+      "message": "Η συντήρηση βαλβίδων εκτελείται ήδη στο {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "Το {device_name} δεν έχει βαλβίδα με ενεργοποιημένη συντήρηση βαλβίδων."
+    },
+    "valve_maintenance_failed": {
+      "message": "Η συντήρηση βαλβίδων στο {device_name} απέτυχε. Οι λεπτομέρειες βρίσκονται στο αρχείο καταγραφής."
+    },
+    "pid_state_not_ready": {
+      "message": "Το {device_name} δεν έχει φορτώσει ακόμη την κατάσταση που έχει μάθει. Δοκιμάστε ξανά μόλις ξεκινήσει."
+    },
+    "pid_defaults_without_target": {
+      "message": "Το {device_name} δεν έχει επιθυμητή θερμοκρασία για να εφαρμοστούν οι προεπιλογές PID. Δεν έγινε επαναφορά."
+    },
+    "pid_reset_failed": {
+      "message": "Η επαναφορά της εκμάθησης PID του {device_name} απέτυχε. Οι λεπτομέρειες βρίσκονται στο αρχείο καταγραφής."
     }
   }
 }

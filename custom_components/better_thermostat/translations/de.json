@@ -8,7 +8,6 @@
           "name": "Name",
           "thermostat": "Das reale Thermostat",
           "cooler": "Klimagerät AC (optional)",
-          "min_cooler_resend_interval": "Mindestsekunden zwischen wiederholten Klimagerät-Befehlen (0 = deaktiviert)",
           "temperature_sensor": "Externer Temperatursensor",
           "humidity_sensor": "Luftfeuchtigkeitssensor",
           "window_sensors": "Fenstersensor(en)",
@@ -40,11 +39,14 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive (Beta)***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       },
@@ -58,13 +60,15 @@
       "no_name": "Du musst einen Namen vergeben.",
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
-      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
+      "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
-      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist."
+      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist.",
+      "already_configured": "Ein Better Thermostat mit diesem Namen steuert diese Thermostate bereits.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören; entferne es zuerst dort."
     }
   },
   "options": {
@@ -94,7 +98,8 @@
           "calibration": "Die Art der Kalibrierung",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern."
+          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "cooler": "Klimagerät AC (optional)"
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
@@ -110,23 +115,23 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
-          "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive (Beta)***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
         }
       }
     },
     "error": {
-      "failed": "Ups, hier stimmt was nicht!",
-      "no_name": "Du musst einen Namen vergeben.",
       "no_heater": "Bitte wähle mindestens ein echtes Thermostat aus.",
-      "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
-      "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
-      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
+      "no_sensor": "Bitte einen Raumtemperatursensor auswählen.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören."
     }
   },
   "issues": {
@@ -143,7 +148,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - Sensorfehler: {sensors} läuft im eingeschränkten Modus",
-      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat arbeitet mit reduzierter Funktionalität weiter. Zum Beispiel:\n- Wenn der Raumtemperatursensor nicht verfügbar ist, wird stattdessen der interne Sensor des TRV verwendet.\n- Wenn Fenstersensoren nicht verfügbar sind, wird angenommen, dass die Fenster geschlossen sind.\n- Wenn Außen-/Wettersensoren nicht verfügbar sind, wird die Heizung immer aktiviert sein.\n\nÜberprüfen Sie, ob die betroffenen Geräte Batterieprobleme oder Verbindungsprobleme haben."
+      "description": "Better Thermostat läuft im eingeschränkten Modus, da einige Sensoren nicht verfügbar sind: {sensors}\n\nDer Thermostat regelt weiter und stuft sich kontrolliert herab:\n- Ist der Raumtemperatursensor nicht verfügbar, ersetzt der Mittelwert der TRV-internen Temperaturen den Messwert.\n- Sind weder Raumsensor noch eine TRV-Temperatur nutzbar, stoppt der Thermostat die Anpassungen und behält den zuletzt gesendeten Zustand bei; der Frostschutz bleibt aktiv.\n- Ist der Fenstersensor nicht verfügbar, gilt das Fenster als geschlossen und die Heizung läuft weiter; ein ausgefallener Sensor darf das Heizen nicht stoppen.\n- Sind Außen-/Wettersensoren nicht verfügbar, bleibt das Heizen aktiviert.\n\nPrüfen Sie, ob die betroffenen Geräte Batterie- oder Verbindungsprobleme haben. Diese Meldung verschwindet von selbst, sobald alle Sensoren wieder verfügbar sind."
     },
     "invalid_window_state": {
       "title": "BT: {name} - ungültiger Fenstersensor-Status",
@@ -156,6 +161,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ungültige Außentemperatur",
       "description": "Der externe Temperatursensor für Better Thermostat {name} hat einen unplausiblen Wert gemeldet: {value}.\n\nDer Messwert lag außerhalb des plausiblen Bereichs und wurde ignoriert. Bitte überprüfen Sie Ihre Temperatursensor-Konfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} wird von mehr als einem Better Thermostat gesteuert",
+      "description": "Das Thermostat {trv} gehört zu diesen Better Thermostats: {entries}. Sie schreiben konkurrierende Solltemperaturen und Modi darauf. Entferne es in den Einstellungen aus allen bis auf eines; danach verschwindet dieser Hinweis von selbst."
     }
   },
   "services": {
@@ -444,6 +453,7 @@
           "window_close": "Heizen fortgesetzt, da ein Fenster geschlossen wurde",
           "summer_mode_on": "ausgeschaltet, da die Außentemperatur zu hoch ist",
           "summer_mode_off": "Heizen fortgesetzt, da die Außentemperatur gesunken ist",
+          "weather_forecast_missing": "Heizen fortgesetzt, da die Wettervorhersage nicht verfügbar ist",
           "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
           "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind",
           "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",
@@ -476,6 +486,18 @@
       },
       "mpc_ka": {
         "name": "MPC-Isolierung (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 Virtuelle Temperatur"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 Kopplung"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 Störgröße"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 Raumzeitkonstante"
       },
       "pid_kp": {
         "name": "PID Kp"
@@ -518,6 +540,32 @@
     "action_type": {
       "set_hvac_mode": "HVAC-Modus setzen",
       "set_temperature": "Zieltemperatur setzen"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} unterstützt den HVAC-Modus {mode} nicht. Unterstützte Modi: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} hat für {attribute} den Wert {value} erhalten; das ist keine Zahl."
+    },
+    "valve_maintenance_running": {
+      "message": "Auf {device_name} läuft bereits eine Ventilwartung."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} hat kein Ventil mit aktivierter Ventilwartung."
+    },
+    "valve_maintenance_failed": {
+      "message": "Die Ventilwartung auf {device_name} ist fehlgeschlagen. Details stehen im Log."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} hat seinen gelernten Zustand noch nicht geladen. Versuche es erneut, sobald es gestartet ist."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} hat keine Zieltemperatur, auf die die PID-Standardwerte angewendet werden können. Es wurde nichts zurückgesetzt."
+    },
+    "pid_reset_failed": {
+      "message": "Das Zurücksetzen der PID-Lernwerte von {device_name} ist fehlgeschlagen. Details stehen im Log."
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "Better Thermostat",
   "render_readme": true,
-  "homeassistant": "2026.7.2",
+  "homeassistant": "2026.9.0",
   "hide_default_branch": true
 }

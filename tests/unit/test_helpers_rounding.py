@@ -8,9 +8,9 @@ calculations while avoiding floating-point artifacts.
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import (
+    Rounding,
     check_float,
     round_by_step,
-    rounding,
 )
 
 
@@ -18,39 +18,39 @@ class TestRoundingEnum:
     """Test the rounding enum helper functions."""
 
     def test_rounding_up(self):
-        """Test rounding.up function."""
+        """Test Rounding.up function."""
         # 10.5 should round up to 11
-        result = rounding.up(10.5)
+        result = Rounding.up(10.5)
         assert result == 11
 
         # Exact integer should stay
-        result = rounding.up(10.0)
+        result = Rounding.up(10.0)
         assert result == 10
 
     def test_rounding_down(self):
-        """Test rounding.down function."""
+        """Test Rounding.down function."""
         # 10.5 should round down to 10
-        result = rounding.down(10.5)
+        result = Rounding.down(10.5)
         assert result == 10
 
         # Exact integer should stay
-        result = rounding.down(10.0)
+        result = Rounding.down(10.0)
         assert result == 10
 
     def test_rounding_nearest(self):
-        """Test rounding.nearest function."""
+        """Test Rounding.nearest function."""
         # 10.6 should round to 11
-        result = rounding.nearest(10.6)
+        result = Rounding.nearest(10.6)
         assert result == 11
 
         # 10.4 should round to 10
-        result = rounding.nearest(10.4)
+        result = Rounding.nearest(10.4)
         assert result == 10
 
     def test_rounding_handles_negative_numbers(self):
         """Test rounding functions with negative numbers."""
-        assert rounding.up(-10.5) == -10
-        assert rounding.down(-10.5) == -11
+        assert Rounding.up(-10.5) == -10
+        assert Rounding.down(-10.5) == -11
 
 
 class TestRoundByStep:
@@ -111,20 +111,36 @@ class TestRoundByStep:
         assert round_by_step(0.0, 0.01) == 0.0
 
     def test_rounding_mode_up(self):
-        """Test round_by_step with rounding.up mode."""
+        """Test round_by_step with Rounding.up mode."""
         # 10.01 with step 0.1 should round up to 10.1
-        result = round_by_step(10.01, 0.1, rounding.up)
+        result = round_by_step(10.01, 0.1, Rounding.up)
         assert result == pytest.approx(10.1, abs=1e-10)
 
         # 10.0 should stay at 10.0
-        result = round_by_step(10.0, 0.1, rounding.up)
+        result = round_by_step(10.0, 0.1, Rounding.up)
         assert result == 10.0
 
     def test_rounding_mode_down(self):
-        """Test round_by_step with rounding.down mode."""
+        """Test round_by_step with Rounding.down mode."""
         # 10.09 with step 0.1 should round down to 10.0
-        result = round_by_step(10.09, 0.1, rounding.down)
+        result = round_by_step(10.09, 0.1, Rounding.down)
         assert result == 10.0
+
+    @pytest.mark.parametrize("rounding", [Rounding.up, Rounding.down])
+    def test_a_whole_degree_fahrenheit_stays_on_the_fahrenheit_grid(self, rounding):
+        """A value read on the 0.01 grid is not pushed off the grid point it sits on.
+
+        63 °F is 17.2222 °C, read as 17.22; on a 1 °F grid held as 0.5556 K
+        that lies just below the 31st step. Rounding it down or up has to
+        keep the 63 °F it stands for, not move it a whole degree.
+        """
+        result = round_by_step(17.22, 0.5556, rounding)
+        assert result == pytest.approx(31 * 0.5556)
+
+    def test_a_value_a_reading_step_off_the_grid_keeps_its_direction(self):
+        """A value a full 0.01 reading step off a grid point is not snapped."""
+        assert round_by_step(20.01, 0.1, Rounding.up) == pytest.approx(20.1)
+        assert round_by_step(19.99, 0.1, Rounding.down) == pytest.approx(19.9)
 
     def test_very_small_values_rounded_to_zero(self):
         """Test that very small values < step/2 are rounded to 0."""

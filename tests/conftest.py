@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import cache
+import gc
 import json
 from pathlib import Path
 import sys
@@ -34,6 +35,18 @@ def _english_translations() -> dict[str, str]:
     """Return the English catalog keyed the way Home Assistant serves it."""
     catalog = json.loads(ENGLISH_CATALOG.read_text(encoding="utf-8"))
     return _flatten(catalog, f"component.{DOMAIN}")
+
+
+@pytest.fixture(autouse=True)
+def _collect_garbage_after_each_test():
+    """Collect each test's garbage before the next test starts.
+
+    An unawaited coroutine held in a reference cycle is only reported when
+    the cycle is collected. Collected here, the error lands on the test that
+    leaked it instead of on whichever later test triggers a collection.
+    """
+    yield
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)

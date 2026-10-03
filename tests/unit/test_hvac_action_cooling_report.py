@@ -14,6 +14,8 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.utils.controlling import control_cooler
 from custom_components.better_thermostat.utils.hvac_action import (
     COOLER_MODE_HYSTERESIS_K,
@@ -21,6 +23,7 @@ from custom_components.better_thermostat.utils.hvac_action import (
     compute_hvac_action,
     should_cool_with_tolerance,
 )
+from tests.factories import ThermostatStandIn, make_snapshot
 
 COOLER_ID = "climate.air_conditioner"
 
@@ -35,20 +38,23 @@ def build_bt(
     cooler_entity_id=COOLER_ID,
 ):
     """Return a BT mock with the real hvac-action methods bound to it."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.tolerance = tolerance
     bt.bt_target_temp = target_temp
     bt.bt_target_cooltemp = cool_target
+    bt.bt_target_temp_step = None
     bt.cur_temp = cur_temp
     bt.hvac_mode = HVACMode.HEAT_COOL
-    bt.bt_hvac_mode = HVACMode.HEAT_COOL
+    bt.bt_hvac_mode = HVACMode.HEAT
     bt.contact_open = False
     bt.ignore_states = False
     bt.real_trvs = {}
     bt._hysteresis = ToleranceHysteresis()
     bt.device_name = "Test"
     bt.cooler_entity_id = cooler_entity_id
-    bt.last_cooler_mode_decided = decided_mode
+    bt._cooler_last_sent = (
+        {} if decided_mode is None else {"hvac_mode_decided": decided_mode}
+    )
 
     cooler_state = MagicMock()
     cooler_state.state = reported_mode
@@ -164,7 +170,7 @@ def test_report_agrees_with_the_command(
         target_temp=target_temp,
         cool_target=cool_target,
         hvac_mode=HVACMode.HEAT_COOL,
-        bt_hvac_mode=HVACMode.HEAT_COOL,
+        bt_hvac_mode=HVACMode.HEAT,
         window_open=False,
         tolerance=tolerance,
         ignore_states=False,
@@ -203,20 +209,24 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
     bt.hass = hass
     bt.context = None
     bt.cooler_entity_id = "climate.cooler"
-    bt.last_cooler_mode_decided = None
-    bt.last_sent_cooler_temp = 24.0
-    bt.last_sent_cooler_hvac_mode = None
-    bt.last_sent_cooler_temp_ts = None
-    bt.last_sent_cooler_hvac_mode_ts = None
-    bt.min_cooler_resend_interval_s = 0
+    bt.clock = FakeClock()
+    bt._cooler_last_sent = {}
 
     rise = [21.5, 23.0, 24.0, 24.2, 24.4, 24.5, 24.6, 25.0]
     sweep = rise + list(reversed(rise))
     seen = {}
     for temp in sweep:
         bt.cur_temp = temp
-        await control_cooler(bt)
-        commanded = bt.last_cooler_mode_decided
+        snapshot = make_snapshot(
+            hvac_mode=CoreHvacMode.HEAT_COOL,
+            room_temp=temp,
+            target_temp=21.0,
+            target_cooltemp=24.0,
+            tolerance=0.5,
+            trvs={},
+        )
+        await control_cooler(bt, snapshot)
+        commanded = bt._cooler_last_sent.get("hvac_mode_decided")
         reported = bt._compute_hvac_action_pure().action
         assert (reported == HVACAction.COOLING) is (commanded == HVACMode.COOL), temp
         seen[temp] = commanded

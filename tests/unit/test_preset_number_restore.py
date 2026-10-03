@@ -7,7 +7,8 @@ restore path must convert back to Celsius before writing the preset
 temperature dict that ``BetterThermostat`` consumes.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import PRESET_HOME, HVACMode
 from homeassistant.const import UnitOfTemperature
@@ -17,19 +18,32 @@ from custom_components.better_thermostat.number import (
     BetterThermostatPresetCoolNumber,
     BetterThermostatPresetNumber,
 )
+from custom_components.better_thermostat.utils.preset_manager import PresetManager
+from tests.factories import ThermostatStandIn
+
+
+@pytest.fixture(autouse=True)
+def _detached_state_tracking():
+    """Let the entities subscribe to the thermostat's state without a hass."""
+    with patch(
+        "custom_components.better_thermostat.number.async_track_state_change_event",
+        MagicMock(),
+    ):
+        yield
 
 
 def _make_entity():
-    bt_climate = MagicMock()
+    bt_climate = ThermostatStandIn()
     bt_climate.unique_id = "test_bt"
     bt_climate.device_name = "Test BT"
-    bt_climate.min_temp = 5.0
-    bt_climate.max_temp = 30.0
+    bt_climate.bt_min_temp = 5.0
+    bt_climate.bt_max_temp = 30.0
+    bt_climate.cool_min_temperature = None
+    bt_climate.cool_max_temperature = None
     bt_climate.target_temperature_step = 0.5
-    stored: dict[str, float] = {}
-    bt_climate.preset_mgr.update_temperature.side_effect = stored.__setitem__
-    bt_climate.preset_mgr.get_temperature.side_effect = stored.get
-    bt_climate.preset_mgr.temperatures = stored
+    bt_climate.cooler_entity_id = None
+    bt_climate.preset_mgr = PresetManager(temperatures={})
+    bt_climate.preset_mode = bt_climate.preset_mgr.mode
     entity = BetterThermostatPresetNumber(bt_climate, PRESET_HOME)
     return entity, bt_climate
 
@@ -113,19 +127,22 @@ class TestPresetCoolNumber:
     @pytest.mark.asyncio
     async def test_active_preset_stores_clamped_cooling_value(self):
         """The persisted cooling preset matches the value applied to the climate."""
-        bt_climate = MagicMock()
+        bt_climate = ThermostatStandIn()
         bt_climate.unique_id = "test_bt"
         bt_climate.device_name = "Test BT"
-        bt_climate.min_temp = 5.0
-        bt_climate.max_temp = 30.0
+        bt_climate.bt_min_temp = 5.0
+        bt_climate.bt_max_temp = 30.0
+        bt_climate.cool_min_temperature = None
+        bt_climate.cool_max_temperature = None
+        bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate.target_temperature_step = 0.25
         bt_climate.bt_target_temp_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
         bt_climate.bt_target_cooltemp = 24.0
-        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
-        bt_climate.control_queue_task.put = AsyncMock()
+        bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
 
         entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
         entity.async_write_ha_state = MagicMock()
@@ -134,24 +151,27 @@ class TestPresetCoolNumber:
 
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 22.75
         assert bt_climate.bt_target_cooltemp == 22.75
-        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+        assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
     async def test_active_preset_stores_unclamped_cooling_value(self):
         """Cooling values above the heat target are stored and applied verbatim."""
-        bt_climate = MagicMock()
+        bt_climate = ThermostatStandIn()
         bt_climate.unique_id = "test_bt"
         bt_climate.device_name = "Test BT"
-        bt_climate.min_temp = 5.0
-        bt_climate.max_temp = 30.0
+        bt_climate.bt_min_temp = 5.0
+        bt_climate.bt_max_temp = 30.0
+        bt_climate.cool_min_temperature = None
+        bt_climate.cool_max_temperature = None
+        bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate.target_temperature_step = 0.25
         bt_climate.bt_target_temp_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
         bt_climate.bt_target_cooltemp = 24.0
-        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
-        bt_climate.control_queue_task.put = AsyncMock()
+        bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
 
         entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
         entity.async_write_ha_state = MagicMock()
@@ -160,35 +180,36 @@ class TestPresetCoolNumber:
 
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 25.0
         assert bt_climate.bt_target_cooltemp == 25.0
-        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+        assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
-    async def test_active_preset_keeps_the_cool_target_in_range_at_max(self):
-        """A heat target at ``max_temp`` leaves the cool target resting on it.
+    async def test_active_preset_keeps_the_cool_target_inside_the_range(self):
+        """With the heat target at ``max_temp`` the cool target stops there.
 
-        The applied cool target is reported as ``target_temperature_high`` and
-        written to the cooler, so it stays inside the range the entity
-        advertises even though no value above the heat target exists in it.
-        Cooling is gated on the room being warmer than the heat target, so the
-        two targets meeting does not run the cooler against the TRVs.
+        The pre-clamp bump lifts ``cool_value`` to ``heat + step`` and the
+        ``max_temp`` clamp pulls it back down to ``max_temp``. The range holds no
+        value above that, and both the active target and the persisted preset are
+        written to the cooler, so the two targets meet at the maximum instead.
         """
         from custom_components.better_thermostat.climate import BetterThermostat
 
-        bt_climate = MagicMock()
+        bt_climate = ThermostatStandIn()
         bt_climate.unique_id = "test_bt"
         bt_climate.device_name = "Test BT"
-        bt_climate.min_temp = 5.0
-        bt_climate.max_temp = 30.0
+        bt_climate.bt_min_temp = 5.0
         bt_climate.bt_max_temp = 30.0
+        bt_climate.cool_min_temperature = None
+        bt_climate.cool_max_temperature = None
+        bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate.target_temperature_step = 0.5
         bt_climate.bt_target_temp_step = 0.5
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.hvac_mode = HVACMode.HEAT_COOL
         bt_climate.bt_target_temp = 30.0
         bt_climate.bt_target_cooltemp = 30.0
-        bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL
+        bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 30.0}
-        bt_climate.control_queue_task.put = AsyncMock()
+        bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
         bt_climate._enforce_cool_above_heat.side_effect = lambda **kwargs: (
             BetterThermostat._enforce_cool_above_heat(bt_climate, **kwargs)
         )
@@ -200,16 +221,18 @@ class TestPresetCoolNumber:
 
         assert bt_climate.bt_target_cooltemp == 30.0
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 30.0
-        bt_climate.control_queue_task.put.assert_awaited_once_with(bt_climate)
+        assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
     async def test_restore_no_last_state_keeps_dict_empty(self):
         """No prior state leaves the cooling preset map unchanged."""
-        bt_climate = MagicMock()
+        bt_climate = ThermostatStandIn()
         bt_climate.unique_id = "test_bt"
         bt_climate.device_name = "Test BT"
-        bt_climate.min_temp = 5.0
-        bt_climate.max_temp = 30.0
+        bt_climate.bt_min_temp = 5.0
+        bt_climate.bt_max_temp = 30.0
+        bt_climate.cool_min_temperature = None
+        bt_climate.cool_max_temperature = None
         bt_climate.target_temperature_step = 0.5
         bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate._preset_cool_temperatures = {}
@@ -220,3 +243,29 @@ class TestPresetCoolNumber:
         await entity.async_added_to_hass()
 
         assert PRESET_HOME not in bt_climate._preset_cool_temperatures
+
+
+class TestPresetNumberRange:
+    """Each preset number offers its own channel's range, read live."""
+
+    def test_heating_and_cooling_presets_offer_their_own_ranges(self):
+        """The heating preset spans the heads, the cooling preset the cooler."""
+        entity, bt_climate = _make_entity()
+        bt_climate.cooler_entity_id = "climate.cooler"
+        bt_climate.cool_min_temperature = 16.0
+        bt_climate.cool_max_temperature = 35.0
+        cool_entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
+
+        assert (entity.native_min_value, entity.native_max_value) == (5.0, 30.0)
+        assert (cool_entity.native_min_value, cool_entity.native_max_value) == (
+            16.0,
+            35.0,
+        )
+
+    def test_the_range_follows_a_range_resolved_after_creation(self):
+        """The thermostat resolves its range after the number exists."""
+        entity, bt_climate = _make_entity()
+        bt_climate.bt_min_temp = 7.0
+        bt_climate.bt_max_temp = 28.0
+
+        assert (entity.native_min_value, entity.native_max_value) == (7.0, 28.0)

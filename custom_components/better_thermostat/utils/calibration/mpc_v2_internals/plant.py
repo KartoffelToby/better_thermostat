@@ -18,6 +18,21 @@ import numpy as np
 
 from ._types import FloatArray
 
+# Plausible band for the two identifiable prior components, as
+# ``(lower, upper)`` and inclusive at both ends. ``tau_room_min`` divides the
+# room dynamics below and ``gain_heater`` scales the radiator drive, so a
+# value outside these bands drives the commanded valve to one rail. Every
+# producer and consumer of a prior — the offline fit, the heat-loss
+# derivation, the restore gate — refers to these two tuples.
+TAU_ROOM_BOUNDS_MIN = (60.0, 2000.0)
+GAIN_HEATER_BOUNDS = (0.5, 5.0)
+
+# The slowest mode of the RC2 dynamics never exceeds
+# ``tau_room + (1 + coupling)·tau_rad``. After this many of them any state has
+# settled to within e^-20 of its fixed point, so a longer interval is
+# propagated over this span only.
+SETTLING_TIME_CONSTANTS = 20.0
+
 
 @dataclass
 class PlantParams:
@@ -61,6 +76,32 @@ class PlantModelRC2:
         self, x: FloatArray, u: float, T_outdoor_C: float, D_K_per_min: float = 0.0
     ) -> FloatArray:
         """Forward-Euler one-step propagator."""
+        return self._euler_step(x, u, T_outdoor_C, D_K_per_min, self.dt_min)
+
+    def propagate(
+        self, x: FloatArray, u: float, outdoor_temperature: float, dt_s: float
+    ) -> FloatArray:
+        """Advance ``x`` over ``dt_s`` under a constant valve fraction.
+
+        Uses the sub-steps :meth:`linearised_AB` composes for the same interval
+        but re-evaluates the valve drive ``u·(T_water − T_rad)`` on each one,
+        so across a long interval the radiator settles below the supply water
+        instead of extrapolating the drive it had at the start.
+        """
+        n_steps, dt_min = self._substeps(dt_s)
+        for _ in range(n_steps):
+            x = self._euler_step(x, u, outdoor_temperature, 0.0, dt_min)
+        return x
+
+    def _euler_step(
+        self,
+        x: FloatArray,
+        u: float,
+        outdoor_temperature: float,
+        disturbance_rate: float,
+        dt_min: float,
+    ) -> FloatArray:
+        """Advance ``x`` by one Euler step of ``dt_min``; the rate is in K/min."""
         p = self.params
         u_clamped = max(0.0, min(1.0, u))
         T_room, T_rad = float(x[0]), float(x[1])
@@ -68,17 +109,31 @@ class PlantModelRC2:
             p.gain_heater * u_clamped * (p.T_water_C - T_rad) - (T_rad - T_room)
         ) / p.tau_rad_min
         dT_room = (
-            p.coupling_rad_room * (T_rad - T_room) - (T_room - T_outdoor_C)
+            p.coupling_rad_room * (T_rad - T_room) - (T_room - outdoor_temperature)
         ) / p.tau_room_min
         return np.array(
-            [
-                T_room + (dT_room + D_K_per_min) * self.dt_min,
-                T_rad + dT_rad * self.dt_min,
-            ]
+            [T_room + (dT_room + disturbance_rate) * dt_min, T_rad + dT_rad * dt_min]
         )
 
-    def linearised_AB(
-        self, T_outdoor_C: float, T_rad_op_C: float
+    @property
+    def settling_time_s(self) -> float:
+        """Return the span after which the state sits on its fixed point."""
+        p = self.params
+        slowest_min = p.tau_room_min + (1.0 + p.coupling_rad_room) * p.tau_rad_min
+        return SETTLING_TIME_CONSTANTS * slowest_min * 60.0
+
+    def _substeps(self, dt_s: float | None) -> tuple[int, float]:
+        """Return the count and length (min) of the sub-steps covering ``dt_s``.
+
+        An interval beyond :attr:`settling_time_s` is covered only up to it.
+        """
+        total_s = self.dt_s if dt_s is None else max(0.0, dt_s)
+        total_s = min(total_s, self.settling_time_s)
+        n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
+        return n_steps, (total_s / n_steps) / 60.0
+
+    def linearised_AB(  # noqa: N802
+        self, T_outdoor_C: float, T_rad_op_C: float, dt_s: float | None = None
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         """Return ``(A, B, d)`` for ``x_{k+1} = A·x + B·u + d``.
 
@@ -87,16 +142,28 @@ class PlantModelRC2:
         ``u·(T_water − T_rad)`` term — we evaluate at ``T_rad_op_C``.
         """
         p = self.params
-        dt_min = self.dt_min
+        # The MPC optimiser deliberately uses a fixed coarse grid, while the
+        # observer must advance by the *actual* elapsed time between sensor
+        # updates. A direct Euler step over a long sensor gap destabilises the
+        # faster radiator state, so compose nominal-sized substeps into one
+        # equivalent affine transition instead.
+        n_steps, dt_min = self._substeps(dt_s)
         a_rad_room = dt_min / p.tau_rad_min
         a_rad_rad = 1.0 - dt_min / p.tau_rad_min
         b_rad = dt_min * p.gain_heater * (p.T_water_C - T_rad_op_C) / p.tau_rad_min
         a_room_room = 1.0 - dt_min * (p.coupling_rad_room + 1.0) / p.tau_room_min
         a_room_rad = dt_min * p.coupling_rad_room / p.tau_room_min
         d_room = dt_min * T_outdoor_C / p.tau_room_min
-        A = np.array([[a_room_room, a_room_rad], [a_rad_room, a_rad_rad]])
-        B = np.array([[0.0], [b_rad]])
-        d = np.array([d_room, 0.0])
+        A_step = np.array([[a_room_room, a_room_rad], [a_rad_room, a_rad_rad]])
+        B_step = np.array([[0.0], [b_rad]])
+        d_step = np.array([d_room, 0.0])
+        A = np.eye(self.state_dim)
+        B = np.zeros((self.state_dim, 1))
+        d = np.zeros(self.state_dim)
+        for _ in range(n_steps):
+            B = A_step @ B + B_step
+            d = A_step @ d + d_step
+            A = A_step @ A
         return A, B, d
 
     def steady_radiator_temp(
@@ -111,6 +178,16 @@ class PlantModelRC2:
         p = self.params
         loss_K = (T_setpoint_C - T_outdoor_C) - D_hat_K_per_min * p.tau_room_min
         return T_setpoint_C + loss_K / max(p.coupling_rad_room, 1e-6)
+
+    def hottest_radiator_temp(self, room_temperature: float) -> float:
+        """Return the radiator temperature a fully open valve holds.
+
+        The radiator balance at ``u = 1`` with the room at
+        ``room_temperature``: ``gain·(T_water − T_rad) = T_rad − T_room``.
+        """
+        p = self.params
+        g = p.gain_heater
+        return (g * p.T_water_C + room_temperature) / (g + 1.0)
 
     def steady_input(
         self, T_setpoint_C: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0

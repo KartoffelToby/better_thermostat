@@ -8,13 +8,11 @@ fine-grained TRV by less than the coarse step would have the change
 classified as an echo of a Better Thermostat write and dropped.
 """
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import ATTR_TARGET_TEMP_STEP, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import State
-from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -25,6 +23,7 @@ from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationType,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 TRV_ID = "climate.fine_trv"
 COOLER_ID = "climate.coarse_ac"
@@ -53,7 +52,7 @@ def _child_state(
 @pytest.fixture
 def bt():
     """Mock thermostat wired to one fine TRV and one coarse cooler."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
@@ -68,9 +67,6 @@ def bt():
     mock.bt_target_temp = 21.0
     mock.bt_target_cooltemp = 25.0
     mock.bt_hvac_mode = HVACMode.HEAT
-    mock._clamp_inbound_heat_target = lambda v: (
-        BetterThermostat._clamp_inbound_heat_target(mock, v)
-    )
     mock.cur_temp = 20.0
     mock.tolerance = 0.3
     mock.startup_running = False
@@ -78,9 +74,12 @@ def bt():
     mock.ignore_states = False
     mock.contact_open = False
     mock.window_open = False
-    mock.control_queue_task = AsyncMock()
+    mock.kernel_state = make_state()
+    mock.control_queue_task = MagicMock()
     mock.context = MagicMock()
-    mock.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
+    mock._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(mock, v)
+    )
     mock.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     mock.real_trvs = {
         TRV_ID: Trv(
@@ -109,8 +108,10 @@ async def _run_startup(bt, trv_state):
     )
     bt.hass.states.get.return_value = trv_state
     with (
-        patch("custom_components.better_thermostat.climate.init", AsyncMock()),
-        patch("custom_components.better_thermostat.climate.initial_tweak", AsyncMock()),
+        patch("custom_components.better_thermostat.climate.init", autospec=True),
+        patch(
+            "custom_components.better_thermostat.climate.initial_tweak", autospec=True
+        ),
         patch(
             "custom_components.better_thermostat.climate.control_trv",
             AsyncMock(return_value=True),

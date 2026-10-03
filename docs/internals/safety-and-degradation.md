@@ -1,0 +1,123 @@
+---
+title: Safety and degradation
+description: The safety hull, the fail-soft ladder, the watchdog, and calibrator self-healing.
+sidebar:
+  order: 3
+---
+
+Controlling worse is acceptable. Not controlling at all, or silently
+hanging, is not. Every degradation is explicit, annunciated, and
+reversible.
+
+## The safety hull
+
+Every outgoing value passes `core/safety.py` at the command boundary:
+setpoints are clamped to the device's min/max including the frost
+floor, calibration offsets to the device's calibration range, valve
+percentages to 0..`valve_max_opening`. The hull is the *second* guard:
+the calibration math keeps its own intermediate clamps for bit-exact
+debuggability. But the hull owns the boundary, and no write path may
+bypass it, including special cases like the boost safety reset.
+
+Safety-relevant writes (OFF for an open window or absent heat demand,
+frost-floor rewrites, closing the valve) also bypass the
+[write budget](/internals/writes-and-reconciliation/): safety is never
+throttled.
+
+## The fail-soft ladder
+
+```mermaid
+stateDiagram-v2
+    OPTIMAL --> SENSOR_FALLBACK: room sensor lost (~2 min debounce)
+    SENSOR_FALLBACK --> HOLD: no TRV temperature usable either (~2 min)
+    OPTIMAL --> HOLD: room sensor and TRV temperatures lost together (~2 min)
+    HOLD --> SENSOR_FALLBACK: TRV temperatures back (~5 min stability)
+    SENSOR_FALLBACK --> OPTIMAL: room sensor back (~5 min stability)
+    HOLD --> OPTIMAL: room sensor back (~5 min stability)
+```
+
+The ladder does not have to pass through SENSOR_FALLBACK. It commits to
+the rung the observation supports for the whole window, so losing the
+room sensor and every TRV temperature at once goes straight to HOLD, and
+a returning room sensor lifts HOLD straight to OPTIMAL.
+
+- **OPTIMAL** — the external room sensor delivers; the control law
+  works as configured.
+- **SENSOR_FALLBACK** — the room sensor is unavailable, but at least
+  one *reachable* TRV reports an internal temperature: calibration
+  substitutes the mean of the TRV-internal readings. Controlling on a
+  hot-valve sensor is worse than on a room sensor, but strictly better
+  than controlling on a silently stale reading. A stored reading only
+  counts while its TRV is actually reachable, and going unavailable
+  invalidates it, so pre-outage values cannot pass as live.
+- **HOLD** — neither the room sensor nor any TRV temperature is usable
+  (for example during a Zigbee outage). The kernel emits the same
+  heating intent as on every rung, with the user's target as the
+  setpoint; the shell reads the rung and withholds calibration (no
+  offsets, no valve percentages), so the setpoint reaches the device
+  uncalibrated: the controller stops adjusting, each device stays
+  locked on the last known target (re-sent if the device loses it), and
+  the frost floor stays enforced on every write. Nothing downstream of
+  the HOLD decision may re-introduce an adjustment, boost included. The
+  only valve write on HOLD is the overheat-safe boost reset: while boost
+  heating is active and a suppression (open window, no heat demand)
+  forces the TRV to OFF, a direct-valve TRV gets its valve closed to 0 %.
+
+Downgrades are debounced (`down_debounce_s`, 120 s) so a flapping sensor
+does not flip behavior; upgrades require sustained recovery
+(`up_stability_s`, 300 s). A sensor that stops reporting produces no
+events, so a periodic ladder tick (`LADDER_TICK_S`, 60 s) evaluates the
+ladder in every configuration, and a rung commits at most one tick after
+its window has elapsed. The rung is visible as the `control_mode`
+attribute, along with `degraded_for_s` and `unavailable_sensors`;
+entering degraded mode raises a repair issue that clears itself on
+recovery.
+
+Per-TRV, the bulkhead is the kernel's address filter: a dead TRV
+receives no intent (unless boost heating is active) and its native
+thermostat keeps controlling at the last commanded state, effectively
+in passthrough mode, while the other TRVs stay fully controlled.
+
+## The watchdog
+
+`core/watchdog.py` answers one question: did a control cycle complete
+recently? The heartbeat is stamped on every *deliberate* outcome of a
+cycle, including skipping an unavailable TRV or deferring a write to
+the budget, while error paths that bail out leave it alone. The
+reconciler tick reads it: a device that diverges from the intent while
+no cycle has completed for 15 minutes is a silent hang, which raises an
+error and forces a cycle. A room whose devices hold the intent has
+nothing for a cycle to do, so a loop that stays quiet there is not
+reported, however long ago its last cycle ran.
+
+## Calibrator self-healing and health
+
+Self-healing applies where the pathology is unambiguous; everything
+else is annunciation only:
+
+| Pathology | Reaction | Threshold anchor |
+|---|---|---|
+| Non-finite values in learned state | Discard state, relearn from live data | none needed (NaN/Inf) |
+| Runaway auto-tuned gains (PID) | Reset gains to defaults | configured gain ranges |
+| Wound-up integrator (PID) | Reset integrator | actuator-derived integrator limits |
+| Oscillating output | **Annunciate only** | ≥4 reversals between ≥20-point swings in the last 10 outputs |
+
+Oscillation triggers no automatic gain backoff: a detector that backs
+gains off on a false positive thrashes the controller, which is worse
+than the oscillation it reacts to. Backoff stays a manual decision until
+the detector is validated against the calibration benchmark. Every
+verdict lands per TRV in the `calibrator_health`
+attribute; a healthy verdict clears only the grades its reporter owns,
+so the sanitize path and the oscillation watcher cannot flap each
+other's annunciations.
+
+Persisted state is hardened at three layers: deserialization skips a
+wrong-typed field individually while a non-finite value resets the
+whole stored entry to its defaults, an unreadable store yields
+defaults instead of killing startup, and the sanitize step heals
+whatever still reaches a controller. For a reset entry and an
+unreadable store, load attempts to copy the stored payload aside
+before the defaults apply. If that copy cannot be confirmed on disk,
+the defaults still apply, but saves are held back and the copy is
+retried, so the live store keeps the payload until the copy exists
+(see [Persistence](/internals/persistence/)).

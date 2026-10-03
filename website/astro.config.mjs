@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import mermaid from "astro-mermaid";
 import starlightThemeFlexoki from "starlight-theme-flexoki";
 import lit from "@astrojs/lit";
 
@@ -18,9 +19,11 @@ export default defineConfig({
     "/qanda/missing_entity": "/faq/missing-entity",
     "/qanda/degraded_mode": "/faq/degraded-mode",
     "/qanda/window_sensor": "/faq/window-sensor",
+    "/hydraulic": "/deep-explanations/hydraulic-balance",
   },
 
   integrations: [
+    mermaid({ theme: "neutral" }),
     lit(),
     starlight({
       title: "Better Thermostat",
@@ -32,6 +35,13 @@ export default defineConfig({
         {
           label: "Setup",
           autogenerate: { directory: "setup" },
+        },
+        {
+          label: "Configuration",
+          items: [
+            { label: "Configuration", link: "/configuration/" },
+            { label: "Calibration algorithms", link: "/calibration_algorithms/" },
+          ],
         },
         {
           label: "FAQ",
@@ -48,6 +58,10 @@ export default defineConfig({
         {
           label: "Deep explanations",
           autogenerate: { directory: "deep-explanations" },
+        },
+        {
+          label: "Internals",
+          autogenerate: { directory: "internals" },
         },
         {
           label: "Support",

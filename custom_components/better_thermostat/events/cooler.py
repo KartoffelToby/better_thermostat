@@ -9,23 +9,55 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.core import callback
+from homeassistant.core import State
 
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
     device_setpoint_step,
     dual_role_entity_id,
+    last_sent_cooler_temperature,
+    on_cooler_grid,
     read_setpoint_celsius,
     resolve_inbound_setpoint,
     resolve_state_change_event,
     setpoint_echo_window,
     state_says_nothing,
 )
+from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
 
-@callback
+def cooling_writes_as_held(self, state: State) -> tuple[float | None, float | None]:
+    """Return the cooling channel's writes as the device holds them, in °C.
+
+    The cooling channel sends the cool target rounded onto the cooler's own
+    grid, which on a Fahrenheit system is whole degrees Fahrenheit unless the
+    cooler publishes a step of its own. A report is compared with those grid
+    points: rounded onto any other grid, a write of 75 °F lands half a
+    Fahrenheit degree off the value sent, and a press to 76 °F reads as that
+    write coming back. The cool target stands for a write whose service call
+    has not returned yet, which the send cache records only afterwards.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    state : State
+        the cooler's reported state, which carries its step
+
+    Returns
+    -------
+    tuple[float | None, float | None]
+        the cool target and the last sent cooling setpoint on the cooler's
+        grid, each None while unknown
+    """
+    return (
+        on_cooler_grid(self, state, self.bt_target_cooltemp),
+        on_cooler_grid(self, state, last_sent_cooler_temperature(self)),
+    )
+
+
 async def trigger_cooler_change(self, event):
     """Trigger a change in the cooler state."""
     if self.startup_running:
@@ -64,11 +96,17 @@ async def trigger_cooler_change(self, event):
     _old_cooling_setpoint = read_setpoint_celsius(
         self, old_state, COOLER_SETPOINT_KEYS, "trigger_cooler_change()"
     )
+    # Compare only against values BT itself wrote, as the cooler holds them.
+    # ``_old_cooling_setpoint`` is the cooler's previously published state and
+    # is not necessarily a BT-written value, so it does not belong in the
+    # echo-suppression set.
+    _last_sent = last_sent_cooler_temperature(self)
     _new_cooling_setpoint = resolve_inbound_setpoint(
         self,
         new_state,
         keys=COOLER_SETPOINT_KEYS,
-        known_values=(self.bt_target_cooltemp, self.last_sent_cooler_temp),
+        known_values=cooling_writes_as_held(self, new_state),
+        cooling=True,
         step=_step,
         log_source="trigger_cooler_change()",
     )
@@ -117,14 +155,16 @@ async def trigger_cooler_change(self, event):
         _LOGGER.debug(
             "better_thermostat %s: trigger_cooler_change / "
             "_old_cooling_setpoint: %s - _new_cooling_setpoint: %s - "
-            "bt_target_cooltemp: %s - last_sent: %s - step: %s - echo: %s",
+            "bt_target_cooltemp: %s - last_sent: %s - step: %s - echo: %s - "
+            "contact_open: %s",
             self.device_name,
             _old_cooling_setpoint,
             _new_cooling_setpoint.value,
             self.bt_target_cooltemp,
-            self.last_sent_cooler_temp,
+            _last_sent,
             _step,
             _new_cooling_setpoint.is_echo,
+            self.contact_open,
         )
         # The cooler handler has no device-side gate of its own, so an event
         # that republishes the same setpoint — an attribute refresh, a mode
@@ -141,7 +181,15 @@ async def trigger_cooler_change(self, event):
         _reported_moved = abs(
             _new_cooling_setpoint.raw - _old_cooling_setpoint
         ) >= setpoint_echo_window(_step)
-        if not _new_cooling_setpoint.is_echo and _reported_moved:
+        # While a contact is open the cooler is held OFF and receives no
+        # setpoint, so nothing BT wrote explains a setpoint the device reports
+        # mid-airing; adopting it would let the airing move the user's cooling
+        # target. The TRV handler draws the same line.
+        if (
+            not _new_cooling_setpoint.is_echo
+            and _reported_moved
+            and self.contact_open is False
+        ):
             if _new_cooling_setpoint.clamped:
                 _LOGGER.warning(
                     "better_thermostat %s: New Cooler %s setpoint outside of range, "
@@ -170,14 +218,34 @@ async def trigger_cooler_change(self, event):
             # The clamp leaves the heating target alone, so this only settles
             # the degenerate case where no cooling value above the heating
             # target exists inside the range: at a heating target resting on
-            # bt_max_temp it drops that target by one step, and a range the
-            # children narrowed below a target already in place is what moves
-            # it further — that move is what brings it back inside the range.
+            # the cooling maximum it drops that target by one step, and a range
+            # the children narrowed below a target already in place is what
+            # moves it further — that move is what brings it back inside the
+            # range.
             self._enforce_heat_below_cool()
             _main_change = True
+        elif _reported_moved:
+            # A setpoint change arrived from the cooler but was not adopted as
+            # user intent. Record which guard suppressed it so intermittent
+            # "change ignored" reports can be diagnosed from a debug log
+            # instead of guesswork.
+            _LOGGER.debug(
+                "better_thermostat %s: Cooler %s setpoint change %s -> %s NOT "
+                "adopted (echo=%s contact_open=%s bt_target_cooltemp=%s "
+                "last_sent=%s step=%s)",
+                self.device_name,
+                entity_id,
+                _old_cooling_setpoint,
+                _new_cooling_setpoint.value,
+                _new_cooling_setpoint.is_echo,
+                self.contact_open,
+                self.bt_target_cooltemp,
+                _last_sent,
+                _step,
+            )
 
     if _main_change is True:
         self.async_write_ha_state()
-        return await self.control_queue_task.put(self)
+        return request_control_cycle(self)
     self.async_write_ha_state()
     return

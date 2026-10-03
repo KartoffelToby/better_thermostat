@@ -30,7 +30,7 @@ under `selector.<key>.options`.
 4. Run:
 
    ```bash
-   uv run pytest tests/test_translations.py
+   uv run pytest tests/unit/test_translations.py
    ```
 
 The validation checks JSON structure, complete key coverage, unknown keys,

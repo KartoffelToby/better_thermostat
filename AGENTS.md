@@ -1,0 +1,25 @@
+# Notes for coding agents
+
+[CONTRIBUTING.md](CONTRIBUTING.md) is the reference. This file is the short list
+of what goes wrong first.
+
+Run everything through `uv`: `uv sync --frozen` once, then `uv run pytest tests`,
+`uv run ruff check`, `uv run ruff format`. Calling `python`, `pytest` or `ruff`
+directly picks up the wrong environment, and `-p no:homeassistant` errors the
+integration suite out.
+
+Pull requests target `develop`; a fix wanted on the maintenance line `1.9` gets
+a second pull request there. `master` carries releases and takes no feature or
+fix pull requests; nothing goes onto any of the three directly.
+
+The Python floor is 3.14.2, inherited from Home Assistant, so the tree writes
+`except TypeError, ValueError:` without parentheses.
+[PEP 758](https://peps.python.org/pep-0758/) has allowed that since 3.14. If it
+reads as Python 2 to you, the grammar you learned predates October 2025: run
+`uv run python -VV` before reporting it. Adding the parentheses back has been
+proposed twice and declined twice.
+
+Beyond the tests, CI holds six recorded files against the tree:
+`.blind-except-budget.json`, `.naming-budget.json`, `.pep8-naming-budget.json`,
+`.restated-contract-budget.json`, `.coverage-floors.json` and
+`.forward-port-gaps.json`. `CONTRIBUTING.md` says what each one guards.

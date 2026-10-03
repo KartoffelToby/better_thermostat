@@ -32,7 +32,7 @@ class HvacActionResult:
 class TrvSnapshot:
     """Pre-resolved, immutable view of a single TRV's relevant state."""
 
-    trv_id: str
+    entity_id: str
     ignore_trv_states: bool = False
     hvac_action: str | None = None
     valve_position: float | None = None
@@ -220,7 +220,7 @@ def compute_hvac_action(
                         "better_thermostat %s: overriding hvac_action to HEATING "
                         "(TRV %s reports heating)",
                         device_name,
-                        snap.trv_id,
+                        snap.entity_id,
                     )
                     action = HVACAction.HEATING
                     break
@@ -232,7 +232,7 @@ def compute_hvac_action(
                     "(valve_position %.1f%%, TRV %s)",
                     device_name,
                     vp_pct,
-                    snap.trv_id,
+                    snap.entity_id,
                 )
                 action = HVACAction.HEATING
                 break
@@ -244,7 +244,7 @@ def compute_hvac_action(
                     "(last_valve_percent %.1f%%, TRV %s)",
                     device_name,
                     last_pct,
-                    snap.trv_id,
+                    snap.entity_id,
                 )
                 action = HVACAction.HEATING
                 break
