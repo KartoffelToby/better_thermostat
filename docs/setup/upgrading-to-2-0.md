@@ -69,9 +69,10 @@ itself.
 The option "Minimum seconds between repeated cooler commands" is gone.
 Better Thermostat now holds back an unchanged temperature or mode command
 if it sent the same value less than 240 seconds earlier, to protect the
-compressor. A changed value goes out at once, or within 30 seconds if the
-previous command failed. A failed command is retried with its own growing
-pause, from 30 seconds up to 30 minutes. You don't need to do anything; a
+compressor. A changed value goes out with the next control cycle; if the
+previous command failed, it waits at least 30 seconds after that failure. A
+failed command is retried with its own growing pause, from 30 seconds up to
+30 minutes. You don't need to do anything; a
 value you set before is ignored.
 
 ### Entities of a calibration mode you no longer use
@@ -127,9 +128,10 @@ decision was not to heat, it then resumes heating with the logbook entry
 ### A thermostat keeps rejecting commands
 
 1.9.2 retried a failed control cycle right away, over and over. 2.0 doubles
-the pause after each failure, up to five minutes. A retry that gets
-through, a new target temperature or a new HVAC mode resets it. Your logs
-get much quieter.
+the pause after each failure, up to five minutes. With the HomematicIP
+option, its ten minutes between writes can make a retry wait longer. A
+retry that gets through, a new target temperature or a new HVAC mode resets
+the pause. Your logs get much quieter.
 
 ### Smaller changes
 
