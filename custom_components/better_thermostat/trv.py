@@ -140,6 +140,9 @@ class Trv:
     # nothing about how fresh another valve's reading is. ``None`` means no
     # reading has been accepted yet and the next one passes.
     last_internal_sensor_change: datetime | None = None
+    # Whether a reading turned away by that debounce is due to be read again
+    # once the interval is over.
+    internal_reread_pending: bool = False
     last_temperature: float | None = None
     # The setpoint in °C the device last confirmed, its own at startup. A
     # device may report it again at any time, so it stays a value BT itself
@@ -183,6 +186,11 @@ class Trv:
     # judges the device's state against it, so a device that came back from
     # ``unavailable`` inside the cycle is read as a return, not as a press.
     state_before_held_report: State | None = None
+    # The mode cached for the device when that state was replaced. The end of
+    # the cycle settles the cache before it reads the held report, so the
+    # report is judged against this mode, as the handler judges it against the
+    # cache outside a cycle.
+    hvac_mode_before_held_report: str | None = None
     # A held report whose internal temperature was taken while the cycle ran.
     # The value is applied as it arrives, so reading the report again at the
     # end of the cycle finds nothing new; this is what still asks for a cycle.
@@ -341,6 +349,36 @@ class Trv:
             for pending in self.pending_setpoints
             if pending.write_id > through_write_id
         ]
+
+    def remember_setpoint_adopted(self, value: float) -> None:
+        """Record a setpoint turned at the device as the one it holds.
+
+        The turn takes the place of the command BT last saw confirmed, so a
+        later turn back to that command reads as the user's again instead of
+        as BT's write coming back. The writes still on the wire are not
+        retired: the device has not answered them, and one may still land.
+
+        Parameters
+        ----------
+        value : float
+            the setpoint in °C as the device reported it
+        """
+        self.remember_setpoint_held(value)
+
+    def remember_setpoint_held(self, value: float) -> None:
+        """Record a setpoint the device holds as the one BT wants it to hold.
+
+        However the value got onto the device, once BT would write it there
+        itself it is BT's own: the device reporting it again is no press.
+        The writes still on the wire are not retired.
+
+        Parameters
+        ----------
+        value : float
+            the setpoint in °C the device holds
+        """
+        self.last_temperature = value
+        self.remember_setpoint_confirmed(value, self.confirmed_write_id)
 
     def capabilities(self) -> TrvCapabilities:
         """Effective capabilities: adapter declaration ∩ discovered surface."""

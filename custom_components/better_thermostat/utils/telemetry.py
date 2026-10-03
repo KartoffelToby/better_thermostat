@@ -309,3 +309,24 @@ def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
             out[dst_key] = round(value, decimals)
 
     return out
+
+
+# Every attribute the collectors above can write. They carry controller
+# internals, several of which change on nearly every state write, so the
+# climate entity keeps them out of the recorder. The live state still shows
+# them.
+TELEMETRY_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        "heating_cycle_count",
+        "heating_cycle_last",
+        "heat_loss_cycle_count",
+        "heat_loss_cycle_last",
+        ATTR_STATE_HEAT_LOSS_STATS,
+        "heating_power_norm",
+        "temp_slope_K_min",
+        "calibration_balance",
+        "pid_d_meas_K_per_min",
+        *(dst_key for _, dst_key, _ in _PID_SCALAR_FIELDS),
+        *(dst_key for _, dst_key, _ in _MPC_V2_FIELDS),
+    }
+)

@@ -10,7 +10,7 @@ import contextlib
 from datetime import timedelta
 import json
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import (
     ATTR_TARGET_TEMP_HIGH,
@@ -37,6 +37,7 @@ from custom_components.better_thermostat.climate import (
     DEFAULT_FALLBACK_TEMPERATURE,
     BetterThermostat,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.events.temperature import (
     PLATEAU_ACCEPT_WINDOW,
@@ -48,12 +49,14 @@ from custom_components.better_thermostat.utils.const import (
     ATTR_STATE_HEAT_LOSS,
     ATTR_STATE_HEATING_POWER,
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     CONF_HOMEMATICIP,
     DEFAULT_TARGET_TEMP,
     MAX_HEAT_LOSS,
     MAX_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
+from tests.factories import ThermostatStandIn
 
 SENSOR_ID = "sensor.room_temp"
 TRV_ID = "climate.test_trv"
@@ -75,11 +78,20 @@ LOCAL_CALIBRATION = 3
 # ---------------------------------------------------------------------------
 
 
+def _discard_background_work(coro, *, name):
+    """Close a coroutine handed to ``_spawn_owned`` instead of running it."""
+    coro.close()
+    return DEFAULT
+
+
 @pytest.fixture
 def bt():
     """Create a mock BetterThermostat with sensible defaults."""
-    mock = MagicMock(spec=BetterThermostat)
-    mock.clock = MagicMock()
+    mock = ThermostatStandIn(spec=BetterThermostat)
+    # The coroutine handed over was created by the caller; a mock that drops
+    # it leaves it unawaited.
+    mock._spawn_owned = MagicMock(side_effect=_discard_background_work)
+    mock.clock = FakeClock()
     mock.kernel_state = KernelState()
     mock._degraded_grace_until = None
     mock.state_mgr = None
@@ -113,6 +125,8 @@ def bt():
     mock.degraded_mode = False
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
+    mock.cool_min_temperature = None
+    mock.cool_max_temperature = None
     mock.bt_target_temp = 21.0
     mock.bt_target_temp_min = None
     mock.bt_target_temp_max = None
@@ -160,6 +174,15 @@ def bt():
     mock._bound_target_to_range = lambda value: BetterThermostat._bound_target_to_range(
         mock, value
     )
+    mock._bound_cool_target_to_range = lambda value: (
+        BetterThermostat._bound_cool_target_to_range(mock, value)
+    )
+    mock._onto_target_grid = lambda value: BetterThermostat._onto_target_grid(
+        mock, value
+    )
+    mock._applied_target = lambda value, **kwargs: BetterThermostat._applied_target(
+        mock, value, **kwargs
+    )
     mock._unavailable_trvs = lambda: BetterThermostat._unavailable_trvs(mock)
     mock._first_plausible_trv_temperature = lambda: (
         BetterThermostat._first_plausible_trv_temperature(mock)
@@ -194,6 +217,7 @@ def plateau_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     # Production holds Trv objects here. A MagicMock in their place answers
     # every attribute read, so a member field the code under test asks for
@@ -337,6 +361,7 @@ class TestStartupUnloadBailout:
         bt._door_task = None
         bt.plateau_timer_cancel = None
         bt._owned_tasks = set()
+        bt._final_flush_task = None
 
         await BetterThermostat.async_will_remove_from_hass(bt)
 
@@ -354,7 +379,12 @@ SUB_THRESHOLD_TEMP = 20.05
 
 
 async def _feed_sensor_reading(entity, temperature):
-    """Deliver one external temperature reading to the event handler."""
+    """Publish one external temperature reading and hand it to the handler.
+
+    Home Assistant stores the sensor's state before its change event is
+    handled, and the plateau timer reads the stored state back.
+    """
+    entity.hass.states.async_set(SENSOR_ID, str(temperature))
     event = MagicMock()
     event.data = {"new_state": State(SENSOR_ID, str(temperature))}
     await trigger_temperature_change(entity, event)
@@ -477,6 +507,7 @@ def owned_task_bt(bt, hass):
     bt.plateau_timer_cancel = None
     bt.is_removed = False
     bt._owned_tasks = set()
+    bt._final_flush_task = None
     bt._spawn_owned = lambda coro, *, name: BetterThermostat._spawn_owned(
         bt, coro, name=name
     )
@@ -709,6 +740,50 @@ class TestOwnedBackgroundTasks:
         assert readings == []
         state_mgr.flush.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_removal_stops_the_timed_copy_retry_before_the_flush(
+        self, hass, owned_task_bt
+    ):
+        """No timed copy retry outlives the entity.
+
+        The flush still tries the copy once. A timer left running would
+        write into the store the next entity for the same entry reads.
+        """
+        state_mgr = MagicMock()
+        state_mgr.load = AsyncMock()
+        state_mgr.flush = AsyncMock()
+        owned_task_bt.all_trvs = []
+        owned_task_bt._unique_id = "uid"
+        owned_task_bt._config_entry_id = "entry"
+        owned_task_bt.entity_id = "climate.bt_test"
+
+        async def idle_worker(_entity):
+            await asyncio.Event().wait()
+
+        module = "custom_components.better_thermostat.climate"
+        with (
+            patch(f"{module}.control_queue", side_effect=idle_worker),
+            patch(f"{module}.StateManager", return_value=state_mgr),
+            patch(f"{module}.migrate_v0_stores", new=AsyncMock()),
+        ):
+            await BetterThermostat.async_added_to_hass(owned_task_bt)
+
+        save_on_removal = next(
+            call.args[0]
+            for call in owned_task_bt.async_on_remove.call_args_list
+            if getattr(call.args[0], "__name__", "") == "on_remove"
+        )
+        await BetterThermostat.async_will_remove_from_hass(owned_task_bt)
+        save_on_removal()
+        await hass.async_block_till_done()
+
+        lifecycle = [
+            name
+            for name, _args, _kwargs in state_mgr.mock_calls
+            if name in {"close", "flush"}
+        ]
+        assert lifecycle == ["close", "flush"]
+
 
 # ---------------------------------------------------------------------------
 # 1. _check_entities_ready
@@ -922,8 +997,7 @@ class TestCheckEntitiesReady:
 
 def _arm_grace(bt, *, remaining: timedelta) -> None:
     """Arm the critical grace window to end ``remaining`` from the clock's now."""
-    now = dt_util.utcnow()
-    bt.clock.now.return_value = now
+    now = bt.clock.now()
     bt._critical_grace_until = now + remaining
 
 
@@ -1283,6 +1357,18 @@ class TestStartupCoolTargetSeed:
         await _run_startup(bt, restored_target=21.0)
 
         assert bt.bt_target_cooltemp == 24.0
+
+    @pytest.mark.asyncio
+    async def test_the_seed_is_bounded_by_the_cooler_range(self, bt):
+        """A cooler setpoint above the heads' maximum is taken as reported."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.cool_min_temperature = 16.0
+        bt.cool_max_temperature = 35.0
+        _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 33.0})})
+
+        await _run_startup(bt, restored_target=21.0)
+
+        assert bt.bt_target_cooltemp == 33.0
 
     @pytest.mark.asyncio
     async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):
@@ -1828,6 +1914,41 @@ class TestRestoreState:
         assert bt.cur_temp_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
+    @pytest.mark.parametrize(
+        ("stored", "expected"),
+        [
+            pytest.param((0.012345, 0.001234), (0.012345, 0.001234), id="store"),
+            pytest.param((None, None), (0.0123, 0.00123), id="attributes"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_the_store_keeps_the_learned_rates_at_full_precision(
+        self, bt, stored, expected
+    ):
+        """The rates the store holds win over the rounded state attributes.
+
+        The attributes publish the rates rounded for display; they fill in
+        only for an entry whose store carries none yet.
+        """
+        old = State(
+            "climate.bt_test",
+            "heat",
+            {
+                ATTR_STATE_HEATING_POWER: 0.0123,
+                ATTR_STATE_HEAT_LOSS: 0.00123,
+                ATTR_TEMPERATURE: 21.0,
+            },
+        )
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.preset_mgr.temperatures = {}
+        bt.state_mgr = MagicMock()
+        bt.state_mgr.clamped_thermal.return_value = stored
+        bt.heating_power, bt.heat_loss_rate = stored
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert (bt.heating_power, bt.heat_loss_rate) == expected
+
     @pytest.mark.asyncio
     async def test_target_clamped_to_min(self, bt):
         """A restored target below the minimum comes back as the minimum."""
@@ -1913,6 +2034,124 @@ class TestRestoreState:
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
         assert bt.bt_target_cooltemp == 25.5
+
+    @pytest.mark.asyncio
+    async def test_a_restored_preset_off_the_step_applies_the_targets_it_applied_before(
+        self, bt
+    ):
+        """A preset stored between two steps comes back as the targets it applied.
+
+        Comfort heats to the 72 °F a user typed, 22.22 °C, and cools to
+        77.5 °F, 25.28 °C. Selecting it puts both on the configured 0.5 °C
+        step, 22 °C and 25.5 °C. After a restart the restored preset applies
+        those same two targets, not the stored values beneath them.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt._configured_target_temp_step = 0.5
+        bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
+        bt._preset_cool_temperature = None
+        bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+        bt.control_queue_task = None
+
+        await BetterThermostat.async_set_preset_mode(bt, "comfort")
+        selected = (bt.bt_target_temp, bt.bt_target_cooltemp)
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected[0],
+            "preset_mode": "comfort",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.222, "eco": 18.0}
+            ),
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+        bt.bt_target_cooltemp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == (22.0, 25.5)
+        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == selected
+        assert bt.preset_mgr.mode == "comfort"
+
+    @pytest.mark.asyncio
+    async def test_a_restored_cooling_preset_is_held_to_the_cooling_range(self, bt):
+        """A restored cooling preset above the heads' maximum is not cut to it.
+
+        The heads span 5 to 30 °C and the cooler 16 to 35 °C. Comfort cools to
+        33 °C, which the cooler holds, so the restored preset applies 33 °C.
+        """
+        bt.cooler_entity_id = COOLER_ID
+        bt.cool_min_temperature = 16.0
+        bt.cool_max_temperature = 35.0
+        bt._preset_cool_temperatures = {"comfort": 33.0}
+        bt._preset_cool_temperature = None
+        bt.control_queue_task = None
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 22.0,
+            "preset_mode": "comfort",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.0, "eco": 18.0}
+            ),
+            ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 33.0}),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+        bt.bt_target_cooltemp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.preset_mgr.mode == "comfort"
+        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == (22.0, 33.0)
+
+    @pytest.mark.asyncio
+    async def test_a_preset_below_a_bound_off_the_step_applies_one_target(self, bt):
+        """A preset below the range applies the same target on every path.
+
+        The range starts at 68.5 °F, 20.28 °C, between two steps of the
+        configured 0.5 °C, and Eco is stored at 18 °C. Selecting Eco, setting
+        the target it applied or Eco's stored 18 °C directly, as Eco's number
+        does, and restoring Eco after a restart all land on 20.5 °C, the step
+        nearest the bound inside the range, and Eco stays active throughout.
+        """
+        bt.bt_min_temp = 20.28
+        bt._configured_target_temp_step = 0.5
+        bt.bt_hvac_mode = HVACMode.HEAT
+        bt.hvac_mode = HVACMode.HEAT
+        bt.control_queue_task = asyncio.Queue()
+
+        await BetterThermostat.async_set_preset_mode(bt, "eco")
+        selected = bt.bt_target_temp
+
+        for requested in (selected, 18.0):
+            await BetterThermostat.async_set_temperature(
+                bt, **{ATTR_TEMPERATURE: requested}
+            )
+            assert bt.bt_target_temp == selected
+            assert bt.preset_mgr.mode == "eco"
+
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: selected,
+            "preset_mode": "eco",
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps(
+                {"none": 20.0, "comfort": 22.0, "eco": 18.0}
+            ),
+        }
+        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt.bt_target_temp = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert selected == 20.5
+        assert bt.bt_target_temp == selected
+        assert bt.preset_mgr.mode == "eco"
 
     def _cooling_bt(self, bt, minimum, maximum):
         """Configure *bt* with a cooling channel and a real ordering method."""
@@ -2279,7 +2518,7 @@ def _trv_refusing_every_write(attempts: list[str]):
     trv.adapter = MagicMock()
     trv.adapter.set_temperature = refuse
 
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.bt_target_temp_step = None
     thermostat.real_trvs = {TRV_ID: trv}

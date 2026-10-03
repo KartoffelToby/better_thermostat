@@ -8,13 +8,14 @@ been removed in the meantime.
 """
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 import custom_components.better_thermostat.climate as climate_module
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
+from tests.factories import ThermostatStandIn
 
 GRACE_SECONDS = 90
 
@@ -22,7 +23,7 @@ GRACE_SECONDS = 90
 @pytest.fixture
 def bt():
     """Create a mock BetterThermostat with the attributes the helper reads."""
-    mock = MagicMock(spec=BetterThermostat)
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.is_removed = False
     mock.clock = FakeClock()

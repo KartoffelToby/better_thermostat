@@ -21,8 +21,9 @@ machine. Two rules hold everywhere:
 All regions are plain frozen dataclasses with pure transition
 functions; none of them is persisted across restarts. They re-derive
 from live observations: lifecycle through the startup sequence,
-window/door/maintenance/mode from the first events, the ladder and
-reachability within one debounce window.
+window/door/maintenance/mode from the first events, the ladder within
+one debounce window, and reachability from the first snapshot (it
+debounces nothing).
 
 ## Window: debounced open/closed
 
@@ -64,9 +65,11 @@ stateDiagram-v2
 The region exists to guarantee one invariant: a maintenance run must
 never block control permanently. `is_blocking()` stops honoring a RUNNING
 phase once it exceeds the maximum runtime (one hour), and finishing a
-run always returns to IDLE. An open window or OFF mode postpones the
-schedule by an hour; without any maintenance-enabled TRV the next check
-moves a week out.
+run always returns to IDLE. An open window postpones the schedule by an
+hour; without any maintenance-enabled TRV the next check moves a week
+out. The HVAC mode is not a postpone reason: a valve held shut through a
+summer with the heating off is the one that seizes, so the exercise
+runs with the thermostat set to OFF as well.
 
 ## Lifecycle: startup, running, stopped
 
@@ -79,8 +82,9 @@ come online before the user sees a repair issue.
 ## Mode: the user's HVAC mode
 
 A validated mirror of the user's selected mode (off / heat / cool /
-heat-cool), with the preset axis orthogonal to it. The mode tier of the
-cascade reads it; setting the mode on the entity advances the region.
+heat-cool / auto), with the preset axis orthogonal to it. The mode tier
+of the cascade reads it; setting the mode on the entity advances the
+region.
 
 ## Control mode: the fail-soft ladder
 
@@ -92,13 +96,31 @@ each rung does is described under
 
 ## Reachability: per-TRV online/offline
 
-Tracks per TRV when it went offline and how often a retry was
-considered. The region is diagnosis only. In Home Assistant,
-availability is push-based: writing to an unavailable entity does
-nothing, and the device's return triggers state events that resume
-control naturally. The region's value is the flight-recorder trail
-(`offline_since`, `retry_count`) when analyzing an outage. The effect on
-control is an address filter rather than a cascade tier: unreachable TRVs
-are dropped from the commanded set and receive no intent (except while boost
-heating is active, which keeps commanding so the TRV catches up the
-moment it returns).
+```mermaid
+stateDiagram-v2
+    online --> offline: reported unavailable (retry_at = now + 30 s)
+    offline --> offline: retry_at reached, still offline (backoff doubles, max 600 s)
+    offline --> online: reported available (record cleared)
+```
+
+Tracks per TRV since when it is offline (`offline_since`), how many
+retries have elapsed (`retry_count`), and when the next one is due
+(`retry_at`). The region steps inside `decide()` on every snapshot and
+debounces nothing. The backoff starts at 30 seconds and doubles up to
+ten minutes (`RETRY_INITIAL_S`, `RETRY_MAX_S`).
+
+The shell consumes `retry_at`. Each cycle that skips an offline TRV
+queues one control cycle for the region's `retry_at`
+(`_schedule_reachability_retry` in `utils/controlling.py`, at most one
+pending per TRV). That cycle writes nothing to the offline TRV; it
+re-observes it, and while the TRV stays offline the region advances the
+backoff and the next retry is queued. A TRV coming back normally queues
+a cycle through its own state event; the retry cycles cover a return
+that did not, so an offline TRV is re-checked at least every ten
+minutes.
+
+The effect on control is an address filter rather than a cascade tier:
+unreachable TRVs are dropped from the commanded set and receive no
+intent (except while boost heating is active, which keeps commanding so
+the TRV catches up the moment it returns). The record also lands in the
+flight recorder, where it serves outage analysis.

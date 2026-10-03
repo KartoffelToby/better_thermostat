@@ -2,12 +2,17 @@
 
 from unittest.mock import MagicMock
 
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.core.calibrator import (
     Calibrator,
     CalibratorHealth,
     Capability,
+)
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.pid import (
@@ -20,6 +25,7 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
     build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn, make_state
 
 
 class TestCapabilityNesting:
@@ -118,16 +124,26 @@ class TestStrategyRegistry:
         "mode",
         [
             CalibrationMode.MPC_CALIBRATION,
+            CalibrationMode.MPC_V2_CALIBRATION,
             CalibrationMode.TPI_CALIBRATION,
             CalibrationMode.PID_CALIBRATION,
         ],
     )
     def test_run_extracts_the_percent(self, mode):
-        """Each strategy reads its own result shape into a plain percent."""
+        """Each strategy reads its own result shape into a plain percent.
+
+        The percent also feeds the TRV's oscillation history.
+        """
         registry = self._registry(percent=55.0)
-        percent, use_valve = registry[mode].run(MagicMock(), "climate.trv")
+        bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
+        bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
+
+        percent, use_valve = registry[mode].run(bt, "climate.trv")
+
         assert percent == 55.0
         assert use_valve is False
+        assert list(bt.real_trvs["climate.trv"].balance_percent_history) == [55.0]
 
     def test_none_result_yields_no_percent(self):
         """A failed computation yields (None, use_valve)."""
@@ -145,9 +161,10 @@ class TestStrategyRegistry:
         registry = self._registry()
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.cur_temp = 20.0
         bt.bt_target_temp = 21.0
+        bt.kernel_state = make_state()
         bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
 
         cap = strategy.capability(bt, "climate.trv")
@@ -169,20 +186,23 @@ class TestStrategyRegistry:
         judge the same input instead of flagging the calibrator unhealthy
         while it is actively controlling.
         """
-        from custom_components.better_thermostat.core.fsm.control_mode import (
-            ControlMode,
-        )
-
         registry = self._registry()
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
-        bt = MagicMock()
+        bt = ThermostatStandIn()
+        bt.device_name = "Test BT"
         bt.cur_temp = None
         bt.bt_target_temp = 21.0
-        bt.kernel_state.control_mode.mode = ControlMode.SENSOR_FALLBACK
+        bt.kernel_state = make_state(
+            control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
+        )
         bt.real_trvs = {
             "climate.trv": Trv(entity_id="climate.trv", current_temperature=20.5)
         }
+        bt.hass.states.get.side_effect = lambda entity_id: State(
+            entity_id, "heat", {"current_temperature": 20.5}
+        )
+        bt.hass.config.units.temperature_unit = "°C"
 
         cap = strategy.capability(bt, "climate.trv")
         assert cap.configured and cap.healthy
@@ -203,9 +223,10 @@ class TestBalanceCalibrator:
             lambda bt, e: (MagicMock(duty_cycle_pct=percent), use_valve),
             lambda bt, e: (percent, use_valve),
         )
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.cur_temp = 20.0
         bt.bt_target_temp = 21.0
+        bt.kernel_state = make_state()
         bt.real_trvs = {
             "climate.trv": Trv(entity_id="climate.trv", calibration_balance=balance)
         }

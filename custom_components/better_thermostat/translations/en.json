@@ -39,12 +39,14 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead",
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
           "mpc_v2_plant_preset": "MPC v2 room size"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-          "calibration_mode": "How the calibration is calculated\n***Normal***: Uses your external temperature sensor to correct the TRV's internal sensor. Simple and reliable for most setups.\n***Aggressive***: Similar to Normal, but pushes the TRV harder to reach temperature faster. Good if your room heats slowly.\n***AI Time Based***: Learns your room's heating patterns over time and adjusts automatically. Balances comfort and efficiency.\n***MPC Predictive***: Advanced algorithm that predicts temperature changes and optimizes valve position. Best for stable, efficient heating with minimal overshooting. Learns your room's thermal behavior.\n***PID Controller***: Classic control method that responds to temperature errors. Good for systems with varying heating power or external disturbances.\n***TPI Controller***: Calculates heating duty cycles based on temperature difference. Simple and effective for consistent heating patterns.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
         }
       },
@@ -113,12 +115,14 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead",
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
           "mpc_v2_plant_preset": "MPC v2 room size"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
-          "calibration_mode": "How the calibration is calculated\n***Normal***: Uses your external temperature sensor to correct the TRV's internal sensor. Simple and reliable for most setups.\n***Aggressive***: Similar to Normal, but pushes the TRV harder to reach temperature faster. Good if your room heats slowly.\n***AI Time Based***: Learns your room's heating patterns over time and adjusts automatically. Balances comfort and efficiency.\n***MPC Predictive***: Advanced algorithm that predicts temperature changes and optimizes valve position. Best for stable, efficient heating with minimal overshooting. Learns your room's thermal behavior.\n***PID Controller***: Classic control method that responds to temperature errors. Good for systems with varying heating power or external disturbances.\n***TPI Controller***: Calculates heating duty cycles based on temperature difference. Simple and effective for consistent heating patterns.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
         }
       }
@@ -536,6 +540,32 @@
     "action_type": {
       "set_hvac_mode": "Set HVAC mode",
       "set_temperature": "Set target temperature"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} does not support the HVAC mode {mode}. Supported modes: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} received {value} for {attribute}, which is not a number."
+    },
+    "valve_maintenance_running": {
+      "message": "Valve maintenance is already running on {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} has no valve with valve maintenance enabled."
+    },
+    "valve_maintenance_failed": {
+      "message": "Valve maintenance on {device_name} failed. The log has the details."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} has not loaded its learned state yet. Try again once it has started."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} has no target temperature to apply the PID defaults to. Nothing was reset."
+    },
+    "pid_reset_failed": {
+      "message": "Resetting the PID learnings of {device_name} failed. The log has the details."
     }
   }
 }

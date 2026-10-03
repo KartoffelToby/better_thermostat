@@ -4,7 +4,7 @@
   "custom_components/better_thermostat/adapters/mqtt.py": 4,
   "custom_components/better_thermostat/adapters/zwave_js.py": 4,
   "custom_components/better_thermostat/calibration.py": 25,
-  "custom_components/better_thermostat/climate.py": 148,
+  "custom_components/better_thermostat/climate.py": 145,
   "custom_components/better_thermostat/config_flow.py": 19,
   "custom_components/better_thermostat/core/containers.py": 5,
   "custom_components/better_thermostat/core/decide.py": 5,
@@ -40,7 +40,7 @@
   "custom_components/better_thermostat/utils/calibration/pid.py": 27,
   "custom_components/better_thermostat/utils/calibration/strategies.py": 1,
   "custom_components/better_thermostat/utils/calibration/tpi.py": 1,
-  "custom_components/better_thermostat/utils/controlling.py": 42,
+  "custom_components/better_thermostat/utils/controlling.py": 40,
   "custom_components/better_thermostat/utils/helpers.py": 10,
   "custom_components/better_thermostat/utils/hvac_action.py": 29,
   "custom_components/better_thermostat/utils/snapshot.py": 10,
@@ -52,5 +52,5 @@
   "tests/benchmark/multi_trv_runner.py": 2,
   "tests/benchmark/runner.py": 8,
   "tests/benchmark/tests/test_metrics.py": 11,
-  "tests/test_mpc.py": 4
+  "tests/unit/test_mpc.py": 4
 }

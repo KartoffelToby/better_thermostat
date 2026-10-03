@@ -3,7 +3,11 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import (
+    PRESET_NONE,
+    ClimateEntityFeature,
+    HVACMode,
+)
 from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError
 import pytest
@@ -25,7 +29,7 @@ from custom_components.better_thermostat.utils.helpers import (
     cooling_owns_dual_role_device,
     last_sent_cooler_temperature,
 )
-from tests.factories import make_snapshot
+from tests.factories import ThermostatStandIn, make_snapshot
 
 
 def _mock_cooler_state(state=HVACMode.COOL):
@@ -37,13 +41,21 @@ def _mock_cooler_state(state=HVACMode.COOL):
 
 
 def _mock_bt():
-    """Build a bare Better Thermostat mock with the contact pinned shut.
-
-    An attribute a ``Mock`` was never given is a truthy child mock, so
-    ``contact_open`` has to be pinned or every cycle reads as an airing.
-    """
-    mock_self = Mock()
+    """Build a Better Thermostat stand-in with the contact shut."""
+    mock_self = ThermostatStandIn()
+    mock_self.device_name = "Test BT"
+    mock_self.heating_power_normalized = None
     mock_self.contact_open = False
+    mock_self.cur_temp_filtered = None
+    mock_self.temp_slope = None
+    mock_self.call_for_heat = True
+    mock_self.bt_min_temp = None
+    mock_self.bt_max_temp = None
+    mock_self.bt_target_temp_step = None
+    mock_self.window_id = None
+    mock_self.preset_mode = PRESET_NONE
+    mock_self.outdoor_sensor = None
+    mock_self.weather_entity = None
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
     mock_self.real_trvs = {}
@@ -78,7 +90,10 @@ class TestControlCooler:
         mock_self.weather_entity = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
+        mock_self.cur_temp = 25.0
         mock_self.bt_target_cooltemp = 24.0
+        mock_self.bt_target_temp = 20.0
+        mock_self.tolerance = 0.5
         mock_self.context = None
 
         await control_cooler(mock_self)
@@ -109,6 +124,7 @@ class TestControlCooler:
 
         mock_self = _mock_bt()
         mock_self.hass = mock_hass
+        mock_self.clock = FakeClock()
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.tolerance = 0.5
         mock_self.context = None
@@ -289,6 +305,10 @@ class TestControlCooler:
         mock_self.weather_entity = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
+        mock_self.cur_temp = 25.0
+        mock_self.bt_target_cooltemp = 24.0
+        mock_self.bt_target_temp = 20.0
+        mock_self.tolerance = 0.5
         mock_self.context = mock_context
 
         await control_cooler(mock_self)
@@ -2315,6 +2335,80 @@ class TestControlCoolerTargetRange:
             "entity_id": "climate.cooler",
             "target_temp_high": 24.0,
             "target_temp_low": 21.0,
+        }
+
+
+class TestControlCoolerDeviceRange:
+    """The cooler is written only setpoints its own range contains.
+
+    Home Assistant refuses a setpoint outside a device's range, and the cooling
+    target can leave the cooler's range where a configured bound widens the
+    cooling range past it.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("target_cooltemp", "written"),
+        [
+            pytest.param(38.0, 35.0, id="above_the_maximum"),
+            pytest.param(12.0, 16.0, id="below_the_minimum"),
+            pytest.param(26.0, 26.0, id="inside_the_range"),
+        ],
+    )
+    async def test_the_setpoint_is_held_to_the_cooler_range(
+        self, target_cooltemp, written
+    ):
+        """A cooling target outside the cooler's range is written at its edge."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes={"temperature": 24.0, "min_temp": 16.0, "max_temp": 35.0},
+            target_cooltemp=target_cooltemp,
+            target_temp=10.0,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = _service_calls(mock_hass, "set_temperature")
+        assert calls[0].args[2] == {
+            "entity_id": "climate.cooler",
+            "temperature": written,
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_fahrenheit_range_is_held_in_the_system_unit(self):
+        """The edge is read inward of the published °F bound and written in °F.
+
+        Home Assistant publishes a device's bound rounded to whole degrees, so
+        95 °F stands for anything from 94.5 °F up; the edge is taken half a
+        degree inward, where the device's own bound cannot be exceeded.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes={"temperature": 75.2, "min_temp": 61.0, "max_temp": 95.0},
+            system_unit=UnitOfTemperature.FAHRENHEIT,
+            target_cooltemp=36.0,
+            target_temp=20.0,
+        )
+
+        await control_cooler(mock_self)
+
+        calls = _service_calls(mock_hass, "set_temperature")
+        assert calls[0].args[2] == {"entity_id": "climate.cooler", "temperature": 94.5}
+
+    @pytest.mark.asyncio
+    async def test_the_lower_bound_of_a_band_is_raised_onto_the_cooler_minimum(self):
+        """A heating target below the cooler's minimum travels as that minimum."""
+        attributes = _range_attributes(target_temp_high=28.0, target_temp_low=19.0)
+        attributes |= {"min_temp": 16.0, "max_temp": 35.0}
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_attributes=attributes, target_cooltemp=26.0, target_temp=10.0
+        )
+
+        await control_cooler(mock_self)
+
+        calls = _service_calls(mock_hass, "set_temperature")
+        assert calls[0].args[2] == {
+            "entity_id": "climate.cooler",
+            "target_temp_high": 26.0,
+            "target_temp_low": 16.0,
         }
 
 

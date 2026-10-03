@@ -18,14 +18,18 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import (
     EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
     BetterThermostat,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.fsm.control_mode import LADDER_TICK_S
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -60,13 +64,13 @@ def _startup_bt(**overrides):
     the branch it gates.
     """
     config = {**_BARE, **overrides}
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.is_removed = False
     mock.kernel_state = KernelState()
-    mock.clock = MagicMock()
-    mock.clock.now.return_value = _NOW
-    mock.clock.monotonic.return_value = 1000.0
+    mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
+    mock._degraded_grace_until = None
+    mock.bt_hvac_mode = HVACMode.HEAT
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced=config.pop("advanced"))}
     mock.entity_ids = [TRV_ID]
     mock.all_trvs = None
@@ -142,33 +146,26 @@ async def _run_finalize_startup(bt, *, shared_cooler=False):
 # The periodic tasks
 # ---------------------------------------------------------------------------
 
-# The four ticks that are the same for every configuration, whatever the
-# five-minute ladder tick turns out to be. Weather is read hourly,
-# the room temperature is re-sent to mirroring TRVs on its own interval,
-# the outdoor EMA is advanced every minute and the reconciliation tick
-# re-converges the devices every five.
+# The five ticks that are the same for every configuration. Weather is read
+# hourly, the room temperature is re-sent to mirroring TRVs on its own
+# interval, the outdoor EMA is advanced every minute, the ladder tick
+# evaluates the degradation ladder every LADDER_TICK_S and the
+# reconciliation tick re-converges the devices every five minutes.
 _ALWAYS_ON_TICKS = (
     ("_trigger_check_weather", timedelta(hours=1)),
+    ("_availability_tick", timedelta(seconds=LADDER_TICK_S)),
     ("_external_temperature_keepalive", EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL),
     ("_async_update_ema_periodic", timedelta(minutes=1)),
     ("_reconcile_tick", timedelta(minutes=5)),
 )
 
+_CONTROL_TICK = ("_trigger_time", timedelta(minutes=5))
 
-def _expected_intervals(bt, extra=(), ladder_tick="_availability_tick"):
-    """The complete interval set for ``bt``, as a Counter of pairs.
 
-    Every configuration carries one five-minute tick that advances the
-    degradation ladder. Which of the two it is depends on whether the
-    calibration mode also wants the control recompute.
-    """
+def _expected_intervals(bt, extra=()):
+    """The complete interval set for ``bt``, as a Counter of pairs."""
     return Counter(
-        (getattr(bt, name), interval)
-        for name, interval in (
-            *_ALWAYS_ON_TICKS,
-            (ladder_tick, timedelta(minutes=5)),
-            *extra,
-        )
+        (getattr(bt, name), interval) for name, interval in (*_ALWAYS_ON_TICKS, *extra)
     )
 
 
@@ -176,8 +173,8 @@ def _expected_intervals(bt, extra=(), ladder_tick="_availability_tick"):
 async def test_a_bare_configuration_registers_only_the_unconditional_ticks():
     """No balance mode, no calibration mode, no maintenance: five ticks.
 
-    The four unconditional ones plus the availability tick, which is what
-    a configuration without a recompute gets in place of the control tick.
+    Without a recompute there is no control tick; the ladder tick is one
+    of the unconditional five.
     """
     bt = _startup_bt()
 
@@ -200,12 +197,12 @@ async def test_a_bare_configuration_registers_only_the_unconditional_ticks():
 async def test_a_balance_or_calibration_mode_adds_the_five_minute_control_tick(
     advanced,
 ):
-    """A mode that recomputes gets the control tick in the ladder tick's place."""
+    """A mode that recomputes adds the control tick next to the ladder tick."""
     bt = _startup_bt(advanced=advanced)
 
     registered = await _run_finalize_startup(bt)
 
-    assert registered.intervals == _expected_intervals(bt, ladder_tick="_trigger_time")
+    assert registered.intervals == _expected_intervals(bt, [_CONTROL_TICK])
 
 
 @pytest.mark.asyncio
@@ -231,7 +228,7 @@ async def test_a_calibration_mode_and_maintenance_together_register_both_ticks()
     registered = await _run_finalize_startup(bt)
 
     assert registered.intervals == _expected_intervals(
-        bt, [("_maintenance_tick", timedelta(minutes=5))], ladder_tick="_trigger_time"
+        bt, [_CONTROL_TICK, ("_maintenance_tick", timedelta(minutes=5))]
     )
 
 
@@ -239,8 +236,8 @@ async def test_a_calibration_mode_and_maintenance_together_register_both_ticks()
 async def test_a_missing_room_sensor_cuts_the_interval_set_short():
     """The required-sensor guard returns before the later registrations.
 
-    Weather, the availability tick and maintenance are registered above
-    it; the keepalive, the EMA tick and the reconciliation tick are not.
+    Weather, the ladder tick and maintenance are registered above it; the
+    keepalive, the EMA tick and the reconciliation tick are not.
     The entity runs with a partially wired timer set until the sensor is
     configured, and that is what the guard's error message reports.
     """
@@ -251,7 +248,7 @@ async def test_a_missing_room_sensor_cuts_the_interval_set_short():
     assert registered.intervals == Counter(
         {
             (bt._trigger_check_weather, timedelta(hours=1)): 1,
-            (bt._availability_tick, timedelta(minutes=5)): 1,
+            (bt._availability_tick, timedelta(seconds=LADDER_TICK_S)): 1,
             (bt._maintenance_tick, timedelta(minutes=5)): 1,
         }
     )

@@ -30,13 +30,13 @@ its own that is not enough to ask about, but next to a restating wording it is
 the sharper half of the list.
 
 **What this does not reach.** The marker list is a sample of the suspicion, not
-a survey of it. Of 3275 test docstrings in the tree it reports 112, and two
-common shapes stay outside it by measurement: 246 summaries opening "Test that
-…", which name the call rather than the obligation, and 177 built around
-"should", which state an expectation without saying whose. Matching either
-would add 423 sentences to a list of 112 and bury the question this exists to
-ask, so both are left to the reader. A green run means the budget held, never
-that the tree is free of restatements.
+a survey of it. It reports a small share of the tree's test docstrings, and
+two common shapes stay outside it by measurement: summaries opening "Test
+that …", which name the call rather than the obligation, and summaries built
+around "should", which state an expectation without saying whose. Together
+they outnumber the reported hits several times over, so matching either would
+bury the question this exists to ask, and both are left to the reader. A
+green run means the budget held, never that the tree is free of restatements.
 
 **Symptom wording.** A test whose docstring repeats a phrase from a document
 that collects reported symptoms is pinning what a user complained about. The
@@ -47,8 +47,9 @@ untracked file could not be held — and it runs only in ``list``.
 Three modes:
 
 ``check``
-    Count today's findings and exit non-zero when a file is over its budget, or
-    when a file with no budget has a finding at all.
+    Count today's findings and exit non-zero when a file is over its budget,
+    when a file with no budget has a finding at all, or when a file came in
+    under its budget and the lower number has not been recorded yet.
 
 ``update``
     Rewrite the budget from today's counts. Run this after rewording a
@@ -135,9 +136,22 @@ class Finding:
 
 
 def _test_files(paths: list[str] | None) -> list[Path]:
-    """Return the tracked test modules, restricted to ``paths`` when given."""
+    """Return the test modules, restricted to ``paths`` when given.
+
+    A module nobody has run ``git add`` on counts as it will in CI; the
+    ignore rules decide what belongs to the repository.
+    """
     listing = subprocess.run(
-        ("git", "ls-files", "-z", "--", *(paths or (SCANNED,))),
+        (
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *(paths or (SCANNED,)),
+        ),
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -147,7 +161,7 @@ def _test_files(paths: list[str] | None) -> list[Path]:
         sys.exit(f"git could not list the test files:\n{listing.stderr.strip()}")
     names = [n for n in listing.stdout.split("\0") if n.endswith(".py")]
     if not names:
-        sys.exit(f"no tracked Python files under {', '.join(paths or (SCANNED,))}")
+        sys.exit(f"no Python files under {', '.join(paths or (SCANNED,))}")
     return [REPO_ROOT / name for name in names]
 
 
@@ -273,9 +287,10 @@ def _load_budget() -> dict[str, int]:
 def check() -> int:
     """Report the files over budget and the files with no budget at all.
 
-    Files that came in under budget are named too, with a prompt to re-record.
-    Return 1 when any file is over or unbudgeted, 0 otherwise; exit outright
-    when no budget has been recorded yet.
+    Files that came in under budget fail too, with a prompt to re-record: the
+    lower number is the one that has to be held from then on. Return 1 when any
+    file is over, under or unbudgeted, 0 otherwise; exit outright when no budget
+    has been recorded yet.
     """
     counts = _measure()
     budget = _load_budget()
@@ -301,12 +316,15 @@ def check() -> int:
             f"re-record with '{Path(__file__).name} update' to hold the lower numbers"
         )
 
-    if not over and not unbudgeted:
+    if not over and not unbudgeted and not improved:
         print(
             f"all {len(budget)} files stay within their budget "
             f"({sum(counts.values())} docstrings left to ask about)"
         )
         return 0
+
+    if not over and not unbudgeted:
+        return 1
 
     if over:
         print("\nmore restating docstrings than the budget allows:")

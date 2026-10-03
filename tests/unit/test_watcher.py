@@ -18,6 +18,7 @@ from custom_components.better_thermostat.core.fsm.lifecycle import (
     LifecycleState,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 
 def _answers_with(value):
@@ -43,7 +44,7 @@ def mock_hass():
 @pytest.fixture
 def mock_bt_instance(mock_hass):
     """Create a mock BetterThermostat instance."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = "sensor.room_temp"
@@ -906,7 +907,7 @@ class TestCheckAndUpdateDegradedMode:
     async def test_ladder_reaches_hold_when_all_trvs_unavailable(
         self, mock_bt_instance
     ):
-        """A full TRV outage steps the ladder down to HOLD.
+        """A full TRV outage steps the ladder down to HOLD and requests control.
 
         Stored temperatures from before the outage must not keep the
         ladder off the HOLD rung.
@@ -920,6 +921,10 @@ class TestCheckAndUpdateDegradedMode:
 
         for trv in mock_bt_instance.real_trvs.values():
             trv.current_temperature = 21.0
+        # ``in_maintenance`` is a read-only property, so the stand-in would
+        # answer it with a truthy mock and suppress the control request.
+        mock_bt_instance.in_maintenance = False
+        mock_bt_instance.control_queue_task = asyncio.Queue(maxsize=1)
 
         def mock_get(entity_id):
             value = "unavailable"
@@ -929,11 +934,58 @@ class TestCheckAndUpdateDegradedMode:
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             await check_and_update_degraded_mode(mock_bt_instance)
+            assert mock_bt_instance.control_queue_task.empty()
             # Downgrades commit after the down-debounce window.
             mock_bt_instance.clock.advance(121.0)
             await check_and_update_degraded_mode(mock_bt_instance)
 
         assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode.HOLD
+        assert mock_bt_instance.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("reported", "rung"),
+        [
+            pytest.param(21.0, "sensor_fallback", id="usable"),
+            pytest.param(126.5, "hold", id="marker"),
+            pytest.param("not a number", "hold", id="non_numeric"),
+        ],
+    )
+    async def test_a_trv_counts_for_the_ladder_only_on_a_temperature_it_reports(
+        self, mock_bt_instance, reported, rung
+    ):
+        """A stored TRV reading keeps the ladder off HOLD only while the TRV confirms it.
+
+        The handler keeps the stored reading across a report it cannot use,
+        so a TRV that goes on reporting a marker or garbage would otherwise
+        hold the room on SENSOR_FALLBACK with a value it no longer reports.
+        """
+        from custom_components.better_thermostat.core.fsm.control_mode import (
+            ControlMode,
+        )
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        for trv in mock_bt_instance.real_trvs.values():
+            trv.current_temperature = 21.0
+
+        def mock_get(entity_id):
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": reported})
+            if entity_id == "sensor.room_temp":
+                return State(entity_id, "unavailable")
+            return State(entity_id, "20.0")
+
+        mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+            mock_bt_instance.clock.advance(121.0)
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        assert mock_bt_instance.kernel_state.control_mode.mode == ControlMode(rung)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reading", ["126.5", "-60.0", "not a number"])
@@ -957,10 +1009,13 @@ class TestCheckAndUpdateDegradedMode:
             trv.current_temperature = 21.0
 
         def mock_get(entity_id):
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": 21.0})
             value = reading if entity_id == "sensor.room_temp" else "20.0"
             return State(entity_id, value)
 
         mock_bt_instance.hass.states.get.side_effect = mock_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
 
         with patch("custom_components.better_thermostat.utils.watcher.ir"):
             await check_and_update_degraded_mode(mock_bt_instance)
@@ -1139,9 +1194,12 @@ class TestRungChangeRequestsControl:
                 and not room_sensor_available
             ):
                 return State(entity_id, "unavailable")
+            if entity_id in mock_bt_instance.real_trvs:
+                return State(entity_id, "heat", {"current_temperature": 21.0})
             return State(entity_id, "20.0")
 
         mock_bt_instance.hass.states.get.side_effect = states_get
+        mock_bt_instance.hass.config.units.temperature_unit = "°C"
         for trv in mock_bt_instance.real_trvs.values():
             trv.current_temperature = 21.0
         mock_bt_instance.in_maintenance = False

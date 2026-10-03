@@ -6,7 +6,6 @@ delta), the non-overlapping-range warning, and the step-already-set guard.
 """
 
 import logging
-from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import (
     ATTR_MAX_TEMP,
@@ -29,6 +28,7 @@ from custom_components.better_thermostat.utils.helpers import (
     bound_to_celsius,
     convert_to_float_celsius,
 )
+from tests.factories import ThermostatStandIn, make_trv
 
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
@@ -36,13 +36,17 @@ HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for range resolution."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_min_temp = None
     mock.bt_max_temp = None
     mock.bt_target_temp_min = None
     mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
+    mock.cool_min_temperature = None
+    mock.cool_max_temperature = None
+    mock.cooler_entity_id = None
+    mock.real_trvs = {}
     return mock
 
 
@@ -296,16 +300,139 @@ def test_empty_states_yield_none(bt):
     assert bt.bt_target_temp_step is None
 
 
-def test_non_overlapping_ranges_still_assigned(bt):
-    """Non-overlapping child ranges (min > max) are assigned and warned about."""
+def test_non_overlapping_ranges_still_assigned(bt, caplog):
+    """Non-overlapping head ranges (min > max) are assigned and warned about."""
     states = [
-        _trv(min_t=25.0, max_t=30.0, eid="climate.a"),  # heater
-        _trv(min_t=16.0, max_t=22.0, eid="climate.b"),  # cooler
+        _trv(min_t=25.0, max_t=30.0, eid="climate.a"),
+        _trv(min_t=16.0, max_t=22.0, eid="climate.b"),
     ]
-    BetterThermostat._resolve_temperature_range(bt, states)
+    with caplog.at_level(logging.WARNING):
+        BetterThermostat._resolve_temperature_range(bt, states)
     assert bt.bt_min_temp == 25.0  # max of mins
     assert bt.bt_max_temp == 22.0  # min of maxes
     assert bt.bt_min_temp > bt.bt_max_temp
+    assert "heating min temp" in caplog.text
+
+
+def _with_cooler(bt, cooler_id="climate.cooler"):
+    """Configure ``bt`` with a cooler and one head, ``climate.trv``."""
+    bt.cooler_entity_id = cooler_id
+    bt.real_trvs = {"climate.trv": make_trv("climate.trv")}
+
+
+def test_a_cooler_bounds_the_cooling_channel_alone(bt):
+    """The heater bounds the heating channel, the cooler the cooling channel.
+
+    Intersecting the two would cap the cooling target at the heater's maximum
+    and lift the heating target onto the cooler's minimum.
+    """
+    _with_cooler(bt)
+    states = [
+        _trv(min_t=5.0, max_t=30.0, eid="climate.trv"),
+        _trv(min_t=16.0, max_t=35.0, eid="climate.cooler"),
+    ]
+
+    BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (5.0, 30.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (16.0, 35.0)
+
+
+def test_without_a_cooler_the_cooling_channel_stays_unresolved(bt):
+    """A room without a cooler resolves the heads' range and nothing else."""
+    states = [
+        _trv(min_t=5.0, max_t=28.0, eid="climate.a"),
+        _trv(min_t=7.0, max_t=30.0, eid="climate.b"),
+    ]
+
+    BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (7.0, 28.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (None, None)
+
+
+def test_an_unavailable_cooler_leaves_the_cooling_channel_unresolved(bt):
+    """A cooler that reported no state contributes no bounds."""
+    _with_cooler(bt)
+
+    BetterThermostat._resolve_temperature_range(
+        bt, [_trv(min_t=5.0, max_t=30.0, eid="climate.trv")]
+    )
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (5.0, 30.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (None, None)
+
+
+def test_configured_bounds_replace_both_channels(bt):
+    """A configured bound holds on the heating and the cooling channel alike."""
+    _with_cooler(bt)
+    bt.bt_target_temp_min = 10.0
+    bt.bt_target_temp_max = 32.0
+    states = [
+        _trv(min_t=5.0, max_t=30.0, eid="climate.trv"),
+        _trv(min_t=16.0, max_t=35.0, eid="climate.cooler"),
+    ]
+
+    BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (10.0, 32.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (10.0, 32.0)
+
+
+def test_a_room_with_only_a_cooler_bounds_heating_by_it(bt):
+    """With no head to ask, the cooler's range bounds the heating channel too."""
+    bt.cooler_entity_id = "climate.cooler"
+
+    BetterThermostat._resolve_temperature_range(
+        bt, [_trv(min_t=16.0, max_t=35.0, eid="climate.cooler")]
+    )
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (16.0, 35.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (16.0, 35.0)
+
+
+def test_a_dual_role_device_bounds_both_channels(bt):
+    """A device wired as head and as cooler bounds each channel with its range."""
+    _with_cooler(bt, cooler_id="climate.trv")
+    state = _trv(min_t=16.0, max_t=31.0, eid="climate.trv")
+
+    BetterThermostat._resolve_temperature_range(bt, [state, state])
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (16.0, 31.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (16.0, 31.0)
+
+
+def test_a_fahrenheit_cooler_bound_is_read_inward_in_celsius(bt):
+    """The cooler's °F bound is converted like a head's, inward of its value."""
+    _with_cooler(bt)
+    bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    states = [
+        _trv(min_t=41.0, max_t=86.0, eid="climate.trv"),
+        _trv(min_t=61.0, max_t=95.0, eid="climate.cooler"),
+    ]
+
+    BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert bt.cool_max_temperature == bound_to_celsius(
+        95.0, UnitOfTemperature.FAHRENHEIT, lower=False, instance_name="Test BT"
+    )
+    assert bt.cool_max_temperature > bt.bt_max_temp
+
+
+def test_heater_and_cooler_ranges_that_do_not_overlap_are_no_conflict(bt, caplog):
+    """Separate channels need no overlap, so there is nothing to warn about."""
+    _with_cooler(bt)
+    states = [
+        _trv(min_t=4.0, max_t=15.0, eid="climate.trv"),
+        _trv(min_t=18.0, max_t=30.0, eid="climate.cooler"),
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        BetterThermostat._resolve_temperature_range(bt, states)
+
+    assert (bt.bt_min_temp, bt.bt_max_temp) == (4.0, 15.0)
+    assert (bt.cool_min_temperature, bt.cool_max_temperature) == (18.0, 30.0)
+    assert "min temp" not in caplog.text
 
 
 @pytest.mark.parametrize("stored", [None, "", TARGET_TEMP_BOUND_AUTO, -1.0])

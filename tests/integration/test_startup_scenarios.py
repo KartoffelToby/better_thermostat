@@ -17,11 +17,12 @@ from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import patch
 
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
-from homeassistant.core import Context, SupportsResponse
+from homeassistant.core import Context, HomeAssistant, SupportsResponse
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 import pytest
@@ -34,6 +35,7 @@ from custom_components.better_thermostat.calibration import effective_room_temp
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.fsm.control_mode import (
+    LADDER_TICK_S,
     ControlMode,
     LadderParams,
 )
@@ -49,7 +51,9 @@ from .conftest import (
     DOMAIN,
     SENSOR_ID,
     WINDOW_ID,
+    WRITE_BUDGET,
     assert_profile_adopted,
+    assert_write_is,
     make_entry,
     profile_id,
     set_room_sensor,
@@ -101,8 +105,8 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     A cloud-backed valve is routinely still unavailable by the time Home
     Assistant has finished starting, so a repair issue here would be a false
     one. The thermostat holds in startup, says nothing, and comes up as soon
-    as the device does — with the device's own capabilities read, which is the
-    proof that it waited for the real thing rather than guessing.
+    as the device does — with the device's own capabilities and setpoint read,
+    which is the proof that it waited for the real thing rather than guessing.
     """
     set_room_sensor(hass, 19.0)
     fake_trv.set_available(False)
@@ -110,7 +114,7 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     await setup_entry(hass, entry)
 
     await let_the_wait_loop_run(hass)
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"
     assert bt_issues(hass) == []
@@ -121,7 +125,7 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     assert bt_issues(hass) == []
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert_profile_adopted(bt, fake_trv.profile)
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    assert bt.bt_target_temp == fake_trv.profile.target_temperature
 
 
 async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes(
@@ -142,7 +146,7 @@ async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes
         await setup_entry(hass, entry)
         assert await wait_for(hass, lambda: bt_issues(hass))
 
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert bt_issues(hass) == [missing_entity_issue(TRV_ID)]
     assert bt.devices_errors == [TRV_ID]
     assert bt.startup_running
@@ -364,6 +368,123 @@ async def test_a_room_sensor_that_returns_is_trusted_again_within_one_tick(
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
 
 
+@pytest.mark.parametrize(
+    "fake_trv",
+    [
+        _on_calibration_mode(GENERIC_HEAT_TRV, CalibrationMode.PID_CALIBRATION.value),
+        _on_calibration_mode(GENERIC_HEAT_TRV, DEFAULT_CALIBRATION_MODE.value),
+    ],
+    indirect=True,
+    ids=profile_id,
+)
+async def test_a_silent_room_sensor_moves_the_ladder_one_tick_after_each_window(
+    hass, fake_trv
+):
+    """A sensor that goes quiet moves the ladder without any further event.
+
+    The outage and the return each publish one state change, and that
+    evaluation only starts the window. The commit needs a second evaluation
+    once the window has passed, and in a settled room nothing but the
+    periodic ladder tick supplies it. The rung therefore follows each window
+    by at most one ``LADDER_TICK_S``, in both directions and for both kinds
+    of calibration mode.
+
+    Time moves in half-tick steps, so every tick that falls due runs at the
+    moment it is due rather than all at once after a long jump.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    # The periodic ticks are registered at the very end of startup.
+    await hass.async_block_till_done()
+
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    start = dt_util.utcnow()
+    elapsed = 0.0
+
+    async def let_time_pass(seconds):
+        """Move both clocks on by ``seconds`` in half-tick steps."""
+        nonlocal elapsed
+        step = LADDER_TICK_S / 2
+        target = elapsed + seconds
+        while elapsed < target:
+            clock.advance(step)
+            elapsed += step
+            async_fire_time_changed(hass, start + timedelta(seconds=elapsed))
+            await hass.async_block_till_done()
+
+    params = LadderParams()
+
+    hass.states.async_set(SENSOR_ID, "unavailable")
+    await hass.async_block_till_done()
+    await let_time_pass(params.down_debounce_s + LADDER_TICK_S)
+    assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+
+    set_room_sensor(hass, 18.0)
+    await hass.async_block_till_done()
+    await let_time_pass(params.up_stability_s + LADDER_TICK_S)
+    assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+
+
+async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
+    hass, fake_trv
+):
+    """The filtered room temperature starts over from the returning reading.
+
+    While the room runs on the TRV temperature, the minute tick keeps feeding
+    the filter the last reading from before the outage, which says nothing
+    about the room since. Blended into the returning reading it would hold
+    the filtered temperature near the old value when the ladder hands the
+    room back to its sensor, and show a warming trend that did not happen.
+    """
+    set_room_sensor(hass, 18.0)
+    entry = make_entry(fake_trv.profile)
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+    await hass.async_block_till_done()
+    assert bt.cur_temp_filtered == 18.0
+
+    clock = FakeClock(monotonic_value=bt.clock.monotonic())
+    bt.clock = clock
+    start = dt_util.utcnow()
+    elapsed = 0.0
+
+    async def let_time_pass(seconds):
+        """Move both clocks on by ``seconds`` in half-tick steps."""
+        nonlocal elapsed
+        step = LADDER_TICK_S / 2
+        target = elapsed + seconds
+        while elapsed < target:
+            clock.advance(step)
+            elapsed += step
+            async_fire_time_changed(hass, start + timedelta(seconds=elapsed))
+            await hass.async_block_till_done()
+
+    with patch(
+        "custom_components.better_thermostat.events.temperature.monotonic",
+        clock.monotonic,
+    ):
+        hass.states.async_set(SENSOR_ID, "unavailable")
+        fake_trv._attr_current_temperature = 22.0
+        fake_trv.async_set_context(Context())
+        fake_trv.async_write_ha_state()
+        await hass.async_block_till_done()
+        await let_time_pass(30 * 60)
+        assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+        assert effective_room_temp(bt) == 22.0
+
+        set_room_sensor(hass, 22.0)
+        assert await wait_for(hass, lambda: bt.cur_temp == 22.0)
+        assert bt.cur_temp_filtered == 22.0
+
+        await let_time_pass(LadderParams().up_stability_s + LADDER_TICK_S)
+        assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+        assert bt.cur_temp_filtered == 22.0
+        assert bt.temp_slope == 0.0
+
+
 def degraded_issue_sensors(hass, bt) -> str | None:
     """Return the sensors the degraded-mode repair issue names, if it is open."""
     issue = ir.async_get(hass).async_get_issue(
@@ -395,6 +516,16 @@ async def start_without_room_sensor(hass, fake_trv, state: str | None = None):
     return bt
 
 
+async def set_room_target(hass: HomeAssistant, value: float) -> None:
+    """Set a room target the TRV does not hold, so reaching it takes a write."""
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_temperature",
+        {"entity_id": BT_ENTITY, "temperature": value},
+        blocking=True,
+    )
+
+
 @pytest.mark.parametrize("sensor_state", [None, "unavailable", "unknown"])
 async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     hass, fake_trv, sensor_state
@@ -406,7 +537,9 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     hour later, and an hour later the room controls on the TRV's internal
     temperature. Once the grace window has closed, startup does the same:
     the room comes up, controls on the TRV temperature from the first cycle
-    and names the missing sensor.
+    and names the missing sensor. With the room on the TRV temperature there
+    is no offset between the two, so a new room target reaches the TRV as
+    it is.
     """
     trv_temperature = fake_trv.profile.current_temperature
 
@@ -419,7 +552,13 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
     assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == (
         trv_temperature
     )
-    assert await wait_for(hass, lambda: fake_trv.set_temperature_calls)
+    writes_before = len(fake_trv.set_temperature_calls)
+    with patch(WRITE_BUDGET, 0.0):
+        await set_room_target(hass, 22.0)
+        assert await wait_for(
+            hass, lambda: len(fake_trv.set_temperature_calls) > writes_before
+        )
+    assert_write_is(fake_trv.set_temperature_calls[-1], 22.0, fake_trv.profile)
     assert bt.unavailable_sensors == [SENSOR_ID]
     assert await wait_for(hass, lambda: degraded_issue_sensors(hass, bt))
     assert degraded_issue_sensors(hass, bt) == SENSOR_ID
@@ -439,7 +578,7 @@ async def test_a_room_sensor_that_arrives_within_the_grace_window_starts_normall
     await setup_entry(hass, entry)
 
     await let_the_wait_loop_run(hass)
-    bt = hass.data[DOMAIN][entry.entry_id]["climate"]
+    bt = entry.runtime_data.climate
     assert bt.startup_running
     assert hass.states.get(BT_ENTITY).state == "unavailable"
     assert fake_trv.set_temperature_calls == []

@@ -16,6 +16,7 @@ dev = [
     "pyrefly>=1.1.1",
     "ruff>=0.15.22",
     "yamllint>=1.38.0",
+    "hypothesis>=6",
 ]
 
 [tool.uv]
@@ -122,10 +123,9 @@ convention = "numpy"
 #
 # This is about case alone. The vocabulary half is judged by
 # `scripts/check_naming.py` against `glossary.toml`, which rejects `delta_T`
-# and the `_K` and `_C` suffixes in these paths as well and charges them to
-# `.naming-budget.json`. Nothing here excuses them; a separate change decides
-# whether the glossary gains an exception for the notation or the names come
-# out.
+# in these paths as well and charges it to `.naming-budget.json`. Nothing here
+# excuses it; a separate change decides whether the glossary gains an exception
+# for the notation or the name comes out.
 "custom_components/better_thermostat/utils/calibration/**" = ["N803", "N806", "N815"]
 "tests/benchmark/**" = ["N802", "N803", "N806", "N815"]
 "tests/unit/mpc_v2/**" = ["N803", "N806"]
@@ -151,9 +151,19 @@ skip-magic-trailing-comma = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Seconds a single test may run. The slowest takes about ten; a hung one
+# fails with its traceback instead of running into the CI job's limit.
+timeout = 120
 filterwarnings = [
     # Upstream Home Assistant warning triggered during test imports.
     "ignore:Inheritance class HomeAssistantApplication from web\\.Application is discouraged:DeprecationWarning",
+    # A coroutine nobody awaits is work that silently never ran: a fixture
+    # that swapped a production object for a mock, or a call that lost its
+    # await.
+    "error:coroutine .* was never awaited:RuntimeWarning",
+    # Python reports that warning while it collects the coroutine, where
+    # nothing can raise it, and pytest passes it on in this wrapper.
+    "error::pytest.PytestUnraisableExceptionWarning",
 ]
 
 [tool.coverage.run]
@@ -197,7 +207,7 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 # rules each one is exempt from; a rule not listed applies to that file too.
 # The list only ever shrinks: an entry is removed once its file is annotated,
 # and no new entry is added — a new file is strict from the start. That shape is
-# held by tests/unit/test_type_strictness_exemptions.py.
+# held by tests/gates/test_type_strictness_exemptions.py.
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/__init__.py"

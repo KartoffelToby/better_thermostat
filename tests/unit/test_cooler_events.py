@@ -14,6 +14,7 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.events.cooler import trigger_cooler_change
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_cooler"
 
@@ -26,7 +27,7 @@ ENTITY_ID = "climate.test_cooler"
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Test Thermostat"
@@ -37,6 +38,8 @@ def mock_bt():
     bt.bt_target_temp_step = 0.5
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
+    bt.cool_min_temperature = None
+    bt.cool_max_temperature = None
     bt.cooler_entity_id = ENTITY_ID
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
@@ -48,7 +51,9 @@ def mock_bt():
     # A bare MagicMock would hand out a truthy contact_open.
     bt.contact_open = False
     bt.async_write_ha_state = MagicMock()
-    bt._enforce_heat_below_cool = lambda: BetterThermostat._enforce_heat_below_cool(bt)
+    bt._enforce_heat_below_cool = lambda **kwargs: (
+        BetterThermostat._enforce_heat_below_cool(bt, **kwargs)
+    )
     bt._clamp_inbound_cool_target = lambda v: (
         BetterThermostat._clamp_inbound_cool_target(bt, v)
     )
@@ -393,6 +398,35 @@ class TestInboundCoolSetpointClamp:
         assert mock_bt.bt_target_cooltemp == 25.5
         assert mock_bt.bt_target_temp == 25.0  # untouched
         assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+
+    @pytest.mark.asyncio
+    async def test_report_above_the_heating_range_is_bounded_by_the_cooler(
+        self, mock_bt
+    ):
+        """A report the cooler's range holds is adopted past the heater's maximum."""
+        mock_bt.cool_min_temperature = 16.0
+        mock_bt.cool_max_temperature = 35.0
+        old_state = _make_state(attributes={"temperature": 27.0})
+        new_state = _make_state(attributes={"temperature": 33.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 33.0
+        assert mock_bt.bt_target_temp == 20.0  # untouched
+
+    @pytest.mark.asyncio
+    async def test_report_above_the_cooler_range_is_clamped_onto_it(self, mock_bt):
+        """A report beyond the cooler's maximum is clamped to it, not to the heater's."""
+        mock_bt.cool_min_temperature = 16.0
+        mock_bt.cool_max_temperature = 35.0
+        old_state = _make_state(attributes={"temperature": 27.0})
+        new_state = _make_state(attributes={"temperature": 37.0})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        assert mock_bt.bt_target_cooltemp == 35.0
 
     @pytest.mark.asyncio
     async def test_reported_setpoint_below_heat_target_is_raised(self, mock_bt):
@@ -990,6 +1024,40 @@ class TestCoolerUnitHandling:
 
         assert mock_bt.bt_target_cooltemp == 22.22  # 72 °F
         mock_bt.control_queue_task.put_nowait.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("pressed", "adopted"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_cooler_without_a_published_step_is_read_on_whole_fahrenheit(
+        self, mock_bt, pressed, adopted
+    ):
+        """A °F cooler that publishes no step is compared on whole degrees.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        mock_bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt._cooler_last_sent = {"temperature": ((75.0 - 32.0) * 5.0 / 9.0, 0.0)}
+        old_state = _make_state(attributes={"temperature": 75.0})
+        new_state = _make_state(attributes={"temperature": pressed})
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        await trigger_cooler_change(mock_bt, event)
+
+        if adopted:
+            assert mock_bt.bt_target_cooltemp == pytest.approx(24.44, abs=0.01)
+            mock_bt.control_queue_task.put_nowait.assert_called_once()
+        else:
+            assert mock_bt.bt_target_cooltemp == 24.0
+            mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

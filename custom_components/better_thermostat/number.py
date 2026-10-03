@@ -17,7 +17,6 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -25,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from . import BetterThermostatConfigEntry
 from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
@@ -36,11 +36,15 @@ from .utils.calibration.pid import (
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    DOMAIN,
     CalibrationMode,
     CalibrationType,
 )
-from .utils.helpers import async_normalize_bt_entity_ids, convert_to_float_celsius
+from .utils.helpers import (
+    async_normalize_bt_entity_ids,
+    convert_to_float_celsius,
+    get_cool_temperature_range,
+    get_heat_temperature_range,
+)
 from .utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,10 +87,12 @@ def _is_usable_setting(bt_climate, value: float, setting: str) -> bool:
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Better Thermostat numbers."""
-    bt_climate = hass.data[DOMAIN][entry.entry_id].get("climate")
+    bt_climate = entry.runtime_data.climate
     if not bt_climate:
         _LOGGER.warning(
             "Better Thermostat climate entity not found for entry %s. "
@@ -96,7 +102,7 @@ async def async_setup_entry(
         return
 
     numbers: list[NumberEntity] = []
-    preset_unique_ids = {}
+    preset_unique_ids: dict[str | None, dict[str, str | bool]] = {}
     pid_unique_ids = {}
     # Create number entities for each preset mode (except NONE)
     _LOGGER.debug(
@@ -184,17 +190,6 @@ async def async_setup_entry(
     async_add_entities(numbers)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload number entry and cleanup tracking."""
-    entry_id = entry.entry_id
-
-    # Cleanup tracking data
-    _ACTIVE_PRESET_NUMBERS.pop(entry_id, None)
-    _ACTIVE_PID_NUMBERS.pop(entry_id, None)
-
-    return True
-
-
 class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 
@@ -218,18 +213,19 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         else:
             self._attr_translation_key = _PRESET_TRANSLATION_KEYS[preset_mode]
 
-    # The range and the step are the thermostat's. Its startup resolves them
-    # from the device, which on a boot runs after this entity is built, so
-    # they are read from the thermostat and republished with its state.
+    # The range is the thermostat's heating channel and the step is the
+    # thermostat's. Its startup resolves them from the device, which on a boot
+    # runs after this entity is built, so they are read from the thermostat
+    # and republished with its state.
     @property
     def native_min_value(self) -> float:
-        """Return the lowest temperature the thermostat accepts."""
-        return self._bt_climate.min_temp
+        """Return the lowest heating temperature the preset can hold."""
+        return get_heat_temperature_range(self._bt_climate)[0]
 
     @property
     def native_max_value(self) -> float:
-        """Return the highest temperature the thermostat accepts."""
-        return self._bt_climate.max_temp
+        """Return the highest heating temperature the preset can hold."""
+        return get_heat_temperature_range(self._bt_climate)[1]
 
     @property
     def native_step(self) -> float:
@@ -384,6 +380,16 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         )
 
     @property
+    def native_min_value(self) -> float:
+        """Return the lowest cooling temperature the preset can hold."""
+        return get_cool_temperature_range(self._bt_climate)[0]
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the highest cooling temperature the preset can hold."""
+        return get_cool_temperature_range(self._bt_climate)[1]
+
+    @property
     def native_value(self) -> float | None:
         """Return the configured cooling temperature for this preset.
 
@@ -421,9 +427,8 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
             step = self._bt_climate.bt_target_temp_step or 0.5
             cool_value = self._bt_climate.bt_target_temp + step
 
-        cool_value = min(
-            self._bt_climate.max_temp, max(self._bt_climate.min_temp, cool_value)
-        )
+        cool_lower, cool_upper = get_cool_temperature_range(self._bt_climate)
+        cool_value = min(cool_upper, max(cool_lower, cool_value))
         self._bt_climate._preset_cool_temperatures[self._preset_mode] = cool_value
 
         if self._bt_climate.preset_mode == self._preset_mode:

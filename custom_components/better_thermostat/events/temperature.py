@@ -13,19 +13,23 @@ from datetime import timedelta
 import logging
 import math
 from time import monotonic
+from typing import Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
+from custom_components.better_thermostat.utils.watcher import room_sensor_reading
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,6 +116,18 @@ def temperature_filter_lock(self) -> asyncio.Lock:
         lock = asyncio.Lock()
         self._temperature_filter_lock = lock
     return lock
+
+
+def _room_sensor_returns(self, previous_state: State | None) -> bool:
+    """Tell whether a reading brings the room back from a sensor outage.
+
+    The room is off its sensor while the ladder stands on a lower rung, and
+    the reading returns from the outage when the sensor's previous state
+    carried no room temperature.
+    """
+    if self.kernel_state.control_mode.mode == ControlMode.OPTIMAL:
+        return False
+    return room_sensor_reading(self, previous_state) is None
 
 
 async def _commit_temperature_update(self, new_temp):
@@ -225,6 +241,73 @@ async def _commit_temperature_update(self, new_temp):
     _LOGGER.debug(
         "better_thermostat %s: _commit_temperature_update finished", self.device_name
     )
+
+
+def _sensor_still_reads(self, value: float) -> bool:
+    """Tell whether the room sensor still reports a pending reading.
+
+    A timer that commits a pending reading queues on the filter lock with
+    the sensor's next state change. A sensor that has moved on carries a
+    newer reading, whose own event is still waiting for the lock and is
+    judged there, and a sensor that gives no usable reading any more has
+    withdrawn the pending one. The reading is compared at the precision
+    readings are kept.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+    value : float
+            The pending reading, rounded to two decimals
+
+    Returns
+    -------
+    bool
+            True if the sensor still reads ``value``.
+    """
+    reading = room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
+    return reading is not None and round(reading, 2) == value
+
+
+def _commit_pending_after(self, delay_s: float) -> None:
+    """Apply the pending reading once the debounce interval has run out.
+
+    A reading turned away only because it came too soon after the last one
+    is the room's temperature as soon as the interval is over: a sensor that
+    reports on change says nothing more until the room moves again. The
+    timer shares the plateau timer's handle, so a newer reading, a commit or
+    the entity's removal cancels it the same way. Its firing runs as work the
+    entity owns, so a removal also stops a commit already writing to the TRVs.
+    A sensor that has since stopped giving a usable reading, or that now
+    reads a different value, has withdrawn the pending one.
+    """
+    if self.plateau_timer_cancel is not None:
+        self.plateau_timer_cancel()
+    _value = self.pending_temp
+    _since = self.pending_since
+
+    async def _interval_cb() -> None:
+        async with temperature_filter_lock(self):
+            if self.is_removed:
+                return
+            if self.pending_temp != _value or self.pending_since != _since:
+                return
+            if not _sensor_still_reads(self, _value):
+                return
+            _LOGGER.debug(
+                "better_thermostat %s: external_temperature accepted after the "
+                "debounce interval (value=%.2f)",
+                self.device_name,
+                _value,
+            )
+            await _commit_temperature_update(self, _value)
+
+    @callback
+    def _interval_due(_now: Any) -> None:
+        self.plateau_timer_cancel = None
+        self._spawn_owned(_interval_cb(), name=f"bt_debounce_commit_{self.device_name}")
+
+    self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_due)
 
 
 async def trigger_temperature_change(self, event):
@@ -404,6 +487,8 @@ async def trigger_temperature_change(self, event):
                         or self.pending_since != _plateau_since
                     ):
                         return
+                    if not _sensor_still_reads(self, _plateau_value):
+                        return
                     # Re-check the debounce interval at the time the timer fires
                     _cb_age = (
                         (
@@ -453,8 +538,21 @@ async def trigger_temperature_change(self, event):
             (self.accum_delta if _cur_q is not None else 0.0),
             ("+" if self.accum_dir > 0 else ("-" if self.accum_dir < 0 else "0")),
         )
+        if _room_sensor_returns(self, event.data.get("old_state")):
+            # During the outage the minute tick kept feeding the filter the
+            # last reading from before it, which says nothing about the room
+            # since. The filter starts over from the returning reading, and
+            # so does the slope the tick derives from it.
+            self.external_temp_ema = None
+            self._external_temp_ema_ts = None
         await _commit_temperature_update(self, _incoming_temperature_q)
     else:
+        if (
+            not _interval_ok
+            and self.pending_temp is not None
+            and (_is_significant or abs(self.accum_delta) >= _sig_threshold_q)
+        ):
+            _commit_pending_after(self, max(0.1, _time_diff - _age))
         _LOGGER.debug(
             "better_thermostat %s: external_temperature ignored (old=%.2f new=%.2f diff=%s "
             "age=%.1fs sig=%s interval_ok=%s threshold=%.2f accum=%.2f dir=%s pending=%s pending_age=%ss)",

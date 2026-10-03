@@ -19,6 +19,7 @@ export default defineConfig({
     "/qanda/missing_entity": "/faq/missing-entity",
     "/qanda/degraded_mode": "/faq/degraded-mode",
     "/qanda/window_sensor": "/faq/window-sensor",
+    "/hydraulic": "/deep-explanations/hydraulic-balance",
   },
 
   integrations: [
@@ -34,6 +35,13 @@ export default defineConfig({
         {
           label: "Setup",
           autogenerate: { directory: "setup" },
+        },
+        {
+          label: "Configuration",
+          items: [
+            { label: "Configuration", link: "/configuration/" },
+            { label: "Calibration algorithms", link: "/calibration_algorithms/" },
+          ],
         },
         {
           label: "FAQ",

@@ -30,6 +30,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 )
 from custom_components.better_thermostat.utils.helpers import (
     async_fire_logbook_entry,
+    attr_to_celsius,
     convert_to_float_celsius,
     is_reasonable_temperature,
 )
@@ -150,10 +151,13 @@ def room_sensor_reading(self, state: State | None) -> float | None:
 
 
 def reachable_trv_temperature(self, entity_id: str) -> float | None:
-    """Return a TRV's stored internal temperature while the TRV is reachable.
+    """Return a TRV's stored internal temperature while the TRV reports one.
 
-    A stored reading only counts while its TRV is available: a value kept
-    from before an outage describes a device that no longer reports.
+    A stored reading only counts while its TRV is available and its current
+    state carries a convertible, plausible internal temperature: a value kept
+    from before an outage describes a device that no longer reports, and the
+    handler keeps the stored value across a report it cannot use, such as a
+    marker value, which the device does not confirm either.
 
     Parameters
     ----------
@@ -166,7 +170,7 @@ def reachable_trv_temperature(self, entity_id: str) -> float | None:
     -------
     float | None
         The internal temperature in °C, or None when the TRV is not tracked,
-        not available, or holds no finite reading
+        not available, holds no finite reading, or reports no usable one
     """
     trv = self.real_trvs.get(entity_id)
     if trv is None:
@@ -175,6 +179,15 @@ def reachable_trv_temperature(self, entity_id: str) -> float | None:
     if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
         return None
     if not is_trv_available(self, entity_id):
+        return None
+    reported = attr_to_celsius(
+        self,
+        self.hass.states.get(entity_id),
+        "current_temperature",
+        None,
+        "reachable_trv_temperature()",
+    )
+    if not is_reasonable_temperature(reported):
         return None
     return float(value)
 
@@ -573,12 +586,24 @@ async def await_critical_entities(
     return pending
 
 
-async def check_and_update_degraded_mode(self) -> bool:
+async def check_and_update_degraded_mode(
+    self, room_sensor_state: State | None = None
+) -> bool:
     """Check optional sensors and update degraded mode status.
 
     Advances the control-mode region (whose ``degraded`` the entity
     exposes as the ``degraded_mode`` property) and updates
     self.unavailable_sensors with the unavailable optional sensors.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    room_sensor_state : State | None
+        The room sensor state a reading handler is about to apply. The
+        handler can wait for its turn until the sensor has reported again,
+        and the ladder observes the reading the room gets rather than the
+        one after it. Without it, the sensor's current state is observed.
 
     Returns
     -------
@@ -605,7 +630,12 @@ async def check_and_update_degraded_mode(self) -> bool:
             )
 
     # Check room temperature sensor - special case with TRV fallback
-    sensor_available = is_entity_available(self.hass, self.sensor_entity_id)
+    if room_sensor_state is None:
+        room_sensor_state = self.hass.states.get(self.sensor_entity_id)
+    sensor_available = (
+        room_sensor_state is not None
+        and room_sensor_state.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
+    )
     if not sensor_available:
         unavailable.append(self.sensor_entity_id)
         if self.sensor_entity_id not in previously_unavailable:
@@ -629,8 +659,7 @@ async def check_and_update_degraded_mode(self) -> bool:
     # that stays available while reporting implausible values leaves the
     # room without a temperature to control on, the same as a lost one.
     room_sensor_ok = sensor_available and (
-        room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
-        is not None
+        room_sensor_reading(self, room_sensor_state) is not None
     )
 
     # The control-mode region is the typed record; the entity's

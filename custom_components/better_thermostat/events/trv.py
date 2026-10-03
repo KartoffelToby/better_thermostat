@@ -7,11 +7,14 @@ convert thermostat states and prepare outbound payloads.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.climate.const import HVACMode
-from homeassistant.core import State
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import State, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.adapters.delegate import get_current_offset
@@ -19,6 +22,7 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
@@ -34,6 +38,7 @@ from custom_components.better_thermostat.utils.helpers import (
     adopt_reported_hvac_modes,
     attr_to_celsius,
     convert_to_float,
+    cooler_send_cache,
     cooling_owns_dual_role_report,
     device_offers_mode,
     dual_role_entity_id,
@@ -59,7 +64,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def accepts_user_setpoint(
-    trv: Trv, *, is_echo: bool, child_lock: bool | None, contact_open: bool
+    trv: Trv,
+    *,
+    is_echo: bool,
+    child_lock: bool | None,
+    contact_open: bool,
+    was_off: bool,
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
 
@@ -78,6 +88,10 @@ def accepts_user_setpoint(
         option and reads as not locked.
     contact_open
         Whether a window or door contact of the room is open.
+    was_off
+        Whether the device was off before this report. A report that
+        switches it on carries a setpoint turned while it was off, which is
+        no more a press than one reported while it is still off.
 
     Returns
     -------
@@ -91,6 +105,7 @@ def accepts_user_setpoint(
         and trv.target_temp_received is True
         and trv.system_mode_received is True
         and trv.hvac_mode != HVACMode.OFF
+        and not was_off
         and contact_open is False
         and not trv.ignore_trv_states
     )
@@ -108,15 +123,51 @@ def _hold_report(
     came back from becomes the reference. A later report that moves the
     setpoint the device came back with makes the state before that move the
     reference, so a knob turned after the return is still read as a press.
+    A later report that switches the device on makes the off state it
+    switched on from the reference, and off the mode it is judged against,
+    as the handler would have cached the earlier report outside a cycle.
+    A report that moves the setpoint of a device that is on, after the
+    reference was set to off, makes the state before that move the reference
+    and its mode the mode it is judged against: outside a cycle the handler
+    has cached the device as on by then, and reads the move as a press.
     """
     previous_setpoint = _held_setpoint(self, old_state)
     returned = previous_setpoint is None
     moved_after_return = _held_setpoint(
         self, trv.state_before_held_report
     ) is None and previous_setpoint != _held_setpoint(self, new_state)
+    switched_on_after_first_report = (
+        trv.report_unread
+        and old_state is not None
+        and old_state.state == HVACMode.OFF
+        and _reports_on(new_state)
+    )
+    pressed_after_switch_on = (
+        trv.report_unread
+        and trv.hvac_mode_before_held_report == HVACMode.OFF
+        and _reports_on(old_state)
+        and _reports_on(new_state)
+        and previous_setpoint != _held_setpoint(self, new_state)
+    )
     if not trv.report_unread or returned or moved_after_return:
         trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = trv.hvac_mode
+    if switched_on_after_first_report:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = HVACMode.OFF
+    if pressed_after_switch_on and old_state is not None:
+        trv.state_before_held_report = old_state
+        trv.hvac_mode_before_held_report = old_state.state
     trv.report_unread = True
+
+
+def _reports_on(state: State | None) -> bool:
+    """Return whether a held report's state names a mode other than off."""
+    return state is not None and state.state not in (
+        HVACMode.OFF,
+        STATE_UNAVAILABLE,
+        STATE_UNKNOWN,
+    )
 
 
 def _held_setpoint(self, state: State | None) -> float | None:
@@ -124,8 +175,108 @@ def _held_setpoint(self, state: State | None) -> float | None:
     return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
 
 
+def _read_internal_temperature_later(
+    self, trv: Trv, entity_id: str, interval_s: float
+) -> None:
+    """Read a device's internal temperature again once its debounce is over.
+
+    A reading turned away only because it came within the debounce interval
+    of the last one is the device's temperature once the interval is over: a
+    device that reports on change says nothing more until it moves again.
+    The interval runs from the reading the device last had accepted, which a
+    reading that bypasses the debounce can move while the wait is on, so the
+    wait lasts until the interval from the latest one is over. The wait runs
+    on Home Assistant's timer, and the task around it is what the entity
+    cancels when it is removed.
+
+    The pending flag is set before the task is created, since Home Assistant
+    starts the task eagerly and its coroutine can run to its end inside the
+    call that creates it. It is cleared however the reread ends: by the
+    coroutine once it runs, here when no task is created, and by the task's
+    done callback when the task is cancelled before its coroutine starts,
+    which then never runs a line of it.
+    """
+    if trv.internal_reread_pending:
+        return
+    started = False
+
+    async def _wait(delay_s: float) -> None:
+        due: asyncio.Future[None] = self.hass.loop.create_future()
+
+        @callback
+        def _due(_now: Any) -> None:
+            if not due.done():
+                due.set_result(None)
+
+        cancel_timer = async_call_later(self.hass, delay_s, _due)
+        try:
+            await due
+        finally:
+            cancel_timer()
+
+    async def _reread() -> None:
+        nonlocal started
+        started = True
+        try:
+            while True:
+                _last = trv.last_internal_sensor_change
+                if _last is None:
+                    break
+                _remaining = interval_s - (dt_util.now() - _last).total_seconds()
+                if _remaining <= 0:
+                    break
+                await _wait(max(0.1, _remaining))
+        finally:
+            trv.internal_reread_pending = False
+        if self.is_removed or self.real_trvs.get(entity_id) is not trv:
+            return
+        _state = self.hass.states.get(entity_id)
+        # A device that is gone has had its reading invalidated; the
+        # attributes it still carries are not a live temperature.
+        if trv_report_is_unreadable(self, entity_id, _state):
+            return
+        _reading = attr_to_celsius(
+            self, _state, "current_temperature", None, "TRV_current_temp"
+        )
+        if (
+            _reading is None
+            or not is_reasonable_temperature(_reading)
+            or _reading == trv.current_temperature
+        ):
+            return
+        _LOGGER.debug(
+            "better_thermostat %s: TRV %s internal temperature read again after "
+            "the debounce interval: %s to %s",
+            self.device_name,
+            entity_id,
+            trv.current_temperature,
+            _reading,
+        )
+        trv.current_temperature = _reading
+        trv.last_internal_sensor_change = dt_util.now()
+        request_control_cycle(self)
+
+    def _release_unstarted(_task: asyncio.Task[Any]) -> None:
+        if not started:
+            trv.internal_reread_pending = False
+
+    trv.internal_reread_pending = True
+    task = self.task_manager.create_task(
+        _reread(), name=f"bt_internal_reread_{entity_id}"
+    )
+    if task is None:
+        trv.internal_reread_pending = False
+        return
+    task.add_done_callback(_release_unstarted)
+
+
 async def trigger_trv_change(
-    self, event, *, mode_settled: bool = False, request_cycle: bool = True
+    self,
+    event,
+    *,
+    mode_settled: bool = False,
+    request_cycle: bool = True,
+    prior_hvac_mode: str | None = None,
 ):
     """Trigger a change in the trv state.
 
@@ -133,6 +284,9 @@ async def trigger_trv_change(
     has already settled, so the mode it carries is left to the device's next
     report. ``request_cycle=False`` reads the report without requesting a
     control cycle for it, for a caller that decides that itself.
+    ``prior_hvac_mode`` is the mode the device was cached in before the
+    report, for a caller whose cache has moved since; without it the cache
+    is that mode.
     """
     if self.startup_running:
         return
@@ -240,6 +394,23 @@ async def trigger_trv_change(
     # the stored one; a marker value such as AVM's 126.5 / 127 °C is ignored
     # below and leaves the stored reading in place.
     _reports_no_temp = _new_current_temp is None
+    # SENSOR_FALLBACK counts a stored reading only while the TRV's report
+    # confirms it. A report that turns a plausible reading into a marker
+    # value takes the TRV out of the mean, and one that turns a marker value
+    # back into a plausible reading puts it back, so either moves the room
+    # temperature the control law reads while the stored value stays.
+    _previous_temp = attr_to_celsius(
+        self, old_state, "current_temperature", None, "TRV_previous_temp"
+    )
+    if (
+        self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
+        and trv.current_temperature is not None
+        and _new_current_temp is not None
+        and _previous_temp is not None
+        and is_reasonable_temperature(_new_current_temp)
+        != is_reasonable_temperature(_previous_temp)
+    ):
+        _main_change = True
     if _new_current_temp is not None and not is_reasonable_temperature(
         _new_current_temp
     ):
@@ -322,6 +493,19 @@ async def trigger_trv_change(
                     return
                 trv.last_calibration = await get_current_offset(self, entity_id)
 
+        # Under SENSOR_FALLBACK the TRV readings are the room temperature,
+        # so a new one is controlled on even when it confirms an offset write.
+        if self.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK:
+            _main_change = True
+    elif (
+        _new_current_temp is not None
+        and trv.current_temperature != _new_current_temp
+        and _last_internal_change is not None
+    ):
+        # Turned away by the debounce alone: the reading is read again once
+        # the interval is over.
+        _read_internal_temperature_later(self, trv, entity_id, _time_diff)
+
     if self.ignore_states:
         _hold_report(self, trv, old_state, new_state)
         if _main_change:
@@ -373,6 +557,9 @@ async def trigger_trv_change(
             str(val_pos), self.device_name, "trv_event"
         )
 
+    _was_off = (
+        prior_hvac_mode if prior_hvac_mode is not None else trv.hvac_mode
+    ) == HVACMode.OFF
     if mapped_state in (HVACMode.OFF, HVACMode.HEAT) and not mode_settled:
         if trv.hvac_mode != _org_trv_state.state and not child_lock:
             _old = trv.hvac_mode
@@ -449,7 +636,7 @@ async def trigger_trv_change(
             trv.last_temperature,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
-            *cooling_writes_as_held(self, _step),
+            *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (
@@ -464,6 +651,8 @@ async def trigger_trv_change(
         known_values=_known_values,
         step=_step,
         log_source="trigger_trv_change()",
+        # A report the cooling channel owns is bounded by the cooling range.
+        cooling=_cooling_owns,
     )
     _is_no_off_device = advanced.get("no_off_system_mode", False)
     # An AUTO the mode decoding ignores says nothing about the room, so the
@@ -496,14 +685,26 @@ async def trigger_trv_change(
             trv.last_temperature,
         )
         # The no_off OFF detection compares against the TRV's minimum, so it
-        # uses the reported value, not one the clamp may have raised into
-        # [bt_min_temp, bt_max_temp].
+        # uses the reported value, not one the clamp may have raised into the
+        # channel's range.
         _raw_heating_setpoint = _setpoint.raw
         _new_heating_setpoint = _setpoint.value
         _is_echo = _setpoint.is_echo
         _accept_user_setpoint = accepts_user_setpoint(
-            trv, is_echo=_is_echo, child_lock=child_lock, contact_open=self.contact_open
+            trv,
+            is_echo=_is_echo,
+            child_lock=child_lock,
+            contact_open=self.contact_open,
+            was_off=_was_off,
         )
+        if _was_off and trv.hvac_mode != HVACMode.OFF and not _is_echo:
+            # The report that switches the device on shows the setpoint it
+            # held while it was off. That is the device's own value, as it
+            # is at startup: the reports after this one carry it as well and
+            # are no press either, until a write replaces it.
+            trv.remember_setpoint_confirmed(
+                _raw_heating_setpoint, trv.confirmed_write_id
+            )
         if _accept_user_setpoint:
             if _setpoint.clamped:
                 _LOGGER.warning(
@@ -539,6 +740,15 @@ async def trigger_trv_change(
                     _adopted_cooling_setpoint,
                 )
                 self.bt_target_cooltemp = _adopted_cooling_setpoint
+                # The turn takes the place of the cooling channel's last write
+                # as what the device holds, so the cycle compares the cooling
+                # target with the turn rather than with a write the device no
+                # longer holds. The turn was not sent, so it carries no send
+                # time for the resend throttle, and the device has not settled
+                # on any write since.
+                _cooler_sent = cooler_send_cache(self)
+                _cooler_sent["temperature"] = (_raw_heating_setpoint, None)
+                _cooler_sent.pop("temperature_settled", None)
                 # Residual tie-break only, the counterpart of the one below.
                 self._enforce_heat_below_cool()
             else:
@@ -571,6 +781,7 @@ async def trigger_trv_change(
                     _adopted_heating_setpoint,
                 )
                 self.bt_target_temp = _adopted_heating_setpoint
+                trv.remember_setpoint_adopted(_raw_heating_setpoint)
                 # The clamp leaves the cooling target alone, so this only settles
                 # the degenerate case where no heating value below the cooling
                 # target exists inside the range: at a cooling target within one

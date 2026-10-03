@@ -19,6 +19,8 @@ Currently, integrations with local calibration support include:
 - Tado
 - Zigbee2MQTT
 - deCONZ
+- Z-Wave JS, when the TRV exposes a calibration entity
+- Any other integration whose TRV exposes a calibration entity (a `number` or `select`) that Better Thermostat can find
 
 ## Direct valve control (recommended for MPC/PID)
 
@@ -27,7 +29,7 @@ Direct valve control requires both:
 1. Adapter support in Better Thermostat
 2. A controllable valve position entity exposed by your TRV/integration
 
-Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly.
+Devices that expose a controllable valve position work best with the advanced control modes (MPC/PID), because BT can set the valve opening directly. Select the **Direct Valve Based** calibration type to use it.
 
 ## Devices that are known to work
 
@@ -44,6 +46,7 @@ Better Thermostat includes specific fixes and optimizations for the following de
 - TS0601
 - TS0601_thermostat
 - TV02-Zigbee
+- ZWA021 (Eurotronic Spirit Z / Aeotec ZWA021, Z-Wave)
 
 If your preferred integration is missing, please open an issue:
 

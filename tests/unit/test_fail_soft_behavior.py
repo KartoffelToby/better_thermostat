@@ -34,17 +34,32 @@ from custom_components.better_thermostat.core.snapshot import (
 from custom_components.better_thermostat.core.watchdog import control_loop_stalled
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
+from tests.factories import ThermostatStandIn
 
 
 def _bt(mode: ControlMode) -> MagicMock:
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
     bt.cur_temp = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {
         "climate.a": Trv.from_legacy_dict("climate.a", {"current_temperature": 21.0}),
         "climate.b": Trv.from_legacy_dict("climate.b", {"current_temperature": 23.0}),
     }
+    _publish(bt, {"climate.a": 21.0, "climate.b": 23.0})
     return bt
+
+
+def _publish(bt: MagicMock, reported: dict[str, object]) -> None:
+    """Let each TRV report ``heat`` with the internal temperature given for it."""
+
+    def _state(entity_id: str) -> State:
+        value = reported.get(entity_id)
+        attributes = {} if value is None else {"current_temperature": value}
+        return State(entity_id, "heat", attributes)
+
+    bt.hass.states.get.side_effect = _state
+    bt.hass.config.units.temperature_unit = "°C"
 
 
 class TestSensorFallbackSubstitution:
@@ -72,20 +87,44 @@ class TestSensorFallbackSubstitution:
         the room, even when nothing has cleared it yet.
         """
         bt = _bt(ControlMode.SENSOR_FALLBACK)
-        bt.hass.states.get.side_effect = lambda entity_id: State(
-            entity_id, "unavailable" if entity_id == "climate.b" else "heat"
+        bt.hass.states.get.side_effect = lambda entity_id: (
+            State(entity_id, "unavailable")
+            if entity_id == "climate.b"
+            else State(entity_id, "heat", {"current_temperature": 21.0})
         )
         assert effective_room_temp(bt) == 21.0
 
     def test_fallback_with_every_trv_unreachable_keeps_the_last_reading(self):
         """Stored readings of unreachable TRVs do not replace the room reading."""
         bt = _bt(ControlMode.SENSOR_FALLBACK)
-        bt.hass.states.get.return_value = None
+        bt.hass.states.get.side_effect = lambda entity_id: None
         assert effective_room_temp(bt) == 20.0
 
     def test_hold_does_not_substitute(self):
         """HOLD does not fabricate temperatures; the controller pauses."""
         assert effective_room_temp(_bt(ControlMode.HOLD)) == 20.0
+
+    @pytest.mark.parametrize(
+        "reported",
+        [
+            pytest.param(126.5, id="marker"),
+            pytest.param(-60.0, id="implausible"),
+            pytest.param("not a number", id="non_numeric"),
+            pytest.param(None, id="no_reading"),
+        ],
+    )
+    def test_fallback_leaves_out_a_trv_that_reports_no_usable_temperature(
+        self, reported
+    ):
+        """A TRV speaks for the room only on a temperature it reports now.
+
+        The handler keeps the stored reading across a report it cannot use,
+        so a device that goes on reporting a marker or garbage would
+        otherwise stand in for the room with a value it no longer confirms.
+        """
+        bt = _bt(ControlMode.SENSOR_FALLBACK)
+        _publish(bt, {"climate.a": 21.0, "climate.b": reported})
+        assert effective_room_temp(bt) == 21.0
 
 
 class TestFallbackSetpointChannel:
@@ -100,7 +139,7 @@ class TestFallbackSetpointChannel:
         quirks.fix_target_temperature_calibration.side_effect = (
             lambda _self, _eid, temperature: float(temperature)
         )
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         bt.name = "better_thermostat"
         bt.device_name = "Test BT"
         bt.tolerance = 0.0
@@ -126,6 +165,8 @@ class TestFallbackSetpointChannel:
                 "climate.b", {"current_temperature": -4.0}
             ),
         }
+
+        _publish(bt, {"climate.a": 4.0, "climate.b": -4.0})
 
         result = calculate_calibration_setpoint(bt, "climate.a")
 

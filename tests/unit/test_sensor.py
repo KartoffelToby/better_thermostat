@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from homeassistant.helpers import entity_registry as er
 import pytest
 
+from custom_components.better_thermostat import BetterThermostatData
 from custom_components.better_thermostat.sensor import (
     _ACTIVE_ALGORITHM_ENTITIES,
     _ACTIVE_PID_NUMBERS,
@@ -48,16 +49,16 @@ from custom_components.better_thermostat.sensor import (
     _get_active_algorithms,
     _get_filtered_temp,
     _handle_dynamic_entity_update,
+    _release_entry,
     _setup_algorithm_sensors,
     async_setup_entry,
-    async_unload_entry,
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CalibrationMode,
 )
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 DOMAIN = "better_thermostat"
 
@@ -69,7 +70,7 @@ DOMAIN = "better_thermostat"
 
 def _make_bt_climate(**overrides):
     """Create a mock BT climate entity with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.unique_id = "test_bt_123"
     bt.device_name = "Test BT"
     bt.entity_id = "climate.test_bt"
@@ -83,6 +84,7 @@ def _make_bt_climate(**overrides):
     bt.heating_power = None
     bt.heat_loss_rate = None
     bt.real_trvs = {}
+    bt.all_trvs = []
     bt.preset_modes = []
     bt.door_open = False
     for k, v in overrides.items():
@@ -91,10 +93,11 @@ def _make_bt_climate(**overrides):
     return bt
 
 
-def _make_entry(entry_id="entry_1"):
-    """Create a mock ConfigEntry."""
+def _make_entry(entry_id="entry_1", climate=None):
+    """Create a mock ConfigEntry loaded with ``climate`` as its climate entity."""
     entry = MagicMock()
     entry.entry_id = entry_id
+    entry.runtime_data = BetterThermostatData(climate=climate)
     return entry
 
 
@@ -765,8 +768,7 @@ class TestSetupAlgorithmSensors:
     async def test_mpc_creates_four_sensors(self):
         """Mpc creates four sensors."""
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": None}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=None)
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv.from_legacy_dict(
@@ -955,8 +957,7 @@ class TestAsyncSetupEntry:
     async def test_no_climate_returns_early(self):
         """If climate entity not found, no sensors should be added."""
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": None}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=None)
         async_add_entities = MagicMock()
 
         await async_setup_entry(hass, entry, async_add_entities)
@@ -967,8 +968,7 @@ class TestAsyncSetupEntry:
         """Should create 6 core sensors when climate exists."""
         bt = _make_bt_climate()
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": bt}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=bt)
         async_add_entities = MagicMock()
 
         with (
@@ -995,8 +995,7 @@ class TestAsyncSetupEntry:
         """
         bt = _make_bt_climate(real_trvs=_trvs_in_modes(CalibrationMode.MPC_CALIBRATION))
         hass = MagicMock()
-        hass.data = {DOMAIN: {"entry_1": {"climate": bt}}}
-        entry = _make_entry()
+        entry = _make_entry(climate=bt)
         async_add_entities = MagicMock()
 
         with (
@@ -1021,28 +1020,24 @@ class TestAsyncSetupEntry:
 
 
 # ===========================================================================
-# 9. async_unload_entry
+# 9. _release_entry
 # ===========================================================================
 
 
-class TestAsyncUnloadEntry:
-    """Tests for async_unload_entry."""
+class TestReleaseEntry:
+    """Tests for _release_entry, which the entry's unload runs."""
 
-    @pytest.mark.asyncio
-    async def test_unsubscribes_dispatcher(self):
+    def test_unsubscribes_dispatcher(self):
         """Unsubscribes dispatcher."""
         entry = _make_entry()
         unsub = MagicMock()
         _DISPATCHER_UNSUBSCRIBES["entry_1"] = unsub
-        hass = MagicMock()
 
-        result = await async_unload_entry(hass, entry)
-        assert result is True
+        _release_entry(entry.entry_id)
         unsub.assert_called_once()
         assert "entry_1" not in _DISPATCHER_UNSUBSCRIBES
 
-    @pytest.mark.asyncio
-    async def test_cleans_all_tracking_dicts(self):
+    def test_cleans_all_tracking_dicts(self):
         """Cleans all tracking dicts."""
         entry = _make_entry()
         _ACTIVE_ALGORITHM_ENTITIES["entry_1"] = {"algo": ["id1"]}
@@ -1050,9 +1045,8 @@ class TestAsyncUnloadEntry:
         _ACTIVE_PRESET_NUMBERS["entry_1"] = {"uid": {}}
         _ACTIVE_PID_NUMBERS["entry_1"] = {"uid": {}}
         _ACTIVE_SWITCH_ENTITIES["entry_1"] = {"uid": {}}
-        hass = MagicMock()
 
-        await async_unload_entry(hass, entry)
+        _release_entry(entry.entry_id)
 
         assert "entry_1" not in _ACTIVE_ALGORITHM_ENTITIES
         assert "entry_1" not in _ENTITY_CLEANUP_CALLBACKS
@@ -1060,13 +1054,10 @@ class TestAsyncUnloadEntry:
         assert "entry_1" not in _ACTIVE_PID_NUMBERS
         assert "entry_1" not in _ACTIVE_SWITCH_ENTITIES
 
-    @pytest.mark.asyncio
-    async def test_no_dispatcher_no_error(self):
+    def test_no_dispatcher_no_error(self):
         """Unloading an entry without registered dispatcher should not fail."""
-        entry = _make_entry()
-        hass = MagicMock()
-        result = await async_unload_entry(hass, entry)
-        assert result is True
+        _release_entry("entry_1")
+        assert "entry_1" not in _DISPATCHER_UNSUBSCRIBES
 
 
 # ===========================================================================
@@ -1767,28 +1758,6 @@ class TestEdgeCasesAndPotentialBugs:
         # NaN math: 20 + alpha * (nan - 20) = nan
         assert math.isnan(sensor._ema_value)
 
-    @pytest.mark.asyncio
-    async def test_setup_entry_missing_domain_key_crashes(self):
-        """If hass.data doesn't have the DOMAIN key, it should crash with KeyError."""
-        hass = MagicMock()
-        hass.data = {}  # no DOMAIN key
-        entry = _make_entry()
-        async_add_entities = MagicMock()
-
-        with pytest.raises(KeyError):
-            await async_setup_entry(hass, entry, async_add_entities)
-
-    @pytest.mark.asyncio
-    async def test_setup_entry_missing_entry_id_crashes(self):
-        """If the entry_id is not in hass.data[DOMAIN], KeyError should occur."""
-        hass = MagicMock()
-        hass.data = {DOMAIN: {}}  # no entry_id
-        entry = _make_entry()
-        async_add_entities = MagicMock()
-
-        with pytest.raises(KeyError):
-            await async_setup_entry(hass, entry, async_add_entities)
-
 
 # ===========================================================================
 # 15. Base class tests
@@ -1900,10 +1869,23 @@ class TestBtSimpleAttributeSensor:
 
     def test_no_rounding_when_none(self):
         """No rounding when none."""
+
+        class _UnroundedHeatingPowerSensor(BetterThermostatHeatingPowerSensor):
+            _rounding = None
+
         bt = _make_bt_climate(heating_power=0.05123456)
-        sensor = BetterThermostatHeatingPowerSensor(bt)
+        sensor = _UnroundedHeatingPowerSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.05123456
+
+    def test_learned_rates_are_published_rounded(self):
+        """The learned rates reach the sensors rounded to their published grid."""
+        bt = _make_bt_climate(heating_power=0.05123456, heat_loss_rate=0.01234567)
+        power = BetterThermostatHeatingPowerSensor(bt)
+        loss = BetterThermostatHeatLossSensor(bt)
+        power._update_state()
+        loss._update_state()
+        assert (power._attr_native_value, loss._attr_native_value) == (0.0512, 0.01235)
 
     def test_none_attribute_gives_none(self):
         """None attribute gives none."""

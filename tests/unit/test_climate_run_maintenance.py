@@ -13,9 +13,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MaintenancePhase,
@@ -23,6 +25,7 @@ from custom_components.better_thermostat.core.fsm.maintenance import (
     start_run,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NEXT = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
@@ -31,17 +34,15 @@ _NEXT = datetime(2026, 1, 8, 12, 0, tzinfo=UTC)
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for the valve-maintenance run."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
-    mock.in_maintenance = False
     mock.ignore_states = False
+    mock.next_valve_maintenance = None
     mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
-    mock.clock = MagicMock()
-    mock.clock.monotonic.return_value = 1000.0
+    mock.clock = FakeClock(monotonic_value=1000.0)
     mock.kernel_state = KernelState()
     mock.bt_hvac_mode = HVACMode.HEAT
     mock._control_needed_after_maintenance = False
-    mock.hass = MagicMock()
     mock.control_queue_task = MagicMock()
     return mock
 
@@ -74,7 +75,7 @@ async def test_happy_path_resets_flags_and_reschedules(bt):
         patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert bt.in_maintenance is False
+    assert BetterThermostat.in_maintenance.fget(bt) is False
     assert bt.ignore_states is False
     assert bt.next_valve_maintenance == _NEXT
     bt.control_queue_task.put_nowait.assert_called_once_with(bt)
@@ -93,7 +94,7 @@ async def test_flags_released_even_on_error(bt):
     ):
         with pytest.raises(RuntimeError):
             await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert bt.in_maintenance is False
+    assert BetterThermostat.in_maintenance.fget(bt) is False
     assert bt.ignore_states is False
 
 
@@ -135,7 +136,7 @@ async def test_control_kick_skipped_without_a_queue(bt):
         patch(f"{_CLIMATE}.compute_next_maintenance", MagicMock(return_value=_NEXT)),
     ):
         await BetterThermostat._run_valve_maintenance(bt, ["climate.trv"])
-    assert bt.in_maintenance is False
+    assert BetterThermostat.in_maintenance.fget(bt) is False
     assert bt.ignore_states is False
 
 
@@ -244,3 +245,40 @@ async def test_a_maintenance_setpoint_waits_for_a_running_control_write(bt):
 
     assert written_while_held == []
     assert writes == [("climate.trv", 30.0)]
+
+
+# ---------------------------------------------------------------------------
+# run_valve_maintenance_service: what the user sees when it cannot run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_service_refuses_while_maintenance_runs(bt):
+    """A request during a run is refused instead of returning silently."""
+    bt.in_maintenance = True
+    bt._run_valve_maintenance = AsyncMock()
+
+    with pytest.raises(ServiceValidationError) as refused:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+
+    assert refused.value.translation_key == "valve_maintenance_running"
+    bt._run_valve_maintenance.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_service_reports_a_failed_run(bt, caplog):
+    """A run that fails surfaces as an error and leaves its cause in the log."""
+    bt.in_maintenance = False
+    bt.real_trvs = {
+        "climate.trv": Trv(
+            entity_id="climate.trv", advanced={"valve_maintenance": True}
+        )
+    }
+    bt._run_valve_maintenance = AsyncMock(side_effect=RuntimeError("adapter gone"))
+
+    with pytest.raises(HomeAssistantError) as failed:
+        await BetterThermostat.run_valve_maintenance_service(bt)
+
+    assert failed.value.translation_key == "valve_maintenance_failed"
+    assert isinstance(failed.value.__cause__, RuntimeError)
+    assert "adapter gone" in caplog.text

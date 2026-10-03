@@ -6,8 +6,10 @@ in which overlapping readings and the keepalive tick reach the TRVs.
 """
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 import logging
+from time import monotonic
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
@@ -17,8 +19,16 @@ import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.core.decide import KernelState
+from custom_components.better_thermostat.core.decide import (
+    KernelState,
+    running_kernel_state,
+)
+from custom_components.better_thermostat.core.fsm.control_mode import (
+    ControlMode,
+    ControlModeState,
+)
 from custom_components.better_thermostat.events.temperature import (
+    _commit_pending_after,
     _commit_temperature_update,
     _update_external_temp_ema,
     temperature_filter_lock,
@@ -26,6 +36,7 @@ from custom_components.better_thermostat.events.temperature import (
 )
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
+from tests.factories import ThermostatStandIn
 
 SENSOR_ID = "sensor.external_temp"
 
@@ -38,7 +49,8 @@ SENSOR_ID = "sensor.external_temp"
 @pytest.fixture
 def mock_bt():
     """Create a mock BetterThermostat instance with sensible defaults."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
+    bt.kernel_state = running_kernel_state()
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = SENSOR_ID
@@ -59,7 +71,6 @@ def mock_bt():
     # Accumulation state
     bt.accum_delta = 0.0
     bt.accum_dir = 0
-    bt.accum_since = dt_util.now()
 
     # Pending / plateau state
     bt.pending_temp = None
@@ -390,6 +401,61 @@ class TestCommitTemperatureUpdate:
 # ---------------------------------------------------------------------------
 # 3. Guard clauses for trigger_temperature_change
 # ---------------------------------------------------------------------------
+
+
+class TestReturningRoomSensor:
+    """Only a reading that ends an outage of the room's sensor restarts the filter."""
+
+    @staticmethod
+    async def _filtered_after(mock_bt, rung, previous_state):
+        """Apply a 22 °C reading to a filter that has held 18 °C for a minute."""
+        mock_bt.kernel_state = replace(
+            KernelState(), control_mode=ControlModeState(mode=rung)
+        )
+        mock_bt.cur_temp = 18.0
+        mock_bt.external_temp_ema = 18.0
+        mock_bt._external_temp_ema_ts = monotonic() - 60.0
+        event = MagicMock()
+        event.data = {
+            "old_state": previous_state,
+            "new_state": State(SENSOR_ID, "22.0"),
+        }
+
+        await trigger_temperature_change(mock_bt, event)
+
+        assert mock_bt.cur_temp == 22.0
+        return mock_bt.cur_temp_filtered
+
+    @pytest.mark.asyncio
+    async def test_the_reading_that_ends_the_outage_seeds_the_filter(self, mock_bt):
+        """The room ran on the TRVs, so the old filter value says nothing."""
+        filtered = await self._filtered_after(
+            mock_bt, ControlMode.SENSOR_FALLBACK, State(SENSOR_ID, "unavailable")
+        )
+
+        assert filtered == 22.0
+
+    @pytest.mark.asyncio
+    async def test_a_gap_the_room_stayed_on_its_sensor_through_is_filtered(
+        self, mock_bt
+    ):
+        """A blip shorter than the ladder's debounce keeps the filter's memory."""
+        filtered = await self._filtered_after(
+            mock_bt, ControlMode.OPTIMAL, State(SENSOR_ID, "unavailable")
+        )
+
+        assert 18.0 < filtered < 22.0
+
+    @pytest.mark.asyncio
+    async def test_later_readings_before_the_ladder_climbs_back_are_filtered(
+        self, mock_bt
+    ):
+        """Only the first reading after the outage restarts the filter."""
+        filtered = await self._filtered_after(
+            mock_bt, ControlMode.SENSOR_FALLBACK, State(SENSOR_ID, "21.5")
+        )
+
+        assert 18.0 < filtered < 22.0
 
 
 class TestTriggerTemperatureChangeGuards:
@@ -1087,8 +1153,12 @@ class TestConcurrentReadings:
         assert mock_bt.last_known_external_temp == 22.0
 
     async def _arm_plateau_timer(self, mock_bt, quirks):
-        """Leave 20.05 pending and return the plateau timer it arms."""
+        """Leave 20.05 pending and return the plateau timer it arms.
+
+        The sensor still reports the pending reading.
+        """
         self._attach_trvs(mock_bt, quirks, ("climate.trv1",))
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "20.05")
         armed = []
         with patch(
             "custom_components.better_thermostat.events.temperature.async_call_later",
@@ -1171,6 +1241,47 @@ class TestConcurrentReadings:
 
         assert quirks.writes == [("climate.trv1", 21.0)]
         assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_a_plateau_timer_first_in_turn_leaves_a_newer_reading_to_its_event(
+        self, mock_bt
+    ):
+        """Apply only the newer reading when the plateau timer takes the turn first.
+
+        The sensor has already reported the newer reading, whose event waits
+        for the filter behind the timer. Committing the pending value first
+        would control on a value the sensor no longer reports.
+        """
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+
+        newer_state = State(SENSOR_ID, "21.0")
+        mock_bt.hass.states.get.return_value = newer_state
+        lock = temperature_filter_lock(mock_bt)
+        await lock.acquire()
+        timer = asyncio.create_task(plateau_timer(dt_util.now()))
+        await asyncio.sleep(0)
+        newer = asyncio.create_task(self._take_turn_and_read(mock_bt, newer_state))
+        await asyncio.sleep(0)
+        lock.release()
+        await asyncio.gather(timer, newer)
+
+        assert quirks.writes == [("climate.trv1", 21.0)]
+        assert mock_bt.cur_temp == 21.0
+
+    @pytest.mark.asyncio
+    async def test_a_plateau_value_of_a_sensor_without_a_reading_is_not_applied(
+        self, mock_bt
+    ):
+        """A sensor that gives no usable reading any more withdrew the value."""
+        quirks = _RecordingQuirks()
+        plateau_timer = await self._arm_plateau_timer(mock_bt, quirks)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "unavailable")
+
+        await plateau_timer(dt_util.now())
+
+        assert quirks.writes == []
+        assert (mock_bt.cur_temp, mock_bt.pending_temp) == (20.0, 20.05)
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_replaced_below_the_threshold_is_not_applied(
@@ -1391,3 +1502,214 @@ class TestKeepaliveTick:
             ("climate.trv2", 22.0),
         ]
         assert mock_bt.last_known_external_temp == 22.0
+
+
+class TestPendingReadingAfterTheDebounce:
+    """A reading turned away by the debounce interval alone is applied after it."""
+
+    def _arm(self, mock_bt, value=22.3):
+        """Leave ``value`` pending and arm its timer; return the timer callback.
+
+        The sensor still reports the pending reading.
+        """
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, str(value))
+        mock_bt.pending_temp = value
+        mock_bt.pending_since = dt_util.now()
+        armed = []
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later",
+            side_effect=lambda _hass, _delay, callback: armed.append(callback),
+        ):
+            _commit_pending_after(mock_bt, 5.0)
+        (callback,) = armed
+        return callback
+
+    async def _fire(self, mock_bt, callback):
+        """Fire the timer and run the work it hands to the entity."""
+        mock_bt._spawn_owned = MagicMock()
+        callback(dt_util.now())
+        for spawn in mock_bt._spawn_owned.call_args_list:
+            await spawn.args[0]
+
+    @pytest.mark.asyncio
+    async def test_the_pending_reading_is_applied_when_the_interval_is_over(
+        self, mock_bt
+    ):
+        """The reading still pending when the timer fires is committed."""
+        callback = self._arm(mock_bt)
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_awaited_once_with(mock_bt, 22.3)
+        assert mock_bt.plateau_timer_cancel is None
+
+    def test_the_firing_runs_as_work_the_entity_owns(self, mock_bt):
+        """The commit runs in a task the entity's removal cancels.
+
+        A timer callback Home Assistant runs on its own outlives the removal
+        once it has started, and goes on writing to the remaining TRVs.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt._spawn_owned = MagicMock()
+
+        returned = callback(dt_util.now())
+
+        assert returned is None
+        (spawn,) = mock_bt._spawn_owned.call_args_list
+        spawn.args[0].close()
+
+    @pytest.mark.asyncio
+    async def test_a_reading_that_replaced_the_pending_one_is_left_alone(self, mock_bt):
+        """A timer that fired after the pending reading moved on applies nothing.
+
+        The reading that replaced it, or the commit that cleared it, took the
+        filter while the timer waited for its turn.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt.pending_temp = 21.0
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_removed_entity_applies_nothing(self, mock_bt):
+        """Work that got the filter only after the removal writes nothing."""
+        callback = self._arm(mock_bt)
+        mock_bt.is_removed = True
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    def test_arming_cancels_the_timer_already_pending(self, mock_bt):
+        """One timer per pending reading: arming replaces the one before."""
+        earlier = MagicMock()
+        mock_bt.plateau_timer_cancel = earlier
+        self._arm(mock_bt)
+
+        earlier.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_a_sensor_that_went_away_has_withdrawn_the_reading(self, mock_bt):
+        """A sensor without a usable reading when the timer fires applies nothing.
+
+        The room keeps its last reading while the ladder waits out the
+        outage, as it does for any outage.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "unavailable")
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_sensor_that_moved_on_leaves_its_new_reading_to_its_event(
+        self, mock_bt
+    ):
+        """A timer that fires after the sensor moved on applies nothing.
+
+        The newer reading's event waits for the filter behind the timer, and
+        committing the pending reading first would control on a value the
+        sensor no longer reports.
+        """
+        callback = self._arm(mock_bt)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "22.8")
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_sensor_reading_the_pending_value_more_finely_applies_it(
+        self, mock_bt
+    ):
+        """The sensor's reading is compared at the precision readings are kept."""
+        callback = self._arm(mock_bt)
+        mock_bt.hass.states.get.return_value = State(SENSOR_ID, "22.3004")
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_awaited_once_with(mock_bt, 22.3)
+
+
+class TestLadderSeesTheHandledReading:
+    """The reading a handler takes is the one the ladder observes."""
+
+    @pytest.mark.asyncio
+    async def test_a_recovery_handled_after_a_new_outage_restarts_the_debounce(
+        self, mock_bt
+    ):
+        """A new outage waits a full debounce after the reading that ended the last one.
+
+        The handler for the returning reading can wait for the filter lock
+        until the sensor has dropped out again. It still applies that
+        reading, so the outage before it is over, and the next one has to
+        last the whole debounce before the room moves onto the TRVs.
+        """
+        TestArrivalOrder._make_thermostat_checkable(mock_bt)
+        mock_bt._degraded_warning_emitted = False
+        trv_entity_id = "climate.trv1"
+        mock_bt.real_trvs = {
+            trv_entity_id: Trv.from_legacy_dict(
+                trv_entity_id, {"current_temperature": 21.0}
+            )
+        }
+        live = {SENSOR_ID: State(SENSOR_ID, "unavailable")}
+
+        def states_get(entity_id):
+            if entity_id == trv_entity_id:
+                return State(trv_entity_id, "heat", {"current_temperature": 21.0})
+            return live.get(entity_id, State(entity_id, "21.0"))
+
+        mock_bt.hass.states.get = states_get
+
+        with (
+            patch("custom_components.better_thermostat.utils.watcher.ir"),
+            patch(
+                "custom_components.better_thermostat.climate.trigger_temperature_change",
+                AsyncMock(),
+            ) as filter_reading,
+        ):
+            await BetterThermostat._handle_temperature_reading(
+                mock_bt, _make_event(State(SENSOR_ID, "unavailable"))
+            )
+            mock_bt.clock.advance(121.0)
+            # The sensor reported 21.0 and has dropped out again by the time
+            # the handler for that reading runs.
+            await BetterThermostat._handle_temperature_reading(
+                mock_bt, _make_event(State(SENSOR_ID, "21.0"))
+            )
+            assert filter_reading.await_count == 2
+            assert mock_bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+
+            await BetterThermostat._handle_temperature_reading(
+                mock_bt, _make_event(State(SENSOR_ID, "unavailable"))
+            )
+            mock_bt.clock.advance(60.0)
+            await BetterThermostat._availability_tick(mock_bt)
+            assert mock_bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
+
+            mock_bt.clock.advance(61.0)
+            await BetterThermostat._availability_tick(mock_bt)
+
+        assert mock_bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK

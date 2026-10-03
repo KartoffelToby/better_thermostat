@@ -10,7 +10,11 @@ import logging
 import math
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.climate.const import HVACMode
+from homeassistant.components.climate.const import (
+    ATTR_MAX_TEMP,
+    ATTR_MIN_TEMP,
+    HVACMode,
+)
 from homeassistant.const import (
     EVENT_STATE_CHANGED,
     STATE_UNAVAILABLE,
@@ -23,7 +27,9 @@ from homeassistant.core import (
     EventStateChangedData,
     HomeAssistant,
     State,
+    callback,
 )
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
@@ -44,6 +50,7 @@ from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
 )
+from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
     trigger_trv_change,
@@ -68,14 +75,14 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_device,
-    device_setpoint_step,
     dual_role_entity_id,
     get_current_set_temperatures,
     last_sent_cooler_temperature,
     matches_any_setpoint,
     normalize_step,
+    on_cooler_grid,
+    read_bound_celsius,
     read_setpoint_celsius,
-    round_by_step,
     setpoint_echo_window,
     state_temperature_unit,
     supports_single_target_temperature,
@@ -183,6 +190,11 @@ FAILED_CYCLE_BACKOFF_MAX_S = 300.0
 # between go to the debug log. A device that refuses for good would otherwise
 # leave the same warning every few minutes all day.
 FAILED_CYCLE_WARNING_INTERVAL_S = 3600.0
+# Pause at the end of a TRV's control call while its state events are still
+# ignored, so the device's reports of what was just written land inside that
+# window instead of being taken as a change made at the device.
+TRV_STATE_SETTLE_S = 3.0
+
 # How long a write channel waits for the device to confirm a command
 # before its watchdog releases the in-flight flag and assumes the command
 # applied. Shared by the mode, setpoint and calibration watchdogs, so a
@@ -319,10 +331,17 @@ def _schedule_budget_retry(
 def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None:
     """Queue one control cycle for an offline TRV's next retry window.
 
-    Consumes the reachability region's ``retry_at``: the cycle re-probes
-    the device, and while it stays offline the region's step advances
-    the exponential backoff. Availability events still trigger an
-    immediate cycle when the device returns by itself.
+    Consumes the reachability region's ``retry_at``: the cycle re-reads
+    the device's state without actively probing it. If the TRV is
+    reachable when the cycle runs, normal control resumes and may write
+    to it. If it stays offline, the kernel does not address it outside
+    boost heating, and the region's step advances the exponential
+    backoff. Availability events still trigger an immediate cycle when
+    the device returns by itself.
+
+    The wait runs on Home Assistant's timer rather than a sleep, so it
+    follows Home Assistant's clock; the task around it is what the entity
+    cancels when it is removed.
     """
     region = self.kernel_state.reachability.get(entity_id)
     if region is None or region.online or region.retry_at is None:
@@ -334,9 +353,18 @@ def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None
     delay = max(region.retry_at - self.clock.monotonic(), 0.0)
 
     async def _retry() -> None:
+        due: asyncio.Future[None] = self.hass.loop.create_future()
+
+        @callback
+        def _due(_now: Any) -> None:
+            if not due.done():
+                due.set_result(None)
+
+        cancel_timer = async_call_later(self.hass, delay, _due)
         try:
-            await asyncio.sleep(delay)
+            await due
         finally:
+            cancel_timer()
             trv.reachability_retry_pending = False
         request_control_cycle(self)
 
@@ -626,32 +654,37 @@ async def reconcile_tick(self: BetterThermostat, now: datetime | None = None) ->
     Builds a snapshot, asks the kernel for the desired state, and
     enqueues one control cycle when any device diverges — the general
     mechanism that heals lost writes without per-case keepalives.
+
+    The control watchdog is read here too. A divergence behind a loop that
+    has not completed a cycle for ``WATCHDOG_MAX_AGE_S`` is the silent hang
+    it exists for and is logged as an error. A room whose devices hold the
+    intent has nothing for a cycle to do, however long ago the last one
+    ran, so a quiet loop is not reported.
     """
     if self.startup_running or self.ignore_states:
         return
     if self.kernel_state.maintenance.is_blocking(self.clock.monotonic()):
         return
     try:
-        if control_loop_stalled(
-            self.kernel_state.last_control_monotonic, self.clock.monotonic()
-        ):
-            _LOGGER.error(
-                "better_thermostat %s: control watchdog: no control cycle for "
-                "more than %.0f minutes, forcing one",
-                self.device_name,
-                WATCHDOG_MAX_AGE_S / 60.0,
-            )
-            request_control_cycle(self)
-            return
         snapshot, desired = compute_control_cycle(self, record=False, commit=False)
         desired = safety_clamp(desired, snapshot)
         if not desired_diverges(self, snapshot, desired):
             return
-        _LOGGER.debug(
-            "better_thermostat %s: reconcile: device state diverged, "
-            "queueing a control cycle",
-            self.device_name,
-        )
+        if control_loop_stalled(
+            self.kernel_state.last_control_monotonic, self.clock.monotonic()
+        ):
+            _LOGGER.error(
+                "better_thermostat %s: control watchdog: device state diverged "
+                "and no control cycle for more than %.0f minutes, forcing one",
+                self.device_name,
+                WATCHDOG_MAX_AGE_S / 60.0,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: reconcile: device state diverged, "
+                "queueing a control cycle",
+                self.device_name,
+            )
         request_control_cycle(self)
     except Exception:
         _LOGGER.exception(
@@ -941,14 +974,10 @@ def advance_hvac_action(self: BetterThermostat) -> None:
         The Better Thermostat climate entity instance
     """
     try:
-        # Preserve old action for change detection if attributes exist
-        if hasattr(self, "attr_hvac_action"):
-            self.old_attr_hvac_action = getattr(self, "attr_hvac_action", None)
-        # Recompute current hvac action (uses internal climate logic)
-        if hasattr(self, "_compute_hvac_action_pure"):
-            result = self._compute_hvac_action_pure()
-            self._commit_hvac_action(result)
-            self.attr_hvac_action = result.action
+        self.old_attr_hvac_action = self.attr_hvac_action
+        result = self._compute_hvac_action_pure()
+        self._commit_hvac_action(result)
+        self.attr_hvac_action = result.action
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: hvac action recompute failed (non critical)",
@@ -1035,12 +1064,27 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
     one reporting ``unknown`` unless its model reads that as operating, the
     way the handler reads it.
 
+    The setpoint such a state carries is judged against the mode the device
+    was cached in before the held report, not the mode
+    ``refresh_cached_trv_modes`` settled since, so a head switched on inside
+    the cycle does not bring a setpoint turned while it was off, as it does
+    not outside a cycle.
+
     A control cycle is requested only when the report moved what the next
-    cycle acts on: the room's targets or mode, the mode the device is known
-    to hold, or the internal temperature it reported while the cycle ran,
-    which the handler takes as it arrives, as it does outside a cycle. A
-    device answering inside every cycle with a report that carries nothing
-    new would otherwise keep one cycle following the next.
+    cycle acts on: the room's targets or mode, the setpoint or mode the
+    device is known to hold, or the internal temperature it reported while
+    the cycle ran. A turn the room adopts at a target it already had moves
+    only the setpoint the device holds, and the cycle is what writes the
+    device's own share of that target back over the turn.
+    The handler takes that reading as it arrives, as it does outside a cycle,
+    unless it came too soon after the previous one; such a reading is taken
+    here once that interval has passed, and asks for a cycle all the same. A
+    head switched on inside the cycle asks for one as well, as its mode
+    change does outside a cycle: the cache already holds the commanded mode,
+    so the report moves nothing, yet the setpoint it was not adopted for
+    has to be driven back to the room target. A device answering inside
+    every cycle with a report that carries nothing new would otherwise keep
+    one cycle following the next.
 
     Parameters
     ----------
@@ -1053,6 +1097,8 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
         trv.report_unread = False
         previous = trv.state_before_held_report
         trv.state_before_held_report = None
+        prior_hvac_mode = trv.hvac_mode_before_held_report
+        trv.hvac_mode_before_held_report = None
         temperature_moved = trv.temperature_moved_while_held
         trv.temperature_moved_while_held = False
         state = self.hass.states.get(entity_id)
@@ -1072,6 +1118,7 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 held_report,
                 mode_settled=trv.system_mode_received is False,
                 request_cycle=False,
+                prior_hvac_mode=prior_hvac_mode,
             )
         except Exception:
             _LOGGER.exception(
@@ -1081,8 +1128,14 @@ async def read_reports_held_during_cycle(self: BetterThermostat) -> None:
                 entity_id,
             )
             continue
+        switched_on = (
+            prior_hvac_mode == HVACMode.OFF
+            and state is not None
+            and state.state != HVACMode.OFF
+        )
         if (
             temperature_moved
+            or switched_on
             or _held_report_control_inputs(self, trv) != acted_on_before
             or _locked_device_moved(self, entity_id, trv, state)
         ):
@@ -1124,12 +1177,10 @@ def _locked_device_moved(
     step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
     known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
     if entity_id == dual_role_entity_id(self):
-        # The cooling channel's writes as the device holds them, on its grid,
-        # the way the inbound handler compares them.
-        known += [
-            round_by_step(self.bt_target_cooltemp, step),
-            round_by_step(last_sent_cooler_temperature(self), step),
-        ]
+        # The cooling channel's writes as the device holds them, on the grid
+        # the cooling channel sends on, the way the inbound handler compares
+        # them.
+        known += cooling_writes_as_held(self, state)
     known_values = [value for value in known if value is not None]
     if reported is None or not known_values:
         return False
@@ -1144,6 +1195,9 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, 
         self.bt_target_cooltemp,
         self.bt_hvac_mode,
         trv.hvac_mode,
+        trv.confirmed_setpoint,
+        last_sent_cooler_temperature(self),
+        trv.current_temperature,
     )
 
 
@@ -1341,17 +1395,22 @@ async def control_queue(self: BetterThermostat) -> None:
 _CoolerCommand = HVACMode | tuple[float, float | None] | None
 
 
-def cooler_low_bound(high: float, target_temp: float | None) -> float:
+def cooler_low_bound(
+    high: float, target_temp: float | None, lowest: float | None = None
+) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
     A range write needs both bounds, and Home Assistant rejects a low bound
-    above the high one. The heating target is the natural lower bound; it can
-    only exceed the cooling target while the two are out of sync, so it is
-    capped at the value being written.
+    above the high one or outside the cooler's range. The heating target is
+    the natural lower bound; it can only exceed the cooling target while the
+    two are out of sync, so it is capped at the value being written. The
+    heating target is held to the heaters' range, not the cooler's, so it is
+    raised onto ``lowest``, the cooler's minimum, where it sits below it.
     """
-    if target_temp is None:
-        return high
-    return min(float(target_temp), high)
+    low = high if target_temp is None else min(float(target_temp), high)
+    if lowest is not None and low < lowest:
+        low = min(lowest, high)
+    return low
 
 
 def _cooler_retry_deferred(
@@ -1413,47 +1472,6 @@ def _record_cooler_failure(
     )
 
 
-def _on_cooler_grid(
-    self: BetterThermostat, cooler_state: State, value: float | None
-) -> float | None:
-    """Return a cooler setpoint in °C as it lies on the cooler's own grid.
-
-    The cooler publishes its step in the system unit, so a Fahrenheit value is
-    rounded in Fahrenheit and brought back; the payload's conversion then
-    lands on that grid point again. A cooler that publishes no usable step
-    holds whole degrees on a Fahrenheit system, Home Assistant's precision
-    for that unit, and on a Celsius system is rounded onto the step its
-    reports are compared with.
-    """
-    if value is None:
-        return None
-    fahrenheit = self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT
-    step = convert_to_float(
-        str(cooler_state.attributes.get("target_temp_step")),
-        self.device_name,
-        "control_cooler()",
-    )
-    if step is None or step <= 0:
-        if not fahrenheit:
-            return round_by_step(
-                value, device_setpoint_step(self, cooler_state, "control_cooler()")
-            )
-        step = 1.0
-    if fahrenheit:
-        on_grid = round_by_step(
-            TemperatureConverter.convert(
-                value, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
-            step,
-        )
-        if on_grid is None:
-            return None
-        return TemperatureConverter.convert(
-            on_grid, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS
-        )
-    return round_by_step(value, step)
-
-
 async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     """Control the cooler entity based on current temperature and cooling setpoint.
 
@@ -1509,7 +1527,21 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     # the send cache work with the value the device is actually sent.
     if snapshot is None:
         snapshot = build_snapshot(self)
-    desired_temp = _on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
+    desired_temp = on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
+    # Home Assistant refuses a setpoint outside the cooler's own range, and
+    # the cooling target can leave it where a configured bound widens the
+    # cooling range past the device's, so the write is held to the device.
+    _cooler_min = read_bound_celsius(
+        self, cooler_state, ATTR_MIN_TEMP, lower=True, context="control_cooler()"
+    )
+    _cooler_max = read_bound_celsius(
+        self, cooler_state, ATTR_MAX_TEMP, lower=False, context="control_cooler()"
+    )
+    if desired_temp is not None:
+        if _cooler_min is not None and desired_temp < _cooler_min:
+            desired_temp = _cooler_min
+        if _cooler_max is not None and _cooler_max < desired_temp:
+            desired_temp = _cooler_max
 
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
@@ -1682,7 +1714,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     _low_bound_changed = False
     if _write_range and desired_temp is not None:
         _low_to_set = cooler_low_bound(
-            desired_temp, _on_cooler_grid(self, cooler_state, target_temp)
+            desired_temp, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
         )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
@@ -1800,7 +1832,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         _temp_wanted = (
             temp_to_send,
             cooler_low_bound(
-                temp_to_send, _on_cooler_grid(self, cooler_state, target_temp)
+                temp_to_send,
+                on_cooler_grid(self, cooler_state, target_temp),
+                _cooler_min,
             )
             if _write_range
             else None,
@@ -1827,7 +1861,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         )
         _temp_to_set = temp_to_send
         _low_to_set = _low_to_set_c = cooler_low_bound(
-            temp_to_send, _on_cooler_grid(self, cooler_state, target_temp)
+            temp_to_send, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
         )
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(
@@ -2502,12 +2536,18 @@ async def control_trv(
                             entity_id,
                             _budget_remaining(self, entity_id, "setpoint"),
                         )
+                else:
+                    # The device already holds what the room wants, whoever
+                    # put it there: a knob turned while the room was off can
+                    # land on the setpoint the room asks for once it heats
+                    # again. That value is BT's own from here on.
+                    self.real_trvs[entity_id].remember_setpoint_held(_temperature)
 
         # Watchdog heartbeat: the control loop demonstrably ran.
         _stamp_heartbeat(self)
 
         # Let TRV state updates propagate before accepting new state events
-        await asyncio.sleep(3)
+        await asyncio.sleep(TRV_STATE_SETTLE_S)
         return True
     finally:
         if _suppression_owned:

@@ -7,14 +7,19 @@ mode inside that window and states what the cache owes the user afterwards.
 """
 
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import State
+from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.decide import running_kernel_state
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.events.trv import trigger_trv_change
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
@@ -26,16 +31,19 @@ from custom_components.better_thermostat.utils.controlling import (
     _locked_device_moved,
     control_queue,
     read_reports_held_during_cycle,
+    refresh_cached_trv_modes,
 )
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.test_trv"
 _CTRL = "custom_components.better_thermostat.utils.controlling"
+_COOLER = "custom_components.better_thermostat.events.cooler"
 
 # The mode list of an ordinary radiator valve.
 OFFERED_MODES = [HVACMode.OFF, HVACMode.HEAT]
 
 
-def _reported_state(mode: str, setpoint: float = 19.0) -> State:
+def _reported_state(mode: str, setpoint: float | None = 19.0) -> State:
     """Build the state one TRV publishes."""
     return State(
         ENTITY_ID,
@@ -48,6 +56,12 @@ def _reported_state(mode: str, setpoint: float = 19.0) -> State:
     )
 
 
+def _close_coro(coro, **kwargs):
+    """Close a coroutine handed to the task manager instead of running it."""
+    coro.close()
+    return MagicMock()
+
+
 @pytest.fixture
 def reported_states() -> dict[str, State]:
     """Hold what each device publishes, so a test can change it mid-cycle."""
@@ -57,7 +71,7 @@ def reported_states() -> dict[str, State]:
 @pytest.fixture
 def thermostat(reported_states):
     """Build a Better Thermostat driving one TRV that heats."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     # Climate entities publish no unit attribute, so every temperature read off
     # a TRV state resolves through the system unit.
@@ -72,16 +86,27 @@ def thermostat(reported_states):
     bt.bt_target_cooltemp = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
+    bt.cur_temp_filtered = None
+    bt.temp_slope = None
+    bt.call_for_heat = True
+    bt.preset_mode = None
     bt.tolerance = 0.3
     bt.window_open = False
+    bt.door_open = False
     bt.contact_open = False
     bt.startup_running = False
     bt.bt_update_lock = False
     bt.in_maintenance = False
     bt.ignore_states = False
     bt.cooler_entity_id = None
+    bt.clock = FakeClock()
+    bt.kernel_state = running_kernel_state()
+    bt.flight_recorder = FlightRecorder()
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     bt.context = MagicMock()  # unique context so != event.context
     bt.async_write_ha_state = MagicMock()
+    # Background work the handler schedules is not run here.
+    bt.task_manager = MagicMock(create_task=MagicMock(side_effect=_close_coro))
     bt.calculate_heating_power = AsyncMock()
     bt.calculate_heat_loss = AsyncMock()
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
@@ -429,6 +454,176 @@ class TestReportsHeldDuringACycle:
         assert thermostat.real_trvs[ENTITY_ID].current_temperature == 19.5
         assert request.called
 
+    @pytest.mark.asyncio
+    async def test_an_internal_temperature_held_back_inside_the_cycle_requests_one(
+        self, thermostat, reported_states
+    ):
+        """A reading the debounce held back inside a cycle is acted on at its end.
+
+        The reading arrives too soon after the previous one, so the handler
+        neither takes it nor marks it as moved. By the end of the cycle that
+        interval has passed, and the report read again then takes the reading,
+        which outside a cycle requests one.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.last_internal_sensor_change = dt_util.now()
+        old_state = reported_states[ENTITY_ID]
+        warmer = State(
+            ENTITY_ID,
+            old_state.state,
+            attributes={**old_state.attributes, "current_temperature": 19.5},
+        )
+        reported_states[ENTITY_ID] = warmer
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": warmer,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+
+        assert trv.current_temperature == 18.0
+        assert trv.report_unread is True
+        assert trv.temperature_moved_while_held is False
+
+        trv.last_internal_sensor_change = dt_util.now() - timedelta(seconds=10)
+        thermostat.ignore_states = False
+
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert trv.current_temperature == 19.5
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("commanded", ["heat", None])
+    async def test_a_head_switched_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states, commanded
+    ):
+        """A head switched on inside a cycle does not bring a setpoint turned while off.
+
+        The head is off while the room heats, and the report that switches it
+        on carries a setpoint turned while it was off. Read outside a cycle,
+        that setpoint is not a press. The end of the cycle settles the mode
+        cache on the mode Better Thermostat commanded before it reads the held
+        report, and the report is still judged against the mode the head was
+        in before it. As outside a cycle, switching the head on asks for a
+        cycle, which drives the head back to the room target the setpoint
+        was not adopted for.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "off"
+        trv.last_hvac_mode = commanded
+        previous = _reported_state("off")
+        reported_states[ENTITY_ID] = _reported_state("heat", setpoint=23.0)
+        event = MagicMock()
+        event.data = {
+            "old_state": previous,
+            "new_state": reported_states[ENTITY_ID],
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, event)
+        assert trv.report_unread is True
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    async def test_a_head_switched_off_and_on_during_a_cycle_keeps_the_room_target(
+        self, thermostat, reported_states
+    ):
+        """A later report that switches the head on is judged as a switch-on.
+
+        The head heats, is switched off inside the cycle, and is switched on
+        again with a setpoint turned while it was off, all before the cycle
+        ends. Outside a cycle the first report caches the head as off, so the
+        second is read as a switch-on and its setpoint is not adopted. Read
+        at the end of the cycle, the reports are judged the same way, and the
+        switch-on asks for the cycle that drives the head back to the room
+        target.
+        """
+        heating = reported_states[ENTITY_ID]
+        switched_off = _reported_state("off")
+        switched_on = _reported_state("heat", setpoint=23.0)
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        for old_state, new_state in (
+            (heating, switched_off),
+            (switched_off, switched_on),
+        ):
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 19.0
+        request.assert_called_once_with(thermostat)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("off_setpoint", [19.0, None])
+    @pytest.mark.parametrize("switched_off_in_cycle", [True, False])
+    async def test_a_press_after_a_switch_on_during_a_cycle_is_adopted(
+        self, thermostat, reported_states, off_setpoint, switched_off_in_cycle
+    ):
+        """A setpoint pressed after a switch-on inside a cycle is adopted.
+
+        The head is off, or is switched off inside the cycle, and is switched
+        on with a setpoint turned while it was off; then the setpoint is
+        pressed again while it is on. Outside a cycle the switch-on is not
+        adopted, and the press that follows is read against the head being on
+        and is adopted. Read at the end of the cycle, the reports are judged
+        the same way, whether or not the off state carries a setpoint.
+        """
+        trv = thermostat.real_trvs[ENTITY_ID]
+        switched_off = _reported_state("off", setpoint=off_setpoint)
+        switched_on = _reported_state("heat", setpoint=23.0)
+        pressed = _reported_state("heat", setpoint=24.0)
+        reports = [(switched_off, switched_on), (switched_on, pressed)]
+        if switched_off_in_cycle:
+            reports.insert(0, (reported_states[ENTITY_ID], switched_off))
+        else:
+            trv.hvac_mode = "off"
+        thermostat.control_queue_task = MagicMock()
+
+        thermostat.ignore_states = True
+        for old_state, new_state in reports:
+            reported_states[ENTITY_ID] = new_state
+            event = MagicMock()
+            event.data = {
+                "old_state": old_state,
+                "new_state": new_state,
+                "entity_id": ENTITY_ID,
+            }
+            event.context = MagicMock()
+            await trigger_trv_change(thermostat, event)
+        refresh_cached_trv_modes(thermostat)
+        thermostat.ignore_states = False
+        with patch(f"{_CTRL}.request_control_cycle") as request:
+            await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_temp == 24.0
+        request.assert_called_once_with(thermostat)
+
 
 class TestHeldReportAgainstThePreviousState:
     """A report read at cycle end is judged against the state it replaced."""
@@ -694,7 +889,44 @@ class TestALockedPressHeldDuringACycle:
 
         with (
             patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
-            patch(f"{_CTRL}.last_sent_cooler_temperature", return_value=24.3),
+            patch(f"{_COOLER}.last_sent_cooler_temperature", return_value=24.3),
+        ):
+            moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
+
+        assert moved is requested
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pressed_to", "requested"),
+        [
+            pytest.param(76.0, True, id="one_degree_above_the_write"),
+            pytest.param(75.0, False, id="the_write"),
+        ],
+    )
+    async def test_a_fahrenheit_dual_role_device_compares_on_the_cooling_grid(
+        self, thermostat, reported_states, pressed_to, requested
+    ):
+        """A locked reversible unit without a published step reads whole °F.
+
+        The cooling channel sends a cool target of 24 °C as 75 °F and caches
+        the 23.89 °C it sent. A press to 76 °F, 24.44 °C, is a whole degree
+        away from that write, and it lies within half a Celsius degree of the
+        24 °C the cache would round to on the room's own 0.5 °C grid.
+        """
+        thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        trv = self._lock(thermostat)
+        trv.last_temperature = 21.0
+        trv.last_hvac_mode = "cool"
+        thermostat.bt_target_cooltemp = 24.0
+        state = _reported_state("cool", setpoint=pressed_to)
+        reported_states[ENTITY_ID] = state
+
+        with (
+            patch(f"{_CTRL}.dual_role_entity_id", return_value=ENTITY_ID),
+            patch(
+                f"{_COOLER}.last_sent_cooler_temperature",
+                return_value=(75.0 - 32.0) * 5.0 / 9.0,
+            ),
         ):
             moved = _locked_device_moved(thermostat, ENTITY_ID, trv, state)
 
@@ -764,3 +996,103 @@ class TestALockedPressHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         assert request.called is requested
+
+
+class TestHeldCoolingTurn:
+    """A turn at a reversible unit the cooling channel drives, read at cycle end."""
+
+    @staticmethod
+    def _cool(thermostat, cooling_target: float) -> Trv:
+        """Let the cooling channel drive the TRV, holding ``cooling_target``."""
+        thermostat.cooler_entity_id = ENTITY_ID
+        thermostat._cooler_last_sent = {
+            "hvac_mode_decided": HVACMode.COOL,
+            "hvac_mode": (HVACMode.COOL, 1.0),
+            "temperature": (cooling_target, 1.0),
+        }
+        thermostat.bt_target_cooltemp = cooling_target
+        thermostat.cool_min_temperature = None
+        thermostat.cool_max_temperature = None
+        thermostat._clamp_inbound_cool_target = lambda value: (
+            BetterThermostat._clamp_inbound_cool_target(thermostat, value)
+        )
+        thermostat._enforce_heat_below_cool = lambda **kwargs: (
+            BetterThermostat._enforce_heat_below_cool(thermostat, **kwargs)
+        )
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.hvac_mode = "cool"
+        trv.last_hvac_mode = "cool"
+        trv.hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL]
+        return trv
+
+    @staticmethod
+    def _turn(old_state: State, new_state: State):
+        """Build the event a turn at the device reaches the handler as."""
+        event = MagicMock()
+        event.data = {
+            "old_state": old_state,
+            "new_state": new_state,
+            "entity_id": ENTITY_ID,
+        }
+        event.context = MagicMock()  # differs from thermostat.context
+        return event
+
+    @pytest.mark.asyncio
+    async def test_a_turn_the_cooling_target_already_holds_is_corrected(
+        self, thermostat, reported_states
+    ):
+        """A turn adopted at the cooling target it already had requests a cycle.
+
+        The unit carries both roles and cools, with the cooling target one
+        step above the heating target. Its setpoint is turned inside a cycle
+        below the heating target, so the room adopts the turn at the cooling
+        target it already holds. The unit holds the turn, and the cycle
+        requested at the end is what writes the target back.
+        """
+        cooling_target, turned_to = 19.5, 18.0
+        trv = self._cool(thermostat, cooling_target)
+        previous = _reported_state("cool", setpoint=cooling_target)
+        turned = _reported_state("cool", setpoint=turned_to)
+        reported_states[ENTITY_ID] = turned
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+
+        thermostat.ignore_states = True
+        await trigger_trv_change(thermostat, self._turn(previous, turned))
+        assert trv.report_unread is True
+        thermostat.ignore_states = False
+        await read_reports_held_during_cycle(thermostat)
+
+        assert thermostat.bt_target_cooltemp == cooling_target
+        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.control_queue_task.qsize() == 1
+
+    @pytest.mark.asyncio
+    async def test_the_same_turn_after_the_write_back_is_a_turn_again(
+        self, thermostat, reported_states
+    ):
+        """A turn repeated once the cooling target is written back is not an echo.
+
+        The first turn is adopted at the cooling target it already had, and
+        the cooling channel writes that target back over it. Turning the unit
+        to the same value again is a new turn, and it asks for the cycle that
+        writes the target back once more.
+        """
+        cooling_target, turned_to = 19.5, 18.0
+        self._cool(thermostat, cooling_target)
+        thermostat.control_queue_task = asyncio.Queue(maxsize=1)
+        held = _reported_state("cool", setpoint=cooling_target)
+        turned = _reported_state("cool", setpoint=turned_to)
+
+        reported_states[ENTITY_ID] = turned
+        await trigger_trv_change(thermostat, self._turn(held, turned))
+        assert thermostat.control_queue_task.qsize() == 1
+        thermostat.control_queue_task.get_nowait()
+        thermostat._cooler_last_sent["temperature"] = (cooling_target, 2.0)
+        reported_states[ENTITY_ID] = held
+        await trigger_trv_change(thermostat, self._turn(turned, held))
+        assert thermostat.control_queue_task.empty()
+
+        reported_states[ENTITY_ID] = turned
+        await trigger_trv_change(thermostat, self._turn(held, turned))
+
+        assert thermostat.control_queue_task.qsize() == 1

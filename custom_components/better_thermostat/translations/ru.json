@@ -39,12 +39,14 @@
           "valve_maintenance": "Режим обслуживания клапана (если термоголовка не имеет собственного)",
           "calibration": "Тип калибровки",
           "calibration_mode": "Режим калибровки",
-          "no_off_system_mode": "Использовать 5°C вместо режима «выкл.» (если термоголовка не поддерживает отключение)",
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
           "mpc_v2_plant_preset": "MPC v2 размер помещения"
         },
         "data_description": {
           "protect_overheating": "Некоторые термоголовки не закрывают клапан полностью при достижении температуры, либо батарея долго остывает — это может приводить к перегреву. Данная опция позволяет этого избежать.",
-          "calibration_mode": "Алгоритм расчёта калибровки.\n***Обычный***: Внутренний датчик термоголовки корректируется по внешнему датчику температуры.\n***Агрессивный***: Внутренний датчик корректируется по внешнему, но со значительным смещением для более быстрого прогрева/охлаждения.\n***AI на основе времени***: Внутренний датчик корректируется по внешнему, а специальный алгоритм дополнительно оптимизирует работу встроенного регулятора термоголовки.\n***MPC-предиктивный (бета)***: Использует предиктивный MPC-контроллер для расчёта открытия клапана с последующим преобразованием в смещения или уставки при отсутствии прямого управления клапаном.\n***PID-регулятор***: Динамически управляет положением клапана на основе ошибки температуры, пропорциональной составляющей, накопленного интеграла и производной.\n***TPI-регулятор***: Пропорционально-интегральный регулятор с временны́м квантованием для стабильного и точного поддержания температуры.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
         }
       },
@@ -113,12 +115,14 @@
           "valve_maintenance": "Режим обслуживания клапана (если термоголовка не имеет собственного)",
           "calibration": "Тип калибровки",
           "calibration_mode": "Режим калибровки",
-          "no_off_system_mode": "Использовать 5°C вместо режима «выкл.» (если термоголовка не поддерживает отключение)",
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
           "mpc_v2_plant_preset": "MPC v2 размер помещения"
         },
         "data_description": {
           "protect_overheating": "Некоторые термоголовки не закрывают клапан полностью при достижении температуры, либо батарея долго остывает — это может приводить к перегреву. Данная опция позволяет этого избежать.",
-          "calibration_mode": "Алгоритм расчёта калибровки.\n***Обычный***: Внутренний датчик термоголовки корректируется по внешнему датчику температуры.\n***Агрессивный***: Внутренний датчик корректируется по внешнему, но со значительным смещением для более быстрого прогрева/охлаждения.\n***AI на основе времени***: Внутренний датчик корректируется по внешнему, а специальный алгоритм дополнительно оптимизирует работу встроенного регулятора термоголовки.\n***MPC-предиктивный (бета)***: Использует алгоритм гидравлического баланса MPC для расчёта открытия клапана с последующим преобразованием в смещения или уставки при отсутствии прямого управления клапаном.\n***PID-регулятор***: Динамически управляет положением клапана на основе ошибки температуры, пропорциональной составляющей, накопленного интеграла и производной.\n***TPI-регулятор***: Пропорционально-интегральный регулятор с временны́м квантованием для стабильного и точного поддержания температуры.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
           "calibration": "Способ применения калибровки к термоголовке.\n***По целевой температуре***: Калибровка применяется к заданной температуре.\n***По смещению***: Калибровка применяется как смещение."
         }
       }
@@ -536,6 +540,32 @@
     "action_type": {
       "set_hvac_mode": "Установить режим HVAC",
       "set_temperature": "Установить целевую температуру"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} не поддерживает режим HVAC {mode}. Поддерживаемые режимы: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} получил значение {value} для {attribute}, которое не является числом."
+    },
+    "valve_maintenance_running": {
+      "message": "Обслуживание клапанов на {device_name} уже выполняется."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "У {device_name} нет клапана с включённым обслуживанием клапанов."
+    },
+    "valve_maintenance_failed": {
+      "message": "Обслуживание клапанов на {device_name} не удалось. Подробности в журнале."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} ещё не загрузил обученное состояние. Повторите попытку после его запуска."
+    },
+    "pid_defaults_without_target": {
+      "message": "У {device_name} нет целевой температуры для применения значений PID по умолчанию. Ничего не было сброшено."
+    },
+    "pid_reset_failed": {
+      "message": "Не удалось сбросить обучение PID для {device_name}. Подробности в журнале."
     }
   }
 }

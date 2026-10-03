@@ -15,12 +15,14 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import KernelState
 from custom_components.better_thermostat.core.fsm.maintenance import (
     MAX_RUN_S,
     MaintenancePhase,
     MaintenanceState,
 )
+from tests.factories import ThermostatStandIn, make_trv
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -29,20 +31,12 @@ _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for maintenance scheduling."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
-    mock.in_maintenance = False
     mock.next_valve_maintenance = None
-    mock.window_open = False
     mock.contact_open = False
-    mock.hvac_mode = HVACMode.HEAT
-    mock.bt_hvac_mode = HVACMode.HEAT
-    mock.real_trvs = {"climate.trv": {}}
-    mock.hass = MagicMock()
-    mock._spawn_owned = MagicMock()
-    mock.clock = MagicMock()
-    mock.clock.now.return_value = _NOW
-    mock.clock.monotonic.return_value = 1000.0
+    mock.real_trvs = {"climate.trv": make_trv("climate.trv")}
+    mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
     mock.kernel_state = KernelState()
     return mock
 
@@ -90,10 +84,19 @@ async def test_availability_check_exception_returns(bt):
 @pytest.mark.asyncio
 async def test_already_in_maintenance_returns(bt):
     """A tick during an in-flight maintenance run does nothing."""
-    bt.in_maintenance = True
+    bt.kernel_state = replace(
+        bt.kernel_state,
+        maintenance=MaintenanceState(
+            phase=MaintenancePhase.RUNNING, running_since=bt.clock.monotonic()
+        ),
+    )
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
     ):
         await BetterThermostat._maintenance_tick(bt)
     bt._spawn_owned.assert_not_called()
@@ -106,6 +109,10 @@ async def test_not_due_yet_returns(bt):
     with (
         patch(f"{_CLIMATE}.check_critical_entities", AsyncMock()),
         patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
+        patch(
+            f"{_CLIMATE}.collect_maintenance_trvs",
+            MagicMock(return_value=["climate.trv"]),
+        ),
     ):
         await BetterThermostat._maintenance_tick(bt)
     bt._spawn_owned.assert_not_called()
@@ -179,7 +186,7 @@ async def test_schedule_resync_keeps_running_since(bt):
     a RUNNING region without a timestamp, which blocks unconditionally.
     """
     stale_now = MAX_RUN_S + 1.0
-    bt.clock.monotonic.return_value = stale_now
+    bt.clock = FakeClock(now_value=_NOW, monotonic_value=stale_now)
     bt.kernel_state = replace(
         bt.kernel_state,
         maintenance=MaintenanceState(
@@ -227,13 +234,12 @@ def _startup_bt(advanced):
     """Minimal BetterThermostat mock for _finalize_startup."""
     from custom_components.better_thermostat.trv import Trv
 
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.is_removed = False
+    mock._degraded_grace_until = None
     mock.kernel_state = KernelState()
-    mock.clock = MagicMock()
-    mock.clock.now.return_value = _NOW
-    mock.clock.monotonic.return_value = 1000.0
+    mock.clock = FakeClock(now_value=_NOW, monotonic_value=1000.0)
     mock.real_trvs = {"climate.trv": Trv(entity_id="climate.trv", advanced=advanced)}
     mock.entity_ids = ["climate.trv"]
     mock.all_trvs = None
@@ -241,6 +247,7 @@ def _startup_bt(advanced):
     mock.sensor_entity_id = "sensor.room_temp"
     mock.humidity_sensor_entity_id = None
     mock.window_id = None
+    mock.door_id = None
     mock.cooler_entity_id = None
     mock.outdoor_sensor = None
     mock._async_unsub_state_changed = None
@@ -308,4 +315,4 @@ async def test_via_device_binding_skipped_and_cleared_for_multi_trv():
         await _run_finalize_startup(bt)
 
     bind.assert_not_awaited()
-    unbind.assert_awaited_once_with(bt.hass, "bt_uid")
+    unbind.assert_awaited_once_with(bt.hass, "bt_uid", "entry_1")

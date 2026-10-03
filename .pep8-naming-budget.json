@@ -30,7 +30,7 @@
   "tests/benchmark/adapters/base.py": 6,
   "tests/benchmark/adapters/baselines.py": 6,
   "tests/benchmark/adapters/heating_power_adapter.py": 1,
-  "tests/benchmark/adapters/indirect_trv.py": 7,
+  "tests/benchmark/adapters/indirect_trv.py": 5,
   "tests/benchmark/adapters/mpc_adapter.py": 1,
   "tests/benchmark/adapters/passive_modes.py": 5,
   "tests/benchmark/metrics.py": 16,

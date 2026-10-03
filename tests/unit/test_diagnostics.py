@@ -1,12 +1,14 @@
 """Tests for the config-entry diagnostics, including the flight recorder."""
 
 import copy
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, patch
 
+from homeassistant.core import Context, State
+from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.better_thermostat import DOMAIN
+from custom_components.better_thermostat import DOMAIN, BetterThermostatData
 from custom_components.better_thermostat.core.decide import decide, running_kernel_state
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import (
@@ -18,6 +20,9 @@ from custom_components.better_thermostat.diagnostics import (
     async_get_config_entry_diagnostics,
 )
 from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+
+_DIAGNOSTICS = "custom_components.better_thermostat.diagnostics"
 
 
 def _snapshot() -> WorldSnapshot:
@@ -38,9 +43,14 @@ def _snapshot() -> WorldSnapshot:
     )
 
 
-def _config_entry():
+def _config_entry(bt=None, *, loaded=True):
     entry = MagicMock()
     entry.entry_id = "entry-1"
+    if loaded:
+        entry.runtime_data = BetterThermostatData(climate=bt)
+    else:
+        # Home Assistant drops the runtime data when the entry unloads.
+        del entry.runtime_data
     entry.data = {
         CONF_HEATER: [
             {
@@ -55,23 +65,32 @@ def _config_entry():
     return entry
 
 
-def _hass(bt=None):
+@pytest.fixture
+def _empty_registries():
+    """Registries that know no entity: the mocked hass carries none."""
+    devices = MagicMock(spec=dr.DeviceRegistry)
+    devices.async_get.return_value = None
+    with (
+        patch(f"{_DIAGNOSTICS}.er.async_get", return_value=make_entity_registry()),
+        patch(f"{_DIAGNOSTICS}.dr.async_get", return_value=devices),
+    ):
+        yield
+
+
+def _hass():
     hass = MagicMock()
-    trv_state = Mock()
-    trv_state.name = "TRV"
-    trv_state.state = "heat"
-    trv_state.attributes = {"temperature": 21.0}
+    trv_state = State(
+        "climate.trv", "heat", {"temperature": 21.0, "friendly_name": "TRV"}
+    )
     hass.states.get.return_value = trv_state
-    hass.data = {"better_thermostat": {"entry-1": {"climate": bt}}}
     return hass
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 async def test_diagnostics_contains_the_basic_sections():
     """The download carries config info, TRV state, and the sensors."""
-    diagnostics = await async_get_config_entry_diagnostics(
-        _hass(bt=None), _config_entry()
-    )
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
     assert "info" in diagnostics
     assert CONF_HEATER not in diagnostics["info"]
     assert diagnostics["thermostat"]["climate.trv"]["model"] == "TRVZB"
@@ -81,16 +100,17 @@ async def test_diagnostics_contains_the_basic_sections():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 async def test_diagnostics_exports_the_flight_recorder():
     """With a live entity, the recorder buffer lands in the download."""
     recorder = FlightRecorder()
     desired, _ = decide(_snapshot(), running_kernel_state())
     recorder.record(_snapshot(), running_kernel_state(), desired)
 
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.flight_recorder = recorder
 
-    diagnostics = await async_get_config_entry_diagnostics(_hass(bt), _config_entry())
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
     exported = diagnostics["flight_recorder"]
     assert len(exported) == 1
     assert exported[0]["snapshot"]["trvs"]["climate.trv"]["current_temp"] == 20.0
@@ -98,65 +118,83 @@ async def test_diagnostics_exports_the_flight_recorder():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 async def test_diagnostics_without_entity_has_no_recorder_section():
-    """Without a climate entity (e.g. before setup) the key is absent."""
-    hass = _hass(bt=None)
-    hass.data = {}
-    diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
+    """An entry that is not loaded has no climate entity and no recorder."""
+    diagnostics = await async_get_config_entry_diagnostics(
+        _hass(), _config_entry(loaded=False)
+    )
     assert "flight_recorder" not in diagnostics
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 async def test_diagnostics_skips_unknown_trvs():
     """A TRV without a hass state is left out of the thermostat section."""
-    hass = _hass(bt=None)
+    hass = _hass()
     hass.states.get.return_value = None
     diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
     assert diagnostics["thermostat"] == {}
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 async def test_missing_integration_falls_back_to_unknown_adapter():
     """A TRV without integration reports adapter 'unknown'."""
     entry = _config_entry()
     entry.data[CONF_HEATER][0]["integration"] = None
-    diagnostics = await async_get_config_entry_diagnostics(_hass(None), entry)
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
     assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == "unknown"
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 async def test_window_sensor_state_is_included_when_configured():
     """With a window sensor configured, its state lands in the download."""
     from custom_components.better_thermostat.utils.const import CONF_SENSOR_WINDOW
 
     entry = _config_entry()
     entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
-    hass = _hass(None)
+    hass = _hass()
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
-    assert diagnostics["window_sensor"] is hass.states.get.return_value
+    expected = dict(hass.states.get.return_value.as_dict())
+    del expected["context"]
+    assert diagnostics["window_sensor"] == expected
 
 
 @pytest.mark.asyncio
-async def test_window_sensor_lookup_error_is_swallowed():
-    """A failing window state lookup leaves the placeholder in place."""
+@pytest.mark.usefixtures("_empty_registries")
+async def test_no_state_in_the_download_carries_its_context():
+    """A user-triggered change leaves no user or logbook id in the download."""
     from custom_components.better_thermostat.utils.const import CONF_SENSOR_WINDOW
 
-    entry = _config_entry()
+    context = Context(user_id="user-4711", parent_id="parent-4711", id="context-4711")
+    bt = ThermostatStandIn()
+    bt.entity_id = "climate.bt"
+    entry = _config_entry(bt)
     entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
-    hass = _hass(None)
-    trv_state = hass.states.get.return_value
+    hass = _hass()
+    hass.states.get.return_value = State(
+        "climate.trv", "heat", {"temperature": 21.0}, context=context
+    )
 
-    def _get(entity_id):
-        if entity_id == "binary_sensor.window":
-            raise KeyError(entity_id)
-        return trv_state
-
-    hass.states.get.side_effect = _get
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
-    assert diagnostics["window_sensor"] == "-"
+
+    for section in ("external_temperature_sensor", "window_sensor", "climate"):
+        assert "context" not in diagnostics[section]
+    assert "4711" not in repr(diagnostics)
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+async def test_an_unconfigured_window_sensor_reads_none():
+    """Without a window sensor the key is None, like every other sensor."""
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
+    assert diagnostics["window_sensor"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
 @pytest.mark.parametrize(
     ("integration", "expected_adapter"), [("mqtt", "mqtt"), (None, "unknown")]
 )
@@ -185,7 +223,7 @@ async def test_diagnostics_leave_the_entry_data_untouched(
     )
     before = copy.deepcopy(dict(entry.data))
 
-    diagnostics = await async_get_config_entry_diagnostics(_hass(None), entry)
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
 
     assert dict(entry.data) == before
     assert "adapter" not in entry.data[CONF_HEATER][0]
@@ -235,3 +273,58 @@ async def test_a_device_bundle_without_integration_or_model_still_downloads(hass
     assert trv["bt_adapter"] == "unknown"
     assert trv["bt_integration"] is None
     assert trv["model"] is None
+
+
+def _devices(device=None):
+    """A device registry answering ``device`` for every id."""
+    devices = MagicMock(spec=dr.DeviceRegistry)
+    devices.async_get.return_value = device
+    return devices
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("device_id", [None, "gone"])
+async def test_a_valve_without_a_device_reports_its_integration_only(device_id):
+    """No device, or none the registry returns, leaves the integration alone.
+
+    The registry answers a main device only; a child or composite id reads as
+    none, like an entity registered without a device.
+    """
+    entities = make_entity_registry(
+        make_registry_entry("climate.trv", platform="zha", device_id=device_id)
+    )
+    with (
+        patch(f"{_DIAGNOSTICS}.er.async_get", return_value=entities),
+        patch(f"{_DIAGNOSTICS}.dr.async_get", return_value=_devices(None)),
+    ):
+        diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
+    assert diagnostics["thermostat"]["climate.trv"]["device"] == {"integration": "zha"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+async def test_an_entity_without_a_flight_recorder_still_reports_its_state():
+    """The thermostat's state is in the download even before a recorder exists."""
+    bt = ThermostatStandIn()
+    bt.entity_id = "climate.trv"
+
+    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
+
+    assert diagnostics["climate"]["entity_id"] == "climate.trv"
+    assert "flight_recorder" not in diagnostics
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_empty_registries")
+@pytest.mark.parametrize("key", ["ip", "ip_address"])
+async def test_no_network_address_reaches_the_download(key):
+    """An address a valve publishes under either key is redacted."""
+    hass = _hass()
+    hass.states.get.return_value = State(
+        "climate.trv", "heat", {"temperature": 21.0, key: "192.0.2.17"}
+    )
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, _config_entry())
+
+    assert diagnostics["thermostat"]["climate.trv"]["attributes"][key] == "**REDACTED**"
+    assert "192.0.2.17" not in repr(diagnostics)

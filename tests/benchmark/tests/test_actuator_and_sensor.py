@@ -80,6 +80,18 @@ def test_actuator_hysteresis_holds_last_value():
     assert out_outside == 0.6
 
 
+def test_actuator_hysteresis_does_not_hold_a_close_command():
+    """A 0 % command closes the valve even inside the hysteresis band."""
+    a = Actuator(ActuatorParams(hysteresis_pct=10.0))
+    a.apply(60.0)
+    assert a.apply(5.0) == 0.05
+    # 3 % is inside the band around 5 %: the valve stays at 5 %.
+    assert a.apply(3.0) == 0.05
+    assert a.apply(0.0) == 0.0
+    # The close moved the valve, so the band is now centred on 0 %.
+    assert a.apply(4.0) == 0.0
+
+
 def test_actuator_quantize_snaps_to_grid():
     """Actuator quantize snaps to grid."""
     a = Actuator(ActuatorParams(quantize_pct=10.0))

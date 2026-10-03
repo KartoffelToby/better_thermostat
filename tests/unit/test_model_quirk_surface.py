@@ -37,6 +37,7 @@ import pytest
 from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 QUIRKS_DIR = Path(default_quirk.__file__).parent
 PRODUCTION_ROOT = QUIRKS_DIR.parent
@@ -110,7 +111,7 @@ def _host():
     the promised shape, so a quirk that trips over one is tripping over
     the contract and not over the fixture.
     """
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
     host.cur_temp = 19.5

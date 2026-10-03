@@ -19,6 +19,7 @@ from tests.benchmark.adapters.baselines import (
 )
 from tests.benchmark.adapters.heating_power_adapter import HeatingPowerAdapter
 from tests.benchmark.adapters.mpc_adapter import MpcAdapter
+from tests.benchmark.adapters.mpc_v2_adapter import MpcV2Adapter
 from tests.benchmark.adapters.passive_modes import (
     AggressiveCalibrationAdapter,
     DefaultCalibrationAdapter,
@@ -29,6 +30,7 @@ from tests.benchmark.adapters.tpi_adapter import TpiAdapter
 
 _ADAPTERS = [
     pytest.param(MpcAdapter, id="mpc"),
+    pytest.param(MpcV2Adapter, id="mpc_v2"),
     pytest.param(TpiAdapter, id="tpi"),
     pytest.param(PidAdapter, id="pid"),
     pytest.param(HeatingPowerAdapter, id="heating_power"),
@@ -114,7 +116,7 @@ def test_benchmark_output_requires_exactly_one_family_field():
 
 def test_state_backed_adapters_use_unique_default_keys():
     """Two default-keyed instances must not share controller state entries."""
-    for cls in (PidAdapter, TpiAdapter, MpcAdapter):
+    for cls in (PidAdapter, TpiAdapter, MpcAdapter, MpcV2Adapter):
         a, b = cls(), cls()
         assert a._key != b._key
     assert PidAdapter(key="shared")._key == "shared"
@@ -206,3 +208,46 @@ def test_tpi_adapter_rehydrates_from_prior():
     last_percent = adapter._state.last_percent
     adapter.reset(prior=snapshot)
     assert adapter._state.last_percent == last_percent
+
+
+def test_mpc_v2_adapter_rehydrates_from_prior():
+    """reset(prior=export_state()) restores the MPC v2 controller."""
+    adapter = MpcV2Adapter()
+    for i in range(5):
+        adapter.step(_ctx_at(i * 30.0))
+    snapshot = adapter.export_state()
+    last_percent = adapter._state.last_percent
+    adapter.reset(prior=snapshot)
+    assert adapter._state.controller is not None
+    assert adapter._state.last_percent == last_percent
+
+
+def test_mpc_v2_adapter_reports_the_previous_plant_valve_as_applied():
+    """The valve the plant received last step reaches the controller as applied."""
+    adapter = MpcV2Adapter()
+    adapter.step(_ctx_at(0.0))
+    controller = adapter._state.controller
+    assert controller is not None
+    applied: list[float] = []
+    original = controller.set_applied_u
+
+    def _record(u: float) -> None:
+        applied.append(u)
+        original(u)
+
+    controller.set_applied_u = _record
+    ctx = _ctx_at(30.0)
+    adapter.step(BenchmarkContext(**{**ctx.__dict__, "last_valve_percent": 73.0}))
+    assert applied == [pytest.approx(0.73)]
+
+
+def test_mpc_v2_adapter_closes_the_valve_while_the_window_is_open():
+    """An early exit maps to a closed valve, not to the previous command."""
+    adapter = MpcV2Adapter()
+    ctx = _ctx_at(0.0, target=22.0, current=18.0)
+    out = adapter.step(
+        BenchmarkContext(
+            **{**ctx.__dict__, "window_open": True, "last_valve_percent": 60.0}
+        )
+    )
+    assert out.valve_percent == 0.0

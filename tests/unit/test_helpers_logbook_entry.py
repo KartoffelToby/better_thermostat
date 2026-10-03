@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import async_fire_logbook_entry
+from tests.factories import ThermostatStandIn
 
 _HELPERS = "custom_components.better_thermostat.utils.helpers"
 _TRANSLATIONS = "homeassistant.helpers.translation.async_get_translations"
@@ -22,7 +23,7 @@ _KEY = "component.better_thermostat.entity.sensor.logbook.state.window_open"
 
 def _bt() -> MagicMock:
     """Build the caller surface async_fire_logbook_entry reads."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.hass.config.language = "de"
     bt.entity_id = "climate.test_bt"

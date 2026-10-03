@@ -135,6 +135,16 @@ Run the test suite with `uv run pytest tests/`.
 
 ## How Can I Contribute?
 
+### Which branch a pull request targets
+
+Open pull requests against `develop`, which is what ships as the next major
+version. A fix the maintenance line needs too gets a second pull request
+against `1.9`; [The maintenance line](#the-maintenance-line) explains why a
+change for both lines is written twice. Never target `master`: it carries
+releases and only receives pull requests from `develop` and `1.9`. GitHub
+offers `master` as the default base, so change it when you open the pull
+request.
+
 ## New Adapter
 
 If you want to add a new adapter, please create a new Python file with the name of the adapter in the adapters folder. The file should contain all functions found in the generic.py. If your adapter needs special handling for one of the base functions, override it, if you can use generic functions, use them like:
@@ -197,6 +207,23 @@ happens while entities are still coming up, belongs in
 `tests/integration/test_startup_scenarios.py` instead; those drive
 configurations and timelines rather than devices.
 
+## Where a test goes
+
+- `tests/unit/` drives one module or function with its collaborators stood in.
+- `tests/integration/` runs the integration inside a Home Assistant test
+  instance against simulated devices.
+- `tests/benchmark/` scores the calibration modes in a simulated room.
+- `tests/gates/` checks the repository rather than the integration: the
+  recorded budgets, the scripts that hold them, the release metadata, and the
+  rules the suite keeps for its own fixtures.
+
+A unit test that needs a thermostat builds it with `make_bt()` or
+`ThermostatStandIn` from `tests/factories.py`, never a bare `MagicMock`. The
+stand-in raises when the code under test reads state the test did not set,
+where a bare mock would answer with a truthy mock and quietly take the test
+down another branch. `tests/gates/test_thermostat_stand_in_discipline.py`
+holds that rule.
+
 ## Fixtures never use the value they are meant to rule out
 
 A test that restores a setting and asserts it came back has to configure it to
@@ -244,12 +271,13 @@ marker comes off with the fix instead of outliving it.
 is worth asking — a shouted quantifier, an `if any` clause, `regardless`, `even
 when`, a bare interval copied out of the source — and
 `.restated-contract-budget.json` holds the count, so the backlog gets worked off
-rather than added to. A hit is a question, not a verdict: a requirement may well
+rather than added to. A file whose count fell fails the check until
+`restated_contracts.py update` records the lower number. A hit is a question, not a verdict: a requirement may well
 say "never". Read the sentence and decide which of the two it is.
 
-Those markers are a sample, not a survey: they report 112 of the tree's 3275
-test docstrings, and the script's own docstring names the common shapes they
-miss. A green check means the budget held, not that a docstring you are reading
+Those markers are a sample, not a survey: they reach a small share of the
+tree's test docstrings, and the script's own docstring names the common shapes
+they miss. A green check means the budget held, not that a docstring you are reading
 is fine.
 
 ## Naming
@@ -330,7 +358,9 @@ seam, and only there may a
 temperature differences, `_kelvin_per_min` for rates, `_seconds` or `_minutes` for
 durations, `_percent` for percentages. Never `_C`, `_K`, `_k`, `_s`, `_pct`,
 `delta_T`, `dT`. Durations carry their unit even though seconds are the norm,
-because the persisted configuration mixes seconds and minutes.
+because the persisted configuration mixes seconds and minutes. Of those
+spellings, only `delta_T`, `delta_t` and `dT` are in `glossary.toml`, so only
+they are checked; the suffixes rest on review.
 
 **A `CONF_*` constant and its string agree.** `CONF_HEATER = "thermostat"` and
 `CONF_WINDOW_TIMEOUT = "window_off_delay"` are the shape to avoid. The constant
@@ -363,12 +393,23 @@ last production site is what makes its readers due, and they come out with it.
 New and touched code follows the convention. The spellings the codebase still
 carries come out in their own pull requests, so a rename you did not sign up for
 never lands in yours. `scripts/check_naming.py` tells you where you stand, and CI
-runs it:
+runs it. It matches whole identifiers against the rejected spellings in
+`glossary.toml` and counts them per file in `.naming-budget.json`: a file may not
+exceed its number, and a file that is not in the budget may not carry one at
+all. A file that drops below its number fails as well until `update` records
+the lower one, so a rename brings its new count along. Only the script writes
+that file:
 
 ```bash
 uv run python scripts/check_naming.py list <path>    # what a file still carries
 uv run python scripts/check_naming.py check          # what CI runs
+uv run python scripts/check_naming.py update         # after a rename
 ```
+
+`update` refuses to record a count that grew. Pass `--allow-raise` only when a
+count rose without anyone writing a rejected name: a file moved and took its
+backlog along, or the glossary gained a term the tree already spelled the old
+way.
 
 The two halves are checked by different tools. `check_naming.py` reads vocabulary
 and says nothing about case; `ruff check` reads case and shape through its `N`
@@ -384,25 +425,29 @@ under it. Where a single line carries the notation rather than a tree, a
 `# noqa: N8xx` with its reason does the job instead, as the two persisted field
 names in `utils/state_manager.py` do. Both forms are capped by
 `.pep8-naming-budget.json`, which records per file how many findings they hide,
-and CI holds that number:
+and CI holds that number exactly: a count above it or below it fails, and
+`update` records a lower one:
 
 ```bash
 uv run python scripts/pep8_naming_budget.py check    # what CI runs
+uv run python scripts/pep8_naming_budget.py update   # after a rename
 ```
 
 The two gates point in opposite directions inside those paths, and that is not
-yet settled. `glossary.toml` rejects `delta_T` and the `_K` and `_C` suffixes
-wherever they appear, the calibration modules included, and `.naming-budget.json`
-charges every one of them. The ruff exemption buys nothing there. A separate
-change decides whether the glossary gains an exception for the notation or those
-names come out.
+yet settled. `glossary.toml` rejects `delta_T` wherever it appears, the
+calibration modules included, and `.naming-budget.json` charges each source
+line that uses it as an identifier. A test spelling it is not charged while
+production still does. The ruff exemption buys nothing there. A separate change
+decides whether the glossary gains an exception for the notation or those names
+come out.
 
 ## Blind exception handlers
 
 Ruff's `BLE001` flags an `except Exception` that neither re-raises nor logs the
 traceback. `.blind-except-budget.json` records per file how many such handlers
 the file carries today; a file may not exceed its number, and a file that is not
-in the budget may not have one at all. The scan ignores ruff's configuration and
+in the budget may not have one at all. A file that drops below its number fails
+until `update` records the lower one. The scan ignores ruff's configuration and
 every `noqa`, so the budget file is the only place a silent handler is recorded.
 
 ```bash
@@ -447,6 +492,22 @@ CI runs these with `uv run --locked` (and `uv sync --locked`) to fail on any
 drift between `pyproject.toml` and `uv.lock`; locally the simpler forms above
 are fine after `uv sync`.
 
+Three more checks run on every pull request:
+
+- **Types:** `uv run pyrefly check`. Every module under
+  `custom_components/better_thermostat` is checked at the strictness
+  `[tool.pyrefly]` in `pyproject.toml` declares. The `sub-config` entries below
+  it name the files that do not meet it yet and the rules each is exempt from.
+  That list only shrinks: a new file is strict from the start, and
+  `tests/gates/test_type_strictness_exemptions.py` holds it to a recorded
+  ceiling.
+- **hassfest:** Home Assistant's validator for the integration manifest and
+  its metadata.
+- **HACS:** the HACS action validates the repository as a HACS integration.
+
+Neither of the last two has a local command here; read their result on the pull
+request.
+
 Dependencies are declared in `pyproject.toml` (`[project]` for the runtime
 platform, `[dependency-groups].dev` for tooling) and pinned in `uv.lock`. To
 update a dependency, run e.g. `uv lock --upgrade-package homeassistant` and
@@ -456,8 +517,8 @@ commit the changed `uv.lock`.
 
 CI measures coverage per module and compares it against `.coverage-floors.json`,
 which holds the level each module is at today. A change that leaves one of them
-less covered than it was fails the build; a module nobody has measured yet has
-nothing to fall below and passes.
+less covered than it was fails the build. A new module fails too until its floor
+is recorded, so it is held to the coverage it arrives with from its first day.
 
 A recorded module the report does not cover fails the build as well. A floor
 nothing measures holds nothing back, so a module that was deleted or renamed
@@ -494,20 +555,31 @@ says which module gave up coverage and by how much.
 `1.9` is the maintenance line and `develop` is what ships as the next major
 version. A change wanted on both is written twice, one commit per line, because
 the lines have diverged far enough that a cherry-pick no longer applies. A
-change written only on `1.9` is a gap, and squash-merges hide it: a pair shares
-no patch id, so `git cherry` reports every commit as missing and says nothing.
+change written only on `1.9` is a gap, and history does not show it: the two
+commits of a pair are written separately, so they share no ancestry below the
+merge base, and `git cherry` matches by patch id, which ignores only whitespace
+and line numbers. Two diffs that differ in anything else get different patch
+ids, so `git cherry` finds no equivalent patch and reports such a pair as
+missing, the same as a gap.
 
 `scripts/forward_port_gaps.py` compares the text instead. For every commit on
 `1.9` that `develop` does not contain it takes up to twelve distinctive added
 lines and looks each one up in `develop`'s *tree*. Reading the tree rather than
-the history is what survives the squash: a line that arrived under any commit
-is in the tree.
+the history is what finds a pair: a line that arrived under any commit is in
+the tree. The lines come from production files only, since each line writes
+its own tests, and only from lines `1.9` still holds, since a state a later
+`1.9` commit replaced is judged by that commit. A name `develop` renamed onto
+`glossary.toml` is looked up under its new spelling too.
 
 ```bash
 git fetch origin 1.9:refs/remotes/origin/1.9        # once, if you have no 1.9
 uv run python scripts/forward_port_gaps.py list     # every commit, with its hit rate
-uv run python scripts/forward_port_gaps.py check    # what CI runs
+uv run python scripts/forward_port_gaps.py check \
+    --maintenance origin/1.9 --development origin/develop   # what CI runs
 ```
+
+Without `--development`, the script compares against your local `develop`,
+which may lag behind `origin/develop`.
 
 A commit under a 50% hit rate is a candidate to forward-port. Where it stays
 behind on purpose — the same defect fixed in a different place on each line, for
@@ -522,6 +594,8 @@ ships the very commits the report would name. Ordinary pull requests target
 pull request, and nothing watches that path.
 
 The script names its own blind spots in its docstring. The one to know before
-reading the output: a commit carrying fewer than three markers is not scored at
-all, so version bumps and prose-only commits are listed apart rather than
-judged, and a real change small enough to leave no marker is listed with them.
+reading the output: a commit carrying fewer than three markers gets no hit rate
+and counts as carried forward only when every one of its markers is on
+`develop`. A commit with no production marker at all (version bumps, prose-only
+and test-only commits) is listed apart rather than judged, and a real change
+small enough to leave no marker is listed with them.

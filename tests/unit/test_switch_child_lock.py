@@ -6,12 +6,13 @@ import pytest
 
 from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 TRV_ID = "climate.trv_kitchen"
 
 
 def _make_switch(trv: Trv) -> BetterThermostatChildLockSwitch:
-    bt_climate = MagicMock()
+    bt_climate = ThermostatStandIn()
     bt_climate.unique_id = "bt_1"
     bt_climate.real_trvs = {TRV_ID: trv}
     switch = BetterThermostatChildLockSwitch(bt_climate, TRV_ID, show_trv_name=False)

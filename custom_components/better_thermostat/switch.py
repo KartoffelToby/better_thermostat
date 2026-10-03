@@ -6,13 +6,13 @@ from collections.abc import Mapping
 import logging
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 
+from . import BetterThermostatConfigEntry
 from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
 
 # Import tracking variables from sensor.py
@@ -29,10 +29,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: BetterThermostatConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Better Thermostat switches."""
-    bt_climate = hass.data[DOMAIN][entry.entry_id].get("climate")
+    bt_climate = entry.runtime_data.climate
     if not bt_climate:
         return
 
@@ -95,7 +97,6 @@ class BetterThermostatPIDAutoTuneSwitch(TrvNamedEntity, SwitchEntity, RestoreEnt
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:magic-staff"
 
     def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
         """Initialize the switch."""
@@ -218,7 +219,6 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:account-lock"
 
     def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
         """Initialize the switch."""
