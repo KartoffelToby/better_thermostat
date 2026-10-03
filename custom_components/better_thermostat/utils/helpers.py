@@ -2162,6 +2162,14 @@ _VALVE_TRANSLATION_KEYS: dict[str, str] = {
     "valve": "valve_position",
 }
 
+# Device models whose valve-related numbers configure the device's own
+# controller rather than position the valve. The Sonoff TRV-ZBT publishes
+# heating_valve_position and idle_valve_position: the opening the device uses
+# while it heats and while it idles by its own decision. Writing a Better
+# Thermostat position into either one bends that controller instead of moving
+# the valve, so these models offer no valve entity at all.
+_MODELS_WITHOUT_VALVE_ENTITY = frozenset({"TRV-ZBT"})
+
 
 async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     """Locate a per-TRV valve position helper entity, if available.
@@ -2178,6 +2186,7 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     # under a different Home Assistant device_id than the climate entity.
     # To support these, also match candidates by shared device identifiers.
     dev_reg = None
+    base_device = None
     base_identifiers: set[tuple[str, str]] = set()
     try:
         dev_reg = dr.async_get(self.hass)
@@ -2187,6 +2196,15 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     except Exception:
         dev_reg = None
         base_identifiers = set()
+
+    if getattr(base_device, "model_id", None) in _MODELS_WITHOUT_VALVE_ENTITY:
+        _LOGGER.debug(
+            "better thermostat: %s is a %s, whose valve numbers configure the "
+            "device's own controller; no valve entity is offered",
+            entity_id,
+            getattr(base_device, "model_id", None),
+        )
+        return None
 
     config_entry_id = reg_entity.config_entry_id
     if config_entry_id is None:
