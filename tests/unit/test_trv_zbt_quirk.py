@@ -15,7 +15,7 @@ import pytest
 from custom_components.better_thermostat.model_fixes import model_quirks as quirks
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.helpers import find_valve_entity
-from tests.factories import make_entity_registry, make_registry_entry
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 TRV_ZBT_MODULE = "custom_components.better_thermostat.model_fixes.TRV-ZBT"
 trv_zbt = importlib.import_module(TRV_ZBT_MODULE)
@@ -51,7 +51,7 @@ def _trv_zbt_entries():
 
 def _make_self(selector_state="internal"):
     """A BT stand-in whose only TRV is a TRV-ZBT."""
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()
@@ -87,7 +87,7 @@ class TestModelDetection:
         The import is real, so a file the loader cannot reach would land on
         the default module instead.
         """
-        mock_self = MagicMock()
+        mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
 
         async def _import(_hass, name):
@@ -169,15 +169,16 @@ class TestNoValveWrite:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("model_id", "found"), [("TRV-ZBT", None), ("OTHER-TRV", HEATING_VALVE)]
+        ("model_id", "found"),
+        [("TRV-ZBT", None), ("trv-zbt", None), ("OTHER-TRV", HEATING_VALVE)],
     )
     async def test_the_valve_lookup_turns_down_only_the_trv_zbt(self, model_id, found):
-        """The adapter finds no valve entity on a TRV-ZBT.
+        """The adapter finds no valve entity on a TRV-ZBT, in any letter case.
 
         The same entities on a device of another model are still found,
         so the exclusion follows the model and not the entity names.
         """
-        bt = MagicMock()
+        bt = ThermostatStandIn()
         device = MagicMock()
         device.model_id = model_id
         device.identifiers = {("mqtt", DEVICE)}
