@@ -591,6 +591,64 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
     assert worst_gap <= 1.0
 
 
+# Each case is a plan objective whose gradient is about 1e11 times its
+# Hessian, so the optimum is a vertex of the limits held by multipliers of
+# that size: a rise at the rate limit, a climb to the top of the valve, and
+# a rise and fall at the rate limit.
+@pytest.mark.parametrize(
+    ("factor", "gradient", "u_last", "delta_u_max", "vertex"),
+    [
+        ([[2.3, -0.8], [0.1, 1.4]], [-1.5, -2.0], 0.0, 0.3, [0.3, 0.6]),
+        (
+            [
+                [-0.1, -0.4, 0.8, 0.2],
+                [-1.6, -1.2, 0.9, 0.7],
+                [-0.6, 0.0, 0.4, 0.5],
+                [0.9, 0.3, -0.1, -0.3],
+            ],
+            [1.1, -2.3, -0.1, 0.0],
+            0.0,
+            2.0,
+            [0.0, 1.0, 1.0, 1.0],
+        ),
+        (
+            [
+                [-0.3, 0.1, -0.3, 0.8],
+                [-0.3, -0.1, -0.7, -0.5],
+                [-1.3, 0.5, -1.1, -0.7],
+                [0.4, 0.4, -0.4, -2.0],
+            ],
+            [0.4, 0.3, -1.4, 0.8],
+            0.0,
+            0.05,
+            [0.0, 0.05, 0.1, 0.05],
+        ),
+    ],
+)
+def test_portable_solver_lands_on_a_vertex_held_by_huge_multipliers(
+    factor: list[list[float]],
+    gradient: list[float],
+    u_last: float,
+    delta_u_max: float,
+    vertex: list[float],
+) -> None:
+    """The plan sits on its limits however large the multipliers holding it."""
+    from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.qp_optimiser import (
+        _SolverBounds,
+    )
+
+    root = 1e-4 * np.array(factor)
+    opt = _make_optimiser()
+    opt.N = len(gradient)
+    bounds = _SolverBounds(u_last=u_last, u_min=0.0, u_max=1.0, delta_u_max=delta_u_max)
+
+    plan = opt._solve_portable(
+        root @ root.T + 1e-10 * np.eye(opt.N), 1e4 * np.array(gradient), bounds
+    )
+
+    np.testing.assert_allclose(plan, vertex, rtol=0.0, atol=1e-12)
+
+
 def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -> None:
     """A plan that breaks a limit is replaced by the best flat plan."""
     from custom_components.better_thermostat.utils.calibration.mpc_v2_internals import (

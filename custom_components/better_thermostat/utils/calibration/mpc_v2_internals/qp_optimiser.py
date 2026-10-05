@@ -105,6 +105,50 @@ def _newton_direction(
     return dx, d_slack, d_dual
 
 
+def _solve_on_active(
+    hessian: FloatArray, gradient: FloatArray, normals: FloatArray, targets: FloatArray
+) -> tuple[FloatArray, FloatArray] | None:
+    """Return the minimiser on ``normals·x = targets`` and its multipliers.
+
+    The plan is split along a QR factorisation of ``normalsᵀ``: the part in
+    the span of the normals follows from the targets alone, the rest from
+    the objective restricted to the null space. Solving the plan and the
+    multipliers as one system would tie the plan's round-off to the
+    multipliers, which reach 1e11 when the gradient dwarfs the Hessian, and
+    leave a vertex plan 1e-5 inside its constraints. Linearly dependent
+    normals, or a Hessian singular on the null space, return ``None``.
+    """
+    size = hessian.shape[0]
+    count = normals.shape[0]
+    if count == 0:
+        try:
+            return np.linalg.solve(hessian, -gradient), np.zeros(0)
+        except np.linalg.LinAlgError:
+            return None
+    if count > size:
+        return None
+    basis, triangle = np.linalg.qr(normals.T, mode="complete")
+    diagonal = np.abs(np.diag(triangle[:count]))
+    if float(np.min(diagonal)) <= size * np.finfo(float).eps * float(np.max(diagonal)):
+        return None
+    range_basis = basis[:, :count]
+    null_basis = basis[:, count:]
+    upper = triangle[:count]
+    particular = range_basis @ np.linalg.solve(upper.T, targets)
+    exact = particular
+    if count < size:
+        reduced = null_basis.T @ hessian @ null_basis
+        try:
+            free = np.linalg.solve(
+                reduced, -null_basis.T @ (gradient + hessian @ particular)
+            )
+        except np.linalg.LinAlgError:
+            return None
+        exact = particular + null_basis @ free
+    multipliers = np.linalg.solve(upper, -range_basis.T @ (gradient + hessian @ exact))
+    return exact, multipliers
+
+
 def _polish(
     hessian: FloatArray,
     gradient: FloatArray,
@@ -122,18 +166,13 @@ def _polish(
     and every multiplier is non-negative, which makes it the optimum;
     otherwise ``None``.
     """
-    size = hessian.shape[0]
     active = [int(i) for i in np.flatnonzero(dual > slack)]
     for _ in range(2 * rows.shape[0]):
         count = len(active)
-        normals = rows[active]
-        kkt = np.block([[hessian, normals.T], [normals, np.zeros((count, count))]])
-        try:
-            solution = np.linalg.solve(kkt, np.concatenate([-gradient, limits[active]]))
-        except np.linalg.LinAlgError:
+        solved = _solve_on_active(hessian, gradient, rows[active], limits[active])
+        if solved is None:
             return None
-        exact = solution[:size]
-        multipliers = solution[size:]
+        exact, multipliers = solved
         excess = rows @ exact - limits
         worst = int(np.argmax(excess))
         if excess[worst] > _FEASIBILITY_TOL:
