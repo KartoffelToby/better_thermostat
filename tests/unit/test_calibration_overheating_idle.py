@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.state_manager import StateManager
 from tests.factories import ThermostatStandIn, make_state
 
 ENTITY_ID = "climate.trv"
+TARGET_TEMP = 19.0
 
 
 def build_bt(
@@ -29,7 +30,7 @@ def build_bt(
     trv_temp,
     calibration_mode=CalibrationMode.AGGRESIVE_CALIBRATION,
     protect_overheating=True,
-    bt_target_temp=19.0,
+    bt_target_temp=TARGET_TEMP,
     tolerance=0.3,
     step=1.0,
 ):
@@ -134,7 +135,7 @@ def test_idle_above_the_target_raises_the_local_offset():
 def test_protection_does_not_open_the_valve_further(
     calibration_mode, step, tolerance, cur_temp, trv_temp
 ):
-    """Turning the protection on yields a setpoint and an offset no more open."""
+    """The protection leaves both values alone up to the line and closes above it."""
     kwargs = {
         "calibration_mode": calibration_mode,
         "cur_temp": cur_temp,
@@ -159,5 +160,9 @@ def test_protection_does_not_open_the_valve_further(
     assert plain_setpoint is not None
     assert protected_offset is not None
     assert plain_offset is not None
-    assert protected_setpoint <= plain_setpoint
-    assert protected_offset >= plain_offset
+    if cur_temp <= TARGET_TEMP + tolerance:
+        assert protected_setpoint == pytest.approx(plain_setpoint)
+        assert protected_offset == pytest.approx(plain_offset)
+    else:
+        assert protected_setpoint <= plain_setpoint
+        assert protected_offset >= plain_offset
