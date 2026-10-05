@@ -6,6 +6,7 @@
   "custom_components/better_thermostat/adapters/delegate.py": 89.6,
   "custom_components/better_thermostat/adapters/generic.py": 92.3,
   "custom_components/better_thermostat/adapters/mqtt.py": 100.0,
+  "custom_components/better_thermostat/adapters/shelly.py": 95.7,
   "custom_components/better_thermostat/adapters/tado.py": 84.4,
   "custom_components/better_thermostat/adapters/types.py": 100.0,
   "custom_components/better_thermostat/adapters/valve_entity.py": 100.0,

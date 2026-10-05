@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.better_thermostat.adapters import generic, mqtt, zwave_js
+from custom_components.better_thermostat.adapters import generic, mqtt, shelly, zwave_js
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
 # Adapters whose offset bounds come from an entity discovery found.
-ENTITY_ADAPTERS = (generic, mqtt, zwave_js)
+ENTITY_ADAPTERS = (generic, mqtt, shelly, zwave_js)
 
 
 def _adapter_id(adapter):

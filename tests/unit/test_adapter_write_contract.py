@@ -1,6 +1,6 @@
 """Every adapter's write paths answer to the same contract.
 
-Six modules implement the same write surface for six ecosystems, and the
+Every ecosystem's adapter module implements the same write surface, and the
 shell reaches them through a duck-typed dispatch that cannot check any of
 it. What holds them together is therefore written down here rather than
 in a base class:
@@ -34,6 +34,7 @@ from custom_components.better_thermostat.adapters import (
     delegate,
     generic,
     mqtt,
+    shelly,
     tado,
     zwave_js,
 )
@@ -47,6 +48,7 @@ ADAPTERS = {
     "deconz": deconz,
     "generic": generic,
     "mqtt": mqtt,
+    "shelly": shelly,
     "tado": tado,
     "zwave_js": zwave_js,
 }
