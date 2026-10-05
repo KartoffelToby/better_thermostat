@@ -2167,8 +2167,9 @@ _VALVE_TRANSLATION_KEYS: dict[str, str] = {
 # heating_valve_position and idle_valve_position: the opening the device uses
 # while it heats and while it idles by its own decision. Writing a Better
 # Thermostat position into either one bends that controller instead of moving
-# the valve, so these models offer no valve entity at all.
-_MODELS_WITHOUT_VALVE_ENTITY = frozenset({"TRV-ZBT"})
+# the valve, so these models offer no valve entity at all. The names are
+# lower case and compared without regard to case, as the quirk modules match.
+_MODELS_WITHOUT_VALVE_ENTITY = frozenset({"trv-zbt"})
 
 
 async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
@@ -2197,12 +2198,16 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
         dev_reg = None
         base_identifiers = set()
 
-    if getattr(base_device, "model_id", None) in _MODELS_WITHOUT_VALVE_ENTITY:
+    base_model_id = getattr(base_device, "model_id", None)
+    if (
+        isinstance(base_model_id, str)
+        and base_model_id.strip().lower() in _MODELS_WITHOUT_VALVE_ENTITY
+    ):
         _LOGGER.debug(
             "better thermostat: %s is a %s, whose valve numbers configure the "
             "device's own controller; no valve entity is offered",
             entity_id,
-            getattr(base_device, "model_id", None),
+            base_model_id,
         )
         return None
 
