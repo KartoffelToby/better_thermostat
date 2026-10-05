@@ -144,7 +144,19 @@ async def _discover_valve(
 async def get_info(self, entity_id):
     """Return generic capabilities plus native Shelly valve support."""
     info = await generic_get_info(self, entity_id)
-    valve = await find_valve_entity(self, entity_id)
+    try:
+        valve = await find_valve_entity(self, entity_id)
+    except Exception:
+        _LOGGER.warning(
+            "better_thermostat %s: Shelly valve capability discovery failed "
+            "for %s; reporting Direct Valve as unavailable",
+            getattr(self, "device_name", "unknown"),
+            entity_id,
+            exc_info=True,
+        )
+        info["support_valve"] = False
+        return info
+
     info["support_valve"] = _is_writable_number(valve)
     return info
 
@@ -226,16 +238,11 @@ async def set_valve(self, entity_id, valve):
         else None
     )
 
-    # If this function is already being called, a missing cache can be
-    # re-populated. Note that Better Thermostat's delegate itself gates calls
-    # on an existing writable valve cache, so changing a Shelly TRV from
-    # thermostat mode (sensor-only valve position) to Direct Valve mode still
-    # requires a Better Thermostat reload to perform initial discovery.
-    if not valve_entity_id:
-        valve_entity_id = await _discover_valve(
-            self, entity_id, clear_on_miss=False
-        )
-
+    # Better Thermostat's delegate only calls adapter.set_valve while a
+    # writable valve cache already exists. Therefore an initial discovery miss
+    # cannot be repaired from here; a Better Thermostat reload is required to
+    # perform initial discovery again. Runtime re-discovery below is only for
+    # a previously cached valve entity that later disappears or is renamed.
     if not valve_entity_id or trv.valve_position_writable is not True:
         raise RuntimeError(f"No writable Shelly valve Number for {entity_id}")
 
