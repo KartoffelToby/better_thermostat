@@ -226,6 +226,7 @@ Direct valve control is available for TRVs that expose valve position as a contr
 - **Sonoff TRVZB** (via Zigbee2MQTT or ZHA)
 - **TRVs exposed via MQTT** with valve position entities
 - **Z-Wave JS TRVs** that expose a valve position entity, and the Eurotronic Spirit Z / Aeotec ZWA021
+- **Shelly BLU TRV**, once its built-in thermostat is switched off on the Shelly side and Home Assistant shows its valve position entity. Reload Better Thermostat after switching, so it finds the entity
 - **Other Zigbee TRVs** that expose valve control through their integration
 
 Better Thermostat detects whether your TRV supports direct valve control and then offers the **Direct Valve Based** calibration type. It only writes the valve when you select that type.

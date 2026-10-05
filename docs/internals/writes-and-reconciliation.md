@@ -28,9 +28,10 @@ flowchart LR
 ```
 
 **Adapters** (`adapters/`) speak the integration's dialect: Zigbee2MQTT,
-deCONZ, Tado, Z-Wave JS, generic climate services. Zigbee2MQTT and
-Z-Wave JS both publish the valve as a number entity of its own, and
-`adapters/valve_entity.py` serves that valve channel for both.
+deCONZ, Tado, Z-Wave JS, Shelly, generic climate services. Zigbee2MQTT,
+Z-Wave JS and the Shelly BLU TRV publish the valve as a number entity of
+its own, and `adapters/valve_entity.py` serves that valve channel for all
+three.
 **Model quirks** (`model_fixes/`) override single operations for
 devices that need special sequences (for example valve writes on the
 Sonoff TRVZB). The `Trv` object carries both, plus a `TrvCapabilities`

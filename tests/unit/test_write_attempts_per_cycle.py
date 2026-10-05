@@ -24,6 +24,7 @@ from custom_components.better_thermostat.adapters import (
     delegate,
     generic,
     mqtt,
+    shelly,
     tado,
     zwave_js,
 )
@@ -242,6 +243,7 @@ MODE_ADAPTERS = {
     "deconz": deconz,
     "generic": generic,
     "mqtt": mqtt,
+    "shelly": shelly,
     "tado": tado,
     "zwave_js": zwave_js,
 }

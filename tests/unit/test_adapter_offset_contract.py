@@ -22,6 +22,7 @@ from custom_components.better_thermostat.adapters import (
     deconz,
     generic,
     mqtt,
+    shelly,
     tado,
     zwave_js,
 )
@@ -40,7 +41,7 @@ SELECT_OPTIONS = ["-6.0k", "-3.0k", "0.0k", "3.0k", "6.0k"]
 
 # Adapters that write through a discovered number entity, and therefore have
 # an unsupported path when discovery found none.
-ENTITY_ADAPTERS = (generic, mqtt, zwave_js)
+ENTITY_ADAPTERS = (generic, mqtt, shelly, zwave_js)
 # Adapters whose offset rides on the ecosystem's own service call.
 SERVICE_ADAPTERS = (deconz, tado)
 
