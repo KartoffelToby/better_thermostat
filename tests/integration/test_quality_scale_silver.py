@@ -61,6 +61,11 @@ def _unavailable(hass, entity_id: str) -> bool:
     return state is not None and state.state == STATE_UNAVAILABLE
 
 
+def _available(hass, entity_id: str) -> bool:
+    state = hass.states.get(entity_id)
+    return state is not None and state.state != STATE_UNAVAILABLE
+
+
 @pytest.mark.quality_rule("action-exceptions")
 async def test_an_action_the_thermostat_cannot_run_is_refused_by_name(hass):
     """A call that cannot apply raises a validation error, not a bare one.
@@ -166,7 +171,7 @@ async def test_a_control_of_a_thermostat_that_is_gone_is_unavailable(
     """
     with patch(CRITICAL_GRACE, NO_GRACE):
         device, _ = await _started(hass, profile)
-    assert not _unavailable(hass, entity_id)
+    assert _available(hass, entity_id)
 
     device.set_available(False)
 
@@ -174,9 +179,7 @@ async def test_a_control_of_a_thermostat_that_is_gone_is_unavailable(
 
     device.set_available(True)
 
-    assert await wait_for(
-        hass, lambda: not _unavailable(hass, entity_id), timeout_s=2.0
-    )
+    assert await wait_for(hass, lambda: _available(hass, entity_id), timeout_s=2.0)
 
 
 @pytest.mark.quality_rule("entity-unavailable")
@@ -189,7 +192,7 @@ async def test_a_room_without_any_reachable_thermostat_is_unavailable(hass):
     """
     with patch(CRITICAL_GRACE, NO_GRACE):
         device, _ = await _started(hass, GENERIC_HEAT_TRV)
-    assert not _unavailable(hass, BT_ENTITY)
+    assert _available(hass, BT_ENTITY)
 
     device.set_available(False)
 
@@ -197,9 +200,7 @@ async def test_a_room_without_any_reachable_thermostat_is_unavailable(hass):
 
     device.set_available(True)
 
-    assert await wait_for(
-        hass, lambda: not _unavailable(hass, BT_ENTITY), timeout_s=2.0
-    )
+    assert await wait_for(hass, lambda: _available(hass, BT_ENTITY), timeout_s=2.0)
 
 
 def _reports_about(caplog, entity_id: str) -> list[str]:
@@ -259,5 +260,8 @@ async def test_an_outage_is_logged_when_it_starts_and_when_it_ends_only(
     back = _reports_about(caplog, gone)
 
     assert went
+    assert not any("available again" in report for report in went), went
     assert repeated == []
-    assert back, went
+    assert len(back) == 1, back
+    assert back[0].startswith("INFO "), back
+    assert "available again" in back[0], back

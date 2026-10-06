@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
@@ -222,10 +222,11 @@ class RestoresLastAvailableState(RestoreEntity):
 
     _last_available_state: State | None = None
 
+    @override
     @callback
-    def async_write_ha_state(self) -> None:
+    def _async_write_ha_state(self) -> None:
         """Publish the state, and remember it while the entity is available."""
-        super().async_write_ha_state()
+        super()._async_write_ha_state()
         published = self.hass.states.get(self.entity_id)
         if published is not None and published.state != STATE_UNAVAILABLE:
             self._last_available_state = published
@@ -237,6 +238,7 @@ class RestoresLastAvailableState(RestoreEntity):
         return {LAST_AVAILABLE_STATE: self._last_available_state.as_dict()}
 
     @property
+    @override
     def extra_restore_state_data(self) -> RestoredExtraData:
         """Save the last available state next to the published one."""
         return RestoredExtraData(self._extra_restore_data())
@@ -267,6 +269,7 @@ class ControlsOneTrv(Entity):
     _trv_entity_id: str
 
     @property
+    @override
     def available(self) -> bool:
         """Return whether the entity and the TRV it sets are available."""
         return super().available and is_trv_available(
