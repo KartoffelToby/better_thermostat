@@ -59,7 +59,7 @@ async def test_a_heating_target_above_the_cooling_one_leaves_the_pair_ordered(
         "set_preset_mode",
         {ATTR_ENTITY_ID: BT_ENTITY, "preset_mode": "comfort"},
     )
-    assert bt.bt_target_cooltemp == 24.0
+    assert bt.cool_target_temperature == 24.0
 
     await _call(
         hass, "number", "set_value", {ATTR_ENTITY_ID: COMFORT_NUMBER, "value": 26.0}
@@ -72,4 +72,4 @@ async def test_a_heating_target_above_the_cooling_one_leaves_the_pair_ordered(
     )
 
     assert bt.bt_target_temp == 26.0
-    assert bt.bt_target_cooltemp > bt.bt_target_temp
+    assert bt.cool_target_temperature > bt.bt_target_temp

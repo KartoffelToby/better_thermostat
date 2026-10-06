@@ -24,7 +24,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_target_temp = 21.0
-    mock.bt_target_cooltemp = 25.0
+    mock.cool_target_temperature = 25.0
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
     mock.cool_min_temperature = None

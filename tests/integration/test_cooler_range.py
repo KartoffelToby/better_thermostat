@@ -112,7 +112,7 @@ async def test_a_cooling_target_above_the_heater_reaches_the_cooler(hass, device
         {"target_temp_low": 20.0, "target_temp_high": TARGET_ABOVE_THE_HEAD},
     )
 
-    assert bt.bt_target_cooltemp == TARGET_ABOVE_THE_HEAD
+    assert bt.cool_target_temperature == TARGET_ABOVE_THE_HEAD
     assert hass.states.get(BT_ENTITY).attributes["target_temp_high"] == (
         TARGET_ABOVE_THE_HEAD
     )
@@ -174,7 +174,7 @@ async def test_a_cooling_preset_above_the_heater_reaches_the_cooler(hass, device
     await _call(hass, "set_preset_mode", {"preset_mode": "comfort"})
 
     assert float(hass.states.get(number_id).state) == TARGET_ABOVE_THE_HEAD
-    assert bt.bt_target_cooltemp == TARGET_ABOVE_THE_HEAD
+    assert bt.cool_target_temperature == TARGET_ABOVE_THE_HEAD
     cooler = device_role.cooler
     assert await wait_for(
         hass, lambda: TARGET_ABOVE_THE_HEAD in cooler.set_temperature_calls

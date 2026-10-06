@@ -76,7 +76,7 @@ def mock_bt():
     bt.bt_max_temp = 30.0
     bt.cool_min_temperature = None
     bt.cool_max_temperature = None
-    bt.bt_target_cooltemp = 25.0
+    bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.window_open = False
@@ -2231,7 +2231,7 @@ class TestTargetTempAdoption:
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.bt_min_temp = 20.0
         mock_bt.bt_target_temp = 21.0
-        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cool_target_temperature = 24.0
         mock_bt.cooler_entity_id = "climate.test_cooler"
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.advanced["no_off_system_mode"] = True
@@ -2253,7 +2253,7 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 21.0
-        assert mock_bt.bt_target_cooltemp == 24.0
+        assert mock_bt.cool_target_temperature == 24.0
         assert mock_bt.bt_hvac_mode == HVACMode.OFF
 
     @pytest.mark.asyncio
@@ -2383,7 +2383,7 @@ class TestTargetTempAdoption:
         """A reported target that already clears the cool target is taken as is."""
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 25.0
+        mock_bt.cool_target_temperature = 25.0
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2408,8 +2408,8 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 22.0
-        assert mock_bt.bt_target_cooltemp == 25.0
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 25.0
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
 
     @pytest.mark.asyncio
     async def test_adopted_target_is_capped_below_the_cool_target(self, mock_bt):
@@ -2420,7 +2420,7 @@ class TestTargetTempAdoption:
         """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0  # equal to the reported target
+        mock_bt.cool_target_temperature = 22.0  # equal to the reported target
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2445,8 +2445,8 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 21.5
-        assert mock_bt.bt_target_cooltemp == 22.0  # untouched
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 22.0  # untouched
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
 
     @pytest.mark.asyncio
     async def test_adopted_target_above_cool_target_is_capped(self, mock_bt, caplog):
@@ -2457,7 +2457,7 @@ class TestTargetTempAdoption:
         """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.5
+        mock_bt.cool_target_temperature = 22.5
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2483,8 +2483,8 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 22.0
-        assert mock_bt.bt_target_cooltemp == 22.5  # untouched
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 22.5  # untouched
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
         assert (
             "reported setpoint 24.00 does not clear the cooling target 22.50"
             in caplog.text
@@ -2507,7 +2507,7 @@ class TestTargetTempAdoption:
         """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.cool_target_temperature = 5.0
         mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp_step = 0.5
 
@@ -2533,8 +2533,8 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 5.0
-        assert mock_bt.bt_target_cooltemp == 5.5
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 5.5
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
 
     @pytest.mark.asyncio
     async def test_a_range_narrowed_above_the_cool_target_moves_it_further(
@@ -2549,7 +2549,7 @@ class TestTargetTempAdoption:
         """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 10.0
+        mock_bt.cool_target_temperature = 10.0
         mock_bt.bt_min_temp = 20.0
         mock_bt.bt_target_temp_step = 0.5
 
@@ -2575,20 +2575,20 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 20.0
-        assert mock_bt.bt_target_cooltemp == 20.5
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 20.5
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
 
     @pytest.mark.asyncio
     async def test_cooler_sync_survives_unset_cooltemp(self, mock_bt):
         """An unset cool target does not break adoption of the heat target.
 
         A cooler that has not reported a setpoint yet leaves
-        ``bt_target_cooltemp`` at None, and the handler runs in a background
+        ``cool_target_temperature`` at None, and the handler runs in a background
         task where an exception would abandon the adoption half-done.
         """
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = None
+        mock_bt.cool_target_temperature = None
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2613,7 +2613,7 @@ class TestTargetTempAdoption:
             await trigger_trv_change(mock_bt, event)
 
         assert mock_bt.bt_target_temp == 22.0
-        assert mock_bt.bt_target_cooltemp is None
+        assert mock_bt.cool_target_temperature is None
         mock_bt.async_write_ha_state.assert_called()
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
@@ -2689,7 +2689,7 @@ class TestTargetTempAdoption:
         mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.bt_target_temp = 20.0
-        mock_bt.bt_target_cooltemp = 25.0
+        mock_bt.cool_target_temperature = 25.0
         routine = {"temperature": 20.0, "current_temperature": 18.0}
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
         mock_bt.hass.states.get.return_value = _make_state(
@@ -2724,7 +2724,7 @@ class TestTargetTempAdoption:
         mock_bt.bt_hvac_mode = HVACMode.OFF
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.cooler_entity_id = "climate.cooler"
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         mock_bt.bt_target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2751,8 +2751,8 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
         assert mock_bt.hvac_mode == HVACMode.OFF
         assert mock_bt.bt_target_temp == 21.5
-        assert mock_bt.bt_target_cooltemp == 22.0
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 22.0
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
 
     @pytest.mark.asyncio
     async def test_no_off_wakeup_keeps_targets_separated(self, mock_bt, caplog):
@@ -2772,7 +2772,7 @@ class TestTargetTempAdoption:
         mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
         mock_bt.bt_hvac_mode = HVACMode.OFF
         mock_bt.cooler_entity_id = "climate.cooler"
-        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.cool_target_temperature = 5.0
         mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp_step = 0.5
         _bind_cooler_hvac_mode(mock_bt)
@@ -2802,8 +2802,8 @@ class TestTargetTempAdoption:
         assert mock_bt.bt_hvac_mode == HVACMode.HEAT
         assert mock_bt.hvac_mode == HVACMode.HEAT_COOL
         assert mock_bt.bt_target_temp == 5.0
-        assert mock_bt.bt_target_cooltemp == 5.5
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.cool_target_temperature == 5.5
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
         assert (
             "reported setpoint 22.00 does not clear the cooling target 5.00, "
             "keeping 5.00" in caplog.text
@@ -3503,7 +3503,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.bt_max_temp = 30.0
     bt.cool_min_temperature = None
     bt.cool_max_temperature = None
-    bt.bt_target_cooltemp = 25.0
+    bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.window_open = False
@@ -3689,7 +3689,7 @@ class TestGroupedModeAdoption:
         # A heating room with a cooler publishes heat_cool.
         bt.map_on_hvac_mode = HVACMode.HEAT_COOL
         bt.hvac_mode = HVACMode.HEAT_COOL
-        bt.bt_target_cooltemp = 5.0
+        bt.cool_target_temperature = 5.0
         bt.bt_min_temp = 5.0
         bt.bt_target_temp_step = 0.5
         _install_states(
@@ -3715,8 +3715,8 @@ class TestGroupedModeAdoption:
             await trigger_trv_change(bt, event)
 
         assert bt.bt_target_temp == 5.0
-        assert bt.bt_target_cooltemp == 5.5
-        assert bt.bt_target_temp < bt.bt_target_cooltemp
+        assert bt.cool_target_temperature == 5.5
+        assert bt.bt_target_temp < bt.cool_target_temperature
 
 
 class TestGroupedNoOffAdoption:
@@ -3825,7 +3825,7 @@ class TestDualRoleEntityReports:
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 20.0
-        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cool_target_temperature = 24.0
         mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
         mock_bt.real_trvs[ENTITY_ID].hvac_modes = [
             HVACMode.OFF,
@@ -3896,7 +3896,7 @@ class TestDualRoleEntityReports:
         )
 
         assert shared_bt.bt_target_temp == 20.0
-        assert shared_bt.bt_target_cooltemp == 24.0
+        assert shared_bt.cool_target_temperature == 24.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
@@ -3915,7 +3915,7 @@ class TestDualRoleEntityReports:
             shared_bt, device_mode="cool", reported_temp=29.0, previous_temp=24.0
         )
 
-        assert shared_bt.bt_target_cooltemp == 29.0
+        assert shared_bt.cool_target_temperature == 29.0
         assert shared_bt.bt_target_temp == 20.0
 
     @pytest.mark.asyncio
@@ -3927,7 +3927,7 @@ class TestDualRoleEntityReports:
             shared_bt, device_mode="cool", reported_temp=26.0, previous_temp=24.0
         )
 
-        assert shared_bt.bt_target_cooltemp == 26.0
+        assert shared_bt.cool_target_temperature == 26.0
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
 
@@ -3941,7 +3941,7 @@ class TestDualRoleEntityReports:
         )
 
         assert shared_bt.bt_target_temp == 21.0
-        assert shared_bt.bt_target_cooltemp == 24.0
+        assert shared_bt.cool_target_temperature == 24.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
@@ -3960,7 +3960,7 @@ class TestDualRoleEntityReports:
             shared_bt, device_mode="heat", reported_temp=26.0, previous_temp=20.0
         )
 
-        assert shared_bt.bt_target_cooltemp == 26.0
+        assert shared_bt.cool_target_temperature == 26.0
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
 
@@ -3982,7 +3982,7 @@ class TestDualRoleEntityReports:
         )
 
         assert shared_bt.bt_target_temp == 20.0
-        assert shared_bt.bt_target_cooltemp == 24.0
+        assert shared_bt.cool_target_temperature == 24.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -3998,7 +3998,7 @@ class TestDualRoleEntityReports:
         from there toward the target lands less than a step from it.
         """
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
-        shared_bt.bt_target_cooltemp = cool_target
+        shared_bt.cool_target_temperature = cool_target
         shared_bt._cooler_last_sent = {"temperature": (cool_target, 0.0)}
 
         await self._report(
@@ -4009,7 +4009,7 @@ class TestDualRoleEntityReports:
             step=1.0,
         )
 
-        assert shared_bt.bt_target_cooltemp == pressed
+        assert shared_bt.cool_target_temperature == pressed
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
 
@@ -4021,7 +4021,7 @@ class TestDualRoleEntityReports:
     ):
         """An off-grid cool target the device holds on its grid moves nothing."""
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
-        shared_bt.bt_target_cooltemp = cool_target
+        shared_bt.cool_target_temperature = cool_target
         shared_bt._cooler_last_sent = (
             {"temperature": (cool_target, 0.0)} if send_cache_primed else {}
         )
@@ -4034,7 +4034,7 @@ class TestDualRoleEntityReports:
             step=1.0,
         )
 
-        assert shared_bt.bt_target_cooltemp == cool_target
+        assert shared_bt.cool_target_temperature == cool_target
         assert shared_bt.bt_target_temp == 20.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
@@ -4065,9 +4065,9 @@ class TestDualRoleEntityReports:
 
         assert shared_bt.bt_target_temp == 20.0
         if adopted:
-            assert shared_bt.bt_target_cooltemp == pytest.approx(24.44, abs=0.01)
+            assert shared_bt.cool_target_temperature == pytest.approx(24.44, abs=0.01)
         else:
-            assert shared_bt.bt_target_cooltemp == 24.0
+            assert shared_bt.cool_target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_a_distinct_trv_setpoint_matching_the_cool_target_is_still_adopted(
@@ -4080,7 +4080,7 @@ class TestDualRoleEntityReports:
         """
         mock_bt.cooler_entity_id = "climate.split_unit"
         mock_bt.bt_target_temp = 19.0
-        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cool_target_temperature = 24.0
         mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
         mock_bt.bt_max_temp = 30.0
         mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0

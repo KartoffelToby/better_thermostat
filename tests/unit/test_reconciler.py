@@ -52,7 +52,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.temp_slope = None
     bt.tolerance = 0.0
     bt.bt_target_temp = 21.0
-    bt.bt_target_cooltemp = None
+    bt.cool_target_temperature = None
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
@@ -762,7 +762,7 @@ class TestReconcileOnADualRoleEntity:
     def _make_shared_bt(cls, *, hvac_mode_decided, **kwargs):
         bt = _make_bt(**kwargs)
         bt.cooler_entity_id = cls.SHARED_ID
-        bt.bt_target_cooltemp = 24.0
+        bt.cool_target_temperature = 24.0
         bt.cur_temp = 26.0
         bt._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
         return bt
@@ -802,7 +802,7 @@ class TestReconcileOnADualRoleEntity:
         """A cooler of its own never shields a thermostat from the tick."""
         bt = _make_bt(reported_target=18.0, commanded=21.0)
         bt.cooler_entity_id = "climate.split_unit"
-        bt.bt_target_cooltemp = 24.0
+        bt.cool_target_temperature = 24.0
         bt._cooler_last_sent = {"hvac_mode_decided": HVACMode.COOL}
 
         await reconcile_tick(bt)

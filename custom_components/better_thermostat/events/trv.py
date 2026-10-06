@@ -736,10 +736,10 @@ async def trigger_trv_change(
                     "from %s to %s",
                     self.device_name,
                     entity_id,
-                    self.bt_target_cooltemp,
+                    self.cool_target_temperature,
                     _adopted_cooling_setpoint,
                 )
-                self.bt_target_cooltemp = _adopted_cooling_setpoint
+                self.cool_target_temperature = _adopted_cooling_setpoint
                 # The turn takes the place of the cooling channel's last write
                 # as what the device holds, so the cycle compares the cooling
                 # target with the turn rather than with a write the device no
@@ -770,7 +770,7 @@ async def trigger_trv_change(
                         self.device_name,
                         entity_id,
                         _new_heating_setpoint,
-                        self.bt_target_cooltemp,
+                        self.cool_target_temperature,
                         _adopted_heating_setpoint,
                     )
                 _LOGGER.debug(
@@ -839,7 +839,7 @@ async def trigger_trv_change(
         if advanced.get("no_off_system_mode", False):
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
-            _room_before = (self.bt_hvac_mode, self.bt_target_cooltemp)
+            _room_before = (self.bt_hvac_mode, self.cool_target_temperature)
             if setpoint_at_minimum(
                 _raw_heating_setpoint,
                 trv.min_temp,
@@ -870,7 +870,7 @@ async def trigger_trv_change(
                 # checked at all: a setpoint adopted while the group was still
                 # off has not passed that check yet.
                 self._enforce_cool_above_heat()
-            if (self.bt_hvac_mode, self.bt_target_cooltemp) != _room_before:
+            if (self.bt_hvac_mode, self.cool_target_temperature) != _room_before:
                 _main_change = True
 
     if _main_change is True and request_cycle:

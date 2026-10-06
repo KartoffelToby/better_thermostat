@@ -83,7 +83,7 @@ def thermostat(reported_states):
     bt.bt_target_temp = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
-    bt.bt_target_cooltemp = 25.0
+    bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.cur_temp_filtered = None
@@ -883,7 +883,7 @@ class TestALockedPressHeldDuringACycle:
         trv = self._lock(thermostat)
         trv.last_temperature = 21.0
         trv.last_hvac_mode = "cool"
-        thermostat.bt_target_cooltemp = 24.3
+        thermostat.cool_target_temperature = 24.3
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
@@ -917,7 +917,7 @@ class TestALockedPressHeldDuringACycle:
         trv = self._lock(thermostat)
         trv.last_temperature = 21.0
         trv.last_hvac_mode = "cool"
-        thermostat.bt_target_cooltemp = 24.0
+        thermostat.cool_target_temperature = 24.0
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
@@ -1010,7 +1010,7 @@ class TestHeldCoolingTurn:
             "hvac_mode": (HVACMode.COOL, 1.0),
             "temperature": (cooling_target, 1.0),
         }
-        thermostat.bt_target_cooltemp = cooling_target
+        thermostat.cool_target_temperature = cooling_target
         thermostat.cool_min_temperature = None
         thermostat.cool_max_temperature = None
         thermostat._clamp_inbound_cool_target = lambda value: (
@@ -1062,7 +1062,7 @@ class TestHeldCoolingTurn:
         thermostat.ignore_states = False
         await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_cooltemp == cooling_target
+        assert thermostat.cool_target_temperature == cooling_target
         assert thermostat.bt_target_temp == 19.0
         assert thermostat.control_queue_task.qsize() == 1
 

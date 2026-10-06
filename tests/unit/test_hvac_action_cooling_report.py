@@ -41,7 +41,7 @@ def build_bt(
     bt = ThermostatStandIn()
     bt.tolerance = tolerance
     bt.bt_target_temp = target_temp
-    bt.bt_target_cooltemp = cool_target
+    bt.cool_target_temperature = cool_target
     bt.bt_target_temp_step = None
     bt.cur_temp = cur_temp
     bt.hvac_mode = HVACMode.HEAT_COOL

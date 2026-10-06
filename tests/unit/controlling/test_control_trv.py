@@ -154,7 +154,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.weather_entity = None
     mock_self.cur_temp_filtered = None
     mock_self.temp_slope = None
-    mock_self.bt_target_cooltemp = None
+    mock_self.cool_target_temperature = None
     mock_self.tolerance = kwargs.pop("tolerance", 0.0)
     mock_self.bt_min_temp = 5.0
     mock_self.bt_max_temp = 30.0
@@ -1633,7 +1633,7 @@ class TestBoostModeSafetyOverride:
         mock_self.weather_entity = None
         mock_self.cur_temp_filtered = None
         mock_self.temp_slope = None
-        mock_self.bt_target_cooltemp = None
+        mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
         mock_self.bt_max_temp = 30.0
@@ -1979,7 +1979,7 @@ class TestBoostModeSafetyOverride:
         mock_self.weather_entity = None
         mock_self.cur_temp_filtered = None
         mock_self.temp_slope = None
-        mock_self.bt_target_cooltemp = None
+        mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
         mock_self.bt_max_temp = 30.0
@@ -2353,7 +2353,7 @@ class TestRaceConditionLockCoverage:
         mock_self.weather_entity = None
         mock_self.cur_temp_filtered = None
         mock_self.temp_slope = None
-        mock_self.bt_target_cooltemp = None
+        mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
         mock_self.bt_max_temp = 30.0
@@ -2555,7 +2555,7 @@ class TestRaceConditionLockCoverage:
         mock_self.weather_entity = None
         mock_self.cur_temp_filtered = None
         mock_self.temp_slope = None
-        mock_self.bt_target_cooltemp = None
+        mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
         mock_self.bt_max_temp = 30.0
@@ -2673,7 +2673,7 @@ class TestRaceConditionLockCoverage:
         mock_self.weather_entity = None
         mock_self.cur_temp_filtered = None
         mock_self.temp_slope = None
-        mock_self.bt_target_cooltemp = None
+        mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
         mock_self.bt_max_temp = 30.0
@@ -2852,7 +2852,7 @@ def mock_bt_grouped():
     bt.weather_entity = None
     bt.cur_temp_filtered = None
     bt.temp_slope = None
-    bt.bt_target_cooltemp = None
+    bt.cool_target_temperature = None
     bt.tolerance = 0.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
