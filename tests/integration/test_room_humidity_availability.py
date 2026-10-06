@@ -75,15 +75,21 @@ async def test_a_removed_sensor_clears_the_published_humidity(hass, fake_trv):
 
 
 async def test_the_humidity_follows_its_sensor_while_a_head_is_unavailable(
-    hass, fake_trv
+    hass, trv_group
 ):
-    """With the head off the air, the humidity still clears and updates."""
+    """With one head off the air, the humidity still clears and updates.
+
+    The room keeps another head to control, so it stays available and keeps
+    publishing what its sensors report.
+    """
     set_room_sensor(hass, 19.0)
     set_room_humidity(hass, 42.5)
-    await _start(hass)
+    entry = make_entry(trv_group.scenario, with_humidity=True)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
     assert _published_humidity(hass) == 42.5
 
-    fake_trv.set_available(False)
+    trv_group.entities[0].set_available(False)
     await hass.async_block_till_done()
     hass.states.async_remove(HUMIDITY_ID)
     assert await wait_for(hass, lambda: _published_humidity(hass) is None)

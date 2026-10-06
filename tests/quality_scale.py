@@ -48,6 +48,22 @@ BRONZE_RULES = frozenset(
     }
 )
 
+# The Silver tier as Home Assistant's hassfest lists it.
+SILVER_RULES = frozenset(
+    {
+        "action-exceptions",
+        "config-entry-unloading",
+        "docs-configuration-parameters",
+        "docs-installation-parameters",
+        "entity-unavailable",
+        "integration-owner",
+        "log-when-unavailable",
+        "parallel-updates",
+        "reauthentication-flow",
+        "test-coverage",
+    }
+)
+
 STATUSES = frozenset({"done", "todo", "exempt"})
 
 

@@ -94,7 +94,7 @@ This is the "brain" of Better Thermostat. How should it calculate the heating?
 - **PID Controller**: A mathematical approach that constantly adjusts the valve. Best for advanced users.
 - **No Calibration**: Passes your target temperature to the radiator unchanged.
 
-**MPC v2 plant preset**: Only used by MPC v2. Leave it on *Auto* unless you want it to start from a fixed small, medium or large room model.
+**MPC v2 room size**: Only used by MPC v2. Leave it on *Auto* unless you want it to start from a fixed small, medium or large room model.
 
 Use [Algorithm selection](/optimal-settings/algorithm-selection/) for decision help.
 
