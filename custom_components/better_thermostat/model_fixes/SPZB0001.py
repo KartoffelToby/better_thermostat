@@ -120,10 +120,10 @@ async def check_operation_mode(
 
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
-    _calibration_type = self.real_trvs[entity_id].advanced.get(
+    _calibration_output = self.real_trvs[entity_id].advanced.get(
         "calibration", CalibrationOutput.TARGET_TEMP_BASED
     )
-    if _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED:
+    if _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
         await check_operation_mode(self, entity_id, goal="1")
     else:
         await check_operation_mode(self, entity_id, goal="2")

@@ -44,14 +44,14 @@ def fix_local_calibration(
     if entity_uses_mpc_calibration(self, entity_id):
         return calibration_offset
     _cur_external_temp = self.room_temperature
-    _target_temp = self.heat_target_temperature
+    _heat_target_temperature = self.heat_target_temperature
 
-    if _cur_external_temp is None or _target_temp is None:
+    if _cur_external_temp is None or _heat_target_temperature is None:
         return calibration_offset
 
-    if (_cur_external_temp + 0.1) >= _target_temp:
+    if (_cur_external_temp + 0.1) >= _heat_target_temperature:
         calibration_offset = round(calibration_offset + 0.5, 1)
-    elif (_cur_external_temp + 0.5) >= _target_temp:
+    elif (_cur_external_temp + 0.5) >= _heat_target_temperature:
         calibration_offset -= 2.5
 
     return calibration_offset

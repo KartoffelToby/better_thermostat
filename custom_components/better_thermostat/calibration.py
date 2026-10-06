@@ -115,7 +115,7 @@ def _compute_zero_open_offset(
     """Compute the offset to push setpoint below TRV temp when valve fraction is zero.
 
     Returns the offset so that callers can set:
-        _calibrated_setpoint = _cur_trv_temp - offset
+        _calibrated_setpoint = _cur_trv_temp - setpoint_drop
     """
     _overshoot = max(0.0, _cur_external_temp - _cur_target_temp)
     _t_min = convert_to_float(
@@ -123,10 +123,12 @@ def _compute_zero_open_offset(
         self.device_name,
         "_compute_zero_open_offset()",
     )
-    _max_offset = max(1.0, _cur_trv_temp - float(_t_min)) if _t_min is not None else 8.0
-    _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
-    _offset = max(_trv_temp_step, _offset)
-    return _offset
+    _max_setpoint_drop = (
+        max(1.0, _cur_trv_temp - float(_t_min)) if _t_min is not None else 8.0
+    )
+    _setpoint_drop = _max_setpoint_drop * (1.0 - math.exp(-0.5 * _overshoot))
+    _setpoint_drop = max(_trv_temp_step, _setpoint_drop)
+    return _setpoint_drop
 
 
 def effective_room_temp(self: BetterThermostat) -> float | None:
@@ -260,10 +262,10 @@ def _get_current_solar_intensity(self: BetterThermostat) -> float:
 def _supports_direct_valve_control(self: BetterThermostat, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
 
-    _calibration_type = self.real_trvs[entity_id].advanced.get(
+    _calibration_output = self.real_trvs[entity_id].advanced.get(
         "calibration", CalibrationOutput.TARGET_TEMP_BASED
     )
-    if _calibration_type != CalibrationOutput.DIRECT_VALVE_BASED:
+    if _calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
         return False
 
     trv = self.real_trvs.get(entity_id)
@@ -922,8 +924,8 @@ def _compute_tpi_balance(
     if trv_state is None:
         return None, False
 
-    _room_temp = effective_room_temp(self)
-    if self.heat_target_temperature is None or _room_temp is None:
+    _room_temperature = effective_room_temp(self)
+    if self.heat_target_temperature is None or _room_temperature is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -948,7 +950,7 @@ def _compute_tpi_balance(
         tpi_output, tpi_state = compute_tpi(
             TpiInput(
                 key=key,
-                current_temp_C=_room_temp,
+                current_temp_C=_room_temperature,
                 target_temp_C=self.heat_target_temperature,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 window_open=self.contact_open,
@@ -1357,7 +1359,7 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
                     (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
                 )
                 if _valve_fraction == 0.0 and _desired_trv_setpoint >= _cur_trv_temp_f:
-                    _offset = _compute_zero_open_offset(
+                    _setpoint_drop = _compute_zero_open_offset(
                         self,
                         entity_id,
                         _cur_trv_temp_f,
@@ -1365,7 +1367,7 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
                         _cur_target_temp,
                         _calibration_step,
                     )
-                    _desired_trv_setpoint = _cur_trv_temp_f - _offset
+                    _desired_trv_setpoint = _cur_trv_temp_f - _setpoint_drop
                 _new_trv_calibration = _current_trv_calibration - (
                     _desired_trv_setpoint - _cur_target_temp
                 )
@@ -1545,7 +1547,7 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
             if float(_percent) == 0.0:
                 # Valve closed: push setpoint below TRV's own temp so it doesn't
                 # heat by itself even though direct valve control already sent 0%.
-                _offset = _compute_zero_open_offset(
+                _setpoint_drop = _compute_zero_open_offset(
                     self,
                     entity_id,
                     _cur_trv_temp,
@@ -1553,7 +1555,7 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
                     _cur_target_temp,
                     _trv_temp_step,
                 )
-                _calibrated_setpoint = _cur_trv_temp - _offset
+                _calibrated_setpoint = _cur_trv_temp - _setpoint_drop
             else:
                 # Valve open: keep target so TRV internal logic doesn't restrict us.
                 _calibrated_setpoint = _cur_target_temp
@@ -1565,7 +1567,7 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
                     (float(_max_temp) - _cur_trv_temp) * _valve_fraction
                 )
                 if _valve_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
-                    _offset = _compute_zero_open_offset(
+                    _setpoint_drop = _compute_zero_open_offset(
                         self,
                         entity_id,
                         _cur_trv_temp,
@@ -1573,7 +1575,7 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
                         _cur_target_temp,
                         _trv_temp_step,
                     )
-                    _calibrated_setpoint = _cur_trv_temp - _offset
+                    _calibrated_setpoint = _cur_trv_temp - _setpoint_drop
 
     _skip_post_adjustments = traits.skip_post_adjustments
 

@@ -44,8 +44,8 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     state = self.hass.states.get(entity_id)
     if state is None:
         return {"support_offset": False, "support_valve": False}
-    _offset = state.attributes.get("offset", None)
-    if _offset is None:
+    _calibration_offset = state.attributes.get("offset", None)
+    if _calibration_offset is None:
         return {"support_offset": False, "support_valve": False}
     return {"support_offset": True, "support_valve": False}
 

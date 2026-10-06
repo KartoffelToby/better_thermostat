@@ -926,10 +926,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
-        _calibration_type = advanced.get("calibration")
+        _calibration_output = advanced.get("calibration")
         _calibration_mode = advanced.get("calibration_mode")
 
-        if _calibration_type is None:
+        if _calibration_output is None:
             _LOGGER.warning(
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
@@ -938,11 +938,11 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None
 
-        elif _calibration_type == CalibrationOutput.LOCAL_BASED:
+        elif _calibration_output == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
             _new_heating_setpoint = self.heat_target_temperature
 
-        elif _calibration_type in (
+        elif _calibration_output in (
             CalibrationOutput.TARGET_TEMP_BASED,
             CalibrationOutput.DIRECT_VALVE_BASED,
         ):
@@ -957,7 +957,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _LOGGER.warning(
                 "better_thermostat %s: unknown calibration type %s, using fallback mode",
                 self.device_name,
-                _calibration_type,
+                _calibration_output,
             )
             _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None

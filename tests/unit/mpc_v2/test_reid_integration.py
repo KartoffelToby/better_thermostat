@@ -132,7 +132,7 @@ def test_deserialize_rejects_malformed_reid_payload() -> None:
 # -- Dispatcher wiring --------------------------------------------------------
 
 
-def _trv_info(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
+def _make_trv(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
     """Build a Trv configured for MPC v2 calibration with a given preset."""
     return Trv(
         entity_id=entity_id,
@@ -153,7 +153,7 @@ def _trv_info(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
 def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
     """Build a minimal BT-shaped namespace with a real StateManager."""
     return SimpleNamespace(
-        real_trvs={"climate.x": _trv_info("climate.x", preset)},
+        real_trvs={"climate.x": _make_trv("climate.x", preset)},
         heat_target_temperature=21.0,
         room_temperature=19.5,
         tolerance=0.0,

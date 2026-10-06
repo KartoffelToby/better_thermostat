@@ -391,7 +391,8 @@ spelling for as long as a production field still carries it. Renaming the
 last production site is what makes its readers due, and they come out with it.
 
 `scripts/check_naming.py` matches whole identifiers against the rejected
-spellings in `glossary.toml`, and CI runs it. The tree carries none of them, so
+spellings in `glossary.toml`, a leading underscore included (`_offset` spells
+`offset`), and CI runs it. The tree carries none of them, so
 a single rejected spelling fails the check:
 
 ```bash

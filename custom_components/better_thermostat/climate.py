@@ -1227,12 +1227,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         for trv in self.all_trvs:
             _calibration = 1
             _advanced = trv.get("advanced", {})
-            _calibration_type = _advanced.get("calibration")
-            if _calibration_type == CalibrationOutput.TARGET_TEMP_BASED:
+            _calibration_output = _advanced.get("calibration")
+            if _calibration_output == CalibrationOutput.TARGET_TEMP_BASED:
                 _calibration = 0
-            if _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED:
+            if _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
                 _calibration = 2
-            if _calibration_type == CalibrationOutput.LOCAL_BASED:
+            if _calibration_output == CalibrationOutput.LOCAL_BASED:
                 _calibration = 3
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
@@ -2633,7 +2633,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # SENSOR_FALLBACK as if it were live and keep the ladder's
             # HOLD rung unreachable.
             _raw_current_temp = _attrs.get("current_temperature")
-            _current_temp = (
+            _trv_current_temperature = (
                 convert_to_float_celsius(
                     str(_raw_current_temp),
                     self.device_name,
@@ -2647,18 +2647,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Marker / garbage readings (for example AVM's 126.5 / 127 °C)
             # must not seed the cache and feed the first control cycle.
-            if _current_temp is not None and not is_reasonable_temperature(
-                _current_temp
+            if _trv_current_temperature is not None and not is_reasonable_temperature(
+                _trv_current_temperature
             ):
                 _LOGGER.warning(
                     "better_thermostat %s: TRV %s reports implausible "
                     "current_temperature %s at startup; ignoring",
                     self.device_name,
                     entity_id,
-                    _current_temp,
+                    _trv_current_temperature,
                 )
-                _current_temp = None
-            trv.current_temperature = _current_temp
+                _trv_current_temperature = None
+            trv.current_temperature = _trv_current_temperature
         return failed
 
     async def _initialize_arrived_trvs(self) -> None:

@@ -2115,14 +2115,14 @@ async def control_trv(
             _calibration_mode = self.real_trvs[entity_id].advanced.get(
                 "calibration_mode", DEFAULT_CALIBRATION_MODE
             )
-            _calibration_type = self.real_trvs[entity_id].advanced.get(
+            _calibration_output = self.real_trvs[entity_id].advanced.get(
                 "calibration", CalibrationOutput.TARGET_TEMP_BASED
             )
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (
                 is_boost_heating(snapshot)
-                and _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED
+                and _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
             ):
                 _temperature = self.real_trvs[entity_id].max_temp
 
@@ -2148,7 +2148,11 @@ async def control_trv(
                     valve_settings, _source = None, None
                 else:
                     valve_settings, _source = _get_valve_control(
-                        self, snapshot, entity_id, _calibration_mode, _calibration_type
+                        self,
+                        snapshot,
+                        entity_id,
+                        _calibration_mode,
+                        _calibration_output,
                     )
                 # A valve with no channel to write through is not pursued,
                 # and no retry is scheduled for it, until one appears.
@@ -2211,7 +2215,7 @@ async def control_trv(
                         _schedule_budget_retry(
                             self, entity_id, _budget_remaining(self, entity_id, "valve")
                         )
-                elif _calibration_type != CalibrationOutput.DIRECT_VALVE_BASED:
+                elif _calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
                     pass  # non-valve TRV: no valve control expected
             except Exception:
                 _LOGGER.debug(
@@ -2240,7 +2244,7 @@ async def control_trv(
             if (
                 is_boost_heating(snapshot)
                 and _new_hvac_mode == HVACMode.OFF
-                and _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED
+                and _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
             ):
                 _LOGGER.debug(
                     "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
