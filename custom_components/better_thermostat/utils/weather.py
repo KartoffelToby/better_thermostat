@@ -65,7 +65,7 @@ async def check_weather(self) -> bool:
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
 
-    if self.weather_entity is not None:
+    if self.weather_entity_id is not None:
         _call_for_heat_weather = await check_weather_prediction(self)
         if isinstance(_call_for_heat_weather, bool):
             if self.weather_fallback_active:
@@ -73,12 +73,12 @@ async def check_weather(self) -> bool:
                     "better_thermostat %s: weather entity %s gives a forecast "
                     "verdict again, heating follows the forecast",
                     self.device_name,
-                    self.weather_entity,
+                    self.weather_entity_id,
                 )
             self.weather_verdict_missing_since = None
             self.weather_fallback_active = False
             self.call_for_heat = _call_for_heat_weather
-        elif self.outdoor_sensor is None:
+        elif self.outdoor_sensor_entity_id is None:
             # None means the prediction has no opinion: the previous decision
             # stays for WEATHER_VERDICT_HOLD, then the room heats. With an
             # outdoor sensor configured its verdict decides below, so the
@@ -96,17 +96,17 @@ async def check_weather(self) -> bool:
                     "better_thermostat %s: weather entity %s has given no forecast "
                     "for %.1f hours, resuming heating until it does",
                     self.device_name,
-                    self.weather_entity,
+                    self.weather_entity_id,
                     _silent_s / 3600.0,
                 )
                 self.weather_fallback_active = True
             if self.weather_fallback_active:
                 self.call_for_heat = True
 
-    if self.outdoor_sensor is not None:
+    if self.outdoor_sensor_entity_id is not None:
         if None in (self.last_avg_outdoor_temp, self.off_temperature):
             # Check if sensor is currently unavailable (expected during startup)
-            _outdoor_state = self.hass.states.get(self.outdoor_sensor)
+            _outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
                 "unavailable",
                 "unknown",
@@ -131,7 +131,7 @@ async def check_weather(self) -> bool:
 
         self.call_for_heat = _call_for_heat_outdoor
 
-    if self.weather_entity is None and self.outdoor_sensor is None:
+    if self.weather_entity_id is None and self.outdoor_sensor_entity_id is None:
         self.call_for_heat = True
 
     if old_call_for_heat != self.call_for_heat:
@@ -172,7 +172,7 @@ async def check_weather_prediction(self) -> bool | None:
     None
             if not successful
     """
-    if self.weather_entity is None:
+    if self.weather_entity_id is None:
         _LOGGER.warning(
             "better_thermostat %s: weather entity not available.", self.device_name
         )
@@ -186,7 +186,7 @@ async def check_weather_prediction(self) -> bool | None:
         return None
 
     try:
-        state = self.hass.states.get(self.weather_entity)
+        state = self.hass.states.get(self.weather_entity_id)
         features = state.attributes.get("supported_features", 0) if state else 0
 
         if features & WeatherEntityFeature.FORECAST_DAILY:
@@ -199,7 +199,7 @@ async def check_weather_prediction(self) -> bool | None:
             _LOGGER.warning(
                 "better_thermostat %s: weather entity '%s' does not advertise any forecast support.",
                 self.device_name,
-                self.weather_entity,
+                self.weather_entity_id,
             )
             return None
 
@@ -211,7 +211,7 @@ async def check_weather_prediction(self) -> bool | None:
                 forecasts = await self.hass.services.async_call(
                     WEATHER_DOMAIN,
                     "get_forecasts",
-                    {"type": ftype, "entity_id": [self.weather_entity]},
+                    {"type": ftype, "entity_id": [self.weather_entity_id]},
                     blocking=True,
                     return_response=True,
                 )
@@ -220,12 +220,14 @@ async def check_weather_prediction(self) -> bool | None:
                 "better_thermostat %s: weather entity %s did not return a "
                 "forecast within %.0f seconds",
                 self.device_name,
-                self.weather_entity,
+                self.weather_entity_id,
                 FORECAST_CALL_TIMEOUT.total_seconds(),
             )
             return None
         forecast_container = (
-            forecasts.get(self.weather_entity) if isinstance(forecasts, dict) else None
+            forecasts.get(self.weather_entity_id)
+            if isinstance(forecasts, dict)
+            else None
         )
         forecast = (
             forecast_container.get("forecast")
@@ -234,7 +236,7 @@ async def check_weather_prediction(self) -> bool | None:
         )
         if isinstance(forecast, list) and len(forecast) > 0:
             # current outside temp from entity state (may be None)
-            cur_state = self.hass.states.get(self.weather_entity)
+            cur_state = self.hass.states.get(self.weather_entity_id)
             cur_outside_temp = convert_to_float_celsius(
                 (
                     str(cur_state.attributes.get("temperature"))
@@ -356,7 +358,7 @@ async def check_ambient_air_temperature(self):
 
 async def _check_ambient_air_temperature(self):
     """Decide call_for_heat from the outdoor sensor; callers hold the lock."""
-    if self.outdoor_sensor is None:
+    if self.outdoor_sensor_entity_id is None:
         return None
 
     if self.off_temperature is None or not isinstance(self.off_temperature, float):
@@ -367,12 +369,12 @@ async def _check_ambient_air_temperature(self):
         return None
 
     # Check if outdoor sensor is available
-    outdoor_state = self.hass.states.get(self.outdoor_sensor)
+    outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
     if outdoor_state is None or outdoor_state.state in ("unavailable", "unknown", None):
         _LOGGER.debug(
             "better_thermostat %s: outdoor sensor %s unavailable, skipping ambient check",
             self.device_name,
-            self.outdoor_sensor,
+            self.outdoor_sensor_entity_id,
         )
         # Keep last known value or default to heating enabled
         if self.last_avg_outdoor_temp is None:
@@ -405,7 +407,7 @@ async def _check_ambient_air_temperature(self):
                     "better_thermostat %s: reading the history of %s from the "
                     "recorder failed, keeping the last known outdoor mean",
                     self.device_name,
-                    self.outdoor_sensor,
+                    self.outdoor_sensor_entity_id,
                 )
                 self.outdoor_history_failing = True
             else:
@@ -455,8 +457,10 @@ async def _read_outdoor_history_mean(self, outdoor_state) -> float | None:
     """
     _temp_history = DailyHistory(2)
     start_date = dt_util.utcnow() - timedelta(days=2)
-    _LOGGER.debug("Initializing values for %s from the database", self.outdoor_sensor)
-    lower_entity_id = self.outdoor_sensor.lower()
+    _LOGGER.debug(
+        "Initializing values for %s from the database", self.outdoor_sensor_entity_id
+    )
+    lower_entity_id = self.outdoor_sensor_entity_id.lower()
     history_list = await get_instance(self.hass).async_add_executor_job(
         history.state_changes_during_period,
         self.hass,

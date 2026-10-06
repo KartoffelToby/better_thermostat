@@ -44,8 +44,8 @@ def _make_bt(
     bt.hvac_action = hvac_action
     bt.room_temperature = room_temperature
     bt.heat_target_temperature = heat_target_temperature
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.bt_hvac_mode = HVACMode.OFF
 
     quirks = MagicMock()

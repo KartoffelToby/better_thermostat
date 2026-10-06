@@ -537,9 +537,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.config.cooler_entity_id
 
     @property
-    def window_id(self) -> str | None:
+    def window_sensor_entity_id(self) -> str | None:
         """Return the window sensor entity id."""
-        return self.config.window_id
+        return self.config.window_sensor_entity_id
 
     @property
     def window_open_delay_seconds(self) -> float:
@@ -552,9 +552,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.config.window_close_delay_seconds
 
     @property
-    def door_id(self) -> str | None:
+    def door_sensor_entity_id(self) -> str | None:
         """Return the door sensor entity id."""
-        return self.config.door_id
+        return self.config.door_sensor_entity_id
 
     @property
     def door_open_delay_seconds(self) -> float:
@@ -567,14 +567,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.config.door_close_delay_seconds
 
     @property
-    def weather_entity(self) -> str | None:
+    def weather_entity_id(self) -> str | None:
         """Return the weather entity id."""
-        return self.config.weather_entity
+        return self.config.weather_entity_id
 
     @property
-    def outdoor_sensor(self) -> str | None:
+    def outdoor_sensor_entity_id(self) -> str | None:
         """Return the outdoor sensor entity id."""
-        return self.config.outdoor_sensor
+        return self.config.outdoor_sensor_entity_id
 
     @property
     def off_temperature(self) -> float | None:
@@ -787,14 +787,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         trv_configs,
         sensor_entity_id,
         humidity_sensor_entity_id,
-        window_id,
+        window_sensor_entity_id,
         window_open_delay_seconds,
         window_close_delay_seconds,
-        door_id,
+        door_sensor_entity_id,
         door_open_delay_seconds,
         door_close_delay_seconds,
-        weather_entity,
-        outdoor_sensor,
+        weather_entity_id,
+        outdoor_sensor_entity_id,
         off_temperature,
         tolerance,
         target_temp_min,
@@ -824,21 +824,21 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
             External humidity sensor entity id.
-        window_id : str | None
+        window_sensor_entity_id : str | None
             Window contact sensor entity id for open-window detection.
         window_open_delay_seconds : int
             Delay in seconds before reacting to a window opening.
         window_close_delay_seconds : int
             Delay in seconds before reacting to a window closing.
-        door_id : str | None
+        door_sensor_entity_id : str | None
             Door contact sensor entity id for open-door detection.
         door_open_delay_seconds : int
             Delay in seconds before reacting to a door opening.
         door_close_delay_seconds : int
             Delay in seconds before reacting to a door closing.
-        weather_entity : str | None
+        weather_entity_id : str | None
             Weather entity used as outdoor temperature source.
-        outdoor_sensor : str | None
+        outdoor_sensor_entity_id : str | None
             Outdoor temperature sensor entity id.
         off_temperature : float | None
             Outdoor temperature above which heating is switched off.
@@ -933,14 +933,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             sensor_entity_id=sensor_entity_id,
             humidity_sensor_entity_id=humidity_sensor_entity_id,
             cooler_entity_id=cooler_entity_id,
-            window_id=window_id or None,
+            window_sensor_entity_id=window_sensor_entity_id or None,
             window_open_delay_seconds=window_open_delay_seconds or 0,
             window_close_delay_seconds=window_close_delay_seconds or 0,
-            door_id=door_id or None,
+            door_sensor_entity_id=door_sensor_entity_id or None,
             door_open_delay_seconds=door_open_delay_seconds or 0,
             door_close_delay_seconds=door_close_delay_seconds or 0,
-            weather_entity=weather_entity or None,
-            outdoor_sensor=outdoor_sensor or None,
+            weather_entity_id=weather_entity_id or None,
+            outdoor_sensor_entity_id=outdoor_sensor_entity_id or None,
             off_temperature=_off_temperature,
             tolerance=_tolerance,
         )
@@ -1075,11 +1075,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
             maxsize=1
         )
-        if self.window_id is not None:
+        if self.window_sensor_entity_id is not None:
             self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
                 maxsize=1
             )
-        if self.door_id is not None:
+        if self.door_sensor_entity_id is not None:
             self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
         self._control_task = None
         self._window_task = None
@@ -1206,11 +1206,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
         )
-        if self.window_id is not None:
+        if self.window_sensor_entity_id is not None:
             self._window_task = self.hass.async_create_background_task(
                 window_queue(self), name=f"bt_window_queue_{self.device_name}"
             )
-        if self.door_id is not None:
+        if self.door_sensor_entity_id is not None:
             self._door_task = self.hass.async_create_background_task(
                 door_queue(self), name=f"bt_door_queue_{self.device_name}"
             )
@@ -2093,8 +2093,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # events/window.py and events/door.py).
         self.kernel_state = replace(
             self.kernel_state,
-            window=_seed_contact_region_at_startup(self, self.window_id, "window"),
-            door=_seed_contact_region_at_startup(self, self.door_id, "door"),
+            window=_seed_contact_region_at_startup(
+                self, self.window_sensor_entity_id, "window"
+            ),
+            door=_seed_contact_region_at_startup(
+                self, self.door_sensor_entity_id, "door"
+            ),
         )
 
     async def _restore_state(self, states: list[State]) -> None:
@@ -2927,8 +2931,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # outdoor sensor are the two that no earlier init step registers.
         if self.cooler_entity_id is not None:
             self.all_entities.append(self.cooler_entity_id)
-        if self.outdoor_sensor is not None:
-            self.all_entities.append(self.outdoor_sensor)
+        if self.outdoor_sensor_entity_id is not None:
+            self.all_entities.append(self.outdoor_sensor_entity_id)
 
         # try to find battery entities for all related entities
         for entity in self.all_entities:
@@ -2944,7 +2948,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         # Add listener
-        if self.outdoor_sensor is not None:
+        if self.outdoor_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_time_change(
                     self.hass,
@@ -3151,16 +3155,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # listener above existed, and a TRV that has come back does not
         # necessarily report again soon.
         await self._initialize_arrived_trvs()
-        if self.window_id is not None:
+        if self.window_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self.window_id], self._trigger_window_change
+                    self.hass,
+                    [self.window_sensor_entity_id],
+                    self._trigger_window_change,
                 )
             )
-        if self.door_id is not None:
+        if self.door_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self.door_id], self._trigger_door_change
+                    self.hass, [self.door_sensor_entity_id], self._trigger_door_change
                 )
             )
         if self.cooler_entity_id is not None:
@@ -3204,10 +3210,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 # stored for the first cycle after it is switched on, and that
                 # switch requests a cycle of its own.
                 request_control_cycle(self)
-        if self.outdoor_sensor is not None:
+        if self.outdoor_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
+                    self.hass,
+                    [self.outdoor_sensor_entity_id],
+                    self._trigger_outdoor_change,
                 )
             )
         # One keepalive right away, so a TRV that mirrors the room temperature
@@ -3617,10 +3625,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     def _get_outdoor_temp(self) -> float | None:
         """Resolve outdoor temperature from sensor entity, if configured."""
-        if self.outdoor_sensor is None:
+        if self.outdoor_sensor_entity_id is None:
             return None
         try:
-            outdoor_state = self.hass.states.get(self.outdoor_sensor)
+            outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             if outdoor_state is not None:
                 return convert_to_float_celsius(
                     str(outdoor_state.state),
@@ -3634,7 +3642,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: outdoor sensor %s could not be read",
                 self.device_name,
-                self.outdoor_sensor,
+                self.outdoor_sensor_entity_id,
                 exc_info=True,
             )
         return None

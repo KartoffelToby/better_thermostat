@@ -164,8 +164,8 @@ def effective_room_temp(self: BetterThermostat) -> float | None:
 
 def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
     """Get current outdoor temperature from outdoor sensor or weather entity."""
-    if self.outdoor_sensor is not None:
-        state = self.hass.states.get(self.outdoor_sensor)
+    if self.outdoor_sensor_entity_id is not None:
+        state = self.hass.states.get(self.outdoor_sensor_entity_id)
         if state:
             return convert_to_float_celsius(
                 state.state,
@@ -174,8 +174,8 @@ def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
                 unit_of_measurement=state.attributes.get("unit_of_measurement"),
             )
 
-    if self.weather_entity is not None:
-        state = self.hass.states.get(self.weather_entity)
+    if self.weather_entity_id is not None:
+        state = self.hass.states.get(self.weather_entity_id)
         if state and state.attributes:
             return convert_to_float_celsius(
                 state.attributes.get("temperature"),
@@ -199,10 +199,10 @@ def _get_solar_context(self: BetterThermostat) -> tuple[bool, float]:
 
 def _get_current_solar_intensity(self: BetterThermostat) -> float:
     """Estimate solar intensity (0.0 to 1.0) based on weather entity data."""
-    if self.weather_entity is None:
+    if self.weather_entity_id is None:
         return 0.0
 
-    state = self.hass.states.get(self.weather_entity)
+    state = self.hass.states.get(self.weather_entity_id)
     if not state or not state.attributes:
         return 0.0
 

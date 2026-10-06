@@ -29,14 +29,14 @@ class BtConfig:
     sensor_entity_id: str | None = None
     humidity_sensor_entity_id: str | None = None
     cooler_entity_id: str | None = None
-    window_id: str | None = None
+    window_sensor_entity_id: str | None = None
     window_open_delay_seconds: float = 0.0
     window_close_delay_seconds: float = 0.0
-    door_id: str | None = None
+    door_sensor_entity_id: str | None = None
     door_open_delay_seconds: float = 0.0
     door_close_delay_seconds: float = 0.0
-    weather_entity: str | None = None
-    outdoor_sensor: str | None = None
+    weather_entity_id: str | None = None
+    outdoor_sensor_entity_id: str | None = None
     off_temperature: float | None = None
     tolerance: float = 0.0
 

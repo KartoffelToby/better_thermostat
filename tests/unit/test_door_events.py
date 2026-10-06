@@ -29,7 +29,7 @@ _LOGBOOK = f"{_CONTACT}.async_fire_logbook_entry"
 def _make_bt(*, sensor_state="off", door_open=False, open_delay=0, close_delay=0):
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.door_id = "binary_sensor.door"
+    bt.door_sensor_entity_id = "binary_sensor.door"
     bt.door_open = door_open
     bt.door_open_delay_seconds = open_delay
     bt.door_close_delay_seconds = close_delay
@@ -231,7 +231,7 @@ class TestTriggerDoorChange:
         entity id has to be checked before it is used as a lookup key.
         """
         bt = _make_bt()
-        bt.door_id = None
+        bt.door_sensor_entity_id = None
         await trigger_door_change(bt, _event("on"))
         bt.hass.states.get.assert_not_called()
         assert bt.door_queue_task.empty()

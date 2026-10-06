@@ -64,6 +64,16 @@ def _with_door_region(state: KernelState, region: WindowState) -> KernelState:
     return replace(state, door=region)
 
 
+def _window_sensor_entity_id(self: BetterThermostat) -> str | None:
+    """Return the window sensor entity id."""
+    return self.window_sensor_entity_id
+
+
+def _door_sensor_entity_id(self: BetterThermostat) -> str | None:
+    """Return the door sensor entity id."""
+    return self.door_sensor_entity_id
+
+
 def _window_open_delay(self: BetterThermostat) -> float:
     """Return the window-open debounce delay in seconds."""
     return self.window_open_delay_seconds
@@ -88,16 +98,16 @@ def _door_close_delay(self: BetterThermostat) -> float:
 class ContactRole:
     """Binding of the shared contact logic to one sensor kind.
 
-    The attribute names and the two delay accessors say where the
-    configuration of this kind of contact lives on the BetterThermostat
-    instance; the two region accessors say
+    The entity id and delay accessors and the queue attribute name say
+    where the configuration of this kind of contact lives on the
+    BetterThermostat instance; the two region accessors say
     which kernel region it drives. Naming the region through a pair of
     functions keeps the two regions separate types-wise, so a window event
     cannot reach the door region by a typo in a string.
     """
 
     kind: Literal["window", "door"]
-    entity_id_attr: str
+    entity_id_of: Callable[[BetterThermostat], str | None]
     open_delay_of: Callable[[BetterThermostat], float]
     close_delay_of: Callable[[BetterThermostat], float]
     queue_attr: str
@@ -109,7 +119,7 @@ class ContactRole:
 
 WINDOW: Final = ContactRole(
     kind="window",
-    entity_id_attr="window_id",
+    entity_id_of=_window_sensor_entity_id,
     open_delay_of=_window_open_delay,
     close_delay_of=_window_close_delay,
     queue_attr="window_queue_task",
@@ -121,7 +131,7 @@ WINDOW: Final = ContactRole(
 
 DOOR: Final = ContactRole(
     kind="door",
-    entity_id_attr="door_id",
+    entity_id_of=_door_sensor_entity_id,
     open_delay_of=_door_open_delay,
     close_delay_of=_door_close_delay,
     queue_attr="door_queue_task",
@@ -173,7 +183,7 @@ async def trigger_contact_change(
     None
     """
 
-    entity_id = getattr(self, role.entity_id_attr)
+    entity_id = role.entity_id_of(self)
     new_state = event.data.get("new_state")
 
     # The entity id is checked before it is used as a lookup key: the state
@@ -309,7 +319,7 @@ async def _settle_contact_region(self: BetterThermostat, role: ContactRole) -> N
                 remaining,
             )
             await asyncio.sleep(remaining)
-        sensor = self.hass.states.get(getattr(self, role.entity_id_attr))
+        sensor = self.hass.states.get(role.entity_id_of(self))
         # A non-active sensor (missing / unavailable / unknown) counts as
         # closed, mirroring the live event handler.
         sensor_open = sensor is not None and sensor.state in OPEN_WORDS

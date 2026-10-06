@@ -63,8 +63,8 @@ def _make_bt(
     bt.room_temperature = room_temperature
     bt.room_temperature_filtered = None
     bt.heat_target_temperature = heat_target_temperature
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.contact_open = False
     # Short-circuit MPC/TPI/PID internal compute
     bt.bt_hvac_mode = HVACMode.OFF

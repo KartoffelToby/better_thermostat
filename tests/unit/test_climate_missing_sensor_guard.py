@@ -38,11 +38,11 @@ def _bt_without_sensor():
     mock.all_entities = []
     mock.sensor_entity_id = None
     mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
+    mock.window_sensor_entity_id = None
+    mock.door_sensor_entity_id = None
     mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
-    mock.weather_entity = None
+    mock.outdoor_sensor_entity_id = None
+    mock.weather_entity_id = None
     mock.unavailable_sensors = []
     mock._degraded_warning_emitted = False
     mock._degraded_grace_until = None

@@ -53,11 +53,11 @@ def _startup_bt():
     mock.all_entities = []
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
+    mock.window_sensor_entity_id = None
+    mock.door_sensor_entity_id = None
     mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
-    mock.weather_entity = None
+    mock.outdoor_sensor_entity_id = None
+    mock.weather_entity_id = None
     mock.unavailable_sensors = []
     # Real containers, not MagicMock attributes: the battery path reads both
     # and a MagicMock answers every lookup with a truthy stand-in, which
@@ -99,7 +99,7 @@ async def _run_finalize_startup(bt, *, patch_degraded_check=True):
 def _startup_loop_bt():
     """Build a mock for startup() with an unavailable optional weather entity."""
     bt = _startup_bt()
-    bt.weather_entity = WEATHER_ID
+    bt.weather_entity_id = WEATHER_ID
     bt.version = "1.0.0"
     bt._check_entities_ready = MagicMock(return_value=True)
     bt._collect_trv_states = MagicMock(return_value=[])

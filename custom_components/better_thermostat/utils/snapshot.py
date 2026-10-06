@@ -53,10 +53,10 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
 
 def _raw_window_open(self) -> bool | None:
     """Read the raw window-sensor state (None: no sensor configured)."""
-    window_id = getattr(self, "window_id", None)
-    if not window_id or self.hass is None:
+    window_sensor_entity_id = self.window_sensor_entity_id
+    if not window_sensor_entity_id or self.hass is None:
         return None
-    state = self.hass.states.get(window_id)
+    state = self.hass.states.get(window_sensor_entity_id)
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return None
     return state.state not in ("off", "false", "closed")

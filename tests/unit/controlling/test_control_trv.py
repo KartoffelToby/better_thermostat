@@ -129,6 +129,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_hass.services.async_call = AsyncMock()
 
     mock_self = ThermostatStandIn()
+    mock_self.window_sensor_entity_id = None
     mock_self.attr_hvac_action = None
     mock_self.hass = mock_hass
     mock_self.device_name = "test_thermostat"
@@ -150,8 +151,8 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.startup_running = False
     mock_self.in_maintenance = False
     mock_self.degraded_mode = False
-    mock_self.outdoor_sensor = None
-    mock_self.weather_entity = None
+    mock_self.outdoor_sensor_entity_id = None
+    mock_self.weather_entity_id = None
     mock_self.room_temperature_filtered = None
     mock_self.temp_slope = None
     mock_self.cool_target_temperature = None
@@ -1609,6 +1610,7 @@ class TestBoostModeSafetyOverride:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.window_sensor_entity_id = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -1629,8 +1631,8 @@ class TestBoostModeSafetyOverride:
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
         mock_self.ignore_states = False
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
         mock_self.temp_slope = None
         mock_self.cool_target_temperature = None
@@ -1955,6 +1957,7 @@ class TestBoostModeSafetyOverride:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.window_sensor_entity_id = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -1975,8 +1978,8 @@ class TestBoostModeSafetyOverride:
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
         mock_self.ignore_states = False
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
         mock_self.temp_slope = None
         mock_self.cool_target_temperature = None
@@ -2337,6 +2340,7 @@ class TestRaceConditionLockCoverage:
         )
 
         mock_self = ThermostatStandIn()
+        mock_self.window_sensor_entity_id = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_grouped_thermostat"
@@ -2349,8 +2353,8 @@ class TestRaceConditionLockCoverage:
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
         mock_self.ignore_states = False
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
         mock_self.temp_slope = None
         mock_self.cool_target_temperature = None
@@ -2539,6 +2543,7 @@ class TestRaceConditionLockCoverage:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.window_sensor_entity_id = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -2551,8 +2556,8 @@ class TestRaceConditionLockCoverage:
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
         mock_self.ignore_states = False
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
         mock_self.temp_slope = None
         mock_self.cool_target_temperature = None
@@ -2657,6 +2662,7 @@ class TestRaceConditionLockCoverage:
         mock_hass.states.get.return_value = mock_state
 
         mock_self = ThermostatStandIn()
+        mock_self.window_sensor_entity_id = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -2669,8 +2675,8 @@ class TestRaceConditionLockCoverage:
         mock_self.in_maintenance = False
         mock_self.degraded_mode = False
         mock_self.ignore_states = False
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
         mock_self.temp_slope = None
         mock_self.cool_target_temperature = None
@@ -2841,6 +2847,7 @@ class TestRaceConditionLockCoverage:
 def mock_bt_grouped():
     """Create a mock BetterThermostat instance for grouped TRV testing."""
     bt = ThermostatStandIn()
+    bt.window_sensor_entity_id = None
     bt.attr_hvac_action = None
     bt.hass = MagicMock()
     bt.clock = FakeClock()
@@ -2850,8 +2857,8 @@ def mock_bt_grouped():
     bt.in_maintenance = False
     bt.degraded_mode = False
     bt.ignore_states = False
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.room_temperature_filtered = None
     bt.temp_slope = None
     bt.cool_target_temperature = None

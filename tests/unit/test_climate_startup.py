@@ -116,10 +116,10 @@ def bt():
         )
     }
     mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
+    mock.outdoor_sensor_entity_id = None
     mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
+    mock.window_sensor_entity_id = None
+    mock.door_sensor_entity_id = None
     mock.all_entities = []
     mock.unavailable_sensors = []
     mock.degraded_mode = False
@@ -1198,7 +1198,7 @@ class TestInitializeSensors:
 
     def test_window_open_detected(self, bt):
         """Test Window open detected."""
-        bt.window_id = WINDOW_ID
+        bt.window_sensor_entity_id = WINDOW_ID
         sensor = _make_sensor_state("20.0")
 
         def side_effect(entity_id):
@@ -1213,14 +1213,14 @@ class TestInitializeSensors:
 
     def test_window_none_defaults_closed(self, bt):
         """Test Window none defaults closed."""
-        bt.window_id = None
+        bt.window_sensor_entity_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.kernel_state.window.effective_open is False
 
     def test_door_open_detected(self, bt):
         """Test Door open detected."""
-        bt.door_id = DOOR_ID
+        bt.door_sensor_entity_id = DOOR_ID
         sensor = _make_sensor_state("20.0")
 
         def side_effect(entity_id):
@@ -1235,14 +1235,14 @@ class TestInitializeSensors:
 
     def test_door_none_defaults_closed(self, bt):
         """Test Door none defaults closed."""
-        bt.door_id = None
+        bt.door_sensor_entity_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.kernel_state.door.effective_open is False
 
     def test_door_unavailable_assumes_closed(self, bt):
         """Test Door sensor unavailable at startup counts as closed."""
-        bt.door_id = DOOR_ID
+        bt.door_sensor_entity_id = DOOR_ID
         sensor = _make_sensor_state("20.0")
 
         def side_effect(entity_id):
@@ -3035,7 +3035,7 @@ class TestFinalizeStartupBatteryScan:
     async def test_scan_reaches_the_outdoor_sensor(self, bt):
         """A configured outdoor sensor is asked for its battery entity."""
         bt.cooler_entity_id = None
-        bt.outdoor_sensor = OUTDOOR_ID
+        bt.outdoor_sensor_entity_id = OUTDOOR_ID
         bt.devices_states = {}
 
         scanned = await self._scan(bt)
@@ -3049,7 +3049,7 @@ class TestFinalizeStartupBatteryScan:
     async def test_unconfigured_devices_are_not_scanned(self, bt):
         """Nothing is registered for a cooler or outdoor sensor that is absent."""
         bt.cooler_entity_id = None
-        bt.outdoor_sensor = None
+        bt.outdoor_sensor_entity_id = None
         bt.devices_states = {}
 
         scanned = await self._scan(bt)
@@ -3261,7 +3261,7 @@ class TestFinalizeStartupOnADualRoleEntity:
         bt.is_removed = False
         bt.all_trvs = None
         bt.entity_ids = [TRV_ID]
-        bt.outdoor_sensor = None
+        bt.outdoor_sensor_entity_id = None
         bt._async_unsub_state_changed = None
         bt._post_grace_recheck = MagicMock()
         bt._external_temperature_keepalive = MagicMock()

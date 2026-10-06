@@ -39,8 +39,8 @@ def _make_bt(state_mgr: _TpiStateStub) -> ThermostatStandIn:
     bt.contact_open = False
     bt.bt_hvac_mode = "heat"
     bt.clock = FakeClock()
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.real_trvs = {
         "climate.trv": Trv.from_legacy_dict(
             "climate.trv",

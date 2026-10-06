@@ -75,7 +75,7 @@ def mock_bt():
     bt._loss_tracker = HeatLossTracker()
     bt.old_attr_hvac_action = None
     bt.attr_hvac_action = None
-    bt.outdoor_sensor = None
+    bt.outdoor_sensor_entity_id = None
     # Cooling channel: off unless a test configures one
     bt.cooler_entity_id = None
     bt._preset_cool_temperature = None
@@ -638,7 +638,7 @@ class TestCalculateHeatingPower:
         mock_bt._heating_tracker.start_ts = base - timedelta(minutes=10)
         mock_bt._heating_tracker.end_temp = 22.0
         mock_bt._heating_tracker.end_ts = base - timedelta(minutes=2)
-        mock_bt.outdoor_sensor = "sensor.outdoor"
+        mock_bt.outdoor_sensor_entity_id = "sensor.outdoor"
         outdoor_state = MagicMock()
         outdoor_state.state = "5.0"
         mock_bt.hass.states.get.return_value = outdoor_state

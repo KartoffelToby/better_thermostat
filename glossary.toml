@@ -117,6 +117,30 @@ definition = "Entity id of a TRV, alongside other kinds of entity id."
 rejected = []
 
 [[term]]
+name = "window_sensor_entity_id"
+zone = "A"
+definition = "Entity id of the window sensor, or of the group that stands for several."
+rejected = ["window_id"]
+
+[[term]]
+name = "door_sensor_entity_id"
+zone = "A"
+definition = "Entity id of the door sensor, or of the group that stands for several."
+rejected = ["door_id"]
+
+[[term]]
+name = "weather_entity_id"
+zone = "A"
+definition = "Entity id of the weather entity that supplies the outdoor forecast."
+rejected = ["weather_entity"]
+
+[[term]]
+name = "outdoor_sensor_entity_id"
+zone = "A"
+definition = "Entity id of the outdoor temperature sensor."
+rejected = ["outdoor_sensor"]
+
+[[term]]
 name = "trv"
 zone = "A"
 definition = "The `Trv` object."

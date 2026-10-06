@@ -626,7 +626,7 @@ class TestSolarIntensitySensor:
 
     def test_unreadable_weather_attributes_fall_back_to_the_condition(self):
         """Attributes that are not numbers give the condition-based estimate."""
-        bt = _make_bt_climate(weather_entity="weather.home")
+        bt = _make_bt_climate(weather_entity_id="weather.home")
         bt.hass.states.get.return_value = State(
             "weather.home", "unknown", {"cloud_coverage": "n/a", "uv_index": "high"}
         )
@@ -636,7 +636,7 @@ class TestSolarIntensitySensor:
 
     def test_weather_numbers_beyond_float_range_fall_back_to_the_condition(self):
         """Integers too large for a float give the condition-based estimate."""
-        bt = _make_bt_climate(weather_entity="weather.home")
+        bt = _make_bt_climate(weather_entity_id="weather.home")
         bt.hass.states.get.return_value = State(
             "weather.home", "sunny", {"cloud_coverage": 10**400, "uv_index": 10**400}
         )

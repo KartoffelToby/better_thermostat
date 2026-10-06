@@ -27,6 +27,7 @@ def _tracked_trv(entity_id: str) -> Trv:
 def _thermostat() -> ThermostatStandIn:
     """Build a heating room at rest that one control cycle can observe."""
     bt = ThermostatStandIn()
+    bt.window_sensor_entity_id = None
     bt.attr_hvac_action = None
     bt.clock = FakeClock()
     bt.kernel_state = running_kernel_state()
@@ -42,8 +43,8 @@ def _thermostat() -> ThermostatStandIn:
     bt.call_for_heat = True
     bt.preset_mode = None
     bt.tolerance = 0.3
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.calculate_heat_loss = AsyncMock()
     return bt
 

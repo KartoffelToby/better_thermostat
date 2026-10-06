@@ -28,7 +28,7 @@ _LOGBOOK = f"{_CONTACT}.async_fire_logbook_entry"
 def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay=0):
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.window_id = "binary_sensor.window"
+    bt.window_sensor_entity_id = "binary_sensor.window"
     bt.window_open = window_open
     bt.window_open_delay_seconds = open_delay
     bt.window_close_delay_seconds = close_delay
@@ -234,7 +234,7 @@ class TestTriggerWindowChange:
         entity id has to be checked before it is used as a lookup key.
         """
         bt = _make_bt()
-        bt.window_id = None
+        bt.window_sensor_entity_id = None
         await trigger_window_change(bt, _event("on"))
         bt.hass.states.get.assert_not_called()
         assert bt.window_queue_task.empty()

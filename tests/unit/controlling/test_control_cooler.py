@@ -52,10 +52,10 @@ def _mock_bt():
     mock_self.bt_min_temp = None
     mock_self.bt_max_temp = None
     mock_self.bt_target_temp_step = None
-    mock_self.window_id = None
+    mock_self.window_sensor_entity_id = None
     mock_self.preset_mode = PRESET_NONE
-    mock_self.outdoor_sensor = None
-    mock_self.weather_entity = None
+    mock_self.outdoor_sensor_entity_id = None
+    mock_self.weather_entity_id = None
     # The cooler of these cases is a device of its own, so the set of
     # controlled thermostats does not contain it.
     mock_self.real_trvs = {}
@@ -86,8 +86,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.room_temperature = 25.0
@@ -154,8 +154,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
@@ -199,8 +199,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
@@ -231,8 +231,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
@@ -270,8 +270,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
@@ -303,8 +303,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.room_temperature = 25.0
@@ -331,8 +331,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
@@ -364,8 +364,8 @@ class TestControlCooler:
         mock_self.hass = mock_hass
         mock_self.real_trvs = {}
         mock_self.clock = FakeClock()
-        mock_self.outdoor_sensor = None
-        mock_self.weather_entity = None
+        mock_self.outdoor_sensor_entity_id = None
+        mock_self.weather_entity_id = None
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
@@ -439,8 +439,8 @@ def _make_cooler_setup(
     mock_self.hass = mock_hass
     mock_self.real_trvs = {}
     mock_self.clock = FakeClock()
-    mock_self.outdoor_sensor = None
-    mock_self.weather_entity = None
+    mock_self.outdoor_sensor_entity_id = None
+    mock_self.weather_entity_id = None
     mock_self.bt_hvac_mode = HVACMode.COOL
     mock_self.cooler_entity_id = "climate.cooler"
     mock_self.context = None
@@ -1843,14 +1843,14 @@ class TestControlCoolerLatchOfAFreshThermostat:
             trv_configs=[],
             sensor_entity_id=None,
             humidity_sensor_entity_id=None,
-            window_id=None,
+            window_sensor_entity_id=None,
             window_open_delay_seconds=0,
             window_close_delay_seconds=0,
-            door_id=None,
+            door_sensor_entity_id=None,
             door_open_delay_seconds=0,
             door_close_delay_seconds=0,
-            weather_entity=None,
-            outdoor_sensor=None,
+            weather_entity_id=None,
+            outdoor_sensor_entity_id=None,
             off_temperature=None,
             tolerance=tolerance,
             target_temp_min=None,
