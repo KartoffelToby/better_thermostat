@@ -8,6 +8,7 @@ switched off at the device.
 
 from homeassistant.components.climate.const import (
     DOMAIN as CLIMATE_DOMAIN,
+    SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
     HVACMode,
 )
@@ -34,7 +35,11 @@ MODEL = "SHTRV-01"
 
 
 class ShellyGen1Trv(FakeTrvEntity):
-    """A TRV whose mode Home Assistant derives from its setpoint."""
+    """A TRV whose mode Home Assistant derives from its setpoint.
+
+    Switching it off writes the minimum and switching it back on restores
+    the setpoint it had before, as Home Assistant's Shelly integration does.
+    """
 
     _attr_min_temp = 4.0
     _attr_max_temp = 31.0
@@ -43,6 +48,7 @@ class ShellyGen1Trv(FakeTrvEntity):
         """Start the TRV heating at 21 °C."""
         super().__init__()
         self._attr_target_temperature = 21.0
+        self._last_target_temperature = 21.0
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Apply the setpoint and report off when it sits at the minimum."""
@@ -52,6 +58,16 @@ class ShellyGen1Trv(FakeTrvEntity):
             if kwargs[ATTR_TEMPERATURE] <= self._attr_min_temp
             else HVACMode.HEAT
         )
+        self.async_write_ha_state()
+
+    async def async_set_hvac_mode(self, hvac_mode) -> None:
+        """Switch off by writing the minimum, on by restoring the setpoint."""
+        await super().async_set_hvac_mode(hvac_mode)
+        if hvac_mode == HVACMode.OFF:
+            self._last_target_temperature = self._attr_target_temperature
+            self._attr_target_temperature = self._attr_min_temp
+        else:
+            self._attr_target_temperature = self._last_target_temperature
         self.async_write_ha_state()
 
 
@@ -111,3 +127,41 @@ async def test_closing_the_valve_does_not_switch_the_room_off(hass, shelly_trv):
     assert shelly_trv.set_temperature_calls[-1] == pytest.approx(4.5)
     assert shelly_trv.hvac_mode == HVACMode.HEAT
     assert bt.hvac_mode == HVACMode.HEAT
+
+
+async def test_switching_the_room_off_still_switches_the_trv_off(hass, shelly_trv):
+    """Off reaches the TRV and stays off; on brings it back to heating.
+
+    Switched off, the TRV sits at the minimum of 4 °C, below the lowest
+    setpoint Better Thermostat writes. That setpoint must not pull the room
+    back on, and switching the room on again must reach the TRV.
+    """
+    hass.states.async_set(SENSOR_ID, "19.0", {"unit_of_measurement": "°C"})
+    entry = _shelly_entry()
+    await setup_entry(hass, entry)
+    bt = await wait_for_startup(hass, entry)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {"entity_id": BT_ENTITY, "hvac_mode": HVACMode.OFF},
+        blocking=True,
+    )
+    assert await wait_for(hass, lambda: shelly_trv.hvac_mode == HVACMode.OFF)
+    await hass.async_block_till_done()
+
+    assert shelly_trv.target_temperature == pytest.approx(4.0)
+    assert bt.hvac_mode == HVACMode.OFF
+    assert hass.states.get(BT_ENTITY).state == HVACMode.OFF
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_HVAC_MODE,
+        {"entity_id": BT_ENTITY, "hvac_mode": HVACMode.HEAT},
+        blocking=True,
+    )
+    assert await wait_for(hass, lambda: shelly_trv.hvac_mode == HVACMode.HEAT)
+    await hass.async_block_till_done()
+
+    assert bt.hvac_mode == HVACMode.HEAT
+    assert shelly_trv.target_temperature >= 4.5
