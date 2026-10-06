@@ -31,6 +31,7 @@ from .conftest import (
 from .device_profiles import ZHA_VALVE_QUIRK_TRV
 
 
+@pytest.mark.quality_rule("diagnostics")
 @pytest.mark.parametrize(
     "fake_trv", [ZHA_VALVE_QUIRK_TRV], indirect=True, ids=profile_id
 )
