@@ -1,6 +1,6 @@
 """Tests that MPC calibration reads and writes state through the state manager."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from custom_components.better_thermostat.calibration import _compute_mpc_balance
 from custom_components.better_thermostat.trv import Trv
@@ -130,3 +130,33 @@ def test_mpc_sanitized_state_is_persisted_when_compute_raises() -> None:
     assert supports_valve is False
     stored = state_mgr.mpc[key]
     assert stored.last_percent is None  # sanitized default, not NaN
+
+
+def test_mpc_balance_without_a_state_store_publishes_no_valve() -> None:
+    """Before the store is loaded there is no state to run the controller on."""
+    bt = _make_bt(_MpcStateStub())
+    bt.state_mgr = None
+
+    payload, supports_valve = _compute_mpc_balance(bt, "climate.trv")
+
+    assert payload is None
+    assert supports_valve is False
+    assert bt.real_trvs["climate.trv"].calibration_balance is None
+
+
+def test_mpc_failed_compute_on_a_healthy_state_leaves_the_store_alone() -> None:
+    """Only a healed state is written back after a failed compute."""
+    state_mgr = _MpcStateStub()
+    bt = _make_bt(state_mgr)
+    healthy = state_mgr.get_mpc(build_mpc_key(bt, "climate.trv"))
+    state_mgr.set_mpc = MagicMock(wraps=state_mgr.set_mpc)
+
+    with patch(
+        "custom_components.better_thermostat.calibration.compute_mpc",
+        side_effect=ValueError("boom"),
+    ):
+        payload, _ = _compute_mpc_balance(bt, "climate.trv")
+
+    assert payload is None
+    state_mgr.set_mpc.assert_not_called()
+    assert state_mgr.mpc[build_mpc_key(bt, "climate.trv")] is healthy
