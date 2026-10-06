@@ -35,7 +35,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.helpers import mode_remap
@@ -124,7 +124,7 @@ def mock_bt():
                 "hvac_action": "heating",
                 "valve_position": 50,
                 "advanced": {
-                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration": CalibrationOutput.LOCAL_BASED,
                     "calibration_mode": CalibrationMode.DEFAULT,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": False,
@@ -194,7 +194,7 @@ def _add_homematicip_peer(bt):
             "hvac_action": "heating",
             "valve_position": 50,
             "advanced": {
-                "calibration": CalibrationType.LOCAL_BASED,
+                "calibration": CalibrationOutput.LOCAL_BASED,
                 "calibration_mode": CalibrationMode.DEFAULT,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -395,7 +395,7 @@ class TestInternalTemperatureChange:
         trv.model_quirks = ZWA021
         trv.advanced = {
             **trv.advanced,
-            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
         }
         unknown = _make_state("unknown")
         mock_bt.hass.states.get.return_value = unknown
@@ -2832,7 +2832,7 @@ class TestTargetTempBasedSync:
 
     def _set_target_temp_based(self, mock_bt):
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
+            CalibrationOutput.TARGET_TEMP_BASED
         )
 
     @pytest.mark.asyncio
@@ -3188,7 +3188,7 @@ class TestConvertOutboundStates:
     def test_local_based_calibration_payload(self, mock_bt):
         """LOCAL_BASED produces payload with local_temperature_calibration."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.LOCAL_BASED
+            CalibrationOutput.LOCAL_BASED
         )
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
 
@@ -3212,7 +3212,7 @@ class TestConvertOutboundStates:
     def test_target_temp_based_payload(self, mock_bt):
         """TARGET_TEMP_BASED produces payload with calculated setpoint."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
+            CalibrationOutput.TARGET_TEMP_BASED
         )
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration_mode"] = (
             CalibrationMode.DEFAULT
@@ -3238,7 +3238,7 @@ class TestConvertOutboundStates:
     def test_no_calibration_mode_uses_target(self, mock_bt):
         """NO_CALIBRATION mode uses heat_target_temperature directly."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
+            CalibrationOutput.TARGET_TEMP_BASED
         )
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration_mode"] = (
             CalibrationMode.NO_CALIBRATION
@@ -3455,7 +3455,7 @@ class TestConvertOutboundStates:
     def test_exception_returns_none(self, mock_bt):
         """Internal exception → None returned."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.LOCAL_BASED
+            CalibrationOutput.LOCAL_BASED
         )
 
         with (
@@ -3555,7 +3555,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
                 "hvac_action": "heating",
                 "valve_position": 50,
                 "advanced": {
-                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration": CalibrationOutput.LOCAL_BASED,
                     "calibration_mode": CalibrationMode.DEFAULT,
                     "no_off_system_mode": no_off,
                     "heat_auto_swapped": False,

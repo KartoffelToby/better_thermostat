@@ -59,7 +59,7 @@ CONF_VALVE_MAINTENANCE: Final = "valve_maintenance"
 CONF_MIN_TEMP: Final = "min_temp"
 CONF_MAX_TEMP: Final = "max_temp"
 CONF_PRECISION: Final = "precision"
-CONF_CALIBRATION: Final = "calibration"
+CONF_CALIBRATION_OUTPUT: Final = "calibration"
 CONF_CHILD_LOCK: Final = "child_lock"
 CONF_PROTECT_OVERHEATING: Final = "protect_overheating"
 CONF_CALIBRATION_MODE: Final = "calibration_mode"
@@ -123,8 +123,8 @@ BETTERTHERMOSTAT_RESET_PID_SCHEMA: Final = make_entity_service_schema(
 )
 
 
-class CalibrationType(StrEnum):
-    """Calibration type."""
+class CalibrationOutput(StrEnum):
+    """What BT writes to a TRV to calibrate it: setpoint, offset or valve."""
 
     TARGET_TEMP_BASED = "target_temp_based"
     LOCAL_BASED = "local_calibration_based"
@@ -146,7 +146,7 @@ class MpcV2PlantPreset(StrEnum):
 
 
 class CalibrationMode(StrEnum):
-    """Calibration mode."""
+    """The algorithm that computes the calibration."""
 
     DEFAULT = "default"
     AGGRESIVE_CALIBRATION = "fix_calibration"

@@ -20,7 +20,7 @@ import pytest
 from custom_components.better_thermostat.adapters import base, delegate, generic
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from custom_components.better_thermostat.utils.helpers import round_by_step
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
@@ -150,7 +150,7 @@ class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
 def _spirit_host(state):
     return _host(
         state=State(ENTITY_ID, state),
-        advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+        advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
     )
 
 

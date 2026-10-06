@@ -23,7 +23,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
 )
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.state_manager import (
@@ -139,7 +139,7 @@ def _trv_info(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
         current_temperature=19.0,
         valve_max_opening=100.0,
         advanced={
-            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
             "calibration_mode": CalibrationMode.MPC_V2_CALIBRATION,
             "mpc_v2_plant_preset": preset,
         },

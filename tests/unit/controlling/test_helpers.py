@@ -30,7 +30,7 @@ from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import PendingSetpoint, Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
     OFFSET_MATCH_TOLERANCE_K,
@@ -226,7 +226,7 @@ class TestCheckSystemMode:
         )
         trv = mock_self.real_trvs["climate.trv1"]
         trv.model_quirks = ZWA021
-        trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
+        trv.advanced = {"calibration": CalibrationOutput.DIRECT_VALVE_BASED}
 
         slept = []
         original_sleep = asyncio.sleep
@@ -375,7 +375,7 @@ class TestCheckTargetTemperature:
         }
         trv = mock_self.real_trvs["climate.trv1"]
         trv.model_quirks = ZWA021
-        trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
+        trv.advanced = {"calibration": CalibrationOutput.DIRECT_VALVE_BASED}
 
         slept = []
         original_sleep = asyncio.sleep
@@ -894,7 +894,7 @@ class TestCheckTargetTemperature:
 
 
 # ---------------------------------------------------------------------------
-# _get_valve_control — boost mode is gated by calibration_type
+# _get_valve_control — boost mode is gated by calibration_output
 # ---------------------------------------------------------------------------
 
 
@@ -917,7 +917,7 @@ class TestGetValveControlBoostCalibrationType:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -930,7 +930,7 @@ class TestGetValveControlBoostCalibrationType:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.LOCAL_BASED,
+            CalibrationOutput.LOCAL_BASED,
         )
         assert bal is None
         assert source is None
@@ -943,7 +943,7 @@ class TestGetValveControlBoostCalibrationType:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.TARGET_TEMP_BASED,
+            CalibrationOutput.TARGET_TEMP_BASED,
         )
         assert bal is None
         assert source is None
@@ -978,7 +978,7 @@ class TestGetValveControlBoostMaxOpening:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 100, "apply_valve": True}
@@ -991,7 +991,7 @@ class TestGetValveControlBoostMaxOpening:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -1003,7 +1003,7 @@ class TestGetValveControlBoostMaxOpening:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert source == "boost_mode"
         assert bal == {"valve_percent": 60, "apply_valve": True}
@@ -1016,7 +1016,7 @@ class TestGetValveControlBoostMaxOpening:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 73, "apply_valve": True}
 
@@ -1028,7 +1028,7 @@ class TestGetValveControlBoostMaxOpening:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 
@@ -1040,7 +1040,7 @@ class TestGetValveControlBoostMaxOpening:
             _boost_snapshot(),
             "climate.trv1",
             CalibrationMode.MPC_CALIBRATION,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         )
         assert bal == {"valve_percent": 100, "apply_valve": True}
 

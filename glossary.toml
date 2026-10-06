@@ -184,13 +184,20 @@ name = "calibration_offset"
 zone = "A"
 definition = "The offset value written to a device that calibrates by offset."
 rejected = ["offset"]
-note = "It pairs with `calibration_mode`; naming the value `offset` alone leaves the pair unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter methods (`set_offset`, `get_current_offset`, …) carry the same concept and follow when that contract is next opened."
+note = "It is what BT writes when the calibration output is the offset; naming the value `offset` alone leaves that unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter methods (`set_offset`, `get_current_offset`, …) carry the same concept and follow when that contract is next opened."
+
+[[term]]
+name = "calibration_output"
+zone = "A"
+definition = "What BT writes to a TRV to calibrate it: the setpoint, the local offset or the valve opening."
+rejected = ["calibration_type"]
+note = "Named for what it writes, not how the value is computed; that is `calibration_mode`. The stored values (`target_temp_based`, …) stay, so a rollback to 1.9.3 still reads them."
 
 [[term]]
 name = "calibration_mode"
 zone = "A"
-definition = "The calibration method (target temperature based, offset based, …)."
-rejected = ["calibration_type"]
+definition = "The algorithm that computes the calibration (default, aggressive, PID, MPC, …)."
+rejected = []
 
 # ---------------------------------------------------------------------------
 # General

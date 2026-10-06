@@ -67,7 +67,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
@@ -393,7 +393,7 @@ def _get_valve_control(
     snapshot: WorldSnapshot,
     entity_id: str,
     calibration_mode: CalibrationMode | str,
-    calibration_type: CalibrationType | str,
+    calibration_output: CalibrationOutput | str,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
@@ -405,7 +405,7 @@ def _get_valve_control(
     # and leaves the valve stuck open after boost ends.
     if (
         is_boost_heating(snapshot)
-        and calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        and calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
     ):
         _trv = self.real_trvs.get(entity_id)
         max_opening = _trv.valve_max_opening if _trv is not None else 100
@@ -416,7 +416,7 @@ def _get_valve_control(
         return {"valve_percent": target_pct, "apply_valve": True}, "boost_mode"
 
     # Check calibration-based valve control
-    if calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+    if calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
         return None, None
 
     # Try calibration balance from various calibration modes
@@ -2116,13 +2116,13 @@ async def control_trv(
                 "calibration_mode", DEFAULT_CALIBRATION_MODE
             )
             _calibration_type = self.real_trvs[entity_id].advanced.get(
-                "calibration", CalibrationType.TARGET_TEMP_BASED
+                "calibration", CalibrationOutput.TARGET_TEMP_BASED
             )
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (
                 is_boost_heating(snapshot)
-                and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+                and _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED
             ):
                 _temperature = self.real_trvs[entity_id].max_temp
 
@@ -2211,7 +2211,7 @@ async def control_trv(
                         _schedule_budget_retry(
                             self, entity_id, _budget_remaining(self, entity_id, "valve")
                         )
-                elif _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+                elif _calibration_type != CalibrationOutput.DIRECT_VALVE_BASED:
                     pass  # non-valve TRV: no valve control expected
             except Exception:
                 _LOGGER.debug(
@@ -2240,7 +2240,7 @@ async def control_trv(
             if (
                 is_boost_heating(snapshot)
                 and _new_hvac_mode == HVACMode.OFF
-                and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+                and _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED
             ):
                 _LOGGER.debug(
                     "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",

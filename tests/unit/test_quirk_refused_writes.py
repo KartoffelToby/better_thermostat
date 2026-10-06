@@ -35,7 +35,7 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 # The device name carries a hyphen, so the module is reached by name.
@@ -209,7 +209,8 @@ class TestTheZWaveValveDeclinesARefusedCommand:
     def _direct_valve_host():
         """A ZWA021 configured for direct valve control."""
         return _host(
-            model="ZWA021", advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED}
+            model="ZWA021",
+            advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
         )
 
     @pytest.mark.parametrize("refusal", REFUSALS, ids=REFUSAL_IDS)
@@ -324,7 +325,7 @@ class TestTheEurotronicModeSelectReportsARefusedOption:
         host = _host(
             state=State("select.trv_trv_mode", "2"),
             model="SPZB0001",
-            advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+            advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
         )
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 
@@ -392,7 +393,7 @@ class TestNoQuirkLetsARefusalEscape:
         host = _host(
             state=_climate_state(RANGE_BIT),
             model=model,
-            advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+            advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
         )
         host.hass.services.async_call = AsyncMock(side_effect=refusal)
 

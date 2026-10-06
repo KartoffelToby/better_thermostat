@@ -21,7 +21,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from tests.factories import ThermostatStandIn, make_state
 
@@ -90,7 +90,7 @@ def bt():
             last_hvac_mode=HVACMode.HEAT,
             commanded_setpoint=21.0,
             advanced={
-                "calibration": CalibrationType.TARGET_TEMP_BASED,
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 "calibration_mode": CalibrationMode.DEFAULT,
                 "child_lock": False,
                 "no_off_system_mode": False,

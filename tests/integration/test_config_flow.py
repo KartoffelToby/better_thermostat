@@ -25,7 +25,7 @@ import voluptuous as vol
 
 from custom_components.better_thermostat import RELOAD_LOCKS
 from custom_components.better_thermostat.utils.const import (
-    CONF_CALIBRATION,
+    CONF_CALIBRATION_OUTPUT,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_HEATER,
@@ -38,7 +38,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_TARGET_TEMP_MIN,
     CONF_TOLERANCE,
     TARGET_TEMP_BOUND_AUTO,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.preset_manager import (
     DEFAULT_ENABLED_PRESETS,
@@ -106,10 +106,10 @@ def _expected_calibration_options(profile: DeviceProfile) -> list[str]:
     """
     options = []
     if profile.valve_channel is not ValveChannel.NONE:
-        options.append(CalibrationType.DIRECT_VALVE_BASED)
-    options.append(CalibrationType.TARGET_TEMP_BASED)
+        options.append(CalibrationOutput.DIRECT_VALVE_BASED)
+    options.append(CalibrationOutput.TARGET_TEMP_BASED)
     if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
-        options.append(CalibrationType.LOCAL_BASED)
+        options.append(CalibrationOutput.LOCAL_BASED)
     return options
 
 
@@ -120,10 +120,10 @@ def _expected_calibration(profile: DeviceProfile) -> str:
     direct valve control; a device with neither is driven by its setpoint.
     """
     if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
-        return CalibrationType.LOCAL_BASED
+        return CalibrationOutput.LOCAL_BASED
     if profile.valve_channel is not ValveChannel.NONE:
-        return CalibrationType.DIRECT_VALVE_BASED
-    return CalibrationType.TARGET_TEMP_BASED
+        return CalibrationOutput.DIRECT_VALVE_BASED
+    return CalibrationOutput.TARGET_TEMP_BASED
 
 
 def _user_step_input(thermostat: str, **overrides) -> dict:
@@ -230,10 +230,10 @@ async def test_create_flow_offers_the_calibration_the_device_can_take(hass, fake
 
     advanced_form, _ = await _run_create_flow(hass, _user_step_input(profile.entity_id))
 
-    assert _field_options(advanced_form, CONF_CALIBRATION) == (
+    assert _field_options(advanced_form, CONF_CALIBRATION_OUTPUT) == (
         _expected_calibration_options(profile)
     )
-    assert form_default(advanced_form, CONF_CALIBRATION) == (
+    assert form_default(advanced_form, CONF_CALIBRATION_OUTPUT) == (
         _expected_calibration(profile)
     )
 
@@ -263,10 +263,10 @@ async def test_options_flow_offers_the_calibration_the_device_can_take(hass, fak
         hass, entry, _user_step_input(profile.entity_id)
     )
 
-    assert _field_options(advanced_form, CONF_CALIBRATION) == (
+    assert _field_options(advanced_form, CONF_CALIBRATION_OUTPUT) == (
         _expected_calibration_options(profile)
     )
-    assert form_default(advanced_form, CONF_CALIBRATION) == (
+    assert form_default(advanced_form, CONF_CALIBRATION_OUTPUT) == (
         _expected_calibration(profile)
     )
 
@@ -290,7 +290,7 @@ async def test_create_flow_ends_in_a_thermostat_driving_the_device(hass, fake_tr
     assert entry.state is ConfigEntryState.LOADED
     assert result["title"] == ENTRY_NAME
     assert _stored_trv(entry)["trv"] == profile.entity_id
-    assert _stored_trv(entry)["advanced"][CONF_CALIBRATION] == (
+    assert _stored_trv(entry)["advanced"][CONF_CALIBRATION_OUTPUT] == (
         _expected_calibration(profile)
     )
 

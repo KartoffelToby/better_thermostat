@@ -366,7 +366,7 @@
         "no_calibration": "Bez kalibrácie"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Priame ovládanie ventilu",
         "target_temp_based": "Podľa cieľovej teploty",

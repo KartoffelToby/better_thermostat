@@ -44,7 +44,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
     HOMEMATICIP_MIN_WRITE_INTERVAL_S,
@@ -189,7 +189,7 @@ def _default_trv_config(**overrides):
         "hvac_mode": HVACMode.HEAT,
         "advanced": {
             "calibration_mode": CalibrationMode.NO_CALIBRATION,
-            "calibration": CalibrationType.TARGET_TEMP_BASED,
+            "calibration": CalibrationOutput.TARGET_TEMP_BASED,
             "no_off_system_mode": False,
         },
     }
@@ -395,7 +395,7 @@ class TestControlTrvUnavailablePath:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -443,7 +443,7 @@ class TestControlTrvUnavailablePath:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -489,7 +489,7 @@ class TestControlTrvUnavailablePath:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.LOCAL_BASED,
+                        "calibration": CalibrationOutput.LOCAL_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -651,7 +651,7 @@ class TestControlTrvAvailablePath:
                     last_hvac_mode=HVACMode.OFF,
                     advanced={
                         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                         "no_off_system_mode": False,
                         "heat_auto_swapped": True,
                     },
@@ -818,7 +818,7 @@ class TestControlTrvAvailablePath:
                     _default_trv_config(
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         }
                     )
@@ -870,7 +870,7 @@ class TestControlTrvAvailablePath:
                     calibration_received=False,  # Stuck at False
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                         "no_off_system_mode": False,
                     },
                 )
@@ -917,7 +917,7 @@ class TestControlTrvAvailablePath:
                     calibration_received=True,
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                         "no_off_system_mode": False,
                     },
                 )
@@ -1092,7 +1092,7 @@ class TestControlTrvAvailablePath:
             system_mode_received=True,
             advanced={
                 "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                 "no_off_system_mode": False,
             },
         )
@@ -1150,7 +1150,7 @@ class TestControlTrvAvailablePath:
                         system_mode_received=True,
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         },
                     )
@@ -1651,7 +1651,7 @@ class TestBoostModeSafetyOverride:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     },
                     "system_mode_received": True,
@@ -1708,7 +1708,7 @@ class TestBoostModeSafetyOverride:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -1763,7 +1763,7 @@ class TestBoostModeSafetyOverride:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -1819,7 +1819,7 @@ class TestBoostModeSafetyOverride:
                     _default_trv_config(
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         }
                     )
@@ -1892,7 +1892,7 @@ class TestBoostModeSafetyOverride:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                         CONF_HOMEMATICIP: True,
                     }
@@ -1997,7 +1997,7 @@ class TestBoostModeSafetyOverride:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     },
                     "system_mode_received": True,
@@ -2060,7 +2060,7 @@ class TestValveWriteResult:
                     _default_trv_config(
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         }
                     )
@@ -2384,7 +2384,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2406,7 +2406,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2585,7 +2585,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2606,7 +2606,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2702,7 +2702,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             )
@@ -3166,7 +3166,7 @@ class TestControlTrvOnADualRoleEntity:
                 "hvac_mode": HVACMode.HEAT,
                 "advanced": {
                     "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                    "calibration": CalibrationType.TARGET_TEMP_BASED,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": heat_auto_swapped,
                 },
@@ -3282,7 +3282,7 @@ def _offset_trv_config(**overrides):
         "local_temperature_calibration_entity": "number.trv1_offset",
         "advanced": {
             "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationType.LOCAL_BASED,
+            "calibration": CalibrationOutput.LOCAL_BASED,
             "no_off_system_mode": False,
         },
     }
@@ -3616,7 +3616,7 @@ class TestOffsetWriteGate:
             last_calibration=0.0,
             advanced={
                 "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationType.LOCAL_BASED,
+                "calibration": CalibrationOutput.LOCAL_BASED,
                 "no_off_system_mode": False,
             },
         )
@@ -4257,7 +4257,7 @@ def _paced_trv(entity_id, *, homematicip):
             "hvac_mode": HVACMode.HEAT,
             "advanced": {
                 "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationType.TARGET_TEMP_BASED,
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 "no_off_system_mode": False,
                 CONF_HOMEMATICIP: homematicip,
             },

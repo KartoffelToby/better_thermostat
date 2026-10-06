@@ -17,7 +17,7 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from tests.factories import ThermostatStandIn
 
 quirk = importlib.import_module(
@@ -51,7 +51,7 @@ class TestZWA021HvacOverride:
     @pytest.mark.asyncio
     async def test_declines_when_not_direct_valve(self):
         """Non valve-based calibration falls through to the standard path."""
-        mock_self = _make_self(calibration=CalibrationType.TARGET_TEMP_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.TARGET_TEMP_BASED)
 
         handled = await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
 
@@ -61,7 +61,7 @@ class TestZWA021HvacOverride:
     @pytest.mark.asyncio
     async def test_declines_for_off_even_in_valve_mode(self):
         """OFF uses the standard path so the device closes normally."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         handled = await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "off")
 
@@ -71,7 +71,7 @@ class TestZWA021HvacOverride:
     @pytest.mark.asyncio
     async def test_engages_manufacturer_mode_for_valve_heat(self):
         """Valve mode + a heating request switches the device into mode 31."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         handled = await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
 
@@ -101,7 +101,7 @@ class TestZWA021Passthroughs:
     @pytest.mark.asyncio
     async def test_set_temperature_declines(self):
         """The temperature override always declines so the adapter writes it."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
         assert (
             await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
             is False
@@ -114,7 +114,7 @@ class TestZWA021SetValve:
     @pytest.mark.asyncio
     async def test_declines_when_not_direct_valve(self):
         """Outside direct valve control the quirk does not touch the valve."""
-        mock_self = _make_self(calibration=CalibrationType.TARGET_TEMP_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.TARGET_TEMP_BASED)
 
         handled = await quirk.override_set_valve(mock_self, "climate.trv1", 50)
 
@@ -124,7 +124,7 @@ class TestZWA021SetValve:
     @pytest.mark.asyncio
     async def test_writes_multilevel_switch_scaled_to_99(self):
         """100 % maps onto the device's fully-open value of 99."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         handled = await quirk.override_set_valve(mock_self, "climate.trv1", 100)
 
@@ -141,7 +141,7 @@ class TestZWA021SetValve:
     @pytest.mark.asyncio
     async def test_closed_valve_writes_zero(self):
         """0 % maps onto a fully closed valve."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         await quirk.override_set_valve(mock_self, "climate.trv1", 0)
 
@@ -341,8 +341,8 @@ class TestAnUnknownStateFromADrivenSpirit:
 
     def test_the_quirk_claims_it_only_in_direct_valve_control(self):
         """That is the only setting under which the mode is engaged."""
-        direct_valve = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
-        local_calibration = _make_self(calibration=CalibrationType.LOCAL_BASED)
+        direct_valve = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        local_calibration = _make_self(calibration=CalibrationOutput.LOCAL_BASED)
 
         assert (
             quirk.trv_state_unknown_as_available(direct_valve, "climate.trv1") is True
@@ -354,14 +354,14 @@ class TestAnUnknownStateFromADrivenSpirit:
 
     def test_the_shim_asks_the_module_the_trv_carries(self):
         """The answer belongs to the model, so it comes from its module."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
         mock_self.real_trvs["climate.trv1"].model_quirks = quirk
 
         assert quirks.trv_state_unknown_as_available(mock_self, "climate.trv1") is True
 
     def test_a_trv_without_quirks_says_nothing_while_unknown(self):
         """No module has claimed otherwise, so the default reading holds."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         assert quirks.trv_state_unknown_as_available(mock_self, "climate.trv1") is False
 

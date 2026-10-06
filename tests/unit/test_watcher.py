@@ -352,14 +352,14 @@ class TestCheckCriticalEntities:
         the watcher would announce never happened.
         """
         from custom_components.better_thermostat.model_fixes import ZWA021
-        from custom_components.better_thermostat.utils.const import CalibrationType
+        from custom_components.better_thermostat.utils.const import CalibrationOutput
         from custom_components.better_thermostat.utils.watcher import (
             check_critical_entities,
         )
 
         for trv in mock_bt_instance.real_trvs.values():
             trv.model_quirks = ZWA021
-            trv.advanced = {"calibration": CalibrationType.DIRECT_VALVE_BASED}
+            trv.advanced = {"calibration": CalibrationOutput.DIRECT_VALVE_BASED}
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unknown")
 
         with patch("custom_components.better_thermostat.utils.watcher.ir") as mock_ir:

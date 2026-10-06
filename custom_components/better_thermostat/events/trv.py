@@ -31,7 +31,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
@@ -938,13 +938,13 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None
 
-        elif _calibration_type == CalibrationType.LOCAL_BASED:
+        elif _calibration_type == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
             _new_heating_setpoint = self.heat_target_temperature
 
         elif _calibration_type in (
-            CalibrationType.TARGET_TEMP_BASED,
-            CalibrationType.DIRECT_VALVE_BASED,
+            CalibrationOutput.TARGET_TEMP_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         ):
             if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                 _new_heating_setpoint = self.heat_target_temperature

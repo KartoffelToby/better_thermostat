@@ -19,7 +19,7 @@ import pytest
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from tests.factories import ThermostatStandIn
 
@@ -47,7 +47,7 @@ def mock_bt_instance():
                 "advanced": {
                     # Use TARGET_TEMP_BASED with NO_CALIBRATION to go through
                     # the no_off_system_mode logic without needing calibration calcs
-                    "calibration": CalibrationType.TARGET_TEMP_BASED,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     "calibration_mode": CalibrationMode.NO_CALIBRATION,
                     "no_off_system_mode": True,
                     "heat_auto_swapped": False,

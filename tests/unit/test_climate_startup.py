@@ -848,14 +848,14 @@ class TestCheckEntitiesReady:
         loop would keep waiting for a device that is right there.
         """
         from custom_components.better_thermostat.model_fixes import ZWA021
-        from custom_components.better_thermostat.utils.const import CalibrationType
+        from custom_components.better_thermostat.utils.const import CalibrationOutput
 
         sensor = _make_sensor_state()
         bt.real_trvs = {
             TRV_ID: Trv(
                 entity_id=TRV_ID,
                 model_quirks=ZWA021,
-                advanced={"calibration": CalibrationType.DIRECT_VALVE_BASED},
+                advanced={"calibration": CalibrationOutput.DIRECT_VALVE_BASED},
             )
         }
         bt.hass.states.get.return_value = State(TRV_ID, STATE_UNKNOWN)

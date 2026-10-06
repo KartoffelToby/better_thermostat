@@ -26,9 +26,9 @@ from custom_components.better_thermostat.config_flow import (
     _trv_supports_auto,
 )
 from custom_components.better_thermostat.utils.const import (
-    CONF_CALIBRATION,
+    CONF_CALIBRATION_OUTPUT,
     CONF_HEATER,
-    CalibrationType,
+    CalibrationOutput,
 )
 from tests.factories import make_entity_registry, make_registry_entry
 
@@ -214,7 +214,7 @@ def _offered_calibrations(form):
     """Return the calibration strategies an advanced form publishes."""
     schema = form["data_schema"].schema
     for marker in schema:
-        if marker == CONF_CALIBRATION:
+        if marker == CONF_CALIBRATION_OUTPUT:
             return list(schema[marker].config["options"])
     raise AssertionError("the advanced step publishes no calibration field")
 
@@ -262,7 +262,7 @@ class TestOfferedCalibrationStrategies:
         """
         form = await render(QUIRK_BACKED_MODEL)
 
-        assert CalibrationType.DIRECT_VALVE_BASED in _offered_calibrations(form)
+        assert CalibrationOutput.DIRECT_VALVE_BASED in _offered_calibrations(form)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("render", ADVANCED_FORMS.values(), ids=ADVANCED_FORMS)
@@ -275,4 +275,4 @@ class TestOfferedCalibrationStrategies:
         """
         form = await render(UNQUIRKED_MODEL)
 
-        assert CalibrationType.DIRECT_VALVE_BASED not in _offered_calibrations(form)
+        assert CalibrationOutput.DIRECT_VALVE_BASED not in _offered_calibrations(form)

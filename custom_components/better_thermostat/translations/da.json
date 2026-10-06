@@ -366,7 +366,7 @@
         "no_calibration": "Ingen kalibrering"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Direkte ventilstyring",
         "target_temp_based": "Baseret på måltemperatur",

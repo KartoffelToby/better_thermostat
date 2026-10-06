@@ -159,7 +159,7 @@ from .utils.const import (
     TARGET_TEMP_BOUND_AUTO,
     VERSION,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from .utils.controlling import (
     TaskManager,
@@ -1228,11 +1228,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _calibration = 1
             _advanced = trv.get("advanced", {})
             _calibration_type = _advanced.get("calibration")
-            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+            if _calibration_type == CalibrationOutput.TARGET_TEMP_BASED:
                 _calibration = 0
-            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+            if _calibration_type == CalibrationOutput.DIRECT_VALVE_BASED:
                 _calibration = 2
-            if _calibration_type == CalibrationType.LOCAL_BASED:
+            if _calibration_type == CalibrationOutput.LOCAL_BASED:
                 _calibration = 3
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks

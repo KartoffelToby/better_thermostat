@@ -16,7 +16,7 @@ import pytest
 from custom_components.better_thermostat import climate as climate_module
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 
 from .conftest import (
@@ -145,8 +145,8 @@ async def test_the_numbers_and_switches_follow_the_chosen_algorithm(
 @pytest.mark.parametrize(
     ("first", "then"),
     [
-        (CalibrationType.DIRECT_VALVE_BASED, CalibrationType.TARGET_TEMP_BASED),
-        (CalibrationType.TARGET_TEMP_BASED, CalibrationType.DIRECT_VALVE_BASED),
+        (CalibrationOutput.DIRECT_VALVE_BASED, CalibrationOutput.TARGET_TEMP_BASED),
+        (CalibrationOutput.TARGET_TEMP_BASED, CalibrationOutput.DIRECT_VALVE_BASED),
     ],
 )
 async def test_the_valve_cap_follows_the_calibration_type(hass, first, then):
@@ -158,7 +158,7 @@ async def test_the_valve_cap_follows_the_calibration_type(hass, first, then):
     await setup_entry(hass, entry)
     await wait_for_startup(hass, entry)
     cap = {"number.bt_test_valve_max_opening"}
-    driven = CalibrationType.DIRECT_VALVE_BASED
+    driven = CalibrationOutput.DIRECT_VALVE_BASED
     assert _algorithm_controls(hass, entry) == (cap if first == driven else set())
 
     await click_through_the_options(hass, entry, calibration=then.value)

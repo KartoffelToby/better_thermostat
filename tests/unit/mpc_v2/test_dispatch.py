@@ -22,7 +22,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
 )
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
@@ -119,9 +119,9 @@ def _trv_info(
         valve_max_opening=valve_max_opening,
         advanced={
             "calibration": (
-                CalibrationType.DIRECT_VALVE_BASED
+                CalibrationOutput.DIRECT_VALVE_BASED
                 if supports_valve
-                else CalibrationType.TARGET_TEMP_BASED
+                else CalibrationOutput.TARGET_TEMP_BASED
             ),
             "calibration_mode": CalibrationMode.MPC_V2_CALIBRATION,
             "mpc_v2_plant_preset": MpcV2PlantPreset.AUTO,

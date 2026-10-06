@@ -70,7 +70,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_PROTECT_OVERHEATING,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.helpers import (
@@ -261,9 +261,9 @@ def _supports_direct_valve_control(self: BetterThermostat, entity_id: str) -> bo
     """Return True if the TRV supports writing a valve percentage."""
 
     _calibration_type = self.real_trvs[entity_id].advanced.get(
-        "calibration", CalibrationType.TARGET_TEMP_BASED
+        "calibration", CalibrationOutput.TARGET_TEMP_BASED
     )
-    if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+    if _calibration_type != CalibrationOutput.DIRECT_VALVE_BASED:
         return False
 
     trv = self.real_trvs.get(entity_id)

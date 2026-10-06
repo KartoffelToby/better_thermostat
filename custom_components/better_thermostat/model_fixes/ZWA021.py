@@ -18,7 +18,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
-from ..utils.const import CalibrationType
+from ..utils.const import CalibrationOutput
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ _VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
 def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
     """Return True when this TRV is configured for direct valve control."""
     adv: Mapping[str, Any] = self.real_trvs[entity_id].advanced or {}
-    return adv.get("calibration") == CalibrationType.DIRECT_VALVE_BASED
+    return adv.get("calibration") == CalibrationOutput.DIRECT_VALVE_BASED
 
 
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:

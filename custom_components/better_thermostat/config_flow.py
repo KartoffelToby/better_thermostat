@@ -34,8 +34,8 @@ from . import DOMAIN, other_entries_controlling, trv_entity_ids
 from .adapters.delegate import load_adapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.const import (
-    CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
+    CONF_CALIBRATION_OUTPUT,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
@@ -65,7 +65,7 @@ from .utils.const import (
     DEFAULT_CALIBRATION_MODE,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from .utils.helpers import (
@@ -372,28 +372,30 @@ def _build_advanced_fields(
 
     # Build fields directly in the final desired order without post-reordering
     # Compute values used below
-    calib_default = get_value(CONF_CALIBRATION, default_calibration)
+    calib_default = get_value(CONF_CALIBRATION_OUTPUT, default_calibration)
 
     options = []
     if support_valve:
-        options.append(CalibrationType.DIRECT_VALVE_BASED)
+        options.append(CalibrationOutput.DIRECT_VALVE_BASED)
 
-    options.append(CalibrationType.TARGET_TEMP_BASED)
+    options.append(CalibrationOutput.TARGET_TEMP_BASED)
 
     if support_offset:
-        options.append(CalibrationType.LOCAL_BASED)
+        options.append(CalibrationOutput.LOCAL_BASED)
 
     calib_selector = selector.SelectSelector(
         selector.SelectSelectorConfig(
             options=options,
             mode=selector.SelectSelectorMode.DROPDOWN,
-            translation_key="calibration_type",
+            translation_key="calibration_output",
         )
     )
     ordered: OrderedDict = OrderedDict()
 
     # 1) Calibration + protection flags
-    ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
+    ordered[vol.Required(CONF_CALIBRATION_OUTPUT, default=calib_default)] = (
+        calib_selector
+    )
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
@@ -442,7 +444,9 @@ def _normalize_advanced_submission(
     data: dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
 ) -> dict[str, Any]:
     normalized: dict[str, Any] = dict(data)
-    normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
+    normalized[CONF_CALIBRATION_OUTPUT] = normalized.get(
+        CONF_CALIBRATION_OUTPUT, default_calibration
+    )
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
         CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE
     )

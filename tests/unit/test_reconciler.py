@@ -21,7 +21,7 @@ from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
     control_trv,
@@ -350,7 +350,7 @@ def _control_bt():
     bt.real_trvs["climate.trv"].hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     bt.real_trvs["climate.trv"].advanced = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "calibration": CalibrationType.TARGET_TEMP_BASED,
+        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
         "no_off_system_mode": False,
     }
     bt.real_trvs["climate.trv"].system_mode_received = False
@@ -541,7 +541,7 @@ class TestWatchdogHeartbeat:
         bt = _control_bt()
         bt.real_trvs["climate.trv"].advanced = {
             "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationType.LOCAL_BASED,
+            "calibration": CalibrationOutput.LOCAL_BASED,
             "no_off_system_mode": False,
         }
         bt.clock.advance(70.0)
@@ -625,7 +625,7 @@ class TestOffsetWriteBudget:
         bt = _control_bt()
         bt.real_trvs["climate.trv"].advanced = {
             "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationType.LOCAL_BASED,
+            "calibration": CalibrationOutput.LOCAL_BASED,
             "no_off_system_mode": False,
         }
         bt.real_trvs["climate.trv"].calibration_received = True
@@ -833,7 +833,7 @@ class TestOffsetReconcileHandoff:
         trv = bt.real_trvs["climate.trv"]
         trv.advanced = {
             "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationType.LOCAL_BASED,
+            "calibration": CalibrationOutput.LOCAL_BASED,
             "no_off_system_mode": False,
         }
         trv.local_temperature_calibration_entity = "number.offset"
