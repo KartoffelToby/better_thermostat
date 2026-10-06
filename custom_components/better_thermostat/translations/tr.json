@@ -62,7 +62,8 @@
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin.",
+      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
@@ -131,7 +132,8 @@
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin.",
-      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir."
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir.",
+      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin."
     }
   },
   "issues": {

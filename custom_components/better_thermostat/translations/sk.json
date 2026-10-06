@@ -62,7 +62,8 @@
       "no_off_mode": "Vaše zariadenie je veľmi špeciálne a nemá režim vypnutia :(\nBetter Thermostat namiesto toho použije minimálnu cieľovú teplotu.",
       "no_outside_temp": "Nemáte snímač vonkajšej teploty. Better Thermostat namiesto toho použije entitu počasie.",
       "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
-      "no_data": "Neprijali sa žiadne údaje. Skúste to znova."
+      "no_data": "Neprijali sa žiadne údaje. Skúste to znova.",
+      "trv_not_found": "Home Assistant nepozná {trv}. Vyberte termostat, ktorý existuje."
     },
     "abort": {
       "single_instance_allowed": "Pre každý real je povolený len jeden termostat.",
@@ -131,7 +132,8 @@
       "no_heater": "Vyberte prosím aspoň jeden skutočný termostat.",
       "target_temp_min_above_max": "Cieľová minimálna teplota nesmie prekročiť cieľovú maximálnu teplotu.",
       "no_sensor": "Vyberte snímač izbovej teploty.",
-      "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat."
+      "trv_in_use": "{trv} už ovláda Better Thermostat {entry}. Termostat môže patriť iba jednému Better Thermostat.",
+      "trv_not_found": "Home Assistant nepozná {trv}. Vyberte termostat, ktorý existuje."
     }
   },
   "issues": {

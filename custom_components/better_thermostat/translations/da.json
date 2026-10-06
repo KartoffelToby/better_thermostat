@@ -62,7 +62,8 @@
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
-      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
+      "no_data": "Ingen data blev modtaget. Prøv venligst igen.",
+      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
@@ -131,7 +132,8 @@
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_sensor": "Vælg venligst en rumtemperatursensor.",
-      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat."
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat.",
+      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes."
     }
   },
   "issues": {

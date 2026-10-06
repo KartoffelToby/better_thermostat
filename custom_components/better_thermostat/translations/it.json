@@ -62,7 +62,8 @@
       "no_off_mode": "Il tuo dispositivo è particolare e non ha una modalità 'off' :(\nBetter Thermostat userà invece la temperatura target minima.",
       "no_outside_temp": "Non hai un sensore di temperatura esterna. Better Thermostat userà l’entità meteo al suo posto.",
       "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
-      "no_data": "Nessun dato ricevuto. Riprova."
+      "no_data": "Nessun dato ricevuto. Riprova.",
+      "trv_not_found": "Home Assistant non conosce {trv}. Seleziona un termostato esistente."
     },
     "abort": {
       "single_instance_allowed": "È consentito un solo termostato per ogni dispositivo reale.",
@@ -131,7 +132,8 @@
       "no_heater": "Seleziona almeno un vero termostato.",
       "target_temp_min_above_max": "La temperatura target minima non deve superare la temperatura target massima.",
       "no_sensor": "Seleziona un sensore di temperatura ambiente.",
-      "trv_in_use": "{trv} è già controllato dal Better Thermostat {entry}. Un termostato può appartenere a un solo Better Thermostat."
+      "trv_in_use": "{trv} è già controllato dal Better Thermostat {entry}. Un termostato può appartenere a un solo Better Thermostat.",
+      "trv_not_found": "Home Assistant non conosce {trv}. Seleziona un termostato esistente."
     }
   },
   "issues": {

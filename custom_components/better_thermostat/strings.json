@@ -62,7 +62,8 @@
       "no_off_mode": "Your device is special and has no off mode :(\nBetter Thermostat will use the minimal target temp instead.",
       "no_outside_temp": "You have no outside temperature sensor. Better Thermostat will use the weather entity instead.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
-      "no_data": "No data was received. Please try again."
+      "no_data": "No data was received. Please try again.",
+      "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists."
     },
     "abort": {
       "single_instance_allowed": "Only a single Better Thermostat is allowed for each real thermostat.",
@@ -131,7 +132,8 @@
       "no_heater": "Please select at least one real thermostat.",
       "target_temp_min_above_max": "The target minimum temperature must not exceed the target maximum temperature.",
       "no_sensor": "Please select a room temperature sensor.",
-      "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only."
+      "trv_in_use": "{trv} is already controlled by the Better Thermostat {entry}. A thermostat can belong to one Better Thermostat only.",
+      "trv_not_found": "Home Assistant does not know {trv}. Select a thermostat that exists."
     }
   },
   "issues": {

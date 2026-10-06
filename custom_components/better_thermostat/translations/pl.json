@@ -62,7 +62,8 @@
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
       "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
-      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
+      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie.",
+      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat."
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
@@ -131,7 +132,8 @@
       "no_heater": "Proszę wybrać przynajmniej jeden prawdziwy termostat.",
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
       "no_sensor": "Wybierz czujnik temperatury pomieszczenia.",
-      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat."
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat.",
+      "trv_not_found": "Home Assistant nie zna {trv}. Wybierz istniejący termostat."
     }
   },
   "issues": {

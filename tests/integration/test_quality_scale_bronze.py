@@ -153,5 +153,6 @@ async def test_the_flow_refuses_a_thermostat_home_assistant_does_not_know(hass):
 
     assert result["type"] is FlowResultType.FORM, result
     assert result["step_id"] == "user", result
-    assert result["errors"], result
+    assert result["errors"] == {CONF_HEATER: "trv_not_found"}
+    assert result["description_placeholders"]["trv"] == "climate.not_there"
     assert not hass.config_entries.async_entries(DOMAIN)

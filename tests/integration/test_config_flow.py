@@ -16,6 +16,7 @@ import asyncio
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
@@ -695,3 +696,65 @@ async def test_a_submission_without_a_thermostat_is_sent_back_to_the_user(
     assert result["type"] is FlowResultType.FORM, result
     assert result["step_id"] == "user", result
     assert result["errors"] == {CONF_HEATER: "no_heater"}
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_the_settings_refuse_a_thermostat_home_assistant_does_not_know(
+    hass, fake_trv
+):
+    """A thermostat added in the settings has to exist, as in the create flow."""
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        _user_step_input(TRV_ID) | {CONF_HEATER: [TRV_ID, "climate.not_there"]},
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["errors"] == {CONF_HEATER: "trv_not_found"}
+    assert result["description_placeholders"]["trv"] == "climate.not_there"
+    assert [trv["trv"] for trv in entry.data[CONF_HEATER]] == [TRV_ID]
+
+
+@pytest.mark.quality_rule("test-before-configure")
+async def test_a_registered_thermostat_that_has_not_reported_yet_is_accepted(hass):
+    """A thermostat whose integration is still starting is known by its registry entry."""
+    set_room_sensor(hass, 19.0)
+    er.async_get(hass).async_get_or_create(
+        "climate", "generic_thermostat", "late_trv", suggested_object_id="late_trv"
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _user_step_input("climate.late_trv")
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result
+
+
+async def test_the_settings_of_an_entry_whose_thermostat_went_away_still_save(
+    hass, fake_trv
+):
+    """The check covers the thermostats the settings add, not the ones kept."""
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+    er.async_get(hass).async_remove(TRV_ID)
+    hass.states.async_remove(TRV_ID)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], _user_step_input(TRV_ID)
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] == "advanced", result

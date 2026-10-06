@@ -21,7 +21,11 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import CONF_NAME, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv, selector
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_registry as er,
+    selector,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_conversion import TemperatureConverter
 import voluptuous as vol
@@ -863,6 +867,31 @@ def _in_use_placeholders(
     return None
 
 
+def _unknown_placeholders(
+    hass: HomeAssistant,
+    trv_entity_ids_to_check: Iterable[str],
+    kept: Iterable[str] = (),
+) -> dict[str, str] | None:
+    """Name the first thermostat Home Assistant knows nothing about.
+
+    A thermostat is known once it has a state or an entity registry entry; one
+    that is registered but not reporting yet, as on a boot, is known. The
+    thermostats in ``kept`` are skipped: an entry keeps a thermostat that went
+    away, so its other settings can still be saved. ``None`` means every
+    thermostat is known.
+    """
+    registry = er.async_get(hass)
+    kept_ids = set(kept)
+    for trv_entity_id in trv_entity_ids_to_check:
+        if trv_entity_id in kept_ids:
+            continue
+        if hass.states.get(trv_entity_id) is None and (
+            registry.async_get(trv_entity_id) is None
+        ):
+            return {"trv": trv_entity_id}
+    return None
+
+
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Better Thermostat."""
 
@@ -1032,6 +1061,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
         current = self.data or {}
 
         if user_input is not None:
@@ -1055,6 +1085,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             heaters = normalized.get(CONF_HEATER) or []
             if not heaters:
                 errors[CONF_HEATER] = "no_heater"
+
+            unknown = _unknown_placeholders(self.hass, heaters) if heaters else None
+            if unknown:
+                errors[CONF_HEATER] = "trv_not_found"
+                placeholders = unknown
 
             if not errors:
                 in_use = _in_use_placeholders(self.hass, heaters, None)
@@ -1092,7 +1127,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(fields),
             errors=errors,
             last_step=False,
-            description_placeholders={"docs_url": CONFIG_WALKTHROUGH_URL},
+            description_placeholders={
+                "docs_url": CONFIG_WALKTHROUGH_URL,
+                **placeholders,
+            },
         )
 
 
@@ -1261,6 +1299,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if in_use:
                 errors[CONF_HEATER] = "trv_in_use"
                 in_use_placeholders = in_use
+            unknown = _unknown_placeholders(
+                self.hass,
+                normalized.get(CONF_HEATER) or [],
+                kept=trv_entity_ids(self._config_entry),
+            )
+            if unknown:
+                errors[CONF_HEATER] = "trv_not_found"
+                in_use_placeholders = unknown
 
             if not errors:
                 self.trv_bundle = []
