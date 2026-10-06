@@ -68,7 +68,12 @@ from .utils.const import (
     CalibrationType,
     MpcV2PlantPreset,
 )
-from .utils.helpers import device_offers_mode, get_device_model, get_trv_intigration
+from .utils.helpers import (
+    device_offers_mode,
+    entry_settings,
+    get_device_model,
+    get_trv_intigration,
+)
 from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 
 _LOGGER = logging.getLogger(__name__)
@@ -1285,13 +1290,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     self.updated_config, {CONF_HEATER: "trv_in_use"}, in_use
                 )
 
-            # The comparison reads the entry's data, so it runs before the
+            # The comparison reads the entry as stored, so it runs before the
             # write; the signal goes out only once the write has happened.
             algorithms_changed = self._calibration_algorithms_changed()
 
-            # The whole configuration lives in the entry's data. Options are
-            # emptied in the same update, so an entry that still carries them
-            # is written — and so reloaded — once rather than twice.
+            # The whole configuration is written to the entry's data and the
+            # options are emptied in the same update, so an entry 2.0 saved,
+            # whose settings are in its options, is written once and read
+            # from its data from then on.
             self.hass.config_entries.async_update_entry(
                 self._config_entry, data=self.updated_config, options={}
             )
@@ -1302,7 +1308,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
                 )
             self._active_trv_config = None
-            # The entry is written above and nothing reads its options.
+            # The entry is written above; its options stay empty.
             return self.async_create_entry(title=self.updated_config["name"], data={})
 
         user_input = user_input or {}
@@ -1343,7 +1349,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 normalized = _normalize_user_submission(
                     user_input,
                     mode="update",
-                    base=self._config_entry.data,
+                    base=entry_settings(self._config_entry),
                     errors=errors,
                     system_unit=self.hass.config.units.temperature_unit,
                 )
@@ -1369,7 +1375,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Create a map of existing TRV configs by TRV ID
                 existing_trvs = {
                     trv.get("trv"): trv
-                    for trv in self._config_entry.data.get(CONF_HEATER, [])
+                    for trv in entry_settings(self._config_entry).get(CONF_HEATER, [])
                     if isinstance(trv, dict) and trv.get("trv")
                 }
 
@@ -1413,7 +1419,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors[CONF_HEATER] = "no_heater"
 
         return self._show_user_form(
-            self._config_entry.data, errors, in_use_placeholders, user_input
+            entry_settings(self._config_entry), errors, in_use_placeholders, user_input
         )
 
     def _in_use_placeholders(
@@ -1459,7 +1465,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def _calibration_algorithms_changed(self) -> bool:
         """Return whether the update changes the set of calibration algorithms."""
-        old_config = self._config_entry.data
+        old_config = entry_settings(self._config_entry)
         new_config = self.updated_config
 
         # Get active calibration algorithms from both configs
