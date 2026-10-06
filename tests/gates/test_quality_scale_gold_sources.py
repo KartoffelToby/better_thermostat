@@ -18,6 +18,7 @@ import re
 import pytest
 import yaml
 
+from custom_components.better_thermostat.utils.const import DOMAIN
 from tests.quality_scale import REPO_ROOT
 
 COMPONENT = REPO_ROOT / "custom_components" / "better_thermostat"
@@ -239,7 +240,10 @@ def test_every_raised_error_is_translated():
             if not (
                 isinstance(key, ast.Constant)
                 and key.value in messages
-                and domain is not None
+                and (
+                    (isinstance(domain, ast.Name) and domain.id == "DOMAIN")
+                    or (isinstance(domain, ast.Constant) and domain.value == DOMAIN)
+                )
             ):
                 untranslated.append(f"{where} {name}")
     assert sorted(untranslated) == []
