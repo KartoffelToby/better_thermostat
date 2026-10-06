@@ -103,7 +103,7 @@ from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
     EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S,
-    _update_external_temp_ema,
+    _update_room_temperature_ema,
     temperature_filter_lock,
     trigger_temperature_change,
 )
@@ -637,14 +637,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.runtime.room_temperature_filtered = value
 
     @property
-    def external_temp_ema(self) -> float | None:
+    def room_temperature_ema(self) -> float | None:
         """Return the raw external temperature EMA."""
-        return self.runtime.external_temp_ema
+        return self.runtime.room_temperature_ema
 
-    @external_temp_ema.setter
-    def external_temp_ema(self, value: float | None) -> None:
+    @room_temperature_ema.setter
+    def room_temperature_ema(self, value: float | None) -> None:
         """Set the raw external temperature EMA."""
-        self.runtime.external_temp_ema = value
+        self.runtime.room_temperature_ema = value
 
     @property
     def temp_slope(self) -> float | None:
@@ -1129,9 +1129,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._slope_last_ts = None
         # External temperature filter (anti-jitter for controllers like MPC)
         # 900s = 15min, 1800s = 30min
-        self.external_temp_ema_tau_s = 300.0
-        self.external_temp_ema = None
-        self._external_temp_ema_ts = None
+        self.room_temperature_ema_tau_seconds = 300.0
+        self.room_temperature_ema = None
+        self._room_temperature_ema_monotonic = None
         self.room_temperature_filtered = None
         # Unified state persistence (replaces per-controller stores)
         self.state_mgr: StateManager | None = None
@@ -2079,15 +2079,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         if self.room_temperature is not None:
             self.last_known_external_temp = self.room_temperature
             try:
-                _update_external_temp_ema(self, float(self.room_temperature))
+                _update_room_temperature_ema(self, float(self.room_temperature))
                 _LOGGER.debug(
-                    "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
+                    "better_thermostat %s: initialized room_temperature_ema at startup with %.2f",
                     self.device_name,
                     self.room_temperature,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
-                    "better_thermostat %s: failed to initialize external_temp_ema at startup: %s",
+                    "better_thermostat %s: failed to initialize room_temperature_ema at startup: %s",
                     self.device_name,
                     e,
                 )
@@ -2155,7 +2155,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             # entity attributes only when the unified store has none.
             _store_filters = self.state_mgr.filters if self.state_mgr else None
             if (
-                _store_filters is None or _store_filters.external_temp_ema is None
+                _store_filters is None or _store_filters.room_temperature_ema is None
             ) and (
                 stored_ema := _restored_attribute(
                     old_state, ATTR_STATE_ROOM_TEMPERATURE_FILTERED
@@ -2163,12 +2163,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             ) is not None:
                 try:
                     _restored_ema = float(stored_ema)
-                    self.external_temp_ema = _restored_ema
+                    self.room_temperature_ema = _restored_ema
                     self.room_temperature_filtered = round(_restored_ema, 2)
                     # Reset timestamp to now so the next delta is calculated from restart time
-                    self._external_temp_ema_ts = self.clock.monotonic()
+                    self._room_temperature_ema_monotonic = self.clock.monotonic()
                     _LOGGER.debug(
-                        "better_thermostat %s: restored external_temp_ema from state: %.2f",
+                        "better_thermostat %s: restored room_temperature_ema from state: %.2f",
                         self.device_name,
                         _restored_ema,
                     )
@@ -3566,10 +3566,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         if heat_loss_rate is not None:
             self.heat_loss_rate = heat_loss_rate
         filters = self.state_mgr.filters
-        if filters.external_temp_ema is not None:
-            self.external_temp_ema = filters.external_temp_ema
-            self.room_temperature_filtered = round(filters.external_temp_ema, 2)
-            self._external_temp_ema_ts = self.clock.monotonic()
+        if filters.room_temperature_ema is not None:
+            self.room_temperature_ema = filters.room_temperature_ema
+            self.room_temperature_filtered = round(filters.room_temperature_ema, 2)
+            self._room_temperature_ema_monotonic = self.clock.monotonic()
         if filters.temp_slope is not None:
             self.temp_slope = filters.temp_slope
 
@@ -3580,9 +3580,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.state_mgr.record_thermal(
             getattr(self, "heating_power", None), getattr(self, "heat_loss_rate", None)
         )
-        self.state_mgr.record_filters(
-            getattr(self, "external_temp_ema", None), getattr(self, "temp_slope", None)
-        )
+        self.state_mgr.record_filters(self.room_temperature_ema, self.temp_slope)
 
     @callback
     def schedule_save_state(self, delay_s: float = 15.0) -> None:
@@ -5040,11 +5038,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 )
 
                 # Calculate slope from EMA change
-                old_ema = self.external_temp_ema
+                old_ema = self.room_temperature_ema
                 old_ts = self._slope_periodic_last_ts
                 now_ts = self.clock.monotonic()
 
-                new_ema = _update_external_temp_ema(self, float(last_raw))
+                new_ema = _update_room_temperature_ema(self, float(last_raw))
 
                 if old_ema is not None and old_ts is not None:
                     dt_min = (now_ts - old_ts) / 60.0

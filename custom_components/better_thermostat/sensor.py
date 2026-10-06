@@ -685,10 +685,10 @@ def _release_entry(entry_id: str) -> None:
 
 
 def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
-    """Return room_temperature_filtered with fallback to external_temp_ema."""
+    """Return room_temperature_filtered with fallback to room_temperature_ema."""
     value = bt_climate.room_temperature_filtered
     if value is None:
-        value = bt_climate.external_temp_ema
+        value = bt_climate.room_temperature_ema
     return value
 
 

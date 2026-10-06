@@ -80,7 +80,7 @@ def _make_bt_climate(**overrides):
     bt.window_open = False
     bt.hvac_mode = "heat"
     bt.room_temperature_filtered = None
-    bt.external_temp_ema = None
+    bt.room_temperature_ema = None
     bt.temp_slope = None
     bt.heating_power = None
     bt.heat_loss_rate = None
@@ -164,16 +164,16 @@ class TestExternalTempSensor:
         sensor._update_state()
         assert sensor._attr_native_value == 21.5
 
-    def test_fallback_to_external_temp_ema(self):
+    def test_fallback_to_room_temperature_ema(self):
         """Fallback to external temp ema."""
-        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=22.3)
+        bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=22.3)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 22.3
 
     def test_none_when_both_missing(self):
         """None when both missing."""
-        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=None)
+        bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=None)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -253,7 +253,7 @@ class TestExternalTemp1hEMASensor:
 
     def test_none_value_gives_none(self):
         """None value gives none."""
-        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=None)
+        bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=None)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -1850,22 +1850,22 @@ class TestGetFilteredTemp:
 
     def test_prefers_room_temperature_filtered(self):
         """Prefers the filtered room temperature."""
-        bt = _make_bt_climate(room_temperature_filtered=21.5, external_temp_ema=22.0)
+        bt = _make_bt_climate(room_temperature_filtered=21.5, room_temperature_ema=22.0)
         assert _get_filtered_temp(bt) == 21.5
 
-    def test_falls_back_to_external_temp_ema(self):
+    def test_falls_back_to_room_temperature_ema(self):
         """Falls back to external temp ema."""
-        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=22.0)
+        bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=22.0)
         assert _get_filtered_temp(bt) == 22.0
 
     def test_returns_none_when_both_missing(self):
         """Returns none when both missing."""
-        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=None)
+        bt = _make_bt_climate(room_temperature_filtered=None, room_temperature_ema=None)
         assert _get_filtered_temp(bt) is None
 
     def test_zero_value_not_treated_as_none(self):
         """Zero value not treated as none."""
-        bt = _make_bt_climate(room_temperature_filtered=0.0, external_temp_ema=22.0)
+        bt = _make_bt_climate(room_temperature_filtered=0.0, room_temperature_ema=22.0)
         assert _get_filtered_temp(bt) == 0.0
 
 

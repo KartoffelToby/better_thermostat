@@ -38,22 +38,22 @@ _LOGGER = logging.getLogger(__name__)
 PLATEAU_ACCEPT_WINDOW = 120
 
 
-def _update_external_temp_ema(self, temp_q: float) -> float:
+def _update_room_temperature_ema(self, temp_q: float) -> float:
     """Update and return EMA-filtered external temperature.
 
     Uses a time-based EMA so varying sensor update intervals behave sensibly.
 
     Tunables (optional attributes on `self`):
-    - `external_temp_ema_tau_s` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
+    - `room_temperature_ema_tau_seconds` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
     """
 
-    tau_s = float(self.external_temp_ema_tau_s or 300.0)
+    tau_s = float(self.room_temperature_ema_tau_seconds or 300.0)
     if tau_s <= 0:
         tau_s = 300.0
 
     now_m = monotonic()
-    prev_ts = self._external_temp_ema_ts
-    prev_ema = self.external_temp_ema
+    prev_ts = self._room_temperature_ema_monotonic
+    prev_ema = self.room_temperature_ema
 
     if prev_ts is None or prev_ema is None:
         ema = float(temp_q)
@@ -73,8 +73,8 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
             ema,
         )
 
-    self._external_temp_ema_ts = now_m
-    self.external_temp_ema = ema
+    self._room_temperature_ema_monotonic = now_m
+    self.room_temperature_ema = ema
     # Expose a generic name so consumers don't need to know EMA vs SMA
     self.room_temperature_filtered = round(float(ema), 2)
     return float(ema)
@@ -156,14 +156,14 @@ async def _commit_temperature_update(self, new_temp):
     self.last_known_external_temp = new_temp_q
     # Update EMA (useful if called from timer after delay)
     try:
-        _update_external_temp_ema(self, float(new_temp_q))
+        _update_room_temperature_ema(self, float(new_temp_q))
     except (TypeError, ValueError) as exc:
         _LOGGER.debug(
             "better_thermostat %s: EMA update failed (non-critical): %s",
             self.device_name,
             exc,
         )
-    _ema = self.external_temp_ema
+    _ema = self.room_temperature_ema
     self.last_external_sensor_change = dt_util.now()
     # Reset accumulation & pending after accept
     self.accum_delta = 0.0
@@ -179,7 +179,7 @@ async def _commit_temperature_update(self, new_temp):
         _LOGGER.debug(
             "better_thermostat %s: external_temperature filtered (ema_tau_s=%s) raw=%.2f ema=%.2f",
             self.device_name,
-            self.external_temp_ema_tau_s,
+            self.room_temperature_ema_tau_seconds,
             float(new_temp_q),
             float(_ema),
         )
@@ -543,8 +543,8 @@ async def trigger_temperature_change(self, event):
             # last reading from before it, which says nothing about the room
             # since. The filter starts over from the returning reading, and
             # so does the slope the tick derives from it.
-            self.external_temp_ema = None
-            self._external_temp_ema_ts = None
+            self.room_temperature_ema = None
+            self._room_temperature_ema_monotonic = None
         await _commit_temperature_update(self, _incoming_temperature_q)
     else:
         if (
