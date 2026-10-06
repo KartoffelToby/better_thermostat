@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
@@ -11,14 +12,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
+from homeassistant.helpers.restore_state import RestoreEntity
 import voluptuous as vol
 
 from . import BetterThermostatConfigEntry
 from .entity import (
+    ControlsOneTrv,
     FollowsThermostat,
+    RestoresLastAvailableState,
     TrvNamedEntity,
     current_trv_name,
+    last_available_state,
     remove_unclaimed_registry_entries,
 )
 
@@ -33,6 +37,9 @@ from .utils.const import CONF_CALIBRATION_MODE, CONF_CHILD_LOCK, DOMAIN, Calibra
 from .utils.helpers import async_normalize_bt_entity_ids, find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
+
+# Every entity is pushed and none polls; actions are not limited per platform.
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -221,11 +228,16 @@ def restored_child_lock(
     if stored is None:
         return None
     extra = stored.extra_data.as_dict() if stored.extra_data else None
-    return _switch_state_wins(stored.state.state, extra, configured)
+    saved = last_available_state(stored.state, extra)
+    return _switch_state_wins(saved.state if saved else None, extra, configured)
 
 
 class BetterThermostatChildLockSwitch(
-    FollowsThermostat, TrvNamedEntity, SwitchEntity, RestoreEntity
+    ControlsOneTrv,
+    FollowsThermostat,
+    TrvNamedEntity,
+    SwitchEntity,
+    RestoresLastAvailableState,
 ):
     """Switch for Child Lock."""
 
@@ -249,6 +261,7 @@ class BetterThermostatChildLockSwitch(
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        self._follow_trv_availability()
         self._follow_thermostat()
         await self._restore_child_lock()
 
@@ -259,14 +272,16 @@ class BetterThermostatChildLockSwitch(
                 return bool((trv_config.get("advanced") or {}).get(CONF_CHILD_LOCK))
         return False
 
-    @property
-    def extra_restore_state_data(self) -> RestoredExtraData:
+    def _extra_restore_data(self) -> dict[str, Any]:
         """Record the configured option next to the switch state.
 
         A restore compares it with the option then configured; a difference
         means the option was set in the options flow after the switch.
         """
-        return RestoredExtraData({"configured": self._configured_child_lock()})
+        return {
+            **super()._extra_restore_data(),
+            "configured": self._configured_child_lock(),
+        }
 
     async def _restore_child_lock(self) -> None:
         """Put the switch state from before a reload or restart back on the TRV.
@@ -278,7 +293,7 @@ class BetterThermostatChildLockSwitch(
         the restored state is sent after it.
         """
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
-        last_state = await self.async_get_last_state()
+        last_state = await self.async_get_last_available_state()
         if trv is None or last_state is None:
             return
         last_extra = await self.async_get_last_extra_data()

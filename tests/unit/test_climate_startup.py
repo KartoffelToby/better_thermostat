@@ -100,6 +100,8 @@ def bt():
     # a child state resolves through the system unit.
     mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     mock.device_name = "Test BT"
+    mock.entity_id = "climate.test_bt"
+    mock.available = True
     mock.sensor_entity_id = SENSOR_ID
     # Production holds Trv objects here, not raw dicts: a fixture that maps to
     # a dict passes attribute reads straight through MagicMock and hides
