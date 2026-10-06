@@ -88,7 +88,7 @@ def test_the_config_flow_is_held_to_full_coverage():
 
 @pytest.mark.quality_rule("dependency-transparency")
 def test_every_requirement_comes_from_pypi():
-    """A requirement names a package on PyPI, never a URL or a local path.
+    """Every requirement names a package published on PyPI, by name and version.
 
     The lock file records where uv resolved each package from, so the check
     needs no network.
