@@ -208,6 +208,14 @@ def _registry_entry(entity_id, *, translation_key=None, device_id="dev1"):
     )
 
 
+# The selector options Zigbee2MQTT publishes for a TRVZB from 2.14.2 on.
+Z2M_2_14_2_OPTIONS = (
+    "local_temperature",
+    "remote_temperature",
+    "remote_source_offline",
+)
+
+
 def _make_selector_self(
     state, options=("internal", "external"), *, entries=None, trv=None
 ):
@@ -280,6 +288,42 @@ class TestMaybeSelectExternalSensor:
             "external_ignore_internal",
             options=("internal", "external", "external_ignore_internal"),
         )
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == []
+
+    @pytest.mark.asyncio
+    async def test_a_trv_on_its_local_sensor_is_switched_to_the_remote_one(
+        self, monkeypatch
+    ):
+        """Zigbee2MQTT 2.14.2 names the options after the temperature source."""
+        mock_self = _make_selector_self("local_temperature", options=Z2M_2_14_2_OPTIONS)
+        monkeypatch.setattr(
+            quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
+        )
+
+        assert await quirk.maybe_select_external_sensor(mock_self, "climate.trv1")
+
+        assert _selector_calls(mock_self) == [
+            {
+                "entity_id": "select.trv1_temperature_sensor_select",
+                "option": "remote_temperature",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "selected", ["remote_temperature", "remote_source_offline"]
+    )
+    async def test_a_trv_on_the_remote_source_is_left_alone(
+        self, monkeypatch, selected
+    ):
+        """A device that fell back while the remote value is gone returns by itself."""
+        mock_self = _make_selector_self(selected, options=Z2M_2_14_2_OPTIONS)
         monkeypatch.setattr(
             quirk.er, "async_get", lambda hass: mock_self._registry, raising=True
         )

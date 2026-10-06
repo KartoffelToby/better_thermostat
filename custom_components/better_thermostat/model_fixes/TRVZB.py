@@ -466,10 +466,17 @@ _TK_EXTERNAL_TEMP = frozenset({"external_temperature_input", "external_temperatu
 # the TRVZB regulates on.
 _TK_SENSOR_SELECT = frozenset({"temperature_sensor_select", "temperature_sensor"})
 
-# The option that hands regulation to the value BT writes. Devices offer more
-# than one option naming an external sensor, so the ones already on such an
-# option are left as their owner set them.
-_EXTERNAL_SENSOR_OPTION = "external"
+# The option that hands regulation to the value BT writes, under each name
+# Zigbee2MQTT has given it: ``external`` up to 2.14.1, ``remote_temperature``
+# from 2.14.2 on.
+_EXTERNAL_SENSOR_OPTIONS = ("external", "remote_temperature")
+
+# Selections that already regulate on a remote value. Devices offer more than
+# one option naming an external sensor, so a device on any of them is left as
+# its owner set it. ``remote_source_offline`` is the device reporting that it
+# fell back to its own sensor while the remote one is gone; it switches back
+# by itself once the remote value returns.
+_ON_A_REMOTE_SENSOR = ("external", "remote_")
 
 
 def _find_device_entity(
@@ -581,22 +588,30 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
         # A selector that is not reporting names no option, and the device
         # behind it is in no state to take one either.
         return False
-    if str(state.state).startswith(_EXTERNAL_SENSOR_OPTION):
+    if str(state.state).startswith(_ON_A_REMOTE_SENSOR):
         return True
     options = state.attributes.get("options")
-    if not isinstance(options, (list, tuple)) or _EXTERNAL_SENSOR_OPTION not in options:
+    option = next(
+        (
+            name
+            for name in _EXTERNAL_SENSOR_OPTIONS
+            if isinstance(options, (list, tuple)) and name in options
+        ),
+        None,
+    )
+    if option is None:
         _LOGGER.debug(
-            "better_thermostat %s: TRVZB selector %s offers no '%s' option (%s)",
+            "better_thermostat %s: TRVZB selector %s offers none of %s (%s)",
             self.device_name,
             target,
-            _EXTERNAL_SENSOR_OPTION,
+            _EXTERNAL_SENSOR_OPTIONS,
             options,
         )
         return False
     await self.hass.services.async_call(
         "select",
         "select_option",
-        {"entity_id": target, "option": _EXTERNAL_SENSOR_OPTION},
+        {"entity_id": target, "option": option},
         blocking=True,
         context=self.context,
     )
@@ -605,7 +620,7 @@ async def maybe_select_external_sensor(self: ModelFixHost, entity_id: str) -> bo
         self.device_name,
         target,
         state.state,
-        _EXTERNAL_SENSOR_OPTION,
+        option,
         entity_id,
     )
     return True
