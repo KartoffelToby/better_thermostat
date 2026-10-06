@@ -134,8 +134,8 @@ convention = "numpy"
 # file name under `model_fixes` is a lookup key rather than a name anybody
 # chose. `_QUIRK_MODULE_ALIASES` in `model_quirks.py` redirects a model to
 # another model's module; snake_case module names would turn that one-line
-# redirect into an entry per supported device. The budget records the thirteen
-# files that trip the rule today, so a fourteenth is not exempt for free.
+# redirect into an entry per supported device. The budget records the fourteen
+# files that trip the rule today, so a fifteenth is not exempt for free.
 "custom_components/better_thermostat/model_fixes/**" = ["N999"]
 
 [tool.ruff.lint.isort]
