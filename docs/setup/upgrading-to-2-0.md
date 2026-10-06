@@ -68,6 +68,12 @@ itself.
   `heat_loss_stats`, the key `dT` is now `delta_kelvin`. The values are the
   same. A template that reads the old key gets nothing and has to use the
   new one.
+- **The preset attributes lose their `bt_` prefix.** `bt_preset_cool_temperature`,
+  `bt_preset_cool_temperatures` and `bt_preset_heat_temperatures` are now
+  `preset_cool_temperature`, `preset_cool_temperatures` and
+  `preset_heat_temperatures`. 2.x publishes the old names as well, with the
+  same values, so templates keep working; switch them to the new names before
+  3.0, which drops the old ones.
 
 ### Cooling devices
 

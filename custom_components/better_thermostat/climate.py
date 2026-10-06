@@ -154,6 +154,7 @@ from .utils.const import (
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
+    DEPRECATED_PRESET_ATTRIBUTES,
     DOMAIN,
     SUPPORT_FLAGS,
     TARGET_TEMP_BOUND_AUTO,
@@ -378,6 +379,17 @@ def _room_sensor_missing(sensor_state: State | None) -> bool:
         STATE_UNKNOWN,
         None,
     )
+
+
+def _restored_preset_attribute(old_state: State, name: str) -> Any:
+    """Return a preset attribute of a restored state under either of its names.
+
+    A state 1.9 wrote carries only the deprecated `bt_`-prefixed name.
+    """
+    value = old_state.attributes.get(name)
+    if value is None:
+        value = old_state.attributes.get(DEPRECATED_PRESET_ATTRIBUTES[name])
+    return value
 
 
 def _arm_degraded_grace(self) -> None:
@@ -2215,30 +2227,20 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Restore the persisted per-preset cooling map before applying it below,
             # so a restored preset uses its saved cooling target instead of the default.
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURE, None)
-                is not None
-            ):
+            stored_cool_temperature = _restored_preset_attribute(
+                old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
+            )
+            if stored_cool_temperature is not None:
                 self._preset_cool_temperature = convert_to_float(
-                    str(
-                        old_state.attributes.get(
-                            ATTR_STATE_PRESET_COOL_TEMPERATURE, None
-                        )
-                    ),
-                    self.device_name,
-                    "startup()",
+                    str(stored_cool_temperature), self.device_name, "startup()"
                 )
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURES, None)
-                is not None
-            ):
+            stored_cool_temperatures = _restored_preset_attribute(
+                old_state, ATTR_STATE_PRESET_COOL_TEMPERATURES
+            )
+            if stored_cool_temperatures is not None:
                 try:
                     restored_cool_temperatures = json.loads(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_PRESET_COOL_TEMPERATURES, "{}"
-                            )
-                        )
+                        str(stored_cool_temperatures)
                     )
                 except TypeError, json.JSONDecodeError:
                     _LOGGER.debug(
@@ -2259,17 +2261,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # entities, whose platform is set up after climate, so it comes
             # back from the thermostat's own state here. The block below reads
             # it to pick the target for a restored preset.
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
-                is not None
-            ):
+            stored_heat_temperatures = _restored_preset_attribute(
+                old_state, ATTR_STATE_PRESET_HEAT_TEMPERATURES
+            )
+            if stored_heat_temperatures is not None:
                 try:
                     restored_heat_temperatures = json.loads(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_PRESET_HEAT_TEMPERATURES, "{}"
-                            )
-                        )
+                        str(stored_heat_temperatures)
                     )
                 except TypeError, json.JSONDecodeError:
                     _LOGGER.debug(
@@ -3710,6 +3708,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.preset_mgr.temperatures
             ),
         }
+        for name, deprecated_name in DEPRECATED_PRESET_ATTRIBUTES.items():
+            dev_specific[deprecated_name] = dev_specific[name]
 
         # Optional: next scheduled valve maintenance (ISO8601)
         if self.next_valve_maintenance is not None:

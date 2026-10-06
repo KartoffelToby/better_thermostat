@@ -2015,6 +2015,44 @@ class TestRestoreState:
         assert bt._preset_cool_temperatures == {"comfort": 25.5, "eco": 26.0}
 
     @pytest.mark.asyncio
+    async def test_a_state_written_by_1_9_restores_the_presets(self, bt):
+        """Only the deprecated bt_-prefixed names present: the presets come back."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 22.0,
+            "bt_preset_cool_temperature": 24.5,
+            "bt_preset_cool_temperatures": json.dumps({"comfort": 25.5}),
+            "bt_preset_heat_temperatures": json.dumps({"comfort": 21.5}),
+        }
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+        bt._preset_cool_temperatures = {"comfort": 24.0, "eco": 27.0}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt._preset_cool_temperature == 24.5
+        assert bt._preset_cool_temperatures["comfort"] == 25.5
+        assert bt.preset_mgr.temperatures["comfort"] == 21.5
+
+    @pytest.mark.asyncio
+    async def test_the_current_preset_name_wins_over_the_deprecated_one(self, bt):
+        """Both names present: the value under the current name is restored."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 22.0,
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps({"comfort": 21.5}),
+            "bt_preset_heat_temperatures": json.dumps({"comfort": 19.0}),
+        }
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.preset_mgr.temperatures["comfort"] == 21.5
+
+    @pytest.mark.asyncio
     async def test_restored_preset_applies_persisted_cool_target(self, bt):
         """A restored preset applies its persisted cool target, not the default."""
         bt.cooler_entity_id = COOLER_ID

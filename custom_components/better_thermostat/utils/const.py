@@ -94,9 +94,17 @@ ATTR_STATE_DOOR_OPEN: Final = "door_open"
 ATTR_STATE_CALL_FOR_HEAT: Final = "call_for_heat"
 ATTR_STATE_LAST_CHANGE: Final = "last_change"
 ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"
-ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "bt_preset_cool_temperature"
-ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "bt_preset_cool_temperatures"
-ATTR_STATE_PRESET_HEAT_TEMPERATURES: Final = "bt_preset_heat_temperatures"
+ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "preset_cool_temperature"
+ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "preset_cool_temperatures"
+ATTR_STATE_PRESET_HEAT_TEMPERATURES: Final = "preset_heat_temperatures"
+# Deprecated, removed in 3.0: the preset attributes under their bt_-prefixed
+# names. They are published next to the current ones because templates read
+# them and because 1.9 restores its presets from them after a rollback.
+DEPRECATED_PRESET_ATTRIBUTES: Final[dict[str, str]] = {
+    ATTR_STATE_PRESET_COOL_TEMPERATURE: "bt_preset_cool_temperature",
+    ATTR_STATE_PRESET_COOL_TEMPERATURES: "bt_preset_cool_temperatures",
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES: "bt_preset_heat_temperatures",
+}
 ATTR_VALVE_POSITION: Final = "valve_position"
 ATTR_STATE_HUMIDITY: Final = "humidity"
 ATTR_STATE_MAIN_MODE: Final = "main_mode"
