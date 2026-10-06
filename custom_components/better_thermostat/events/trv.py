@@ -8,6 +8,7 @@ convert thermostat states and prepare outbound payloads.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -204,7 +205,7 @@ def _read_internal_temperature_later(
         due: asyncio.Future[None] = self.hass.loop.create_future()
 
         @callback
-        def _due(_now: Any) -> None:
+        def _due(_now: datetime) -> None:
             if not due.done():
                 due.set_result(None)
 
