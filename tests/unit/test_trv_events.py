@@ -66,6 +66,8 @@ def mock_bt():
     # a TRV state resolves through the system unit.
     bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Test Thermostat"
+    bt.entity_id = "climate.test_thermostat"
+    bt.available = True
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
     # A room without a cooler spells its heat demand HEAT; ``_bind_cooler_hvac_mode``
