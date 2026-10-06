@@ -125,7 +125,7 @@ Better Thermostat offers several algorithms to control your heating:
 - Switch to PID Controller if you want fine control
 - On HomeMatic IP/CCU, offset-based calibration handles SELECT entities automatically
 
-**MPC v2 plant preset** Only used by the MPC v2 mode. *Auto (use learned heat-loss rate)* derives the room model from the heat-loss rate BT has learned; the small, medium and large room presets start from a fixed model for a room of about 10, 20 or 40 m² instead.
+**MPC v2 room size** Only used by the MPC v2 mode. *Auto (use learned heat-loss rate)* derives the room model from the heat-loss rate BT has learned; the small, medium and large room presets start from a fixed model for a room of about 10, 20 or 40 m² instead.
 
 **Overheating protection?** Enabled by default. Some TRVs don't close the valve completely when the temperature is reached, or the radiator holds a lot of residual heat. While the thermostat is idle, this option adds a correction that holds the TRV further closed. It only acts in the AI Time Based and Aggressive modes; the other modes ignore it.
 
