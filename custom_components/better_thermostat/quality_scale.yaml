@@ -14,19 +14,11 @@ rules:
     status: todo
     comment: config_flow.py is covered to 82 %; the rule asks for 100 %.
   dependency-transparency: done
-  docs-actions:
-    status: todo
-    comment: No page describes the three actions and their fields.
-  docs-conditions:
-    status: todo
-    comment: No page describes the device conditions is_hvac_mode and is_hvac_action.
-  docs-high-level-description:
-    status: todo
-    comment: The landing page of the documentation holds links and badges, no description.
+  docs-actions: done
+  docs-conditions: done
+  docs-high-level-description: done
   docs-installation-instructions: done
-  docs-removal-instructions:
-    status: todo
-    comment: No page says how to remove the integration.
+  docs-removal-instructions: done
   docs-triggers: done
   entity-event-setup: done
   entity-unique-id: done
