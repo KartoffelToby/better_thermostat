@@ -203,7 +203,7 @@ class PlantFacade(Protocol):
     The benchmark drives both single-TRV (``TwoStatePlant``) and
     multi-TRV (``MultiTrvPlant``) simulators through the same loop. The
     facade adapts each plant's native shape (scalar valve vs. vector
-    valves) to the loop's uniform "apply one valve_pct, see one room and
+    valves) to the loop's uniform "apply one valve_percent, see one room and
     one radiator temperature" view.
     """
 
@@ -218,7 +218,7 @@ class PlantFacade(Protocol):
         ...
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
     ) -> None:
         """Step the plant forward by ``dt_s`` seconds under the given valve and outdoor inputs."""
         ...
@@ -240,9 +240,9 @@ class _SingleTrvFacade:
         return self._plant.state.T_rad_C
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
     ) -> None:
-        u = self._actuator.apply(valve_pct)
+        u = self._actuator.apply(valve_percent)
         self._plant.step(dt_s, u, T_outdoor_C, Q_K_per_min=Q_K_per_min)
 
 
@@ -271,10 +271,10 @@ def _drive_adapter(
     t_s_list: list[float] = []
     T_room_list: list[float] = []
     T_setpoint_list: list[float] = []
-    valve_pct_list: list[float] = []
+    valve_percent_list: list[float] = []
 
     t = 0.0
-    last_valve_pct = 0.0
+    last_valve_percent = 0.0
     last_measured_temp = facade.T_room_C
     restart_fired = False
 
@@ -334,7 +334,7 @@ def _drive_adapter(
             outdoor_temp_C=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
-            last_valve_percent=last_valve_pct,
+            last_valve_percent=last_valve_percent,
         )
 
         out = adapter.step(ctx)
@@ -342,26 +342,26 @@ def _drive_adapter(
         # whatever the calibration mode: the kernel's window region decides
         # that above the controller. The controller still runs and sees the
         # open window, but the plant gets a closed valve.
-        valve_pct = (
+        valve_percent = (
             0.0 if window_open or out.valve_percent is None else out.valve_percent
         )
-        last_valve_pct = valve_pct
+        last_valve_percent = valve_percent
 
         t_s_list.append(t)
         T_room_list.append(facade.T_room_C)
         T_setpoint_list.append(target)
-        valve_pct_list.append(valve_pct)
+        valve_percent_list.append(valve_percent)
 
         Q_solar = solar_intensity * scenario.solar_max_K_per_min
         Q_window = -scenario.window_loss_K_per_min if window_open else 0.0
-        facade.apply(step_s, valve_pct, T_outdoor, Q_K_per_min=Q_solar + Q_window)
+        facade.apply(step_s, valve_percent, T_outdoor, Q_K_per_min=Q_solar + Q_window)
         t += step_s
 
     return TimeSeries(
         t_s=t_s_list,
         T_room_C=T_room_list,
         T_setpoint_C=T_setpoint_list,
-        valve_pct=valve_pct_list,
+        valve_percent=valve_percent_list,
     )
 
 

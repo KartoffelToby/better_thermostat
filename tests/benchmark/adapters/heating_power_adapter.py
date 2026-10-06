@@ -98,10 +98,10 @@ class HeatingPowerAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute valve percent + update the heating-power learner."""
-        valve_pct = self._compute_valve_pct(ctx)
-        self._update_learner(ctx, valve_pct > 0.0)
+        valve_percent = self._compute_valve_percent(ctx)
+        self._update_learner(ctx, valve_percent > 0.0)
         return BenchmarkOutput(
-            valve_percent=valve_pct,
+            valve_percent=valve_percent,
             diagnostics={
                 "heating_power": self.heating_power,
                 "cycle_active": self._cycle_start_t is not None,
@@ -120,7 +120,7 @@ class HeatingPowerAdapter:
     # Internals
     # ------------------------------------------------------------------
 
-    def _compute_valve_pct(self, ctx: BenchmarkContext) -> float:
+    def _compute_valve_percent(self, ctx: BenchmarkContext) -> float:
         """Heating-power → valve-position formula, mirroring ``utils/helpers.py``."""
         temp_diff = ctx.target_temp_C - ctx.current_temp_C
         if temp_diff <= 0.0:

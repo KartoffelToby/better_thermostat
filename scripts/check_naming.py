@@ -265,12 +265,18 @@ def check(paths: list[Path] | None) -> int:
     for path, count, allowed in over:
         for finding in findings[path]:
             print(finding)
-        print(f"over budget: {path} {count} rejected names, budget {allowed}\n")
+        if allowed:
+            print(f"over budget: {path} {count} rejected names, budget {allowed}\n")
+        else:
+            print(f"{path}: {count} rejected names, none allowed\n")
 
     if over:
-        print(f"{len(over)} file(s) over budget")
+        print(f"{len(over)} file(s) carry more rejected names than allowed")
         return 1
 
+    if not counts and not budget:
+        print("no rejected names")
+        return 0
     print(
         f"{sum(counts.values())} rejected names across {len(counts)} files, "
         "all within budget"

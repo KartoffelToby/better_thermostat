@@ -15,8 +15,9 @@
 #     B  persisted key. Renaming needs a migration.
 #     C  user-facing contract. Renaming breaks automations.
 #
-# Adding a term is a normal pull request. Lowering a budget in
-# `.naming-budget.json` is what a rename delivers; raising one needs a reason.
+# Adding a term is a normal pull request. A term that rejects a spelling the
+# tree still uses records that backlog in `.naming-budget.json`; the renames that
+# follow lower it until the file deletes itself.
 # The convention these terms live under is in CONTRIBUTING.md → Naming.
 
 # ---------------------------------------------------------------------------

@@ -138,7 +138,7 @@ def test_check_fails_on_the_first_name_in_an_unbudgeted_file(checker, capsys):
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
     _budget(checker)
     assert checker.check(None) == 1
-    assert "budget 0" in capsys.readouterr().out
+    assert "none allowed" in capsys.readouterr().out
 
 
 # A field production spells the way the glossary rejects, and a test that has

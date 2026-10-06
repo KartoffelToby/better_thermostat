@@ -767,13 +767,13 @@ class TestMPCController:
             )
             result, _ = compute_mpc(inp, params)
             assert result is not None
-            valve_pct = result.valve_percent
+            valve_percent = result.valve_percent
             dbg = result.debug or {}
 
             vtemp = _STATES[key].virtual_temp if key in _STATES else None
 
             error = target - current
-            results.append((current, valve_pct))
+            results.append((current, valve_percent))
             print(
                 "Schritt {}: Temp={:.3f}°C (virt={}), Error={:.3f}K, "
                 "Valve={}%, delta_T(ctrl)={}, u0={}, du={}, u_abs={}, cost={}".format(
@@ -781,7 +781,7 @@ class TestMPCController:
                     current,
                     (f"{float(vtemp):.3f}°C" if vtemp is not None else None),
                     error,
-                    valve_pct,
+                    valve_percent,
                     dbg.get("delta_T"),
                     dbg.get("mpc_u0_pct"),
                     dbg.get("mpc_du_pct"),
@@ -794,7 +794,7 @@ class TestMPCController:
             # Simple model: temp increases by gain * percent / 100 per step
             step_minutes = 5  # Finer steps for more detail
             heating_effect = (
-                params.mpc_thermal_gain * (valve_pct / 100.0) * step_minutes
+                params.mpc_thermal_gain * (valve_percent / 100.0) * step_minutes
             )
             current += heating_effect
             # Add some cooling

@@ -1,8 +1,0 @@
-{
-  "tests/benchmark/adapters/heating_power_adapter.py": 3,
-  "tests/benchmark/metrics.py": 11,
-  "tests/benchmark/multi_trv_runner.py": 2,
-  "tests/benchmark/runner.py": 8,
-  "tests/benchmark/tests/test_metrics.py": 11,
-  "tests/unit/test_mpc.py": 4
-}

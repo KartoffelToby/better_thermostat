@@ -388,26 +388,23 @@ production's decision and not the test's, and a new test may use a rejected
 spelling for as long as a production field still carries it. Renaming the
 last production site is what makes its readers due, and they come out with it.
 
-New and touched code follows the convention. The spellings the codebase still
-carries come out in their own pull requests, so a rename you did not sign up for
-never lands in yours. `scripts/check_naming.py` tells you where you stand, and CI
-runs it. It matches whole identifiers against the rejected spellings in
-`glossary.toml` and counts them per file in `.naming-budget.json`: a file may not
-exceed its number, and a file that is not in the budget may not carry one at
-all. A file that drops below its number fails as well until `update` records
-the lower one, so a rename brings its new count along. Only the script writes
-that file:
+`scripts/check_naming.py` matches whole identifiers against the rejected
+spellings in `glossary.toml`, and CI runs it. The tree carries none of them, so
+a single rejected spelling fails the check:
 
 ```bash
-uv run python scripts/check_naming.py list <path>    # what a file still carries
+uv run python scripts/check_naming.py list <path>    # what a file carries
 uv run python scripts/check_naming.py check          # what CI runs
-uv run python scripts/check_naming.py update         # after a rename
 ```
 
-`update` refuses to record a count that grew. Pass `--allow-raise` only when a
-count rose without anyone writing a rejected name: a file moved and took its
-backlog along, or the glossary gained a term the tree already spelled the old
-way.
+A new term can reject a spelling the tree still uses. Its pull request then
+records that backlog per file with `update --allow-raise`, which writes
+`.naming-budget.json`: a file may not exceed its number, and a file that is not
+in the budget may not carry one at all. The old spellings come out in their own
+pull requests, each of which runs `update` to record the lower count, and the
+file deletes itself once the last one is gone. `update` refuses to record a
+count that grew without `--allow-raise`, which is also the flag for a file that
+moved and took its backlog along.
 
 The two halves are checked by different tools. `check_naming.py` reads vocabulary
 and says nothing about case; `ruff check` reads case and shape through its `N`
@@ -431,13 +428,9 @@ uv run python scripts/pep8_naming_budget.py check    # what CI runs
 uv run python scripts/pep8_naming_budget.py update   # after a rename
 ```
 
-The two gates point in opposite directions inside those paths, and that is not
-yet settled. `glossary.toml` rejects `delta_T` wherever it appears, the
-calibration modules included, and `.naming-budget.json` charges each source
-line that uses it as an identifier. A test spelling it is not charged while
-production still does. The ruff exemption buys nothing there. A separate change
-decides whether the glossary gains an exception for the notation or those names
-come out.
+Inside those paths both gates apply. The ruff exemption covers case alone, so
+the notation may still not use a spelling `glossary.toml` rejects: a
+temperature difference is `delta_kelvin` there too, never `delta_T`.
 
 ## Blind exception handlers
 
