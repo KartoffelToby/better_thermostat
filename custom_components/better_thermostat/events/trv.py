@@ -538,17 +538,17 @@ async def trigger_trv_change(
     if hvac_action_attr is None:
         hvac_action_attr = _org_trv_state.attributes.get("action")
     if hvac_action_attr is not None:
-        val = str(hvac_action_attr).strip().lower()
+        value = str(hvac_action_attr).strip().lower()
         prev = trv.hvac_action
-        trv.hvac_action = val
-        if prev != val:
+        trv.hvac_action = value
+        if prev != value:
             _main_change = True
             _LOGGER.debug(
                 "better_thermostat %s: TRV %s hvac_action changed: %s -> %s",
                 self.device_name,
                 entity_id,
                 prev,
-                val,
+                value,
             )
 
     val_pos = _org_trv_state.attributes.get("valve_position")

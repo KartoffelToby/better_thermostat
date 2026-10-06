@@ -267,32 +267,32 @@ async def async_attach_trigger(
         to: _AttributeMatch | None = None,
         from_: _AttributeMatch | None = None,
     ) -> dict:
-        cfg: dict = {
+        trigger_config: dict = {
             state_trigger.CONF_PLATFORM: "state",
             state_trigger.CONF_ENTITY_ID: entity_id,
             CONF_ATTRIBUTE: attribute,
         }
         if to is not None:
-            cfg[CONF_TO] = to
+            trigger_config[CONF_TO] = to
         if from_ is not None:
-            cfg[CONF_FROM] = from_
+            trigger_config[CONF_FROM] = from_
         if CONF_FOR in config:
-            cfg[CONF_FOR] = config[CONF_FOR]
-        return cfg
+            trigger_config[CONF_FOR] = config[CONF_FOR]
+        return trigger_config
 
     def _build_numeric(template: str) -> dict:
-        cfg: dict = {
+        trigger_config: dict = {
             numeric_state_trigger.CONF_PLATFORM: "numeric_state",
             numeric_state_trigger.CONF_ENTITY_ID: entity_id,
             numeric_state_trigger.CONF_VALUE_TEMPLATE: template,
         }
         if CONF_ABOVE in config:
-            cfg[CONF_ABOVE] = config[CONF_ABOVE]
+            trigger_config[CONF_ABOVE] = config[CONF_ABOVE]
         if CONF_BELOW in config:
-            cfg[CONF_BELOW] = config[CONF_BELOW]
+            trigger_config[CONF_BELOW] = config[CONF_BELOW]
         if CONF_FOR in config:
-            cfg[CONF_FOR] = config[CONF_FOR]
-        return cfg
+            trigger_config[CONF_FOR] = config[CONF_FOR]
+        return trigger_config
 
     # Purpose-specific trigger: heating_active
     #   Fires when hvac_action changes from another action TO "heating".
