@@ -227,10 +227,11 @@ def _resolve(ref: str) -> str:
         check=False,
     )
     if finished.returncode != 0:
+        branch = ref.removeprefix("origin/")
         sys.exit(
             f"no such ref: {ref} — fetch it first, for example\n"
             "  git fetch https://github.com/KartoffelToby/better_thermostat.git "
-            "1.9:refs/remotes/origin/1.9"
+            f"{branch}:refs/remotes/origin/{branch}"
         )
     return finished.stdout.strip()
 
