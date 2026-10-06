@@ -286,7 +286,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.last_main_hvac_mode = HVACMode.HEAT
     bt.off_temperature = None
     bt.tolerance = 0.5
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
     bt.heat_loss_rate = 0.0
     bt.devices_errors = []

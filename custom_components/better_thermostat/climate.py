@@ -961,26 +961,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
-        self.bt_target_temp_min: float | None = _configured_temperature_bound(
+        self.configured_min_temperature: float | None = _configured_temperature_bound(
             target_temp_min, name, CONF_TARGET_TEMP_MIN
         )
-        self.bt_target_temp_max: float | None = _configured_temperature_bound(
+        self.configured_max_temperature: float | None = _configured_temperature_bound(
             target_temp_max, name, CONF_TARGET_TEMP_MAX
         )
         # The configured step is picked from options labelled in Celsius, the
         # unit the configured range is picked in, so it is read as Celsius on
         # every system.
-        self.bt_target_temp_step = (
+        self.bt_target_temperature_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
-        # ``bt_target_temp_step`` also absorbs the step derived from the child
+        # ``bt_target_temperature_step`` also absorbs the step derived from the child
         # entities, so the explicitly configured value is kept apart: it is the
         # only step that may coarsen a device's own grid.
-        self._configured_target_temp_step: float | None = (
-            self.bt_target_temp_step
-            if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
+        self._configured_temperature_step: float | None = (
+            self.bt_target_temperature_step
+            if self.bt_target_temperature_step and self.bt_target_temperature_step > 0.0
             else None
         )
         # ``bt_min_temp`` / ``bt_max_temp`` bound the heating channel, and the
@@ -1965,26 +1965,26 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 steps.append(_sf)
         if not heat_mins and not heat_maxes:
             heat_mins, heat_maxes = cool_mins, cool_maxes
-        if self.bt_target_temp_min is None:
+        if self.configured_min_temperature is None:
             self.bt_min_temp = max(heat_mins) if heat_mins else None
         else:
-            self.bt_min_temp = self.bt_target_temp_min
-        if self.bt_target_temp_max is None:
+            self.bt_min_temp = self.configured_min_temperature
+        if self.configured_max_temperature is None:
             self.bt_max_temp = min(heat_maxes) if heat_maxes else None
         else:
-            self.bt_max_temp = self.bt_target_temp_max
+            self.bt_max_temp = self.configured_max_temperature
         if self.cooler_entity_id is None:
             self.cool_min_temperature = None
             self.cool_max_temperature = None
         else:
             self.cool_min_temperature = (
-                self.bt_target_temp_min
-                if self.bt_target_temp_min is not None
+                self.configured_min_temperature
+                if self.configured_min_temperature is not None
                 else (max(cool_mins) if cool_mins else None)
             )
             self.cool_max_temperature = (
-                self.bt_target_temp_max
-                if self.bt_target_temp_max is not None
+                self.configured_max_temperature
+                if self.configured_max_temperature is not None
                 else (min(cool_maxes) if cool_maxes else None)
             )
 
@@ -2005,8 +2005,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     upper,
                 )
 
-        if self.bt_target_temp_step is None:
-            self.bt_target_temp_step = max(steps) if steps else None
+        if self.bt_target_temperature_step is None:
+            self.bt_target_temperature_step = max(steps) if steps else None
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
@@ -2608,7 +2608,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # This step is the grid the device rounds to: it sizes the echo
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
-            # across all children in ``bt_target_temp_step``. An explicitly
+            # across all children in ``bt_target_temperature_step``. An explicitly
             # configured step coarser than the device's own replaces it. A
             # finer one does not: the device would hold every write on its own
             # grid and never report the value it was sent. The aggregate only
@@ -2616,13 +2616,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _device_step = _target_temp_step_celsius(
                 _s, self.device_name, self.hass.config.units.temperature_unit
             )
-            _configured_step = self._configured_target_temp_step
+            _configured_step = self._configured_temperature_step
             if _device_step is not None and _device_step > 0.0:
                 trv.target_temp_step = max(_device_step, _configured_step or 0.0)
             elif _configured_step is not None:
                 trv.target_temp_step = _configured_step
-            elif self.bt_target_temp_step and self.bt_target_temp_step > 0.0:
-                trv.target_temp_step = self.bt_target_temp_step
+            elif (
+                self.bt_target_temperature_step
+                and self.bt_target_temperature_step > 0.0
+            ):
+                trv.target_temp_step = self.bt_target_temperature_step
             else:
                 trv.target_temp_step = 0.5
             trv.hvac_modes = _attrs.get("hvac_modes", None)
@@ -3788,7 +3791,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
         Home Assistant converts every temperature this entity publishes into
         the system unit but publishes the step as given, and the frontend
-        steps the converted target by it. ``bt_target_temp_step`` is a
+        steps the converted target by it. ``bt_target_temperature_step`` is a
         Celsius difference, so on a Fahrenheit system it is scaled into
         Fahrenheit. Without one the step is Home Assistant's default
         precision for the system unit, whole degrees on a Fahrenheit system
@@ -3803,10 +3806,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         float
                 Step size of target temperature.
         """
-        if self.bt_target_temp_step is not None:
+        if self.bt_target_temperature_step is not None:
             if self._unit == UnitOfTemperature.FAHRENHEIT:
-                return round(self.bt_target_temp_step * 9.0 / 5.0, 2)
-            return self.bt_target_temp_step
+                return round(self.bt_target_temperature_step * 9.0 / 5.0, 2)
+            return self.bt_target_temperature_step
 
         if self._unit == UnitOfTemperature.FAHRENHEIT:
             return PRECISION_WHOLE
@@ -4205,7 +4208,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             or self.cool_target_temperature > self.heat_target_temperature
         ):
             return
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         adjusted = self.heat_target_temperature + step
         maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None and maximum >= self.heat_target_temperature:
@@ -4265,7 +4268,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             or self.heat_target_temperature < self.cool_target_temperature
         ):
             return
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         adjusted = self.cool_target_temperature - step
         if self.bt_min_temp is not None:
             adjusted = max(adjusted, self.bt_min_temp)
@@ -4368,7 +4371,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         happens to be in.
 
         The one step of separation comes from :func:`normalize_step`, because
-        ``bt_target_temp_step`` can carry whatever a child entity reports: a
+        ``bt_target_temperature_step`` can carry whatever a child entity reports: a
         negative step would put the floor below the heating target and invert
         the pair this bound exists to order, and a NaN one would make the
         comparison against it false and drop the bound altogether.
@@ -4388,7 +4391,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if self.cooler_entity_id is None or self.heat_target_temperature is None:
             return value
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         floor = self.heat_target_temperature + step
         maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None:
@@ -4431,7 +4434,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         """
         if self.cooler_entity_id is None or self.cool_target_temperature is None:
             return value
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         ceiling = self.cool_target_temperature - step
         if self.bt_min_temp is not None:
             ceiling = max(ceiling, self.bt_min_temp)
@@ -4445,7 +4448,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         grid. A value already on the grid, and every value when no step is
         configured, comes back unchanged.
         """
-        step = self._configured_target_temp_step
+        step = self._configured_temperature_step
         if value is None or not isinstance(step, float) or step <= 0:
             return value
         rounded = round_by_step(value, step)

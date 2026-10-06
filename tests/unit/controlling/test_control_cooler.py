@@ -51,7 +51,7 @@ def _mock_bt():
     mock_self.call_for_heat = True
     mock_self.bt_min_temp = None
     mock_self.bt_max_temp = None
-    mock_self.bt_target_temp_step = None
+    mock_self.bt_target_temperature_step = None
     mock_self.window_sensor_entity_id = None
     mock_self.preset_mode = PRESET_NONE
     mock_self.outdoor_sensor_entity_id = None

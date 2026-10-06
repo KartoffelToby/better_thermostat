@@ -46,6 +46,25 @@ definition = "The target BT holds on the cooling channel."
 rejected = ["bt_target_cooltemp", "target_cooltemp", "cool_target"]
 
 [[term]]
+name = "bt_target_temperature_step"
+zone = "A"
+definition = "The step BT offers for its targets, in °C: the configured one, or the one derived from the TRVs."
+rejected = ["bt_target_temp_step"]
+note = "Prefixed because the entity implements HA's `target_temperature_step`, which reports this step in the system unit."
+
+[[term]]
+name = "configured_min_temperature"
+zone = "A"
+definition = "The lower bound of the target range the user configured, in °C; None when the TRVs decide."
+rejected = ["bt_target_temp_min"]
+
+[[term]]
+name = "configured_max_temperature"
+zone = "A"
+definition = "The upper bound of the target range the user configured, in °C; None when the TRVs decide."
+rejected = ["bt_target_temp_max"]
+
+[[term]]
 name = "room_temperature"
 zone = "A"
 definition = "Room sensor reading as measured, unsmoothed."

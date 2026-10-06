@@ -1,6 +1,6 @@
 """The per-device setpoint step stays the device's own grid.
 
-``bt_target_temp_step`` is the coarsest step across all children — every TRV
+``bt_target_temperature_step`` is the coarsest step across all children — every TRV
 plus the cooler — and is what the integration exposes as its own
 ``target_temperature_step``. Handing that aggregate to each child would size
 the inbound echo window by the coarsest device, so a user turning a
@@ -60,10 +60,10 @@ def bt():
     mock.cooler_entity_id = COOLER_ID
     mock.bt_min_temp = None
     mock.bt_max_temp = None
-    mock.bt_target_temp_min = None
-    mock.bt_target_temp_max = None
-    mock.bt_target_temp_step = None
-    mock._configured_target_temp_step = None
+    mock.configured_min_temperature = None
+    mock.configured_max_temperature = None
+    mock.bt_target_temperature_step = None
+    mock._configured_temperature_step = None
     mock.heat_target_temperature = 21.0
     mock.cool_target_temperature = 25.0
     mock.bt_hvac_mode = HVACMode.HEAT
@@ -125,7 +125,7 @@ async def test_fine_trv_keeps_its_own_step_next_to_a_coarse_cooler(bt):
     """The TRV gets its own 0.1 step while the entity exposes the coarse 1.0."""
     await _run_startup(bt, _child_state(TRV_ID, FINE_STEP))
 
-    assert bt.bt_target_temp_step == pytest.approx(COARSE_STEP)
+    assert bt.bt_target_temperature_step == pytest.approx(COARSE_STEP)
     assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(FINE_STEP)
 
 
@@ -167,8 +167,8 @@ async def test_the_coarser_of_configured_and_device_step_is_written_on(
     A device holds every write on its own grid, so a value on a finer grid
     comes back rounded and never as the value Better Thermostat sent.
     """
-    bt.bt_target_temp_step = configured
-    bt._configured_target_temp_step = configured
+    bt.bt_target_temperature_step = configured
+    bt._configured_temperature_step = configured
 
     await _run_startup(bt, _child_state(TRV_ID, device))
 

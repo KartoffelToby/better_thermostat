@@ -42,7 +42,7 @@ def build_bt(
     bt.tolerance = tolerance
     bt.heat_target_temperature = heat_target_temperature
     bt.cool_target_temperature = cool_target_temperature
-    bt.bt_target_temp_step = None
+    bt.bt_target_temperature_step = None
     bt.room_temperature = room_temperature
     bt.hvac_mode = HVACMode.HEAT_COOL
     bt.bt_hvac_mode = HVACMode.HEAT

@@ -28,7 +28,7 @@ def mock_bt_with_off_temperature():
     bt._current_humidity = 50.0
     bt.last_main_hvac_mode = "heat"
     bt.tolerance = 0.5
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
     bt.devices_errors = []
     bt.devices_states = {}
@@ -51,7 +51,7 @@ def mock_bt_without_off_temperature():
     bt._current_humidity = 50.0
     bt.last_main_hvac_mode = "heat"
     bt.tolerance = 0.5
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt.heating_power = 0.1
     bt.devices_errors = []
     bt.devices_states = {}

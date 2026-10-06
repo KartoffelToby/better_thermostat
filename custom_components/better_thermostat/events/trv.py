@@ -630,7 +630,7 @@ async def trigger_trv_change(
     # ``_old_heating_setpoint`` is the TRV's previously published state and is
     # not necessarily a BT-written value, so it does not belong in the
     # echo-suppression set.
-    _step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    _step = normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
     # A device that carries both the heating and the cooling role reports one
     # setpoint for two targets, so the set of values BT itself wrote holds what
     # either channel wrote: the cooling channel's own write is no more a user

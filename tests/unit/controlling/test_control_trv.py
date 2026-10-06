@@ -130,6 +130,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
 
     mock_self = ThermostatStandIn()
     mock_self.window_sensor_entity_id = None
+    mock_self.bt_target_temperature_step = None
     mock_self.attr_hvac_action = None
     mock_self.hass = mock_hass
     mock_self.device_name = "test_thermostat"
@@ -1611,6 +1612,7 @@ class TestBoostModeSafetyOverride:
 
         mock_self = ThermostatStandIn()
         mock_self.window_sensor_entity_id = None
+        mock_self.bt_target_temperature_step = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -1958,6 +1960,7 @@ class TestBoostModeSafetyOverride:
 
         mock_self = ThermostatStandIn()
         mock_self.window_sensor_entity_id = None
+        mock_self.bt_target_temperature_step = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -2341,6 +2344,7 @@ class TestRaceConditionLockCoverage:
 
         mock_self = ThermostatStandIn()
         mock_self.window_sensor_entity_id = None
+        mock_self.bt_target_temperature_step = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_grouped_thermostat"
@@ -2544,6 +2548,7 @@ class TestRaceConditionLockCoverage:
 
         mock_self = ThermostatStandIn()
         mock_self.window_sensor_entity_id = None
+        mock_self.bt_target_temperature_step = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -2663,6 +2668,7 @@ class TestRaceConditionLockCoverage:
 
         mock_self = ThermostatStandIn()
         mock_self.window_sensor_entity_id = None
+        mock_self.bt_target_temperature_step = None
         mock_self.attr_hvac_action = None
         mock_self.hass = mock_hass
         mock_self.device_name = "test_thermostat"
@@ -2848,6 +2854,7 @@ def mock_bt_grouped():
     """Create a mock BetterThermostat instance for grouped TRV testing."""
     bt = ThermostatStandIn()
     bt.window_sensor_entity_id = None
+    bt.bt_target_temperature_step = None
     bt.attr_hvac_action = None
     bt.hass = MagicMock()
     bt.clock = FakeClock()

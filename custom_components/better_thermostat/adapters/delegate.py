@@ -167,7 +167,7 @@ async def set_temperature(self, entity_id, temperature):
         # not a candidate here.
         trv = self.real_trvs.get(entity_id)
         per_trv_step = trv.target_temp_step if trv is not None else None
-        global_cfg_step = getattr(self, "bt_target_temp_step", None)
+        global_cfg_step = self.bt_target_temperature_step
         if global_cfg_step in (0, 0.0):
             global_cfg_step = None
         step = per_trv_step or global_cfg_step or 0.5

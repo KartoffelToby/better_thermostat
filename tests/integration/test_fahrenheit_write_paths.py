@@ -682,7 +682,7 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     )
     bt = await wait_for_startup(hass, entry)
 
-    assert bt._configured_target_temp_step == pytest.approx(float(labelled_value))
+    assert bt._configured_temperature_step == pytest.approx(float(labelled_value))
     assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(5 / 9, abs=1e-3)
 
 

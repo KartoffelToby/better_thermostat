@@ -40,9 +40,9 @@ def bt():
     mock.device_name = "Test BT"
     mock.bt_min_temp = None
     mock.bt_max_temp = None
-    mock.bt_target_temp_min = None
-    mock.bt_target_temp_max = None
-    mock.bt_target_temp_step = None
+    mock.configured_min_temperature = None
+    mock.configured_max_temperature = None
+    mock.bt_target_temperature_step = None
     mock.cool_min_temperature = None
     mock.cool_max_temperature = None
     mock.cooler_entity_id = None
@@ -81,7 +81,7 @@ def test_configured_minimum_overrides_the_child_intersection(bt):
     down to 5 °C, so the configured bound replaces the derived one instead of
     being intersected with it.
     """
-    bt.bt_target_temp_min = 10.0
+    bt.configured_min_temperature = 10.0
     states = [_trv(min_t=5.0, max_t=30.0)]
 
     BetterThermostat._resolve_temperature_range(bt, states)
@@ -92,7 +92,7 @@ def test_configured_minimum_overrides_the_child_intersection(bt):
 
 def test_configured_maximum_overrides_the_child_intersection(bt):
     """A configured upper bound wins over what the devices report."""
-    bt.bt_target_temp_max = 25.0
+    bt.configured_max_temperature = 25.0
     states = [_trv(min_t=5.0, max_t=30.0)]
 
     BetterThermostat._resolve_temperature_range(bt, states)
@@ -108,8 +108,8 @@ def test_configured_bounds_widen_the_range_the_children_allow(bt):
     set outside what a device reports, which is the case a bound is usually
     configured for.
     """
-    bt.bt_target_temp_min = 4.0
-    bt.bt_target_temp_max = 32.0
+    bt.configured_min_temperature = 4.0
+    bt.configured_max_temperature = 32.0
     states = [_trv(min_t=7.0, max_t=28.0)]
 
     BetterThermostat._resolve_temperature_range(bt, states)
@@ -125,8 +125,8 @@ def test_configured_bounds_apply_without_any_child_state(bt):
     heads have not reported yet still has to come up with the range its
     owner set rather than with the defaults.
     """
-    bt.bt_target_temp_min = 16.0
-    bt.bt_target_temp_max = 24.0
+    bt.configured_min_temperature = 16.0
+    bt.configured_max_temperature = 24.0
 
     BetterThermostat._resolve_temperature_range(bt, [])
 
@@ -136,8 +136,8 @@ def test_configured_bounds_apply_without_any_child_state(bt):
 
 def test_inverted_configured_bounds_are_kept_and_warned_about(bt, caplog):
     """An inverted configured range is applied as given and reported."""
-    bt.bt_target_temp_min = 25.0
-    bt.bt_target_temp_max = 20.0
+    bt.configured_min_temperature = 25.0
+    bt.configured_max_temperature = 20.0
     states = [_trv(min_t=5.0, max_t=30.0)]
 
     with caplog.at_level(logging.WARNING):
@@ -171,7 +171,7 @@ def test_fahrenheit_bounds_and_step_converted(bt):
     assert bt.bt_min_temp == pytest.approx(_WHOLE_FAHRENHEIT_MIN_41)
     assert bt.bt_max_temp == pytest.approx(_WHOLE_FAHRENHEIT_MAX_86)
     # 1 °F delta -> 1 * 5/9 °C
-    assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
+    assert bt.bt_target_temperature_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
 
 
 def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
@@ -189,7 +189,7 @@ def test_fahrenheit_bounds_without_unit_attr_use_system_unit(bt):
     BetterThermostat._resolve_temperature_range(bt, states)
     assert bt.bt_min_temp == pytest.approx(_WHOLE_FAHRENHEIT_MIN_41)
     assert bt.bt_max_temp == pytest.approx(_WHOLE_FAHRENHEIT_MAX_86)
-    assert bt.bt_target_temp_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
+    assert bt.bt_target_temperature_step == pytest.approx(round(1.0 * 5.0 / 9.0, 4))
 
 
 @pytest.mark.parametrize(
@@ -254,22 +254,22 @@ def test_celsius_bounds_without_unit_attr_unchanged(bt):
     BetterThermostat._resolve_temperature_range(bt, states)
     assert bt.bt_min_temp == pytest.approx(5.0)
     assert bt.bt_max_temp == pytest.approx(30.0)
-    assert bt.bt_target_temp_step == pytest.approx(0.5)
+    assert bt.bt_target_temperature_step == pytest.approx(0.5)
 
 
 def test_step_picks_coarsest(bt):
     """When several steps are present the coarsest is chosen."""
     states = [_trv(step=0.1, eid="climate.a"), _trv(step=0.5, eid="climate.b")]
     BetterThermostat._resolve_temperature_range(bt, states)
-    assert bt.bt_target_temp_step == 0.5
+    assert bt.bt_target_temperature_step == 0.5
 
 
 def test_existing_step_not_overwritten(bt):
     """A pre-configured step is kept."""
-    bt.bt_target_temp_step = 0.25
+    bt.bt_target_temperature_step = 0.25
     states = [_trv(step=1.0)]
     BetterThermostat._resolve_temperature_range(bt, states)
-    assert bt.bt_target_temp_step == 0.25
+    assert bt.bt_target_temperature_step == 0.25
 
 
 def test_children_without_a_step_leave_the_aggregate_unset(bt):
@@ -281,14 +281,14 @@ def test_children_without_a_step_leave_the_aggregate_unset(bt):
     """
     states = [_trv(min_t=5.0, max_t=30.0, eid="climate.a")]
     BetterThermostat._resolve_temperature_range(bt, states)
-    assert bt.bt_target_temp_step is None
+    assert bt.bt_target_temperature_step is None
 
 
 def test_unconvertible_child_step_is_logged_against_the_reader(bt, caplog):
     """An unreadable step yields no aggregate and names the reading site."""
     with caplog.at_level(logging.DEBUG, logger=HELPERS_LOGGER):
         BetterThermostat._resolve_temperature_range(bt, [_trv(step="abc")])
-    assert bt.bt_target_temp_step is None
+    assert bt.bt_target_temperature_step is None
     assert "_target_temp_step_celsius" in caplog.text
 
 
@@ -297,7 +297,7 @@ def test_empty_states_yield_none(bt):
     BetterThermostat._resolve_temperature_range(bt, [])
     assert bt.bt_min_temp is None
     assert bt.bt_max_temp is None
-    assert bt.bt_target_temp_step is None
+    assert bt.bt_target_temperature_step is None
 
 
 def test_non_overlapping_ranges_still_assigned(bt, caplog):
@@ -366,8 +366,8 @@ def test_an_unavailable_cooler_leaves_the_cooling_channel_unresolved(bt):
 def test_configured_bounds_replace_both_channels(bt):
     """A configured bound holds on the heating and the cooling channel alike."""
     _with_cooler(bt)
-    bt.bt_target_temp_min = 10.0
-    bt.bt_target_temp_max = 32.0
+    bt.configured_min_temperature = 10.0
+    bt.configured_max_temperature = 32.0
     states = [
         _trv(min_t=5.0, max_t=30.0, eid="climate.trv"),
         _trv(min_t=16.0, max_t=35.0, eid="climate.cooler"),
@@ -479,7 +479,7 @@ def test_the_published_step_is_in_the_system_unit(bt, system_unit, published):
     converted into the system unit, so a 0.5 °C step is published as 0.9 on
     a Fahrenheit system and as 0.5 on a Celsius one.
     """
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt._unit = system_unit
     step = BetterThermostat.target_temperature_step.fget(bt)
     assert step == pytest.approx(published)
@@ -526,6 +526,6 @@ def test_without_a_step_the_default_of_the_system_unit_is_published(
     bt, system_unit, published
 ):
     """Without a step the entity publishes Home Assistant's default for the unit."""
-    bt.bt_target_temp_step = None
+    bt.bt_target_temperature_step = None
     bt._unit = system_unit
     assert BetterThermostat.target_temperature_step.fget(bt) == published

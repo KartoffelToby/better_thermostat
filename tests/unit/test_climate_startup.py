@@ -128,10 +128,10 @@ def bt():
     mock.cool_min_temperature = None
     mock.cool_max_temperature = None
     mock.heat_target_temperature = 21.0
-    mock.bt_target_temp_min = None
-    mock.bt_target_temp_max = None
-    mock.bt_target_temp_step = None
-    mock._configured_target_temp_step = None
+    mock.configured_min_temperature = None
+    mock.configured_max_temperature = None
+    mock.bt_target_temperature_step = None
+    mock._configured_temperature_step = None
     mock.cool_target_temperature = None
     mock.bt_hvac_mode = None
     mock.room_temperature = None
@@ -1127,17 +1127,17 @@ class TestResolveTemperatureRange:
 
     def test_step_already_set_not_overwritten(self, bt):
         """Test Step already set not overwritten."""
-        bt.bt_target_temp_step = 1.0
+        bt.bt_target_temperature_step = 1.0
         states = [_make_trv_state(attrs={"target_temp_step": 0.5})]
         BetterThermostat._resolve_temperature_range(bt, states)
-        assert bt.bt_target_temp_step == 1.0
+        assert bt.bt_target_temperature_step == 1.0
 
     def test_step_none_gets_resolved(self, bt):
         """Test Step none gets resolved."""
-        bt.bt_target_temp_step = None
+        bt.bt_target_temperature_step = None
         states = [_make_trv_state(attrs={"target_temp_step": 0.5})]
         BetterThermostat._resolve_temperature_range(bt, states)
-        assert bt.bt_target_temp_step == 0.5
+        assert bt.bt_target_temperature_step == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -1428,7 +1428,7 @@ class TestStartupCoolTargetSeed:
         annunciated.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         caplog.set_level(logging.WARNING)
@@ -1450,7 +1450,7 @@ class TestStartupCoolTargetSeed:
         """
         bt.cooler_entity_id = COOLER_ID
         bt.bt_min_temp = 18.0
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 16.0})})
 
         caplog.set_level(logging.WARNING)
@@ -1472,7 +1472,7 @@ class TestStartupCoolTargetSeed:
         """
         bt.cooler_entity_id = COOLER_ID
         bt.heat_target_temperature = DEFAULT_TARGET_TEMP
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 20.0})})
 
         await _run_startup(bt, restored_target=21.0)
@@ -1488,7 +1488,7 @@ class TestStartupCoolTargetSeed:
         restored preset supplies one.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         await _run_startup(bt, restored_target=21.0, restored_cool_target=26.0)
@@ -1521,7 +1521,7 @@ class TestStartupCoolTargetSeed:
         attributable to one of them.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(
             bt,
             {
@@ -1547,7 +1547,7 @@ class TestStartupCoolTargetSeed:
         read that asked for it.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
 
         caplog.set_level(logging.DEBUG)
@@ -2047,7 +2047,7 @@ class TestRestoreState:
         those same two targets, not the stored values beneath them.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt._configured_target_temp_step = 0.5
+        bt._configured_temperature_step = 0.5
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
         bt._preset_cool_temperature = None
         bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
@@ -2120,7 +2120,7 @@ class TestRestoreState:
         nearest the bound inside the range, and Eco stays active throughout.
         """
         bt.bt_min_temp = 20.28
-        bt._configured_target_temp_step = 0.5
+        bt._configured_temperature_step = 0.5
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.hvac_mode = HVACMode.HEAT
         bt.control_queue_task = asyncio.Queue()
@@ -2158,7 +2158,7 @@ class TestRestoreState:
         bt.cooler_entity_id = COOLER_ID
         bt.bt_min_temp = minimum
         bt.bt_max_temp = maximum
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         bt.hvac_mode = HVACMode.OFF
         bt._preset_cool_temperature = None
         bt._enforce_cool_above_heat = lambda **kwargs: (
@@ -2520,7 +2520,7 @@ def _trv_refusing_every_write(attempts: list[str]):
 
     thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
-    thermostat.bt_target_temp_step = None
+    thermostat.bt_target_temperature_step = None
     thermostat.real_trvs = {TRV_ID: trv}
     return thermostat
 
@@ -2932,7 +2932,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         along with it.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         _install_states(
             bt,
@@ -2960,7 +2960,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         names the method it runs in rather than the startup around it.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(
             bt,
             {
@@ -2989,7 +2989,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         that stumbles over the same attribute.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
 
         caplog.set_level(logging.DEBUG)

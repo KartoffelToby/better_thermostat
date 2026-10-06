@@ -142,7 +142,7 @@ class TestPresetCoolNumber:
         bt_climate.cool_max_temperature = None
         bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate.target_temperature_step = 0.25
-        bt_climate.bt_target_temp_step = 0.75
+        bt_climate.bt_target_temperature_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.heat_target_temperature = 22.0
         bt_climate.cool_target_temperature = 24.0
@@ -171,7 +171,7 @@ class TestPresetCoolNumber:
         bt_climate.cool_max_temperature = None
         bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate.target_temperature_step = 0.25
-        bt_climate.bt_target_temp_step = 0.75
+        bt_climate.bt_target_temperature_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.heat_target_temperature = 22.0
         bt_climate.cool_target_temperature = 24.0
@@ -208,7 +208,7 @@ class TestPresetCoolNumber:
         bt_climate.cool_max_temperature = None
         bt_climate.cooler_entity_id = "climate.cooler"
         bt_climate.target_temperature_step = 0.5
-        bt_climate.bt_target_temp_step = 0.5
+        bt_climate.bt_target_temperature_step = 0.5
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.hvac_mode = HVACMode.HEAT_COOL
         bt_climate.heat_target_temperature = 30.0
