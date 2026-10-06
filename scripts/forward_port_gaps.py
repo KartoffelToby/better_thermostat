@@ -106,7 +106,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ACKNOWLEDGED_FILE = REPO_ROOT / ".forward-port-gaps.json"
 
 DEFAULT_MAINTENANCE = "origin/1.9"
-DEFAULT_DEVELOPMENT = "develop"
+DEFAULT_DEVELOPMENT = "origin/develop"
 
 # Each line writes its own tests, so no marker is taken from under here.
 TEST_ROOT = "tests/"
