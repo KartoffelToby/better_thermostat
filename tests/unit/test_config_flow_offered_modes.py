@@ -26,7 +26,7 @@ from custom_components.better_thermostat.config_flow import (
     _trv_supports_auto,
 )
 from custom_components.better_thermostat.utils.const import (
-    CONF_CALIBRATION_OUTPUT,
+    CONF_CALIBRATION,
     CONF_HEATER,
     CalibrationOutput,
 )
@@ -214,7 +214,7 @@ def _offered_calibrations(form):
     """Return the calibration strategies an advanced form publishes."""
     schema = form["data_schema"].schema
     for marker in schema:
-        if marker == CONF_CALIBRATION_OUTPUT:
+        if marker == CONF_CALIBRATION:
             return list(schema[marker].config["options"])
     raise AssertionError("the advanced step publishes no calibration field")
 
