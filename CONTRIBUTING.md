@@ -559,7 +559,7 @@ Home Assistant grades integrations by the rules of its
 `custom_components/better_thermostat/quality_scale.yaml` records, in Home
 Assistant's own format, which of them Better Thermostat meets: each rule is
 `done`, `todo` or `exempt`, and an exempt rule says why. The file holds the
-Bronze and Silver tiers for now.
+rules of every tier, Bronze to Platinum.
 
 Hassfest checks that file for core integrations only, so the test suite holds
 it here. A test that checks a rule carries its name:
