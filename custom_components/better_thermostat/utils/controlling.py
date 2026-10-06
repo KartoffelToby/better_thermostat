@@ -50,6 +50,7 @@ from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
 )
+from custom_components.better_thermostat.entity import announce_learned_state
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
@@ -61,6 +62,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
@@ -91,6 +93,9 @@ from custom_components.better_thermostat.utils.helpers import (
 from custom_components.better_thermostat.utils.hvac_action import (
     COOLER_MODE_HYSTERESIS_K,
     should_cool_with_tolerance,
+)
+from custom_components.better_thermostat.utils.retry import (
+    command_cancellation_as_disconnect,
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
@@ -805,7 +810,11 @@ class _FailedCycleRun:
 
 def _user_intent(self: BetterThermostat) -> tuple[Any, ...]:
     """Return the room targets a user sets, as the failure pacing compares them."""
-    return (self.bt_target_temp, self.bt_target_cooltemp, self.bt_hvac_mode)
+    return (
+        self.heat_target_temperature,
+        self.cool_target_temperature,
+        self.bt_hvac_mode,
+    )
 
 
 async def _requeue_failed_cycle(self: BetterThermostat, delay_s: float) -> None:
@@ -1191,8 +1200,8 @@ def _locked_device_moved(
 def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, ...]:
     """Return what a report read at cycle end can move that a cycle acts on."""
     return (
-        self.bt_target_temp,
-        self.bt_target_cooltemp,
+        self.heat_target_temperature,
+        self.cool_target_temperature,
         self.bt_hvac_mode,
         trv.hvac_mode,
         trv.confirmed_setpoint,
@@ -1341,7 +1350,7 @@ async def control_queue(self: BetterThermostat) -> None:
                         failures: list[tuple[str, BaseException | bool]] = [
                             (controlled_trvs[i], res)
                             for i, res in enumerate(results)
-                            if isinstance(res, Exception) or res is False
+                            if isinstance(res, BaseException) or res is False
                         ]
 
                         # Retry the cycle if some TRVs failed; the retry
@@ -1356,6 +1365,8 @@ async def control_queue(self: BetterThermostat) -> None:
                             controlled_trvs,
                             cycle[1] if cycle is not None else None,
                         )
+
+                        announce_learned_state(self.hass, resolve_unique_id(self))
 
                         if not getattr(self, "in_maintenance", False):
                             # The inbound handler stood down for the whole
@@ -1396,7 +1407,7 @@ _CoolerCommand = HVACMode | tuple[float, float | None] | None
 
 
 def cooler_low_bound(
-    high: float, target_temp: float | None, lowest: float | None = None
+    high: float, heat_target_temperature: float | None, lowest: float | None = None
 ) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
@@ -1407,7 +1418,11 @@ def cooler_low_bound(
     heating target is held to the heaters' range, not the cooler's, so it is
     raised onto ``lowest``, the cooler's minimum, where it sits below it.
     """
-    low = high if target_temp is None else min(float(target_temp), high)
+    low = (
+        high
+        if heat_target_temperature is None
+        else min(float(heat_target_temperature), high)
+    )
     if lowest is not None and low < lowest:
         low = min(lowest, high)
     return low
@@ -1545,25 +1560,25 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
 
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
-    target_temp = snapshot.target_temp
+    heat_target_temperature = snapshot.target_temp
     tolerance = snapshot.tolerance
 
     if (
         room_temp is None
         or target_cooltemp is None
         or tolerance is None
-        or target_temp is None
+        or heat_target_temperature is None
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(cur_temp=%s, bt_target_cooltemp=%s, tolerance=%s, bt_target_temp=%s), "
+            "(cur_temp=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
             room_temp,
             target_cooltemp,
             tolerance,
-            target_temp,
+            heat_target_temperature,
         )
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
@@ -1610,7 +1625,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             _previously_cooling,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        if _cool_wanted and room_temp > target_temp:
+        if _cool_wanted and room_temp > heat_target_temperature:
             desired_mode = HVACMode.COOL
         else:
             desired_mode = HVACMode.OFF
@@ -1714,7 +1729,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     _low_bound_changed = False
     if _write_range and desired_temp is not None:
         _low_to_set = cooler_low_bound(
-            desired_temp, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
+            desired_temp,
+            on_cooler_grid(self, cooler_state, heat_target_temperature),
+            _cooler_min,
         )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
@@ -1833,7 +1850,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             temp_to_send,
             cooler_low_bound(
                 temp_to_send,
-                on_cooler_grid(self, cooler_state, target_temp),
+                on_cooler_grid(self, cooler_state, heat_target_temperature),
                 _cooler_min,
             )
             if _write_range
@@ -1861,7 +1878,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         )
         _temp_to_set = temp_to_send
         _low_to_set = _low_to_set_c = cooler_low_bound(
-            temp_to_send, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
+            temp_to_send,
+            on_cooler_grid(self, cooler_state, heat_target_temperature),
+            _cooler_min,
         )
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(
@@ -1894,18 +1913,20 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         # retry without pretending the command arrived. Any exception from
         # this one service call is isolated (cloud integrations propagate raw
         # errors such as ConnectionError) so the hvac_mode command below still
-        # runs; CancelledError derives from BaseException and propagates.
+        # runs. A command the device's client library cancelled counts as such
+        # a failure; a cancellation of this task itself propagates.
         _previous_send = last_sent.get("temperature")
         last_sent["temperature"] = (temp_to_send, now_monotonic)
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                _payload,
-                blocking=True,
-                context=self.context,
-            )
-        except Exception as err:
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    _payload,
+                    blocking=True,
+                    context=self.context,
+                )
+        except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
             if _previous_send is None:
                 last_sent.pop("temperature", None)
             else:
@@ -1977,14 +1998,15 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         # Isolated like the temperature call above: one failing channel must
         # not abort the cooler cycle.
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
-                blocking=True,
-                context=self.context,
-            )
-        except Exception as err:
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
+                    blocking=True,
+                    context=self.context,
+                )
+        except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
             _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
@@ -2192,6 +2214,7 @@ async def control_trv(
                     "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
                     self.device_name,
                     entity_id,
+                    exc_info=True,
                 )
 
             # Apply the kernel's intent: a suppression (open window/door, no heat

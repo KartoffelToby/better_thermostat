@@ -54,7 +54,7 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
     fake_trv._attr_target_temperature = 20.0
     _report(fake_trv)
     await hass.async_block_till_done()
-    assert bt.bt_target_temp == 22.0
+    assert bt.heat_target_temperature == 22.0
 
     hass.states.async_set(WINDOW_ID, "off")
     assert await wait_for(
@@ -70,6 +70,6 @@ async def test_a_turn_the_room_wants_anyway_is_not_read_as_a_press_later(
     fake_trv._attr_current_temperature = 19.4
     _report(fake_trv)
     await hass.async_block_till_done()
-    assert await wait_for(hass, lambda: bt.bt_target_temp != 22.0, 1.0) is False, (
-        f"the room took {bt.bt_target_temp}"
-    )
+    assert (
+        await wait_for(hass, lambda: bt.heat_target_temperature != 22.0, 1.0) is False
+    ), f"the room took {bt.heat_target_temperature}"

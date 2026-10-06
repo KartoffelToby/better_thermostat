@@ -27,7 +27,7 @@ def mock_bt_instance_no_calibration():
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cur_temp = 20.0
     bt.window_open = False
     bt.real_trvs = {
@@ -59,7 +59,7 @@ def mock_bt_instance_no_calibration_with_remap():
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat Remap"
     bt.bt_hvac_mode = HVACMode.HEAT
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cur_temp = 20.0
     bt.window_open = False
     bt.real_trvs = {
@@ -93,7 +93,7 @@ def mock_bt_instance_no_calibration_no_off():
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat No Off"
     bt.bt_hvac_mode = HVACMode.OFF
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cur_temp = 20.0
     bt.window_open = False
     bt.real_trvs = {
@@ -199,12 +199,12 @@ class TestFallbackModeTemperature:
     """Tests for temperature handling in fallback mode."""
 
     def test_fallback_mode_uses_target_temp(self, mock_bt_instance_no_calibration):
-        """Test that fallback mode correctly uses bt_target_temp."""
+        """Test that fallback mode correctly uses heat_target_temperature."""
         from custom_components.better_thermostat.events.trv import (
             convert_outbound_states,
         )
 
-        mock_bt_instance_no_calibration.bt_target_temp = 22.5
+        mock_bt_instance_no_calibration.heat_target_temperature = 22.5
 
         result = convert_outbound_states(
             mock_bt_instance_no_calibration, "climate.test_trv", HVACMode.HEAT

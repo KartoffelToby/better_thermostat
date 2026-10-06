@@ -46,7 +46,7 @@ class HeatingCycle(TypedDict):
     end: str | None
     temp_start: float | None
     temp_peak: float | None
-    delta_t: float
+    delta_kelvin: float
     minutes: float
     rate_c_min: float
     target: float | None
@@ -57,7 +57,7 @@ class HeatingCycle(TypedDict):
 class HeatingStats(TypedDict):
     """Compact heating-power learning sample."""
 
-    dT: float
+    delta_kelvin: float
     min: float
     rate: float
     alpha: float
@@ -79,7 +79,7 @@ class LossCycle(TypedDict):
 class LossStats(TypedDict):
     """Compact heat-loss learning sample."""
 
-    dT: float
+    delta_kelvin: float
     min: float
     rate: float
     alpha: float
@@ -111,28 +111,30 @@ def clamp(value: float, lo: float, hi: float) -> float:
 
 
 def compute_weight_factor(
-    target_temp: float | None, min_target: float, max_target: float
+    heat_target_temperature: float | None, min_target: float, max_target: float
 ) -> float:
     """Relative-position weight within the observed target-temp range.
 
     Returns a factor in ``[0.5, 1.5]``.
     """
     temp_range = max(max_target - min_target, 0.1)
-    if target_temp is None:
+    if heat_target_temperature is None:
         relative_pos = 0.5
     else:
-        relative_pos = (target_temp - min_target) / temp_range
+        relative_pos = (heat_target_temperature - min_target) / temp_range
     return clamp(0.5 + relative_pos, 0.5, 1.5)
 
 
-def compute_env_factor(outdoor_temp: float | None, target_temp: float | None) -> float:
+def compute_env_factor(
+    outdoor_temp: float | None, heat_target_temperature: float | None
+) -> float:
     """Environmental factor based on outdoor-to-setpoint gradient.
 
     Returns a factor in ``[0.7, 1.3]``.  Without outdoor data returns 1.0.
     """
-    if outdoor_temp is None or target_temp is None:
+    if outdoor_temp is None or heat_target_temperature is None:
         return 1.0
-    delta_env = max(target_temp - outdoor_temp, 0.1)
+    delta_env = max(heat_target_temperature - outdoor_temp, 0.1)
     return clamp(delta_env / 20.0, 0.7, 1.3)
 
 
@@ -198,7 +200,7 @@ class HeatingPowerTracker:
         current_action: HVACAction,
         now: datetime,
         *,
-        target_temp: float | None = None,
+        heat_target_temperature: float | None = None,
         outdoor_temp: float | None = None,
     ) -> HeatingPowerUpdate:
         """Process one temperature reading and return what changed."""
@@ -236,13 +238,16 @@ class HeatingPowerTracker:
 
         # --- Finalization criteria ---
         cycle_result = self._maybe_finalize(
-            cur_temp, now, target_temp=target_temp, outdoor_temp=outdoor_temp
+            cur_temp,
+            now,
+            heat_target_temperature=heat_target_temperature,
+            outdoor_temp=outdoor_temp,
         )
 
         # --- Dynamic target range ---
-        if target_temp is not None:
-            self.min_target = min(self.min_target, target_temp)
-            self.max_target = max(self.max_target, target_temp)
+        if heat_target_temperature is not None:
+            self.min_target = min(self.min_target, heat_target_temperature)
+            self.max_target = max(self.max_target, heat_target_temperature)
 
         self._prev_action = current_action
 
@@ -263,7 +268,7 @@ class HeatingPowerTracker:
         cur_temp: float,
         now: datetime,
         *,
-        target_temp: float | None,
+        heat_target_temperature: float | None,
         outdoor_temp: float | None,
     ) -> CycleResult | None:
         """Check finalization criteria and compute a new EMA value if met."""
@@ -297,13 +302,13 @@ class HeatingPowerTracker:
 
         if duration_min >= _MIN_CYCLE_DURATION and temp_diff > 0:
             weight_factor = compute_weight_factor(
-                target_temp, self.min_target, self.max_target
+                heat_target_temperature, self.min_target, self.max_target
             )
-            env_factor = compute_env_factor(outdoor_temp, target_temp)
+            env_factor = compute_env_factor(outdoor_temp, heat_target_temperature)
 
             normalized_power: float | None = None
-            if outdoor_temp is not None and target_temp is not None:
-                delta_env = max(target_temp - outdoor_temp, 0.1)
+            if outdoor_temp is not None and heat_target_temperature is not None:
+                delta_env = max(heat_target_temperature - outdoor_temp, 0.1)
                 normalized_power = round((temp_diff / duration_min) / delta_env, 5)
 
             heating_rate = temp_diff / duration_min
@@ -339,7 +344,7 @@ class HeatingPowerTracker:
             # Short stats history
             self.stats.append(
                 {
-                    "dT": round(temp_diff, 2),
+                    "delta_kelvin": round(temp_diff, 2),
                     "min": round(duration_min, 1),
                     "rate": round(heating_rate, 4),
                     "alpha": round(alpha, 3),
@@ -362,10 +367,10 @@ class HeatingPowerTracker:
                     "temp_peak": (
                         round(self.end_temp, 2) if self.end_temp is not None else None
                     ),
-                    "delta_t": round(temp_diff, 3),
+                    "delta_kelvin": round(temp_diff, 3),
                     "minutes": round(duration_min, 2),
                     "rate_c_min": round(heating_rate, 4),
-                    "target": target_temp,
+                    "target": heat_target_temperature,
                     "outdoor": outdoor_temp,
                     "norm_power": normalized_power,
                 }
@@ -514,7 +519,7 @@ class HeatLossTracker:
 
                 self.stats.append(
                     {
-                        "dT": round(temp_drop, 2),
+                        "delta_kelvin": round(temp_drop, 2),
                         "min": round(duration_min, 1),
                         "rate": round(loss_rate, 5),
                         "alpha": round(alpha, 3),

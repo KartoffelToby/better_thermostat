@@ -157,7 +157,7 @@ async def _commit_temperature_update(self, new_temp):
     # Update EMA (useful if called from timer after delay)
     try:
         _update_external_temp_ema(self, float(new_temp_q))
-    except Exception as exc:
+    except (TypeError, ValueError) as exc:
         _LOGGER.debug(
             "better_thermostat %s: EMA update failed (non-critical): %s",
             self.device_name,

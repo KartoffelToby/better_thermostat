@@ -29,8 +29,8 @@ def mock_bt():
     """Minimal BetterThermostat-like mock for tolerance tests."""
     bt = ThermostatStandIn()
     bt.tolerance = 0.5
-    bt.bt_target_temp = 21.0
-    bt.bt_target_cooltemp = None
+    bt.heat_target_temperature = 21.0
+    bt.cool_target_temperature = None
     bt.cur_temp = 20.0
     bt.hvac_mode = HVACMode.HEAT
     bt.bt_hvac_mode = HVACMode.HEAT

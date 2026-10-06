@@ -18,7 +18,7 @@ from custom_components.better_thermostat.utils.helpers import (
     sibling_disabled_at_write,
 )
 
-from ..utils.retry import async_retry
+from ..utils.retry import async_retry, command_cancellation_as_disconnect
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -164,7 +164,7 @@ async def set_temperature(self, entity_id, temperature):
             global_cfg_step = None
         step = per_trv_step or global_cfg_step or 0.5
         rounded = round_by_step(float(t), float(step))
-    except Exception:
+    except TypeError, ValueError, OverflowError:
         rounded = float(t)
 
     # Clamp to device min/max if available
@@ -209,15 +209,7 @@ async def set_temperature(self, entity_id, temperature):
     # ``set_offset`` records after its write for the opposite reason: its
     # record says a calibration command is in flight, which a write that never
     # went out must not claim.
-    try:
-        self.real_trvs[entity_id].last_temperature = rounded
-    except Exception as e:
-        _LOGGER.warning(
-            "better_thermostat %s: Failed to update last_temperature for entity_id %s: %s",
-            getattr(self, "device_name", "unknown"),
-            entity_id,
-            e,
-        )
+    self.real_trvs[entity_id].last_temperature = rounded
 
     return await _write_on_channel(
         self,
@@ -246,16 +238,12 @@ async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
     bool
         True when the mode went out, False when every attempt raised
     """
+    write = self.real_trvs[entity_id].adapter.set_hvac_mode
     try:
         await _write_on_channel(
-            self,
-            entity_id,
-            "hvac_mode",
-            f"hvac mode {hvac_mode}",
-            self.real_trvs[entity_id].adapter.set_hvac_mode,
-            hvac_mode,
+            self, entity_id, "hvac_mode", f"hvac mode {hvac_mode}", write, hvac_mode
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     return True
 
@@ -334,7 +322,8 @@ async def _write_on_channel(
     outage = outages.get(channel)
 
     async def write_to_device(host, target, payload):
-        return await write(host, target, payload)
+        with command_cancellation_as_disconnect():
+            return await write(host, target, payload)
 
     attempt = (
         write_to_device
@@ -455,16 +444,12 @@ async def set_offset(self, entity_id, offset) -> bool:
     if calibration_entity_disabled(self, entity_id):
         return False
 
+    write = self.real_trvs[entity_id].adapter.set_offset
     try:
         wrote = await _write_on_channel(
-            self,
-            entity_id,
-            "offset",
-            "calibration offset",
-            self.real_trvs[entity_id].adapter.set_offset,
-            offset,
+            self, entity_id, "offset", "calibration offset", write, offset
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     if wrote is not True:
         _LOGGER.debug(
@@ -609,7 +594,7 @@ async def set_valve(self, entity_id, valve) -> bool:
                 write,
                 target_pct,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
             continue
         if answer_decides and not answer:
             continue

@@ -255,7 +255,7 @@ class TestBuildMpcKey:
         """Test building a key with normal uid and target temp."""
 
         class FakeBT:
-            bt_target_temp = 21.5
+            heat_target_temperature = 21.5
             unique_id = "bt_123"
 
         key = build_mpc_key(FakeBT(), "climate.trv_1")
@@ -266,7 +266,7 @@ class TestBuildMpcKey:
         """Test that None target temp produces 'tunknown' bucket."""
 
         class FakeBT:
-            bt_target_temp = None
+            heat_target_temperature = None
             unique_id = "bt_x"
 
         key = build_mpc_key(FakeBT(), "climate.trv")
@@ -276,7 +276,7 @@ class TestBuildMpcKey:
         """Test that non-numeric target temp produces 'tunknown' bucket."""
 
         class FakeBT:
-            bt_target_temp = "unavailable"
+            heat_target_temperature = "unavailable"
             unique_id = "bt_y"
 
         key = build_mpc_key(FakeBT(), "climate.trv")
@@ -286,7 +286,7 @@ class TestBuildMpcKey:
         """Test fallback uid when unique_id attribute is missing."""
 
         class FakeBT:
-            bt_target_temp = 20.0
+            heat_target_temperature = 20.0
 
         key = build_mpc_key(FakeBT(), "climate.trv")
         assert key.startswith("bt:")
@@ -295,7 +295,7 @@ class TestBuildMpcKey:
         """Test that target temp is rounded to 0.5 degree steps."""
 
         class FakeBT:
-            bt_target_temp = 21.3
+            heat_target_temperature = 21.3
             unique_id = "u"
 
         key = build_mpc_key(FakeBT(), "e")
@@ -814,7 +814,7 @@ class TestVirtualTemperature:
         assert state.virtual_temp is not None
 
     def test_virtual_temp_used_for_delta_t(self):
-        """When virtual temp is enabled, delta_t should use virtual temp, not sensor."""
+        """When virtual temp is enabled, delta_kelvin should use virtual temp, not sensor."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vdelta", current_temp_C=20.0, target_temp_C=22.0), params)
         state = _STATES["vdelta"]
@@ -1620,7 +1620,7 @@ class TestBuildMpcGroupKey:
         """Group key uses ':group:' instead of entity_id."""
 
         class FakeBT:
-            bt_target_temp = 21.5
+            heat_target_temperature = 21.5
             unique_id = "bt_123"
 
         key = build_mpc_group_key(FakeBT())
@@ -1630,7 +1630,7 @@ class TestBuildMpcGroupKey:
         """None target temp produces 'tunknown' bucket."""
 
         class FakeBT:
-            bt_target_temp = None
+            heat_target_temperature = None
             unique_id = "bt_x"
 
         key = build_mpc_group_key(FakeBT())
@@ -1641,7 +1641,7 @@ class TestBuildMpcGroupKey:
         """Fallback uid when unique_id attribute is missing."""
 
         class FakeBT:
-            bt_target_temp = 20.0
+            heat_target_temperature = 20.0
 
         key = build_mpc_group_key(FakeBT())
         assert key.startswith("bt:")
@@ -1651,7 +1651,7 @@ class TestBuildMpcGroupKey:
         """Group key and entity key should differ (group vs entity_id)."""
 
         class FakeBT:
-            bt_target_temp = 22.0
+            heat_target_temperature = 22.0
             unique_id = "bt_1"
 
         group_key = build_mpc_group_key(FakeBT())

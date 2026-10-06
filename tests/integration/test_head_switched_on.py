@@ -65,13 +65,13 @@ async def test_a_head_switched_on_does_not_bring_what_was_turned_while_it_was_of
     fake_trv._attr_target_temperature = turned
     _report(fake_trv)
     await hass.async_block_till_done()
-    assert bt.bt_target_temp == target
+    assert bt.heat_target_temperature == target
 
     fake_trv._attr_hvac_mode = HVACMode.HEAT
     _report(fake_trv)
     assert await wait_for(hass, lambda: bt.hvac_mode == HVACMode.HEAT, 3.0)
-    assert await wait_for(hass, lambda: bt.bt_target_temp == target, 3.0), (
-        f"the room took {bt.bt_target_temp}"
+    assert await wait_for(hass, lambda: bt.heat_target_temperature == target, 3.0), (
+        f"the room took {bt.heat_target_temperature}"
     )
     assert await wait_for(hass, lambda: fake_trv.target_temperature == target, 3.0), (
         f"the head stayed at {fake_trv.target_temperature}"

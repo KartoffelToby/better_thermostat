@@ -74,6 +74,6 @@ async def test_a_finer_configured_step_writes_on_the_device_grid(
     assert await wait_for(hass, lambda: len(fake_trv.set_temperature_calls) > baseline)
     assert await wait_for(hass, lambda: bt.real_trvs[TRV_ID].target_temp_received, 5.0)
 
-    assert bt.bt_target_temp == pytest.approx(21.9)
+    assert bt.heat_target_temperature == pytest.approx(21.9)
     assert fake_trv.set_temperature_calls[baseline:] == [pytest.approx(22.0)]
     assert "did not confirm the target temperature" not in caplog.text

@@ -100,6 +100,16 @@ class _DeviceModelHost(_RegistryHost, Protocol):
         ...
 
 
+def entry_settings(entry: ConfigEntry) -> dict[str, Any]:
+    """Return the configuration of ``entry``, wherever it is stored.
+
+    Better Thermostat 2.0 keeps the settings in the entry's options and leaves
+    its data empty; 1.9 keeps them in the data. Reading both, the options over
+    the data, lets an entry last saved by either version run here.
+    """
+    return {**entry.data, **entry.options}
+
+
 def _shares_device(entry: er.RegistryEntry, device_id: str | None) -> bool:
     """Whether ``entry`` belongs to the device ``device_id``.
 
@@ -254,7 +264,7 @@ def async_normalize_bt_entity_ids(
         The entity platform being set up; only its registry entries are
         considered, and each platform carries its own recorded name.
     """
-    name = entry.data.get(CONF_NAME)
+    name = entry_settings(entry).get(CONF_NAME)
     normalized = hass.data.setdefault(NORMALIZED_ID_NAMES, {}).setdefault(
         entry.entry_id, {}
     )
@@ -276,7 +286,7 @@ def async_normalize_bt_entity_ids(
         if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
             continue
         if domain == Platform.CLIMATE:
-            object_id = slugify(entry.data.get(CONF_NAME) or "better_thermostat")
+            object_id = slugify(name or "better_thermostat")
             desired = registry.async_get_available_entity_id(
                 domain, object_id, current_entity_id=reg_entry.entity_id
             )
@@ -825,7 +835,7 @@ def heating_power_valve_position(self, entity_id: str) -> float:
     | 0.4       | 0.3232  | 0.6227  | 1.0000   |
     | 0.5       | 0.3992  | 0.7691  | 1.0000   |
     """
-    _temp_diff = float(float(self.bt_target_temp) - float(self.cur_temp))
+    _temp_diff = float(float(self.heat_target_temperature) - float(self.cur_temp))
 
     # Guard against negative temp_diff (room warmer than target)
     # This can occur in TRV override edge case when temperature rises
@@ -833,7 +843,7 @@ def heating_power_valve_position(self, entity_id: str) -> float:
     if _temp_diff <= 0:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: {entity_id} "
-            f"cur_temp >= target_temp ({self.cur_temp} >= {self.bt_target_temp}), "
+            f"cur_temp >= target_temp ({self.cur_temp} >= {self.heat_target_temperature}), "
             f"setting valve to 0%"
         )
         return 0.0
@@ -2186,17 +2196,12 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     # Some integrations (notably certain Zigbee stacks) may expose valve helpers
     # under a different Home Assistant device_id than the climate entity.
     # To support these, also match candidates by shared device identifiers.
-    dev_reg = None
-    base_device = None
-    base_identifiers: set[tuple[str, str]] = set()
-    try:
-        dev_reg = dr.async_get(self.hass)
-        device_id = getattr(reg_entity, "device_id", None)
-        base_device = dev_reg.async_get(device_id) if device_id is not None else None
-        base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
-    except Exception:
-        dev_reg = None
-        base_identifiers = set()
+    dev_reg = dr.async_get(self.hass)
+    device_id = getattr(reg_entity, "device_id", None)
+    base_device = dev_reg.async_get(device_id) if device_id is not None else None
+    base_identifiers: set[tuple[str, str]] = set(
+        getattr(base_device, "identifiers", set()) or set()
+    )
 
     base_model_id = getattr(base_device, "model_id", None)
     if (
@@ -2222,16 +2227,13 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
         # Strong match: same device
         if _shares_device(candidate, reg_entity.device_id):
             return True
-        # Fallback: match by shared identifiers if device registry is available
-        if dev_reg is None or not base_identifiers:
+        # Fallback: match by shared device identifiers
+        if not base_identifiers:
             return False
         cand_device_id = getattr(candidate, "device_id", None)
         if not cand_device_id:
             return False
-        try:
-            cand_device = dev_reg.async_get(cand_device_id)
-        except Exception:
-            return False
+        cand_device = dev_reg.async_get(cand_device_id)
         cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
         return bool(base_identifiers.intersection(cand_identifiers))
 
@@ -2610,12 +2612,9 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         entry = entity_reg.async_get(entity_id)
         dev_reg = dr.async_get(self.hass)
         device = None
-        try:
-            dev_id = getattr(entry, "device_id", None)
-            if isinstance(dev_id, str) and dev_id:
-                device = dev_reg.async_get(dev_id)
-        except Exception:
-            device = None
+        dev_id = getattr(entry, "device_id", None)
+        if isinstance(dev_id, str) and dev_id:
+            device = dev_reg.async_get(dev_id)
         # Selection exclusively via Device-Registry
         _LOGGER.debug(
             "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",

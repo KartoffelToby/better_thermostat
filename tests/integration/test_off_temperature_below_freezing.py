@@ -94,7 +94,7 @@ async def test_a_threshold_below_freezing_is_named_once(hass, caplog, source):
     assert "-6.7" in warnings[0]
     # The stored value is left for the user to change.
     (entry,) = hass.config_entries.async_entries(DOMAIN)
-    assert entry.data["off_temperature"] == 20
+    assert entry.options["off_temperature"] == 20
     assert _refused_writes(caplog) == []
 
 

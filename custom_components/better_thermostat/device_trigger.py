@@ -55,7 +55,7 @@ import voluptuous as vol
 
 from . import DOMAIN
 from .utils.const import CONF_HUMIDITY
-from .utils.helpers import is_bt_climate_entity
+from .utils.helpers import entry_settings, is_bt_climate_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,15 +150,15 @@ async def async_get_triggers(
 
         # A thermostat configured without a humidity sensor publishes no
         # humidity, so the two triggers that watch it would attach to an
-        # automation and never fire. `entry.data` is the same place the
-        # climate entity reads the sensor from.
+        # automation and never fire. The entry's settings are the same place
+        # the climate entity reads the sensor from.
         config_entry = (
             hass.config_entries.async_get_entry(entry.config_entry_id)
             if entry.config_entry_id
             else None
         )
         watches_humidity = bool(
-            (config_entry.data if config_entry else {}).get(CONF_HUMIDITY)
+            (entry_settings(config_entry) if config_entry else {}).get(CONF_HUMIDITY)
         )
 
         # Purpose-specific triggers (primary – shown first in the UI)
@@ -267,32 +267,32 @@ async def async_attach_trigger(
         to: _AttributeMatch | None = None,
         from_: _AttributeMatch | None = None,
     ) -> dict:
-        cfg: dict = {
+        trigger_config: dict = {
             state_trigger.CONF_PLATFORM: "state",
             state_trigger.CONF_ENTITY_ID: entity_id,
             CONF_ATTRIBUTE: attribute,
         }
         if to is not None:
-            cfg[CONF_TO] = to
+            trigger_config[CONF_TO] = to
         if from_ is not None:
-            cfg[CONF_FROM] = from_
+            trigger_config[CONF_FROM] = from_
         if CONF_FOR in config:
-            cfg[CONF_FOR] = config[CONF_FOR]
-        return cfg
+            trigger_config[CONF_FOR] = config[CONF_FOR]
+        return trigger_config
 
     def _build_numeric(template: str) -> dict:
-        cfg: dict = {
+        trigger_config: dict = {
             numeric_state_trigger.CONF_PLATFORM: "numeric_state",
             numeric_state_trigger.CONF_ENTITY_ID: entity_id,
             numeric_state_trigger.CONF_VALUE_TEMPLATE: template,
         }
         if CONF_ABOVE in config:
-            cfg[CONF_ABOVE] = config[CONF_ABOVE]
+            trigger_config[CONF_ABOVE] = config[CONF_ABOVE]
         if CONF_BELOW in config:
-            cfg[CONF_BELOW] = config[CONF_BELOW]
+            trigger_config[CONF_BELOW] = config[CONF_BELOW]
         if CONF_FOR in config:
-            cfg[CONF_FOR] = config[CONF_FOR]
-        return cfg
+            trigger_config[CONF_FOR] = config[CONF_FOR]
+        return trigger_config
 
     # Purpose-specific trigger: heating_active
     #   Fires when hvac_action changes from another action TO "heating".

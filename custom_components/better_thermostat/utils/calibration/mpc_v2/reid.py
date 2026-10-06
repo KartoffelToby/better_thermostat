@@ -127,15 +127,15 @@ class ReidOutcome:
     n_samples: int = 0
 
 
-def _classify(sample: ReidSample, cfg: ReidConfig) -> str:
-    if sample.u_frac >= cfg.u_heating_frac:
+def _classify(sample: ReidSample, config: ReidConfig) -> str:
+    if sample.u_frac >= config.u_heating_frac:
         return "heating"
-    if sample.u_frac <= cfg.u_idle_frac:
+    if sample.u_frac <= config.u_idle_frac:
         return "idle"
     return "other"
 
 
-def extract_segments(samples: list[ReidSample], cfg: ReidConfig) -> list[Segment]:
+def extract_segments(samples: list[ReidSample], config: ReidConfig) -> list[Segment]:
     """Cut the buffer into informative heat-up / cool-down transients.
 
     Runs are contiguous stretches of one activity class with the window
@@ -151,13 +151,13 @@ def extract_segments(samples: list[ReidSample], cfg: ReidConfig) -> list[Segment
 
     def _flush() -> None:
         nonlocal run
-        if len(run) >= cfg.min_samples and (
-            run[-1].t_s - run[0].t_s >= cfg.min_duration_s
+        if len(run) >= config.min_samples and (
+            run[-1].t_s - run[0].t_s >= config.min_duration_s
         ):
             delta = run[-1].T_room_C - run[0].T_room_C
-            if run_class == "heating" and delta >= cfg.min_heatup_rise_K:
+            if run_class == "heating" and delta >= config.min_heatup_rise_K:
                 segments.append(Segment(kind="heatup", samples=list(run)))
-            elif run_class == "idle" and -delta >= cfg.min_cooldown_drop_K:
+            elif run_class == "idle" and -delta >= config.min_cooldown_drop_K:
                 outdoor = [s.T_outdoor_C for s in run if s.T_outdoor_C is not None]
                 if outdoor and (sum(outdoor) / len(outdoor)) < run[-1].T_room_C:
                     segments.append(Segment(kind="cooldown", samples=list(run)))
@@ -168,8 +168,8 @@ def extract_segments(samples: list[ReidSample], cfg: ReidConfig) -> list[Segment
             _flush()
             run_class = ""
             continue
-        sample_class = _classify(sample, cfg)
-        gap_broken = bool(run) and sample.t_s - run[-1].t_s > cfg.max_gap_s
+        sample_class = _classify(sample, config)
+        gap_broken = bool(run) and sample.t_s - run[-1].t_s > config.max_gap_s
         if sample_class != run_class or gap_broken or sample_class == "other":
             _flush()
             run_class = sample_class
@@ -213,21 +213,21 @@ def _simulate_room(
     return out
 
 
-def _sse(params: PlantParams, segments: list[Segment], cfg: ReidConfig) -> float:
+def _sse(params: PlantParams, segments: list[Segment], config: ReidConfig) -> float:
     total = 0.0
     for segment in segments:
-        simulated = _simulate_room(params, segment, cfg.substep_s)
+        simulated = _simulate_room(params, segment, config.substep_s)
         for sim, sample in zip(simulated[1:], segment.samples[1:]):
             err = sim - sample.T_room_C
             total += err * err
     return total
 
 
-def _rmse(params: PlantParams, segments: list[Segment], cfg: ReidConfig) -> float:
+def _rmse(params: PlantParams, segments: list[Segment], config: ReidConfig) -> float:
     n = sum(len(s.samples) - 1 for s in segments)
     if n <= 0:
         return math.inf
-    return math.sqrt(_sse(params, segments, cfg) / n)
+    return math.sqrt(_sse(params, segments, config) / n)
 
 
 def _nelder_mead(
@@ -299,27 +299,27 @@ def _params_from_x(x: list[float], prior: PlantParams) -> PlantParams:
 
 
 def run_reid_fit(
-    samples: list[ReidSample], prior: PlantParams, cfg: ReidConfig | None = None
+    samples: list[ReidSample], prior: PlantParams, config: ReidConfig | None = None
 ) -> ReidOutcome:
     """Extract segments, fit tau_room/gain, and validate on a holdout.
 
     The holdout is the most recent segment; training needs at least one
     heat-up (the only place ``gain_heater`` is identifiable — cool-downs
     constrain only ``tau_room_min``). The candidate is accepted when its
-    holdout RMSE beats the prior's by at least ``cfg.min_improvement``.
+    holdout RMSE beats the prior's by at least ``config.min_improvement``.
 
     A holdout without meaningful heating (all valve fractions at or below
-    ``cfg.u_idle_frac``) carries no information about ``gain_heater``: the
+    ``config.u_idle_frac``) carries no information about ``gain_heater``: the
     simulated heater term is near zero on every step, so any gain yields
     the same holdout prediction and a badly fitted gain could ride in on a
     tau improvement alone. In that case the candidate keeps the prior's
     gain and only the tau value is up for adoption — the holdout then
     validates exactly the parameter set the caller would adopt.
     """
-    cfg = cfg or ReidConfig()
-    segments = extract_segments(samples, cfg)
+    config = config or ReidConfig()
+    segments = extract_segments(samples, config)
     n_samples = sum(len(s.samples) for s in segments)
-    if len(segments) < cfg.min_segments:
+    if len(segments) < config.min_segments:
         return ReidOutcome(
             status="insufficient_data", n_segments=len(segments), n_samples=n_samples
         )
@@ -332,28 +332,28 @@ def run_reid_fit(
         )
 
     def objective(x: list[float]) -> float:
-        return _sse(_params_from_x(x, prior), train, cfg)
+        return _sse(_params_from_x(x, prior), train, config)
 
     x0 = [
         math.log(_clamp(prior.tau_room_min, TAU_ROOM_BOUNDS_MIN)),
         math.log(_clamp(prior.gain_heater, GAIN_HEATER_BOUNDS)),
     ]
     x_best = _nelder_mead(
-        objective, x0, step=math.log(1.3), max_iterations=cfg.max_iterations
+        objective, x0, step=math.log(1.3), max_iterations=config.max_iterations
     )
     fitted = _params_from_x(x_best, prior)
 
     holdout_max_u = max((s.u_frac for seg in holdout for s in seg.samples), default=0.0)
-    if holdout_max_u <= cfg.u_idle_frac:
+    if holdout_max_u <= config.u_idle_frac:
         fitted = replace(fitted, gain_heater=prior.gain_heater)
 
-    rmse_prior = _rmse(prior, holdout, cfg)
-    rmse_fit = _rmse(fitted, holdout, cfg)
+    rmse_prior = _rmse(prior, holdout, config)
+    rmse_fit = _rmse(fitted, holdout, config)
     accepted = (
         math.isfinite(rmse_fit)
         and math.isfinite(rmse_prior)
-        and rmse_fit <= (1.0 - cfg.min_improvement) * rmse_prior
-        and rmse_prior - rmse_fit >= cfg.min_improvement_K
+        and rmse_fit <= (1.0 - config.min_improvement) * rmse_prior
+        and rmse_prior - rmse_fit >= config.min_improvement_K
     )
     return ReidOutcome(
         status="accepted" if accepted else "rejected",

@@ -74,7 +74,7 @@ async def test_a_start_without_a_target_adopts_the_head_setpoint(
 
     bt = await _start(hass, profile, stored, profile)
 
-    assert bt.bt_target_temp == pytest.approx(20.0, abs=0.01)
+    assert bt.heat_target_temperature == pytest.approx(20.0, abs=0.01)
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
@@ -90,7 +90,7 @@ async def test_an_adopted_setpoint_is_bounded_into_the_range(
 
     bt = await _start(hass, profile, stored, profile)
 
-    assert bt.bt_target_temp == expected
+    assert bt.heat_target_temperature == expected
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
@@ -110,7 +110,7 @@ async def test_a_range_head_hands_over_its_heating_setpoint(hass, stored):
 
     bt = await _start(hass, profile, stored, profile)
 
-    assert bt.bt_target_temp == 21.0
+    assert bt.heat_target_temperature == 21.0
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
@@ -121,7 +121,7 @@ async def test_the_cooler_setpoint_does_not_shift_the_heating_target(hass, store
 
     bt = await _start(hass, scenario, stored, scenario.trv, scenario.cooler)
 
-    assert bt.bt_target_temp == 20.0
+    assert bt.heat_target_temperature == 20.0
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
@@ -140,7 +140,7 @@ async def test_heads_without_a_setpoint_get_the_default_inside_the_range(
 
     bt = await _start(hass, profile, stored, profile)
 
-    assert bt.bt_target_temp == expected
+    assert bt.heat_target_temperature == expected
 
 
 def _group(*heads: tuple[HVACMode, float | None]) -> GroupScenario:
@@ -185,7 +185,7 @@ async def test_a_head_that_is_off_does_not_set_the_room_target(
 
     bt = await _start(hass, group, stored, *group.profiles)
 
-    assert bt.bt_target_temp == expected
+    assert bt.heat_target_temperature == expected
 
 
 @pytest.mark.parametrize("stored", START_KINDS)
@@ -213,7 +213,7 @@ async def test_a_no_off_head_parked_at_its_minimum_does_not_set_the_room_target(
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
 
-    assert bt.bt_target_temp == 21.0
+    assert bt.heat_target_temperature == 21.0
 
 
 _DUAL_ROLE_COOLING = replace(
@@ -254,4 +254,4 @@ async def test_a_shared_head_that_cools_does_not_set_the_room_target(
 
     bt = await _start(hass, scenario, stored, profile)
 
-    assert bt.bt_target_temp == expected
+    assert bt.heat_target_temperature == expected

@@ -18,14 +18,18 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
-from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import BetterThermostatConfigEntry
-from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
+from .entity import (
+    FollowsThermostat,
+    TrvNamedEntity,
+    current_trv_name,
+    remove_unclaimed_registry_entries,
+)
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
     DEFAULT_PID_KD,
@@ -128,12 +132,12 @@ async def async_setup_entry(
     # Create PID numbers for each TRV if PID calibration is enabled
     if hasattr(bt_climate, "all_trvs"):
         has_multiple_trvs = len(bt_climate.all_trvs) > 1
-        for trv_conf in bt_climate.all_trvs:
-            trv_entity_id = trv_conf.get("trv")
+        for trv_config in bt_climate.all_trvs:
+            trv_entity_id = trv_config.get("trv")
             if not trv_entity_id:
                 continue
 
-            advanced = trv_conf.get("advanced", {})
+            advanced = trv_config.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             calibration_type = advanced.get(CONF_CALIBRATION)
 
@@ -190,7 +194,7 @@ async def async_setup_entry(
     async_add_entities(numbers)
 
 
-class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
+class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
@@ -237,20 +241,6 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         """
         return self._bt_climate.target_temperature_step or 0.1
 
-    def _follow_thermostat(self) -> None:
-        """Republish this entity whenever the thermostat's state changes."""
-        if self._bt_climate.entity_id:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [self._bt_climate.entity_id], self._on_thermostat_state
-                )
-            )
-
-    @callback
-    def _on_thermostat_state(self, event: Event[EventStateChangedData]) -> None:
-        """Publish the thermostat's current range and step."""
-        self.async_write_ha_state()
-
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -285,8 +275,8 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         # preset and switches the preset off.
         if self._bt_climate.preset_mode == self._preset_mode:
             bounded = self._bt_climate._bound_target_to_range(val_celsius)
-            if self._bt_climate.bt_target_temp != bounded:
-                self._bt_climate.bt_target_temp = bounded
+            if self._bt_climate.heat_target_temperature != bounded:
+                self._bt_climate.heat_target_temperature = bounded
                 if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                     request_control_cycle(self._bt_climate)
         # The thermostat state carries the preset map a restart restores from,
@@ -421,22 +411,23 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         cool_value = value
         if (
             self._bt_climate.preset_mode == self._preset_mode
-            and self._bt_climate.bt_target_temp is not None
-            and value <= self._bt_climate.bt_target_temp
+            and self._bt_climate.heat_target_temperature is not None
+            and value <= self._bt_climate.heat_target_temperature
         ):
             step = self._bt_climate.bt_target_temp_step or 0.5
-            cool_value = self._bt_climate.bt_target_temp + step
+            cool_value = self._bt_climate.heat_target_temperature + step
 
         cool_lower, cool_upper = get_cool_temperature_range(self._bt_climate)
         cool_value = min(cool_upper, max(cool_lower, cool_value))
         self._bt_climate._preset_cool_temperatures[self._preset_mode] = cool_value
 
         if self._bt_climate.preset_mode == self._preset_mode:
-            self._bt_climate.bt_target_cooltemp = cool_value
+            self._bt_climate.cool_target_temperature = cool_value
             self._bt_climate._enforce_cool_above_heat()
-            self._bt_climate._preset_cool_temperatures[self._preset_mode] = (
-                self._bt_climate.bt_target_cooltemp
-            )
+            # The ordering only moves a cooling target that is set, so it stays set.
+            enforced = self._bt_climate.cool_target_temperature
+            assert enforced is not None
+            self._bt_climate._preset_cool_temperatures[self._preset_mode] = enforced
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 request_control_cycle(self._bt_climate)
 
@@ -444,7 +435,9 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         self._bt_climate.async_write_ha_state()
 
 
-class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
+class BetterThermostatPIDNumber(
+    FollowsThermostat, TrvNamedEntity, NumberEntity, RestoreEntity
+):
     """Representation of a Better Thermostat PID Parameter Number."""
 
     _attr_has_entity_name = True
@@ -483,6 +476,7 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        self._follow_thermostat()
 
     @property
     def device_info(self):
@@ -498,9 +492,9 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
             key = build_pid_key(self._bt_climate, self._trv_entity_id)
             pid_state = state_mgr.state.pid.get(key)
             if pid_state is not None:
-                val = getattr(pid_state, f"pid_{self._parameter}")
-                if val is not None:
-                    return val
+                value = getattr(pid_state, f"pid_{self._parameter}")
+                if value is not None:
+                    return value
 
         # Defaults
         if self._parameter == "kp":
@@ -544,7 +538,7 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
 
 
 class BetterThermostatValveMaxOpeningNumber(
-    TrvNamedEntity, NumberEntity, RestoreEntity
+    FollowsThermostat, TrvNamedEntity, NumberEntity, RestoreEntity
 ):
     """Representation of a Better Thermostat Valve Max Opening Number."""
 
@@ -577,6 +571,7 @@ class BetterThermostatValveMaxOpeningNumber(
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        self._follow_thermostat()
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state not in (
             None,
@@ -584,8 +579,8 @@ class BetterThermostatValveMaxOpeningNumber(
             "unavailable",
         ):
             try:
-                val = float(last_state.state)
-                self._set_value(val)
+                value = float(last_state.state)
+                self._set_value(value)
             except TypeError, ValueError:
                 pass
 
@@ -601,9 +596,9 @@ class BetterThermostatValveMaxOpeningNumber(
 
     def _get_value(self) -> float:
         trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
-        val = trv_state.valve_max_opening if trv_state is not None else 100.0
+        value = trv_state.valve_max_opening if trv_state is not None else 100.0
         try:
-            return float(val)
+            return float(value)
         except TypeError, ValueError:
             return 100.0
 

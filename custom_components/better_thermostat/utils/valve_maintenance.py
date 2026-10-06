@@ -293,6 +293,12 @@ async def _set_valve_pct(entity_id: str, pct: int, set_valve_fn: SetValveFn) -> 
     try:
         return bool(await set_valve_fn(entity_id, int(pct)))
     except Exception:
+        _LOGGER.debug(
+            "better_thermostat: setting the valve of %s to %d%% failed",
+            entity_id,
+            pct,
+            exc_info=True,
+        )
         return False
 
 
