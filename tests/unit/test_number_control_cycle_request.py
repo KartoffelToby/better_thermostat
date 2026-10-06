@@ -55,15 +55,15 @@ def _thermostat_with_a_pending_cycle():
 async def test_setting_the_active_cooling_preset_does_not_wait_for_the_queue():
     """The service call returns while a cycle is pending; one cycle stays pending."""
     bt_climate = _thermostat_with_a_pending_cycle()
-    bt_climate.bt_target_temp = 22.0
-    bt_climate.bt_target_cooltemp = 24.0
+    bt_climate.heat_target_temperature = 22.0
+    bt_climate.cool_target_temperature = 24.0
     bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
     entity = BetterThermostatPresetCoolNumber(bt_climate, PRESET_HOME)
     entity.async_write_ha_state = MagicMock()
 
     await asyncio.wait_for(entity.async_set_native_value(25.0), timeout=1)
 
-    assert bt_climate.bt_target_cooltemp == 25.0
+    assert bt_climate.cool_target_temperature == 25.0
     assert bt_climate.control_queue_task.qsize() == 1
 
 
@@ -71,7 +71,7 @@ async def test_setting_the_active_cooling_preset_does_not_wait_for_the_queue():
 async def test_restoring_the_active_preset_does_not_wait_for_the_queue():
     """The restore finishes while a cycle is pending; one cycle stays pending."""
     bt_climate = _thermostat_with_a_pending_cycle()
-    bt_climate.bt_target_temp = 20.0
+    bt_climate.heat_target_temperature = 20.0
     bt_climate._bound_target_to_range.side_effect = lambda value: value
     entity = BetterThermostatPresetNumber(bt_climate, PRESET_HOME)
     last_state = MagicMock()
@@ -81,5 +81,5 @@ async def test_restoring_the_active_preset_does_not_wait_for_the_queue():
 
     await asyncio.wait_for(entity.async_added_to_hass(), timeout=1)
 
-    assert bt_climate.bt_target_temp == 21.5
+    assert bt_climate.heat_target_temperature == 21.5
     assert bt_climate.control_queue_task.qsize() == 1

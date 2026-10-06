@@ -80,10 +80,10 @@ def thermostat(reported_states):
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.hvac_mode = HVACMode.HEAT
-    bt.bt_target_temp = 19.0
+    bt.heat_target_temperature = 19.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
-    bt.bt_target_cooltemp = 25.0
+    bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
     bt.cur_temp = 18.0
     bt.cur_temp_filtered = None
@@ -234,7 +234,7 @@ class TestModeCacheAfterACycle:
             thermostat, _press_setpoint(thermostat, reported_states, 22.0)
         )
 
-        assert thermostat.bt_target_temp == 22.0
+        assert thermostat.heat_target_temperature == 22.0
 
     @pytest.mark.asyncio
     async def test_a_mode_switched_during_the_cycle_is_read_on_the_next_report(
@@ -392,7 +392,7 @@ class TestReportsHeldDuringACycle:
         ("adopt", "requested"),
         [
             pytest.param(None, False, id="nothing_moved"),
-            pytest.param(("bt_target_temp", 23.0), True, id="target_adopted"),
+            pytest.param(("heat_target_temperature", 23.0), True, id="target_adopted"),
             pytest.param(("bt_hvac_mode", HVACMode.OFF), True, id="mode_adopted"),
         ],
     )
@@ -535,7 +535,7 @@ class TestReportsHeldDuringACycle:
         with patch(f"{_CTRL}.request_control_cycle") as request:
             await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
         request.assert_called_once_with(thermostat)
 
     @pytest.mark.asyncio
@@ -576,7 +576,7 @@ class TestReportsHeldDuringACycle:
         with patch(f"{_CTRL}.request_control_cycle") as request:
             await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
         request.assert_called_once_with(thermostat)
 
     @pytest.mark.asyncio
@@ -621,7 +621,7 @@ class TestReportsHeldDuringACycle:
         with patch(f"{_CTRL}.request_control_cycle") as request:
             await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_temp == 24.0
+        assert thermostat.heat_target_temperature == 24.0
         request.assert_called_once_with(thermostat)
 
 
@@ -670,7 +670,7 @@ class TestHeldReportAgainstThePreviousState:
             setpoint=16.0,
         )
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
 
     @pytest.mark.asyncio
     async def test_a_knob_turned_inside_the_cycle_sets_the_room_target(
@@ -684,7 +684,7 @@ class TestHeldReportAgainstThePreviousState:
             setpoint=23.0,
         )
 
-        assert thermostat.bt_target_temp == 23.0
+        assert thermostat.heat_target_temperature == 23.0
 
 
 class TestHeldReportsAcrossAnOutage:
@@ -739,7 +739,7 @@ class TestHeldReportsAcrossAnOutage:
             ],
         )
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
 
     @pytest.mark.asyncio
     async def test_a_knob_turned_after_the_return_sets_the_room_target(
@@ -757,7 +757,7 @@ class TestHeldReportsAcrossAnOutage:
             ],
         )
 
-        assert thermostat.bt_target_temp == 23.0
+        assert thermostat.heat_target_temperature == 23.0
 
     @pytest.mark.asyncio
     async def test_a_report_after_the_return_that_keeps_the_setpoint_is_no_press(
@@ -776,7 +776,7 @@ class TestHeldReportsAcrossAnOutage:
             thermostat, reported_states, [returned, settled]
         )
 
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
 
 
 class TestALockedPressHeldDuringACycle:
@@ -809,7 +809,7 @@ class TestALockedPressHeldDuringACycle:
             await read_reports_held_during_cycle(thermostat)
 
         request.assert_called_once_with(thermostat)
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.heat_target_temperature == 19.0
         assert thermostat.bt_hvac_mode == HVACMode.HEAT
 
     @pytest.mark.asyncio
@@ -883,7 +883,7 @@ class TestALockedPressHeldDuringACycle:
         trv = self._lock(thermostat)
         trv.last_temperature = 21.0
         trv.last_hvac_mode = "cool"
-        thermostat.bt_target_cooltemp = 24.3
+        thermostat.cool_target_temperature = 24.3
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
@@ -917,7 +917,7 @@ class TestALockedPressHeldDuringACycle:
         trv = self._lock(thermostat)
         trv.last_temperature = 21.0
         trv.last_hvac_mode = "cool"
-        thermostat.bt_target_cooltemp = 24.0
+        thermostat.cool_target_temperature = 24.0
         state = _reported_state("cool", setpoint=pressed_to)
         reported_states[ENTITY_ID] = state
 
@@ -1010,7 +1010,7 @@ class TestHeldCoolingTurn:
             "hvac_mode": (HVACMode.COOL, 1.0),
             "temperature": (cooling_target, 1.0),
         }
-        thermostat.bt_target_cooltemp = cooling_target
+        thermostat.cool_target_temperature = cooling_target
         thermostat.cool_min_temperature = None
         thermostat.cool_max_temperature = None
         thermostat._clamp_inbound_cool_target = lambda value: (
@@ -1062,8 +1062,8 @@ class TestHeldCoolingTurn:
         thermostat.ignore_states = False
         await read_reports_held_during_cycle(thermostat)
 
-        assert thermostat.bt_target_cooltemp == cooling_target
-        assert thermostat.bt_target_temp == 19.0
+        assert thermostat.cool_target_temperature == cooling_target
+        assert thermostat.heat_target_temperature == 19.0
         assert thermostat.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio

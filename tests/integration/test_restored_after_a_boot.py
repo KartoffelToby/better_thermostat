@@ -35,5 +35,5 @@ async def test_the_saved_target_survives_the_restore_write_at_start(hass, fake_t
     await hass.async_block_till_done()
     bt = await wait_for_startup(hass, entry)
 
-    assert bt.bt_target_temp == 23.5
+    assert bt.heat_target_temperature == 23.5
     assert bt.hvac_mode == HVACMode.OFF

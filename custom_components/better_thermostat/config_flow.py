@@ -946,18 +946,20 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_advanced(self, user_input=None, _trv_config=None):
         """Handle the advanced step of the config flow."""
-        trv_cfg = _trv_config if isinstance(_trv_config, dict) else None
-        if trv_cfg is None:
-            trv_cfg = self._active_trv_config
-        if trv_cfg is None:
+        trv_config = _trv_config if isinstance(_trv_config, dict) else None
+        if trv_config is None:
+            trv_config = self._active_trv_config
+        if trv_config is None:
             _LOGGER.debug(
                 "ConfigFlow advanced step missing TRV context; returning to confirm"
             )
             return await self.async_step_confirm()
 
-        self._active_trv_config = trv_cfg
-        ctx = await _prepare_advanced_context(self, trv_cfg)
-        existing_adv = trv_cfg.get("advanced") if isinstance(trv_cfg, dict) else None
+        self._active_trv_config = trv_config
+        ctx = await _prepare_advanced_context(self, trv_config)
+        existing_adv = (
+            trv_config.get("advanced") if isinstance(trv_config, dict) else None
+        )
         _LOGGER.debug(
             "ConfigFlow advanced step called (index=%s, trv=%s) with user_input=%s",
             self.i,
@@ -974,7 +976,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             _LOGGER.debug(
                 "ConfigFlow advanced step storing data for %s (index %s): %s",
-                trv_cfg.get("trv"),
+                trv_config.get("trv"),
                 self.i,
                 advanced_data,
             )
@@ -1123,18 +1125,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input=None, _trv_config=None, _update_config=None
     ):
         """Manage the advanced options."""
-        trv_cfg = _trv_config if isinstance(_trv_config, dict) else None
-        if trv_cfg is None:
-            trv_cfg = self._active_trv_config
-        if trv_cfg is None:
+        trv_config = _trv_config if isinstance(_trv_config, dict) else None
+        if trv_config is None:
+            trv_config = self._active_trv_config
+        if trv_config is None:
             _LOGGER.debug(
                 "OptionsFlow advanced step missing TRV context; aborting to init"
             )
             return await self.async_step_init()
 
-        self._active_trv_config = trv_cfg
-        ctx = await _prepare_advanced_context(self, trv_cfg)
-        existing_adv = trv_cfg.get("advanced") if isinstance(trv_cfg, dict) else None
+        self._active_trv_config = trv_config
+        ctx = await _prepare_advanced_context(self, trv_config)
+        existing_adv = (
+            trv_config.get("advanced") if isinstance(trv_config, dict) else None
+        )
         _LOGGER.debug(
             "OptionsFlow advanced step called (index=%s, trv=%s) with user_input=%s",
             self.i,
@@ -1151,7 +1155,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
-                trv_cfg.get("trv"),
+                trv_config.get("trv"),
                 self.i,
                 advanced_data,
             )

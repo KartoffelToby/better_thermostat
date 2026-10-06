@@ -163,7 +163,7 @@ class TestStrategyRegistry:
 
         bt = ThermostatStandIn()
         bt.cur_temp = 20.0
-        bt.bt_target_temp = 21.0
+        bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
         bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
 
@@ -192,7 +192,7 @@ class TestStrategyRegistry:
         bt = ThermostatStandIn()
         bt.device_name = "Test BT"
         bt.cur_temp = None
-        bt.bt_target_temp = 21.0
+        bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state(
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )
@@ -225,7 +225,7 @@ class TestBalanceCalibrator:
         )
         bt = ThermostatStandIn()
         bt.cur_temp = 20.0
-        bt.bt_target_temp = 21.0
+        bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
         bt.real_trvs = {
             "climate.trv": Trv(entity_id="climate.trv", calibration_balance=balance)

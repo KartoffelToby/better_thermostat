@@ -81,16 +81,16 @@ async def check_operation_mode(
             entity_id,
         )
         return False
-    val = self.hass.states.get(target_entity)
-    if val is None:
+    value = self.hass.states.get(target_entity)
+    if value is None:
         return False
-    if val.state != goal:
+    if value.state != goal:
         _LOGGER.debug(
             "better_thermostat %s: SPZB0001 check_operation_mode: setting target entity %s to %s from %s",
             self.device_name,
             target_entity,
             goal,
-            val.state,
+            value.state,
         )
         try:
             await self.hass.services.async_call(

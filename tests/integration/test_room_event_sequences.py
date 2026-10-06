@@ -310,7 +310,7 @@ class Room:
 
     def target(self) -> float | None:
         """Return the room's target in the unit its user sees."""
-        target = self.bt.bt_target_temp
+        target = self.bt.heat_target_temperature
         if target is None:
             return None
         return TemperatureConverter.convert(
@@ -1206,7 +1206,7 @@ async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(has
     """
     async with running_room(hass, SINGLE_HEAD, no_off_system_mode=True) as room:
         bt, head = room.bt, room.heads[0]
-        target = bt.bt_target_temp
+        target = bt.heat_target_temperature
         await Window(True).happen(room)
         await _quiet(room)
         assert await wait_for(room.hass, lambda: bt.window_open, CONVERGE_S)
@@ -1216,12 +1216,12 @@ async def test_a_head_turned_while_the_window_is_open_does_not_move_the_room(has
         turned_to = target + 3.0
         _turn(head, turned_to)
         await _quiet(room)
-        assert bt.bt_target_temp == pytest.approx(target), (
-            f"the room adopted {bt.bt_target_temp} from a knob turned with the "
+        assert bt.heat_target_temperature == pytest.approx(target), (
+            f"the room adopted {bt.heat_target_temperature} from a knob turned with the "
             f"window open, its target was {target}"
         )
         await _reconcile(room)
-        assert bt.bt_target_temp == pytest.approx(target), (
-            f"after the reconciler the room carries {bt.bt_target_temp}, "
+        assert bt.heat_target_temperature == pytest.approx(target), (
+            f"after the reconciler the room carries {bt.heat_target_temperature}, "
             f"its target was {target}"
         )

@@ -73,8 +73,8 @@ def _make_self() -> ThermostatStandIn:
     entity.calculate_heat_loss = AsyncMock()
     entity.cooler_entity_id = None
     entity.real_trvs = {_TRV: Trv.from_legacy_dict(_TRV, {})}
-    entity.bt_target_temp = 21.0
-    entity.bt_target_cooltemp = None
+    entity.heat_target_temperature = 21.0
+    entity.cool_target_temperature = None
     entity.bt_hvac_mode = HVACMode.HEAT
     entity.clock = FakeClock()
     # The TRV is present, so a cycle that reports it clean did control it.
@@ -188,8 +188,8 @@ async def test_a_retry_that_succeeds_ends_the_run():
 @pytest.mark.parametrize(
     ("attribute", "value"),
     [
-        ("bt_target_temp", 23.5),
-        ("bt_target_cooltemp", 26.0),
+        ("heat_target_temperature", 23.5),
+        ("cool_target_temperature", 26.0),
         ("bt_hvac_mode", HVACMode.OFF),
     ],
 )
@@ -311,7 +311,7 @@ async def test_a_request_during_the_pause_is_served_at_once():
         queue.sleep.hold = True
         await queue.until_calls(1)
         assert entity.ignore_states is False
-        entity.bt_target_temp = 23.5
+        entity.heat_target_temperature = 23.5
         queue.request()
         await queue.until_calls(2, timeout=1.0)
 
@@ -338,7 +338,7 @@ async def test_the_traceback_is_logged_once_per_run(caplog):
     caplog.set_level(logging.DEBUG, logger=_CTRL)
     async with _Queue(entity, lambda _n: ServiceValidationError("x")) as queue:
         await queue.until_calls(5)
-        entity.bt_target_temp = 23.5
+        entity.heat_target_temperature = 23.5
         queue.request()
         await queue.until_calls(queue.calls + 1)
         queue.request()
@@ -480,7 +480,7 @@ async def test_a_trv_still_away_since_it_failed_keeps_the_run():
 def _decided_cycle(entity):
     """Observe the TRV as the snapshot does and run the kernel's decision on it."""
     snapshot = make_snapshot(
-        target_temp=entity.bt_target_temp,
+        target_temp=entity.heat_target_temperature,
         room_temp=18.0,
         preset_mode=entity.preset_mode,
         trvs={_TRV: _build_trv_reported(entity, _TRV, entity.real_trvs[_TRV])},

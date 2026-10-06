@@ -61,7 +61,7 @@ def test_default_local_calibration_computes_pure_offset(bt_default_mode):
     """DEFAULT local calibration: (external - trv) + current_offset."""
 
     # Important: DEFAULT should not require a target temperature
-    bt_default_mode.bt_target_temp = None
+    bt_default_mode.heat_target_temperature = None
 
     # external=20, trv=22, current_offset=2 -> new=0
     new_offset = calculate_calibration_local(bt_default_mode, "climate.trv")
@@ -74,7 +74,7 @@ def test_default_local_calibration_computes_pure_offset(bt_default_mode):
 def test_default_setpoint_calibration_skips_controller_adjustments(bt_default_mode):
     """DEFAULT setpoint calibration should be the base correction only."""
 
-    bt_default_mode.bt_target_temp = 21.0
+    bt_default_mode.heat_target_temperature = 21.0
 
     # base formula is: (target - external) + trv = 23
     setpoint = calculate_calibration_setpoint(bt_default_mode, "climate.trv")

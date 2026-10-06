@@ -664,14 +664,14 @@ class TestPIDController:
 
         class MockBT:
             def __init__(self):
-                self.bt_target_temp: float | None = 22.5
+                self.heat_target_temperature: float | None = 22.5
                 self.unique_id = "test_bt"
 
         bt = MockBT()
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:t22.5"
 
-        bt.bt_target_temp = None
+        bt.heat_target_temperature = None
         key = build_pid_key(bt, "climate.test")
         assert key == "test_bt:climate.test:tunknown"
 

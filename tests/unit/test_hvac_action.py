@@ -28,7 +28,7 @@ def _default_kwargs(**overrides):
     base = {
         "hysteresis": ToleranceHysteresis(),
         "cur_temp": 20.0,
-        "target_temp": 21.0,
+        "heat_target_temperature": 21.0,
         "cool_target": None,
         "hvac_mode": HVACMode.HEAT,
         "bt_hvac_mode": HVACMode.HEAT,
@@ -212,7 +212,7 @@ class TestComputeHvacAction:
 
     def test_none_target_idle(self):
         """Test None target idle."""
-        r = compute_hvac_action(**_default_kwargs(target_temp=None))
+        r = compute_hvac_action(**_default_kwargs(heat_target_temperature=None))
         assert r.action == HVACAction.IDLE
 
     def test_off_mode_returns_off(self):
@@ -330,7 +330,9 @@ class TestComputeHvacAction:
         """Above target, a TRV reporting heating must not lift action above IDLE."""
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
-            **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
+            **_default_kwargs(
+                cur_temp=21.3, heat_target_temperature=21.0, trv_snapshots=[snap]
+            )
         )
         assert r.action == HVACAction.IDLE
 
@@ -338,7 +340,9 @@ class TestComputeHvacAction:
         """Valve still partially open after overshoot must not lift action above IDLE."""
         snap = TrvSnapshot(entity_id="trv1", valve_position=0.15)
         r = compute_hvac_action(
-            **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
+            **_default_kwargs(
+                cur_temp=21.3, heat_target_temperature=21.0, trv_snapshots=[snap]
+            )
         )
         assert r.action == HVACAction.IDLE
 
@@ -346,7 +350,9 @@ class TestComputeHvacAction:
         """Stale last_valve_percent above target must not lift action above IDLE."""
         snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
         r = compute_hvac_action(
-            **_default_kwargs(cur_temp=21.3, target_temp=21.0, trv_snapshots=[snap])
+            **_default_kwargs(
+                cur_temp=21.3, heat_target_temperature=21.0, trv_snapshots=[snap]
+            )
         )
         assert r.action == HVACAction.IDLE
 
@@ -354,7 +360,9 @@ class TestComputeHvacAction:
         """At cur == target, override is suppressed (heat-off threshold reached)."""
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
-            **_default_kwargs(cur_temp=21.0, target_temp=21.0, trv_snapshots=[snap])
+            **_default_kwargs(
+                cur_temp=21.0, heat_target_temperature=21.0, trv_snapshots=[snap]
+            )
         )
         assert r.action == HVACAction.IDLE
 
@@ -362,7 +370,9 @@ class TestComputeHvacAction:
         """Inside the hysteresis band (below target), TRV override still fires."""
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
-            **_default_kwargs(cur_temp=20.7, target_temp=21.0, trv_snapshots=[snap])
+            **_default_kwargs(
+                cur_temp=20.7, heat_target_temperature=21.0, trv_snapshots=[snap]
+            )
         )
         assert r.action == HVACAction.HEATING
 

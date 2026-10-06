@@ -125,7 +125,7 @@ async def test_a_late_trv_is_waited_for_and_never_reported(hass, fake_trv):
     assert bt_issues(hass) == []
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert_profile_adopted(bt, fake_trv.profile)
-    assert bt.bt_target_temp == fake_trv.profile.target_temperature
+    assert bt.heat_target_temperature == fake_trv.profile.target_temperature
 
 
 async def test_a_trv_that_never_arrives_is_reported_once_the_grace_window_closes(

@@ -211,6 +211,7 @@ from .utils.restore import (
     saved_cooling_target,
     saved_heating_target,
 )
+from .utils.retry import command_cancellation_as_disconnect
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
@@ -672,24 +673,24 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.kernel_state.control_mode.degraded
 
     @property
-    def bt_target_temp(self) -> float | None:
+    def heat_target_temperature(self) -> float | None:
         """Return the BT-internal target temperature."""
-        return self.runtime.bt_target_temp
+        return self.runtime.heat_target_temperature
 
-    @bt_target_temp.setter
-    def bt_target_temp(self, value: float | None) -> None:
+    @heat_target_temperature.setter
+    def heat_target_temperature(self, value: float | None) -> None:
         """Set the BT-internal target temperature."""
-        self.runtime.bt_target_temp = value
+        self.runtime.heat_target_temperature = value
 
     @property
-    def bt_target_cooltemp(self) -> float | None:
+    def cool_target_temperature(self) -> float | None:
         """Return the BT-internal cooling target temperature."""
-        return self.runtime.bt_target_cooltemp
+        return self.runtime.cool_target_temperature
 
-    @bt_target_cooltemp.setter
-    def bt_target_cooltemp(self, value: float | None) -> None:
+    @cool_target_temperature.setter
+    def cool_target_temperature(self, value: float | None) -> None:
         """Set the BT-internal cooling target temperature."""
-        self.runtime.bt_target_cooltemp = value
+        self.runtime.cool_target_temperature = value
 
     @property
     def heating_power(self) -> float:
@@ -993,8 +994,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.bt_max_temp: float | None = DEFAULT_MAX_TEMP
         self.cool_min_temperature: float | None = None
         self.cool_max_temperature: float | None = None
-        self.bt_target_temp = DEFAULT_TARGET_TEMP
-        self.bt_target_cooltemp = None
+        self.heat_target_temperature = DEFAULT_TARGET_TEMP
+        self.cool_target_temperature = None
         # The state saved before the last stop, read when the entity is added.
         self._saved_state: State | None = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
@@ -2165,7 +2166,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 self.hass.config.units.temperature_unit,
             )
-            self.bt_target_temp = self._bound_target_to_range(
+            self.heat_target_temperature = self._bound_target_to_range(
                 DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
             )
             _LOGGER.debug(
@@ -2189,7 +2190,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     # The pair was ordered under the range that held when it
                     # was saved. A narrower range can bound both targets onto
                     # the same value, so the ordering is applied again here.
-                    self.bt_target_cooltemp = self._bound_cool_target_to_range(
+                    self.cool_target_temperature = self._bound_cool_target_to_range(
                         _restored_cool_target
                     )
                     self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
@@ -2289,7 +2290,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             if self.preset_mgr.mode is not None and self.preset_mgr.mode != PRESET_NONE:
                 preset_temp = self.preset_mgr.get_temperature(self.preset_mgr.mode)
                 # Only override if different to avoid masking manual restore logic
-                if isinstance(preset_temp, (int, float)) and self.bt_target_temp != (
+                if isinstance(
+                    preset_temp, (int, float)
+                ) and self.heat_target_temperature != (
                     preset_target := self._applied_target(preset_temp)
                 ):
                     _LOGGER.debug(
@@ -2298,14 +2301,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.preset_mgr.mode,
                         preset_temp,
                     )
-                    self.bt_target_temp = preset_target
+                    self.heat_target_temperature = preset_target
                 if (
                     self.cooler_entity_id is not None
                     and self.preset_mgr.mode in self._preset_cool_temperatures
                 ):
                     cool_temp = self._preset_cool_temperatures[self.preset_mgr.mode]
                     if isinstance(cool_temp, (int, float)):
-                        self.bt_target_cooltemp = self._applied_target(
+                        self.cool_target_temperature = self._applied_target(
                             cool_temp, cooling=True
                         )
                 # A target that is re-injected rather than chosen is ordered the
@@ -2395,7 +2398,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.device_name,
                 system_unit=self.hass.config.units.temperature_unit,
             )
-            self.bt_target_temp = self._bound_target_to_range(
+            self.heat_target_temperature = self._bound_target_to_range(
                 DEFAULT_TARGET_TEMP if _restored_target is None else _restored_target
             )
             _LOGGER.debug("better_thermostat %s: defaults restored", self.device_name)
@@ -2436,7 +2439,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             "better_thermostat %s: Startup config, BT hvac mode is %s, Target temp %s",
             self.device_name,
             self.bt_hvac_mode,
-            self.bt_target_temp,
+            self.heat_target_temperature,
         )
 
         if self.last_main_hvac_mode is None:
@@ -2484,8 +2487,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )
+            # A device whose client library drops its connection mid-command
+            # cancels the command; that fails this TRV's start like any other
+            # device error instead of ending the whole startup.
             try:
-                await asyncio.wait_for(init(self, entity_id), timeout=30)
+                with command_cancellation_as_disconnect():
+                    await asyncio.wait_for(init(self, entity_id), timeout=30)
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s initialized",
                     self.device_name,
@@ -2508,7 +2515,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
             try:
-                await initial_tweak(self, entity_id)
+                with command_cancellation_as_disconnect():
+                    await initial_tweak(self, entity_id)
             except Exception as exc:
                 failed.add(entity_id)
                 _LOGGER.error(
@@ -2722,11 +2730,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             trv.failed_initialization_attempts = 0
             trv.awaiting_initialization = False
             self._resolve_temperature_range(self._collect_trv_states())
-            if self.bt_target_temp is not None:
-                self.bt_target_temp = self._bound_target_to_range(self.bt_target_temp)
-            if self.bt_target_cooltemp is not None:
-                self.bt_target_cooltemp = self._bound_cool_target_to_range(
-                    self.bt_target_cooltemp
+            if self.heat_target_temperature is not None:
+                self.heat_target_temperature = self._bound_target_to_range(
+                    self.heat_target_temperature
+                )
+            if self.cool_target_temperature is not None:
+                self.cool_target_temperature = self._bound_cool_target_to_range(
+                    self.cool_target_temperature
                 )
                 self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
             self.async_write_ha_state()
@@ -2876,7 +2886,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # valve. Only bind when there is exactly one TRV; skip for
             # multi-TRV setups.
             trv_ids = [
-                trv_conf.get("trv") for trv_conf in self.all_trvs if trv_conf.get("trv")
+                trv_config.get("trv")
+                for trv_config in self.all_trvs
+                if trv_config.get("trv")
             ]
             if len(trv_ids) == 1:
                 await async_bind_trv_device(
@@ -3546,7 +3558,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self.cur_temp,
             current_action,
             self.clock.utcnow(),
-            target_temp=self.bt_target_temp,
+            heat_target_temperature=self.heat_target_temperature,
             outdoor_temp=outdoor_temp,
         )
 
@@ -3847,10 +3859,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self, previous_action: HVACAction | None, tol: float
     ) -> bool:
         """Apply hysteresis so heating restarts only below target - tolerance."""
-        if self.bt_target_temp is None or self.cur_temp is None:
+        if self.heat_target_temperature is None or self.cur_temp is None:
             return False
         return should_heat_with_tolerance(
-            self.cur_temp, self.bt_target_temp, tol, previous_action
+            self.cur_temp, self.heat_target_temperature, tol, previous_action
         )
 
     def _build_trv_snapshots(self) -> list[TrvSnapshot]:
@@ -3922,8 +3934,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return compute_hvac_action(
             hysteresis=self._hysteresis,
             cur_temp=self.cur_temp,
-            target_temp=self.bt_target_temp,
-            cool_target=self.bt_target_cooltemp,
+            heat_target_temperature=self.heat_target_temperature,
+            cool_target=self.cool_target_temperature,
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
             window_open=self.contact_open,
@@ -3948,31 +3960,31 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         float
                 Target temperature.
         """
-        if self.bt_target_temp is None:
+        if self.heat_target_temperature is None:
             return None
         if self.bt_min_temp is None or self.bt_max_temp is None:
-            return self.bt_target_temp
+            return self.heat_target_temperature
         # if target temp is below minimum, return minimum
-        if self.bt_target_temp < self.bt_min_temp:
+        if self.heat_target_temperature < self.bt_min_temp:
             return self.bt_min_temp
         # if target temp is above maximum, return maximum
-        if self.bt_target_temp > self.bt_max_temp:
+        if self.heat_target_temperature > self.bt_max_temp:
             return self.bt_max_temp
-        return self.bt_target_temp
+        return self.heat_target_temperature
 
     @property
     def target_temperature_low(self) -> float | None:
         """Return the low target temperature."""
         if self.cooler_entity_id is None:
             return None
-        return self.bt_target_temp
+        return self.heat_target_temperature
 
     @property
     def target_temperature_high(self) -> float | None:
         """Return the high target temperature."""
         if self.cooler_entity_id is None:
             return None
-        return self.bt_target_cooltemp
+        return self.cool_target_temperature
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode | str) -> None:
         """Set hvac mode.
@@ -4036,7 +4048,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             known, when no cooler is configured, and when the cooler has no
             state, is unavailable or publishes no readable setpoint
         """
-        if self.cooler_entity_id is None or self.bt_target_cooltemp is not None:
+        if self.cooler_entity_id is None or self.cool_target_temperature is not None:
             return False
         _shared_entity_id = dual_role_entity_id(self)
         if _shared_entity_id is not None:
@@ -4047,13 +4059,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 return False
             # A stored preset pair is re-injected verbatim, so the value takes
             # the same bound every other re-injected target takes.
-            self.bt_target_cooltemp = self._bound_cool_target_to_range(float(cool_temp))
+            self.cool_target_temperature = self._bound_cool_target_to_range(
+                float(cool_temp)
+            )
             _LOGGER.info(
                 "better_thermostat %s: %s drives both channels, taking the "
                 "preset cooling temperature %s as the cool target",
                 self.device_name,
                 _shared_entity_id,
-                self.bt_target_cooltemp,
+                self.cool_target_temperature,
             )
             self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
             return True
@@ -4119,7 +4133,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 entity_id,
                 setpoint.value,
             )
-        self.bt_target_cooltemp = setpoint.value
+        self.cool_target_temperature = setpoint.value
         self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
     def _enforce_cool_above_heat(
@@ -4161,27 +4175,27 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not regardless_of_hvac_mode and self.hvac_mode != HVACMode.HEAT_COOL:
             return
         if (
-            self.bt_target_cooltemp is None
-            or self.bt_target_temp is None
-            or self.bt_target_cooltemp > self.bt_target_temp
+            self.cool_target_temperature is None
+            or self.heat_target_temperature is None
+            or self.cool_target_temperature > self.heat_target_temperature
         ):
             return
         step = normalize_step(self.bt_target_temp_step)
-        adjusted = self.bt_target_temp + step
+        adjusted = self.heat_target_temperature + step
         maximum = get_cool_temperature_bounds(self)[1]
-        if maximum is not None and maximum >= self.bt_target_temp:
+        if maximum is not None and maximum >= self.heat_target_temperature:
             adjusted = min(adjusted, maximum)
-        if adjusted == self.bt_target_cooltemp:
+        if adjusted == self.cool_target_temperature:
             # The maximum and the heating target coincide and the cooling target
             # already rests on them, so the bump has nowhere to land.
             return
-        if adjusted > self.bt_target_temp:
+        if adjusted > self.heat_target_temperature:
             _LOGGER.warning(
                 "better_thermostat %s: cooling target %.2f adjusted to %.2f to stay above heating target %.2f",
                 self.device_name,
-                self.bt_target_cooltemp,
+                self.cool_target_temperature,
                 adjusted,
-                self.bt_target_temp,
+                self.heat_target_temperature,
             )
         else:
             _LOGGER.warning(
@@ -4189,10 +4203,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "configured maximum %.2f, which the heating target occupies as "
                 "well, because the range holds no value above it",
                 self.device_name,
-                self.bt_target_cooltemp,
+                self.cool_target_temperature,
                 adjusted,
             )
-        self.bt_target_cooltemp = adjusted
+        self.cool_target_temperature = adjusted
 
     def _enforce_heat_below_cool(
         self, *, regardless_of_hvac_mode: bool = False
@@ -4221,37 +4235,37 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if not regardless_of_hvac_mode and self.hvac_mode != HVACMode.HEAT_COOL:
             return
         if (
-            self.bt_target_cooltemp is None
-            or self.bt_target_temp is None
-            or self.bt_target_temp < self.bt_target_cooltemp
+            self.cool_target_temperature is None
+            or self.heat_target_temperature is None
+            or self.heat_target_temperature < self.cool_target_temperature
         ):
             return
         step = normalize_step(self.bt_target_temp_step)
-        adjusted = self.bt_target_cooltemp - step
+        adjusted = self.cool_target_temperature - step
         if self.bt_min_temp is not None:
             adjusted = max(adjusted, self.bt_min_temp)
-        if adjusted == self.bt_target_temp:
+        if adjusted == self.heat_target_temperature:
             # The minimum pins the drop on the heating target itself, so it has
             # nowhere to land.
             return
-        if adjusted < self.bt_target_cooltemp:
+        if adjusted < self.cool_target_temperature:
             _LOGGER.warning(
                 "better_thermostat %s: heating target %.2f adjusted to %.2f to stay below cooling target %.2f",
                 self.device_name,
-                self.bt_target_temp,
+                self.heat_target_temperature,
                 adjusted,
-                self.bt_target_cooltemp,
+                self.cool_target_temperature,
             )
         else:
             _LOGGER.warning(
                 "better_thermostat %s: heating target %.2f set to the configured "
                 "minimum %.2f, which is not below the cooling target %.2f",
                 self.device_name,
-                self.bt_target_temp,
+                self.heat_target_temperature,
                 adjusted,
-                self.bt_target_cooltemp,
+                self.cool_target_temperature,
             )
-        self.bt_target_temp = adjusted
+        self.heat_target_temperature = adjusted
 
     def _bound_target_to_range(self, value: float) -> float:
         """Bound a re-injected heating target into the heating range.
@@ -4347,10 +4361,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 onto the floor the heating target and the cooling range's
                 maximum set
         """
-        if self.cooler_entity_id is None or self.bt_target_temp is None:
+        if self.cooler_entity_id is None or self.heat_target_temperature is None:
             return value
         step = normalize_step(self.bt_target_temp_step)
-        floor = self.bt_target_temp + step
+        floor = self.heat_target_temperature + step
         maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None:
             floor = min(floor, maximum)
@@ -4390,10 +4404,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 onto the ceiling the cooling target and the configured minimum
                 set
         """
-        if self.cooler_entity_id is None or self.bt_target_cooltemp is None:
+        if self.cooler_entity_id is None or self.cool_target_temperature is None:
             return value
         step = normalize_step(self.bt_target_temp_step)
-        ceiling = self.bt_target_cooltemp - step
+        ceiling = self.cool_target_temperature - step
         if self.bt_min_temp is not None:
             ceiling = max(ceiling, self.bt_min_temp)
         return min(value, ceiling)
@@ -4539,15 +4553,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         if _new_setpointhigh is not None:
             _new_setpointhigh = self._applied_target(_new_setpointhigh, cooling=True)
 
-        _heating_target_before = self.bt_target_temp
+        _heating_target_before = self.heat_target_temperature
         # Preserve explicit 0.0 values (avoid Python truthiness bug)
         if _new_setpoint is not None:
-            self.bt_target_temp = _new_setpoint
+            self.heat_target_temperature = _new_setpoint
         elif _new_setpointlow is not None:
-            self.bt_target_temp = _new_setpointlow
+            self.heat_target_temperature = _new_setpointlow
 
         if _new_setpointhigh is not None:
-            self.bt_target_cooltemp = _new_setpointhigh
+            self.cool_target_temperature = _new_setpointhigh
 
         # Enforce the ordering of the pair: the target the payload did not set
         # is the one that yields. A payload that sets only the cooling target
@@ -4567,7 +4581,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _heating_target_set = (
             _new_setpoint is not None
             or _new_setpointlow is not None
-            or self.bt_target_temp != _heating_target_before
+            or self.heat_target_temperature != _heating_target_before
         )
 
         # If a specific preset (Comfort, Eco, …) is active and the user manually
@@ -4579,10 +4593,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # preset stays active.
         if (
             _heating_target_set
-            and self.bt_target_temp is not None
+            and self.heat_target_temperature is not None
             and self.preset_mgr.mode != PRESET_NONE
         ):
-            applied = float(self.bt_target_temp)
+            applied = float(self.heat_target_temperature)
             preset_stored = self.preset_mgr.get_temperature(self.preset_mgr.mode)
             if (
                 preset_stored is None
@@ -4601,8 +4615,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # record it as the stored manual temperature. Specific presets (Comfort, Eco,
         # etc.) are managed via separate Number entities and must NOT be overwritten
         # by manual setpoint changes.
-        if _heating_target_set and self.bt_target_temp is not None:
-            applied = float(self.bt_target_temp)
+        if _heating_target_set and self.heat_target_temperature is not None:
+            applied = float(self.heat_target_temperature)
             old_value = self.preset_mgr.record_manual_change(applied)
             if old_value is not None:
                 _LOGGER.debug(
@@ -4616,8 +4630,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         _LOGGER.debug(
             "better_thermostat %s: HA set target temperature to %s & %s",
             self.device_name,
-            self.bt_target_temp,
-            self.bt_target_cooltemp,
+            self.heat_target_temperature,
+            self.cool_target_temperature,
         )
 
         self.async_write_ha_state()
@@ -4749,7 +4763,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             old_preset = self.preset_mgr.mode
             new_temp = self.preset_mgr.activate(
                 preset_mode,
-                current_target_temp=self.bt_target_temp,
+                current_target_temp=self.heat_target_temperature,
                 min_temp=get_heat_temperature_range(self)[0],
                 max_temp=get_heat_temperature_range(self)[1],
             )
@@ -4769,22 +4783,22 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
             # Capture the manual cooling target before a preset overwrites it, so it
             # can be preserved and restored when returning to PRESET_NONE.
-            previous_cooltemp = self.bt_target_cooltemp
+            previous_cooltemp = self.cool_target_temperature
             if new_temp is not None:
-                self.bt_target_temp = self._applied_target(new_temp)
+                self.heat_target_temperature = self._applied_target(new_temp)
                 if (
                     self.cooler_entity_id is not None
                     and preset_mode != PRESET_NONE
                     and preset_mode in self._preset_cool_temperatures
                 ):
-                    self.bt_target_cooltemp = self._applied_target(
+                    self.cool_target_temperature = self._applied_target(
                         self._preset_cool_temperatures[preset_mode], cooling=True
                     )
                     _LOGGER.debug(
                         "better_thermostat %s: Applied preset %s cooling temperature: %s°C",
                         self.device_name,
                         preset_mode,
-                        self.bt_target_cooltemp,
+                        self.cool_target_temperature,
                     )
 
             if (
@@ -4799,7 +4813,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 and self.cooler_entity_id is not None
                 and self._preset_cool_temperature is not None
             ):
-                self.bt_target_cooltemp = self._bound_cool_target_to_range(
+                self.cool_target_temperature = self._bound_cool_target_to_range(
                     self._preset_cool_temperature
                 )
                 self._preset_cool_temperature = None
@@ -4811,11 +4825,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             self._enforce_cool_above_heat(regardless_of_hvac_mode=True)
 
             _LOGGER.debug(
-                "better_thermostat %s: After preset change %s -> %s, bt_target_temp=%s, bt_hvac_mode=%s",
+                "better_thermostat %s: After preset change %s -> %s, heat_target_temperature=%s, bt_hvac_mode=%s",
                 self.device_name,
                 old_preset,
                 preset_mode,
-                self.bt_target_temp,
+                self.heat_target_temperature,
                 self.bt_hvac_mode,
             )
 
@@ -4882,7 +4896,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
         buckets: list[str] = []
         if apply_pid_defaults:
-            target = self.bt_target_temp
+            target = self.heat_target_temperature
             if (
                 isinstance(target, bool)
                 or not isinstance(target, (int, float))

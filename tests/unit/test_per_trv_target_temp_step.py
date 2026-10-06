@@ -64,8 +64,8 @@ def bt():
     mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
     mock._configured_target_temp_step = None
-    mock.bt_target_temp = 21.0
-    mock.bt_target_cooltemp = 25.0
+    mock.heat_target_temperature = 21.0
+    mock.cool_target_temperature = 25.0
     mock.bt_hvac_mode = HVACMode.HEAT
     mock.cur_temp = 20.0
     mock.tolerance = 0.3
@@ -147,7 +147,7 @@ async def test_half_degree_user_change_on_a_fine_trv_is_adopted(bt):
     ):
         await trigger_trv_change(bt, event)
 
-    assert bt.bt_target_temp == pytest.approx(21.5)
+    assert bt.heat_target_temperature == pytest.approx(21.5)
 
 
 @pytest.mark.asyncio

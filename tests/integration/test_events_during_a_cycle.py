@@ -396,7 +396,7 @@ async def test_a_knob_turned_while_a_cycle_drives_another_head_is_adopted(hass):
         _report(turned)
         await _handled(hass, bt)
 
-    assert bt.bt_target_temp == pytest.approx(25.0)
+    assert bt.heat_target_temperature == pytest.approx(25.0)
 
 
 async def test_a_knob_turned_during_a_cycle_survives_the_next_cycle(hass):
@@ -425,7 +425,7 @@ async def test_a_knob_turned_during_a_cycle_survives_the_next_cycle(hass):
         _report(turned)
         await _handled(hass, bt)
 
-    assert bt.bt_target_temp == pytest.approx(25.0)
+    assert bt.heat_target_temperature == pytest.approx(25.0)
 
 
 def _without_off_mode(bt, device: SimulatedClimate) -> None:
@@ -577,9 +577,9 @@ async def test_the_mode_watchdog_ends_once_the_device_holds_the_newer_intent(has
 
             assert await poll_until(hass, lambda: trv.system_mode_received, PROMPTLY_S)
             _operate(fake_trv, temperature=25.0)
-            await poll_until(hass, lambda: bt.bt_target_temp == 25.0, SETTLE_S)
+            await poll_until(hass, lambda: bt.heat_target_temperature == 25.0, SETTLE_S)
 
-    assert bt.bt_target_temp == pytest.approx(25.0)
+    assert bt.heat_target_temperature == pytest.approx(25.0)
 
 
 async def test_a_mode_command_the_room_took_back_does_not_switch_the_room_when_it_lands(
@@ -711,9 +711,9 @@ async def test_the_setpoint_watchdog_ends_once_the_device_confirms_a_newer_write
             # which is a case of its own.
             assert await poll_until(hass, lambda: not bt.ignore_states)
             _operate(fake_trv, temperature=25.0)
-            await poll_until(hass, lambda: bt.bt_target_temp == 25.0, SETTLE_S)
+            await poll_until(hass, lambda: bt.heat_target_temperature == 25.0, SETTLE_S)
 
-    assert bt.bt_target_temp == pytest.approx(25.0)
+    assert bt.heat_target_temperature == pytest.approx(25.0)
 
 
 # ---------------------------------------------------------------------------
@@ -792,7 +792,7 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
         await _settle(hass, bt)
     written = fake_trv.target_temperature
     step = INTEGER_GRID_TRV.target_temperature_step
-    assert bt.bt_target_temp == pytest.approx(target)
+    assert bt.heat_target_temperature == pytest.approx(target)
     assert written != pytest.approx(target)
     assert trv.last_temperature == pytest.approx(written)
 
@@ -813,4 +813,4 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
     assert fake_trv.target_temperature == pytest.approx(reported)
 
     expected = target if turn == "none" else reported
-    assert bt.bt_target_temp == pytest.approx(expected)
+    assert bt.heat_target_temperature == pytest.approx(expected)
