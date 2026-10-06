@@ -7,7 +7,7 @@ from custom_components.better_thermostat.core.fsm.window import (
     step,
 )
 
-P = WindowParams(open_delay_s=10.0, close_delay_s=30.0)
+P = WindowParams(open_delay_seconds=10.0, close_delay_seconds=30.0)
 
 
 def test_initial_state_is_closed():
@@ -18,7 +18,7 @@ def test_initial_state_is_closed():
 
 
 def test_open_commits_only_after_delay():
-    """An open reading enters OPENING and commits after open_delay_s."""
+    """An open reading enters OPENING and commits after open_delay_seconds."""
     state = step(WindowState(), sensor_open=True, now=100.0, params=P)
     assert state.phase == WindowPhase.OPENING
     assert state.effective_open is False

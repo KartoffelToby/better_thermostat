@@ -1,11 +1,4 @@
 {
-  "custom_components/better_thermostat/climate.py": 17,
-  "custom_components/better_thermostat/config_flow.py": 3,
-  "custom_components/better_thermostat/core/containers.py": 4,
-  "custom_components/better_thermostat/core/fsm/window.py": 2,
-  "custom_components/better_thermostat/events/contact.py": 2,
-  "custom_components/better_thermostat/utils/helpers.py": 6,
-  "custom_components/better_thermostat/utils/hvac_action.py": 6,
   "tests/benchmark/adapters/heating_power_adapter.py": 3,
   "tests/benchmark/metrics.py": 11,
   "tests/benchmark/multi_trv_runner.py": 2,

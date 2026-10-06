@@ -3992,11 +3992,12 @@ class TestDualRoleEntityReports:
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.parametrize(
-        ("cool_target", "held", "pressed"), [(24.3, 24.0, 25.0), (24.7, 25.0, 24.0)]
+        ("cool_target_temperature", "held", "pressed"),
+        [(24.3, 24.0, 25.0), (24.7, 25.0, 24.0)],
     )
     @pytest.mark.asyncio
     async def test_shared_entity_press_toward_an_off_grid_cool_target_is_adopted(
-        self, shared_bt, cool_target, held, pressed
+        self, shared_bt, cool_target_temperature, held, pressed
     ):
         """One press toward an off-grid cool target names the cool target.
 
@@ -4004,8 +4005,8 @@ class TestDualRoleEntityReports:
         from there toward the target lands less than a step from it.
         """
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
-        shared_bt.cool_target_temperature = cool_target
-        shared_bt._cooler_last_sent = {"temperature": (cool_target, 0.0)}
+        shared_bt.cool_target_temperature = cool_target_temperature
+        shared_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
 
         await self._report(
             shared_bt,
@@ -4019,17 +4020,19 @@ class TestDualRoleEntityReports:
         assert shared_bt.heat_target_temperature == 20.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
 
-    @pytest.mark.parametrize(("cool_target", "held"), [(24.3, 24.0), (24.7, 25.0)])
+    @pytest.mark.parametrize(
+        ("cool_target_temperature", "held"), [(24.3, 24.0), (24.7, 25.0)]
+    )
     @pytest.mark.parametrize("send_cache_primed", [True, False])
     @pytest.mark.asyncio
     async def test_shared_entity_reads_an_off_grid_cooling_write_as_an_echo(
-        self, shared_bt, cool_target, held, send_cache_primed
+        self, shared_bt, cool_target_temperature, held, send_cache_primed
     ):
         """An off-grid cool target the device holds on its grid moves nothing."""
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
-        shared_bt.cool_target_temperature = cool_target
+        shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            {"temperature": (cool_target, 0.0)} if send_cache_primed else {}
+            {"temperature": (cool_target_temperature, 0.0)} if send_cache_primed else {}
         )
 
         await self._report(
@@ -4040,7 +4043,7 @@ class TestDualRoleEntityReports:
             step=1.0,
         )
 
-        assert shared_bt.cool_target_temperature == cool_target
+        assert shared_bt.cool_target_temperature == cool_target_temperature
         assert shared_bt.heat_target_temperature == 20.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 

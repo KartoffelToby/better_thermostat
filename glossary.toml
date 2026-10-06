@@ -152,7 +152,7 @@ note = "`real` says nothing and the mapping does not name its key, so the name i
 name = "window_open_delay_seconds"
 zone = "B"
 definition = "Delay before BT reacts to a window opening."
-rejected = ["window_delay", "open_delay_s", "window_off_delay"]
+rejected = ["window_delay", "window_off_delay"]
 
 [[term]]
 name = "window_close_delay_seconds"
@@ -171,6 +171,19 @@ name = "door_close_delay_seconds"
 zone = "B"
 definition = "Delay before BT reacts to a door closing."
 rejected = ["door_delay_after"]
+
+[[term]]
+name = "open_delay_seconds"
+zone = "A"
+definition = "Delay before the contact state machine confirms an opening, for whichever contact it tracks."
+rejected = ["open_delay_s"]
+note = "The window state machine serves windows and doors alike, so its parameters carry no contact kind."
+
+[[term]]
+name = "close_delay_seconds"
+zone = "A"
+definition = "Delay before the contact state machine confirms a closing, for whichever contact it tracks."
+rejected = ["close_delay_s"]
 
 [[term]]
 name = "valve_percent"

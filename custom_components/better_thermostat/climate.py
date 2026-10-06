@@ -542,14 +542,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.config.window_id
 
     @property
-    def window_delay(self) -> float:
+    def window_open_delay_seconds(self) -> float:
         """Return the window-open debounce delay in seconds."""
-        return self.config.window_delay
+        return self.config.window_open_delay_seconds
 
     @property
-    def window_delay_after(self) -> float:
+    def window_close_delay_seconds(self) -> float:
         """Return the window-close debounce delay in seconds."""
-        return self.config.window_delay_after
+        return self.config.window_close_delay_seconds
 
     @property
     def door_id(self) -> str | None:
@@ -557,14 +557,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         return self.config.door_id
 
     @property
-    def door_delay(self) -> float:
+    def door_open_delay_seconds(self) -> float:
         """Return the door-open debounce delay in seconds."""
-        return self.config.door_delay
+        return self.config.door_open_delay_seconds
 
     @property
-    def door_delay_after(self) -> float:
+    def door_close_delay_seconds(self) -> float:
         """Return the door-close debounce delay in seconds."""
-        return self.config.door_delay_after
+        return self.config.door_close_delay_seconds
 
     @property
     def weather_entity(self) -> str | None:
@@ -788,11 +788,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         sensor_entity_id,
         humidity_sensor_entity_id,
         window_id,
-        window_delay,
-        window_delay_after,
+        window_open_delay_seconds,
+        window_close_delay_seconds,
         door_id,
-        door_delay,
-        door_delay_after,
+        door_open_delay_seconds,
+        door_close_delay_seconds,
         weather_entity,
         outdoor_sensor,
         off_temperature,
@@ -826,15 +826,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             External humidity sensor entity id.
         window_id : str | None
             Window contact sensor entity id for open-window detection.
-        window_delay : int
+        window_open_delay_seconds : int
             Delay in seconds before reacting to a window opening.
-        window_delay_after : int
+        window_close_delay_seconds : int
             Delay in seconds before reacting to a window closing.
         door_id : str | None
             Door contact sensor entity id for open-door detection.
-        door_delay : int
+        door_open_delay_seconds : int
             Delay in seconds before reacting to a door opening.
-        door_delay_after : int
+        door_close_delay_seconds : int
             Delay in seconds before reacting to a door closing.
         weather_entity : str | None
             Weather entity used as outdoor temperature source.
@@ -934,11 +934,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             humidity_sensor_entity_id=humidity_sensor_entity_id,
             cooler_entity_id=cooler_entity_id,
             window_id=window_id or None,
-            window_delay=window_delay or 0,
-            window_delay_after=window_delay_after or 0,
+            window_open_delay_seconds=window_open_delay_seconds or 0,
+            window_close_delay_seconds=window_close_delay_seconds or 0,
             door_id=door_id or None,
-            door_delay=door_delay or 0,
-            door_delay_after=door_delay_after or 0,
+            door_open_delay_seconds=door_open_delay_seconds or 0,
+            door_close_delay_seconds=door_close_delay_seconds or 0,
             weather_entity=weather_entity or None,
             outdoor_sensor=outdoor_sensor or None,
             off_temperature=_off_temperature,
@@ -3952,7 +3952,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             hysteresis=self._hysteresis,
             room_temperature=self.room_temperature,
             heat_target_temperature=self.heat_target_temperature,
-            cool_target=self.cool_target_temperature,
+            cool_target_temperature=self.cool_target_temperature,
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
             window_open=self.contact_open,

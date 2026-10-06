@@ -745,14 +745,14 @@ def _normalize_user_submission(
             normalized[key] = 0
 
     suggested_off_temp = _off_temperature_default(system_unit)
-    off_temp = user_input.get(
+    off_temperature = user_input.get(
         CONF_OFF_TEMPERATURE, normalized.get(CONF_OFF_TEMPERATURE, suggested_off_temp)
     )
-    if off_temp is None:
+    if off_temperature is None:
         normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
     else:
         try:
-            normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
+            normalized[CONF_OFF_TEMPERATURE] = int(off_temperature)
         except TypeError, ValueError:
             normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
 

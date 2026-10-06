@@ -151,7 +151,9 @@ class ContactModel:
         """Commit the raw reading if it has persisted long enough at ``now``."""
         if self.raw_open == self.committed_open:
             return
-        delay = params.open_delay_s if self.raw_open else params.close_delay_s
+        delay = (
+            params.open_delay_seconds if self.raw_open else params.close_delay_seconds
+        )
         if now - self.raw_since >= delay:
             self.committed_open = self.raw_open
 
@@ -229,9 +231,11 @@ class KernelMachine(RuleBasedStateMachine):
 
     @initialize(
         window_params=st.builds(
-            WindowParams, open_delay_s=delays, close_delay_s=delays
+            WindowParams, open_delay_seconds=delays, close_delay_seconds=delays
         ),
-        door_params=st.builds(WindowParams, open_delay_s=delays, close_delay_s=delays),
+        door_params=st.builds(
+            WindowParams, open_delay_seconds=delays, close_delay_seconds=delays
+        ),
         hvac_mode=st.sampled_from(("heat", "off")),
         started=st.booleans(),
         calibration=st.builds(
@@ -342,9 +346,9 @@ class KernelMachine(RuleBasedStateMachine):
         if region.pending_since is None:
             return None
         delay = (
-            params.open_delay_s
+            params.open_delay_seconds
             if region.phase == WindowPhase.OPENING
-            else params.close_delay_s
+            else params.close_delay_seconds
         )
         return region.pending_since + delay
 

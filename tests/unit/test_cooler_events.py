@@ -881,7 +881,7 @@ class TestEchoSuppression:
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("unit", "step", "cool_target", "held", "pressed", "adopted"),
+        ("unit", "step", "cool_target_temperature", "held", "pressed", "adopted"),
         [
             (UnitOfTemperature.CELSIUS, 1.0, 24.3, 24.0, 25.0, 25.0),
             (UnitOfTemperature.CELSIUS, 1.0, 24.7, 25.0, 24.0, 24.0),
@@ -893,7 +893,7 @@ class TestEchoSuppression:
     )
     @pytest.mark.asyncio
     async def test_press_toward_an_off_grid_cool_target_is_adopted(
-        self, mock_bt, unit, step, cool_target, held, pressed, adopted
+        self, mock_bt, unit, step, cool_target_temperature, held, pressed, adopted
     ):
         """One step on the cooler toward an off-grid cool target is user input.
 
@@ -902,8 +902,8 @@ class TestEchoSuppression:
         from the target, on either side of it and in either unit.
         """
         mock_bt.hass.config.units.temperature_unit = unit
-        mock_bt.cool_target_temperature = cool_target
-        mock_bt._cooler_last_sent = {"temperature": (cool_target, 0.0)}
+        mock_bt.cool_target_temperature = cool_target_temperature
+        mock_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
         old_state = _make_state(
             attributes={"temperature": held, "target_temp_step": step}
         )
@@ -918,7 +918,7 @@ class TestEchoSuppression:
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.parametrize(
-        ("unit", "step", "cool_target", "previous", "held"),
+        ("unit", "step", "cool_target_temperature", "previous", "held"),
         [
             (UnitOfTemperature.CELSIUS, 1.0, 24.3, 22.0, 24.0),
             (UnitOfTemperature.CELSIUS, 1.0, 24.7, 27.0, 25.0),
@@ -930,7 +930,14 @@ class TestEchoSuppression:
     @pytest.mark.parametrize("send_cache_primed", [True, False])
     @pytest.mark.asyncio
     async def test_own_off_grid_write_held_on_the_device_grid_is_an_echo(
-        self, mock_bt, unit, step, cool_target, previous, held, send_cache_primed
+        self,
+        mock_bt,
+        unit,
+        step,
+        cool_target_temperature,
+        previous,
+        held,
+        send_cache_primed,
     ):
         """An off-grid cool target the cooler holds on its own grid moves nothing.
 
@@ -939,9 +946,11 @@ class TestEchoSuppression:
         target itself stands for that write.
         """
         mock_bt.hass.config.units.temperature_unit = unit
-        mock_bt.cool_target_temperature = cool_target
+        mock_bt.cool_target_temperature = cool_target_temperature
         mock_bt._cooler_last_sent = (
-            {"temperature": (cool_target, 0.0)} if send_cache_primed else None
+            {"temperature": (cool_target_temperature, 0.0)}
+            if send_cache_primed
+            else None
         )
         old_state = _make_state(
             attributes={"temperature": previous, "target_temp_step": step}
@@ -953,7 +962,7 @@ class TestEchoSuppression:
 
         await trigger_cooler_change(mock_bt, event)
 
-        assert mock_bt.cool_target_temperature == cool_target
+        assert mock_bt.cool_target_temperature == cool_target_temperature
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 

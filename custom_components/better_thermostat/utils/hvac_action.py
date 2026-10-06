@@ -88,24 +88,26 @@ COOLER_MODE_HYSTERESIS_K = 0.2
 
 def should_cool_with_tolerance(
     room_temperature: float,
-    cool_target: float,
+    cool_target_temperature: float,
     tolerance: float,
     previously_cooling: bool,
     min_band: float = 0.0,
 ) -> bool:
     """Determine whether cooling should be active based on hysteresis.
 
-    Band: ``[cool_target, cool_target + tolerance]``
-    * Start cooling when ``room_temperature >= cool_target + tolerance``.
-    * Continue cooling (if already cooling) until ``room_temperature < cool_target``.
+    Band: ``[cool_target_temperature, cool_target_temperature + tolerance]``
+    * Start cooling when ``room_temperature >= cool_target_temperature + tolerance``.
+    * Continue cooling (if already cooling) until ``room_temperature < cool_target_temperature``.
     * A band narrower than ``min_band`` takes the missing width from below
-      ``cool_target``, so a room temperature resting on an edge cannot flip
+      ``cool_target_temperature``, so a room temperature resting on an edge cannot flip
       the decision on every cycle. The switch-on edge never moves for it.
     """
     tolerance = max(0.0, tolerance)
     if previously_cooling:
-        return room_temperature >= cool_target - max(0.0, min_band - tolerance)
-    return room_temperature >= cool_target + tolerance
+        return room_temperature >= cool_target_temperature - max(
+            0.0, min_band - tolerance
+        )
+    return room_temperature >= cool_target_temperature + tolerance
 
 
 _VALVE_THRESH = 0.0
@@ -115,7 +117,7 @@ def compute_hvac_action(
     hysteresis: ToleranceHysteresis,
     room_temperature: float | None,
     heat_target_temperature: float | None,
-    cool_target: float | None,
+    cool_target_temperature: float | None,
     hvac_mode: HVACMode | None,
     bt_hvac_mode: HVACMode | None,
     window_open: bool | None,
@@ -186,10 +188,10 @@ def compute_hvac_action(
     # one cycle, which is correct: it reports what is running.
     if (
         hvac_mode == HVACMode.HEAT_COOL
-        and cool_target is not None
+        and cool_target_temperature is not None
         and should_cool_with_tolerance(
             room_temperature,
-            cool_target,
+            cool_target_temperature,
             tolerance,
             cool_previously_active,
             min_band=COOLER_MODE_HYSTERESIS_K,

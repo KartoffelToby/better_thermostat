@@ -41,8 +41,8 @@ class WindowState:
 class WindowParams:
     """Debounce delays in seconds (open and close direction)."""
 
-    open_delay_s: float = 0.0
-    close_delay_s: float = 0.0
+    open_delay_seconds: float = 0.0
+    close_delay_seconds: float = 0.0
 
 
 def step(
@@ -84,9 +84,9 @@ def step(
 def _commit_if_due(state: WindowState, now: float, params: WindowParams) -> WindowState:
     """Commit a pending transition once its delay has elapsed."""
     if state.phase == WindowPhase.OPENING and state.pending_since is not None:
-        if now - state.pending_since >= params.open_delay_s:
+        if now - state.pending_since >= params.open_delay_seconds:
             return WindowState(phase=WindowPhase.OPEN)
     if state.phase == WindowPhase.CLOSING and state.pending_since is not None:
-        if now - state.pending_since >= params.close_delay_s:
+        if now - state.pending_since >= params.close_delay_seconds:
             return WindowState(phase=WindowPhase.CLOSED)
     return state
