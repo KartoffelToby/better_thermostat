@@ -19,8 +19,8 @@ import pytest
 
 from custom_components.better_thermostat import async_migrate_entry
 from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    CONF_CALIBRATION_OUTPUT,
     CONF_HEATER,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_PROTECT_OVERHEATING,
@@ -45,7 +45,7 @@ def _make_trv(entity_id, **extra):
         "integration": "generic",
         "adapter": "generic",
         "advanced": {
-            CONF_CALIBRATION_OUTPUT: CalibrationOutput.TARGET_TEMP_BASED,
+            CONF_CALIBRATION: CalibrationOutput.TARGET_TEMP_BASED,
             CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT,
             CONF_PROTECT_OVERHEATING: False,
         },
@@ -194,7 +194,7 @@ def _make_legacy_entry(version, trvs, **top_level):
 
 def _legacy_trv(entity_id, **advanced):
     """Return a ``CONF_HEATER`` bundle as the early versions stored it."""
-    return {"trv": entity_id, "advanced": {CONF_CALIBRATION_OUTPUT: 0, **advanced}}
+    return {"trv": entity_id, "advanced": {CONF_CALIBRATION: 0, **advanced}}
 
 
 class TestMigrationChain:

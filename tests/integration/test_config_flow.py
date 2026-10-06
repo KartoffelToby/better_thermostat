@@ -25,7 +25,7 @@ import voluptuous as vol
 
 from custom_components.better_thermostat import RELOAD_LOCKS
 from custom_components.better_thermostat.utils.const import (
-    CONF_CALIBRATION_OUTPUT,
+    CONF_CALIBRATION,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_HEATER,
@@ -230,10 +230,10 @@ async def test_create_flow_offers_the_calibration_the_device_can_take(hass, fake
 
     advanced_form, _ = await _run_create_flow(hass, _user_step_input(profile.entity_id))
 
-    assert _field_options(advanced_form, CONF_CALIBRATION_OUTPUT) == (
+    assert _field_options(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration_options(profile)
     )
-    assert form_default(advanced_form, CONF_CALIBRATION_OUTPUT) == (
+    assert form_default(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration(profile)
     )
 
@@ -263,10 +263,10 @@ async def test_options_flow_offers_the_calibration_the_device_can_take(hass, fak
         hass, entry, _user_step_input(profile.entity_id)
     )
 
-    assert _field_options(advanced_form, CONF_CALIBRATION_OUTPUT) == (
+    assert _field_options(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration_options(profile)
     )
-    assert form_default(advanced_form, CONF_CALIBRATION_OUTPUT) == (
+    assert form_default(advanced_form, CONF_CALIBRATION) == (
         _expected_calibration(profile)
     )
 
@@ -290,7 +290,7 @@ async def test_create_flow_ends_in_a_thermostat_driving_the_device(hass, fake_tr
     assert entry.state is ConfigEntryState.LOADED
     assert result["title"] == ENTRY_NAME
     assert _stored_trv(entry)["trv"] == profile.entity_id
-    assert _stored_trv(entry)["advanced"][CONF_CALIBRATION_OUTPUT] == (
+    assert _stored_trv(entry)["advanced"][CONF_CALIBRATION] == (
         _expected_calibration(profile)
     )
 
