@@ -17,6 +17,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from . import DOMAIN
 from .utils.const import CONF_HEATER
+from .utils.helpers import entry_settings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ def async_get_config_entry_bindings(
             - ``state`` — the current HA state of the TRV entity (or
               ``None`` if unavailable).
     """
-    conf = entry.data
+    conf = entry_settings(entry)
     heaters = conf.get(CONF_HEATER) or []
     if not heaters:
         _LOGGER.debug(

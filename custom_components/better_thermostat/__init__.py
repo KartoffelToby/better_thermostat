@@ -33,7 +33,7 @@ from .utils.const import (
     NORMALIZED_ID_NAMES,
     CalibrationMode,
 )
-from .utils.helpers import get_device_model
+from .utils.helpers import entry_settings, get_device_model
 from .utils.state_manager import async_remove_stores
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
 
 def trv_entity_ids(entry: ConfigEntry) -> list[str]:
     """Return the entity ids of the thermostats ``entry`` controls."""
-    heaters = entry.data.get(CONF_HEATER)
+    heaters = entry_settings(entry).get(CONF_HEATER)
     if isinstance(heaters, str):
         return [heaters]
     return [
@@ -77,7 +77,7 @@ def other_entries_controlling(
 
 
 def _entry_name(entry: ConfigEntry) -> str:
-    return str(entry.data.get(CONF_NAME, entry.title))
+    return str(entry_settings(entry).get(CONF_NAME, entry.title))
 
 
 def _raise_shared_trv_issue(
@@ -161,10 +161,11 @@ def _warn_about_an_off_temperature_below_freezing(
     """
     if hass.config.units.temperature_unit != UnitOfTemperature.FAHRENHEIT:
         return
-    if not (entry.data.get(CONF_OUTDOOR_SENSOR) or entry.data.get(CONF_WEATHER)):
+    settings = entry_settings(entry)
+    if not (settings.get(CONF_OUTDOOR_SENSOR) or settings.get(CONF_WEATHER)):
         return
     try:
-        stored = float(entry.data[CONF_OFF_TEMPERATURE])
+        stored = float(settings[CONF_OFF_TEMPERATURE])
     except KeyError, TypeError, ValueError:
         return
     celsius = TemperatureConverter.convert(
@@ -176,8 +177,8 @@ def _warn_about_an_off_temperature_below_freezing(
             "%s °F (%.1f °C), so heating stops whenever it is warmer than that "
             "outside; change it in the thermostat's settings if it was meant "
             "in °C",
-            entry.data.get(CONF_NAME, entry.title),
-            entry.data[CONF_OFF_TEMPERATURE],
+            settings.get(CONF_NAME, entry.title),
+            settings[CONF_OFF_TEMPERATURE],
             celsius,
         )
 
@@ -272,7 +273,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             entry.entry_id,
         )
 
-    device_name = entry.data.get(CONF_NAME, entry.title)
+    settings = entry_settings(entry)
+    device_name = settings.get(CONF_NAME, entry.title)
 
     for issue_id in (
         f"invalid_external_temperature_{device_name}",
@@ -290,7 +292,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         CONF_OUTDOOR_SENSOR,
         CONF_COOLER,
     ):
-        eid = entry.data.get(conf_key)
+        eid = settings.get(conf_key)
         if eid:
             entity_ids.append(eid)
 
