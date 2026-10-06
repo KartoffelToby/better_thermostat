@@ -12,7 +12,9 @@ import math
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Sanitize and normalize a reported calibration offset.
 
     Rounds to the nearest integer (towards ceiling if the room is heating)
@@ -26,7 +28,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV the offset belongs to.
-    offset : float
+    calibration_offset : float
         Local calibration offset reported by the device.
 
     Returns
@@ -42,11 +44,11 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         and _target_temp is not None
         and _room_temperature < _target_temp
     ):
-        offset = float(math.ceil(offset))
+        calibration_offset = float(math.ceil(calibration_offset))
     else:
-        offset = float(math.floor(offset))
+        calibration_offset = float(math.floor(calibration_offset))
 
-    return offset
+    return calibration_offset
 
 
 def fix_target_temperature_calibration(

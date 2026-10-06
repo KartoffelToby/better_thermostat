@@ -19,13 +19,15 @@ from ..utils.helpers import is_sibling_entry
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Clamp local calibration to safe bounds for SPZB0001 devices."""
-    if offset > 5:
-        offset = 5
-    elif offset < -5:
-        offset = -5
-    return offset
+    if calibration_offset > 5:
+        calibration_offset = 5
+    elif calibration_offset < -5:
+        calibration_offset = -5
+    return calibration_offset
 
 
 async def check_operation_mode(

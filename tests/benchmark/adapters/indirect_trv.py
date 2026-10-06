@@ -236,10 +236,10 @@ class IndirectTrvAdapter:
             # TRV's reading, further the more the room overshoots.
             overshoot = max(0.0, ctx.current_temp_C - ctx.target_temp_C)
             max_offset = max(1.0, trv_reading - p.min_setpoint)
-            offset = max(
+            setpoint_drop = max(
                 p.setpoint_step_K, max_offset * (1.0 - math.exp(-0.5 * overshoot))
             )
-            setpoint = trv_reading - offset
+            setpoint = trv_reading - setpoint_drop
         # Round up while BT asks for heat, down while it does not, so the
         # step grid never turns a closing command into an opening one.
         steps = setpoint / p.setpoint_step_K

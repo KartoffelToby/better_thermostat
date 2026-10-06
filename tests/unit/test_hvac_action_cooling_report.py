@@ -166,12 +166,12 @@ def test_seed_is_off_without_a_cooler():
 )
 @pytest.mark.parametrize("tolerance", [0.0, 0.2, 0.5, 1.0])
 @pytest.mark.parametrize("cool_previously_active", [False, True])
-@pytest.mark.parametrize("offset", [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5, 1.0, 2.0])
+@pytest.mark.parametrize("margin", [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5, 1.0, 2.0])
 def test_report_agrees_with_the_command(
-    heat_target_temperature, cool_target, tolerance, cool_previously_active, offset
+    heat_target_temperature, cool_target, tolerance, cool_previously_active, margin
 ):
     """The reported cooling action matches what control_cooler would command."""
-    room_temperature = round(cool_target + offset, 2)
+    room_temperature = round(cool_target + margin, 2)
     reported = compute_hvac_action(
         hysteresis=ToleranceHysteresis(),
         room_temperature=room_temperature,

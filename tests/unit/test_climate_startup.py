@@ -1740,14 +1740,14 @@ class TestInitializeTrvCalibrationFallback:
                 autospec=True,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_current_offset",
+                "custom_components.better_thermostat.climate.get_calibration_offset",
                 autospec=True,
                 side_effect=failure,
             ),
         ):
             await BetterThermostat._initialize_trvs(bt)
 
-    async def _run_bounds_failure(self, bt, offset, failure):
+    async def _run_bounds_failure(self, bt, calibration_offset, failure):
         """Initialize the TRV against a read that raises after the offset."""
         with (
             patch("custom_components.better_thermostat.climate.init", autospec=True),
@@ -1756,19 +1756,19 @@ class TestInitializeTrvCalibrationFallback:
                 autospec=True,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_current_offset",
+                "custom_components.better_thermostat.climate.get_calibration_offset",
                 autospec=True,
-                return_value=offset,
+                return_value=calibration_offset,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_min_offset",
+                "custom_components.better_thermostat.climate.get_min_calibration_offset",
                 autospec=True,
                 side_effect=failure,
             ),
         ):
             await BetterThermostat._initialize_trvs(bt)
 
-    async def _run_complete_read(self, bt, offset, minimum, maximum, step):
+    async def _run_complete_read(self, bt, calibration_offset, minimum, maximum, step):
         """Initialize the TRV against a read that answers every question."""
         with (
             patch("custom_components.better_thermostat.climate.init", autospec=True),
@@ -1777,22 +1777,22 @@ class TestInitializeTrvCalibrationFallback:
                 autospec=True,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_current_offset",
+                "custom_components.better_thermostat.climate.get_calibration_offset",
                 autospec=True,
-                return_value=offset,
+                return_value=calibration_offset,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_min_offset",
+                "custom_components.better_thermostat.climate.get_min_calibration_offset",
                 autospec=True,
                 return_value=minimum,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_max_offset",
+                "custom_components.better_thermostat.climate.get_max_calibration_offset",
                 autospec=True,
                 return_value=maximum,
             ),
             patch(
-                "custom_components.better_thermostat.climate.get_offset_step",
+                "custom_components.better_thermostat.climate.get_calibration_offset_step",
                 autospec=True,
                 return_value=step,
             ),
@@ -3453,7 +3453,7 @@ _STEP_FAILURES = {
     "init_raises": ("init", RuntimeError("adapter")),
     "init_times_out": ("init", TimeoutError()),
     "tweak_raises": ("initial_tweak", RuntimeError("quirk")),
-    "offset_read_raises": ("get_current_offset", RuntimeError("offset")),
+    "offset_read_raises": ("get_calibration_offset", RuntimeError("offset")),
 }
 
 
@@ -3475,10 +3475,10 @@ async def _attempt_setup(bt, failing_step: str, *, fail: bool) -> MagicMock:
         for name in (
             "init",
             "initial_tweak",
-            "get_current_offset",
-            "get_min_offset",
-            "get_max_offset",
-            "get_offset_step",
+            "get_calibration_offset",
+            "get_min_calibration_offset",
+            "get_max_calibration_offset",
+            "get_calibration_offset_step",
         )
     }
     if fail:

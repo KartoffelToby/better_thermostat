@@ -21,13 +21,13 @@ from ..utils.helpers import find_valve_entity
 from .base import AdapterCapabilities
 from .generic import (
     discover_calibration_entity,
-    get_current_offset,
+    get_calibration_offset,
+    get_calibration_offset_step,
     get_info as generic_get_info,
-    get_max_offset,
-    get_min_offset,
-    get_offset_step,
+    get_max_calibration_offset,
+    get_min_calibration_offset,
+    set_calibration_offset,
     set_hvac_mode,
-    set_offset,
     set_temperature as generic_set_temperature,
 )
 from .types import AdapterHost, AdapterProbeHost
@@ -35,14 +35,14 @@ from .valve_entity import discover_valve_entity, write_valve_percent
 
 __all__ = (
     "CAPABILITIES",
-    "get_current_offset",
+    "get_calibration_offset",
     "get_info",
-    "get_max_offset",
-    "get_min_offset",
-    "get_offset_step",
+    "get_max_calibration_offset",
+    "get_min_calibration_offset",
+    "get_calibration_offset_step",
     "init",
     "set_hvac_mode",
-    "set_offset",
+    "set_calibration_offset",
     "set_temperature",
     "set_valve",
 )

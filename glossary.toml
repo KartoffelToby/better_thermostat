@@ -184,7 +184,7 @@ name = "calibration_offset"
 zone = "A"
 definition = "The offset value written to a device that calibrates by offset."
 rejected = ["offset"]
-note = "It is what BT writes when the calibration output is the offset; naming the value `offset` alone leaves that unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter methods (`set_offset`, `get_current_offset`, …) carry the same concept and follow when that contract is next opened."
+note = "It is what BT writes when the calibration output is the offset; naming the value `offset` alone leaves that unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter contract carries it in its method names: `set_calibration_offset`, `get_calibration_offset`, `get_min_calibration_offset`, …"
 
 [[term]]
 name = "calibration_output"

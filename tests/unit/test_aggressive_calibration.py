@@ -74,7 +74,9 @@ def _make_bt(
     bt.state_mgr.get_pid.side_effect = lambda _key: PIDState()
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _eid, offset: float(offset)
+    quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (
+        float(calibration_offset)
+    )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _eid, temperature: float(temperature)
     )

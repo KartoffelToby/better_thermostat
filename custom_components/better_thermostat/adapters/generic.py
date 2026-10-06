@@ -71,8 +71,8 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     """Get info from TRV."""
     support_offset = False
 
-    offset = await find_local_calibration_entity(self, entity_id)
-    if offset is not None:
+    calibration_entity_id = await find_local_calibration_entity(self, entity_id)
+    if calibration_entity_id is not None:
         support_offset = True
     return {"support_offset": support_offset, "support_valve": False}
 
@@ -133,7 +133,7 @@ async def init(self: AdapterHost, entity_id: str) -> None:
     await discover_calibration_entity(self, entity_id)
 
 
-async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
     calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
     if calibration_entity is not None:
@@ -206,7 +206,7 @@ def _offered_offsets(state: State) -> list[float]:
     return [value for value in parsed if value is not None]
 
 
-async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
+async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> float:
     """Read the granularity the calibration entity accepts.
 
     Parameters
@@ -233,7 +233,7 @@ async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
     return float(str(state.attributes.get("step", DEFAULT_OFFSET_STEP)))
 
 
-async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Read the lowest offset the calibration entity accepts.
 
     Parameters
@@ -258,7 +258,7 @@ async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
     return float(str(state.attributes.get("min", DEFAULT_OFFSET_MIN)))
 
 
-async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Read the highest offset the calibration entity accepts.
 
     Parameters
@@ -370,7 +370,9 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
         )
 
 
-async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
+async def set_calibration_offset(
+    self: AdapterHost, entity_id: str, calibration_offset: float
+) -> bool:
     """Write a calibration offset to the discovered calibration entity.
 
     Parameters
@@ -379,7 +381,7 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         Host providing Home Assistant access and the per-TRV records.
     entity_id : str
         Entity ID of the TRV to write to
-    offset : float
+    calibration_offset : float
         Calibration offset in Kelvin, clamped to the device's declared range
 
     Returns
@@ -390,11 +392,11 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
     """
     calibration_entity = self.real_trvs[entity_id].local_temperature_calibration_entity
     if calibration_entity is not None:
-        max_calibration = await get_max_offset(self, entity_id)
-        min_calibration = await get_min_offset(self, entity_id)
+        max_calibration = await get_max_calibration_offset(self, entity_id)
+        min_calibration = await get_min_calibration_offset(self, entity_id)
 
-        offset = min(max_calibration, offset)
-        offset = max(min_calibration, offset)
+        calibration_offset = min(max_calibration, calibration_offset)
+        calibration_offset = max(min_calibration, calibration_offset)
 
         entity_state = self.hass.states.get(calibration_entity)
 
@@ -406,7 +408,7 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         # Check if it's a SELECT entity or NUMBER entity
         if domain == "select":
             # For SELECT entities, format with 'k' suffix (e.g., "1.5k")
-            option_value = f"{offset:.1f}k"
+            option_value = f"{calibration_offset:.1f}k"
 
             # Get available options (handle None entity_state gracefully)
             options: list[str] = []
@@ -430,7 +432,9 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
                         # Find option with minimum distance to target offset
                         closest_option = min(
                             parsed_options,
-                            key=lambda opt: abs(parsed_options[opt] - offset),
+                            key=lambda opt: abs(
+                                parsed_options[opt] - calibration_offset
+                            ),
                         )
                         option_value = closest_option
 
@@ -440,7 +444,7 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
             # value, so the command is read back off the option itself.
             commanded = _option_to_offset(option_value)
             if commanded is not None:
-                offset = commanded
+                calibration_offset = commanded
 
             await self.hass.services.async_call(
                 "select",
@@ -454,12 +458,12 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
             await self.hass.services.async_call(
                 "number",
                 SERVICE_SET_VALUE,
-                {"entity_id": calibration_entity, "value": offset},
+                {"entity_id": calibration_entity, "value": calibration_offset},
                 blocking=True,
                 context=self.context,
             )
 
-        self.real_trvs[entity_id].last_calibration = offset
+        self.real_trvs[entity_id].last_calibration = calibration_offset
         last_hvac_mode = self.real_trvs[entity_id].last_hvac_mode
         if last_hvac_mode is not None and last_hvac_mode != "off":
             await asyncio.sleep(3)

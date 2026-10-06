@@ -34,9 +34,9 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
     calibration_entity_disabled,
-    get_current_offset,
+    get_calibration_offset,
+    set_calibration_offset,
     set_hvac_mode,
-    set_offset,
     set_temperature,
     set_valve,
     valve_channel_available,
@@ -703,7 +703,7 @@ def _through_safety_hull(
     *,
     setpoint: float | None = None,
     valve_percent: float | None = None,
-    offset: float | None = None,
+    calibration_offset: float | None = None,
 ) -> TrvDesired:
     """Run one intent through the safety hull at the command boundary."""
     desired = DesiredState(
@@ -712,7 +712,7 @@ def _through_safety_hull(
                 entity_id=entity_id,
                 setpoint=setpoint,
                 valve_percent=valve_percent,
-                offset=offset,
+                calibration_offset=calibration_offset,
             )
         }
     )
@@ -2374,7 +2374,7 @@ async def control_trv(
                 # offset is not pursued until it is enabled again.
                 and not calibration_entity_disabled(self, entity_id)
             ):
-                _current_calibration_s = await get_current_offset(self, entity_id)
+                _current_calibration_s = await get_calibration_offset(self, entity_id)
 
                 if _current_calibration_s is None:
                     _LOGGER.error(
@@ -2394,8 +2394,8 @@ async def control_trv(
                 # A finite offset goes in and the hull only clamps it to range,
                 # so a finite offset comes back out.
                 _calibration = _through_safety_hull(
-                    snapshot, entity_id, offset=_calibration
-                ).offset
+                    snapshot, entity_id, calibration_offset=_calibration
+                ).calibration_offset
                 if _calibration is None:
                     _LOGGER.debug(
                         "better_thermostat %s: safety hull yielded no offset for "
@@ -2468,7 +2468,9 @@ async def control_trv(
                                     _calibration,
                                     _current_calibration,
                                 )
-                                if await set_offset(self, entity_id, _calibration):
+                                if await set_calibration_offset(
+                                    self, entity_id, _calibration
+                                ):
                                     trv.calibration_received = False
                                     trv.calibration_write_generation += 1
                                     self.task_manager.create_task(
@@ -2828,7 +2830,7 @@ async def check_calibration(
                 )
                 break
             _reported = convert_to_float(
-                str(await get_current_offset(self, entity_id)),
+                str(await get_calibration_offset(self, entity_id)),
                 self.device_name,
                 "check_calibration()",
             )

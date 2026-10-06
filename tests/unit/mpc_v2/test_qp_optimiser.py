@@ -542,9 +542,9 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
         plan = opt._solve_portable(hessian, gradient, bounds)
 
         rise = np.eye(n) - np.eye(n, k=-1)
-        offset = np.zeros(n)
-        offset[0] = bounds.u_last
-        steps = rise @ plan - offset
+        previous_input = np.zeros(n)
+        previous_input[0] = bounds.u_last
+        steps = rise @ plan - previous_input
         worst_violation = max(
             worst_violation,
             float(np.max(plan - 1.0)),
@@ -555,11 +555,11 @@ def test_portable_solver_is_exact_on_arbitrary_convex_plans(seed: int) -> None:
             hessian,
             gradient,
             np.vstack([np.eye(n), rise]),
-            np.concatenate([np.ones(n), bounds.delta_u_max + offset]),
-            np.concatenate([np.zeros(n), -bounds.delta_u_max + offset]),
+            np.concatenate([np.ones(n), bounds.delta_u_max + previous_input]),
+            np.concatenate([np.zeros(n), -bounds.delta_u_max + previous_input]),
             np.zeros(2 * n, dtype=np.int32),
         )
-        reference_steps = rise @ reference - offset
+        reference_steps = rise @ reference - previous_input
         reference_violation = max(
             float(np.max(reference - 1.0)),
             float(np.max(-reference)),

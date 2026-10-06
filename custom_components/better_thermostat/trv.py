@@ -389,13 +389,13 @@ class Trv:
         declared = getattr(self.adapter, "CAPABILITIES", None)
         if declared is None:
             # Adapter without a declaration: the discovered surface rules.
-            offset = offset_entity
-            valve = valve_entity
+            offset_write = offset_entity
+            valve_write = valve_entity
         else:
-            offset = declared.offset_write and (
+            offset_write = declared.offset_write and (
                 offset_entity or not declared.offset_needs_entity
             )
-            valve = declared.valve_write and (
+            valve_write = declared.valve_write and (
                 valve_entity or not declared.valve_needs_entity
             )
 
@@ -409,8 +409,8 @@ class Trv:
             or (self.advanced or {}).get("no_off_system_mode", False) is True
         )
         return TrvCapabilities(
-            supports_offset_write=offset,
-            supports_valve_write=valve or quirk_valve,
+            supports_offset_write=offset_write,
+            supports_valve_write=valve_write or quirk_valve,
             supports_off_mode=not no_off,
         )
 

@@ -343,7 +343,7 @@ def desired_from_dict(data: dict[str, Json]) -> DesiredState:
             hvac_mode=parse_hvac_mode(_str_or_none(raw["hvac_mode"])),
             setpoint=_float_or_none(raw["setpoint"]),
             valve_percent=_float_or_none(raw["valve_percent"]),
-            offset=_float_or_none(raw["offset"]),
+            calibration_offset=_float_or_none(raw["calibration_offset"]),
             suppression=(
                 Suppression(_str_of(raw["suppression"]))
                 if raw["suppression"] is not None

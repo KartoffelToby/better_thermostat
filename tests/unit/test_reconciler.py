@@ -548,7 +548,7 @@ class TestWatchdogHeartbeat:
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
-            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=None),
+            patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=None),
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
@@ -634,18 +634,20 @@ class TestOffsetWriteBudget:
         bt.real_trvs["climate.trv"].local_calibration_max = 5.0
         return bt
 
-    async def _run(self, bt, offset):
+    async def _run(self, bt, calibration_offset):
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
-            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=0.0),
-            patch(f"{_CTRL}.set_offset", autospec=True, return_value=True) as set_off,
+            patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=0.0),
+            patch(
+                f"{_CTRL}.set_calibration_offset", autospec=True, return_value=True
+            ) as set_off,
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             conv.return_value = {
-                "local_temperature_calibration": offset,
+                "local_temperature_calibration": calibration_offset,
                 "system_mode": HVACMode.HEAT,
             }
             result = await control_trv(bt, "climate.trv")
@@ -656,7 +658,7 @@ class TestOffsetWriteBudget:
         """The first offset write goes through and records its time."""
         bt = self._offset_bt()
         bt.clock.advance(100.0)
-        result, set_off = await self._run(bt, offset=2.0)
+        result, set_off = await self._run(bt, calibration_offset=2.0)
         assert result is True
         set_off.assert_called_once()
         trv = bt.real_trvs["climate.trv"]
@@ -666,10 +668,10 @@ class TestOffsetWriteBudget:
     async def test_offset_write_within_budget_window_is_skipped(self):
         """A second offset write within 30 s is skipped, not blocking."""
         bt = self._offset_bt()
-        await self._run(bt, offset=2.0)
+        await self._run(bt, calibration_offset=2.0)
         bt.real_trvs["climate.trv"].calibration_received = True
         bt.clock.advance(10.0)
-        result, set_off = await self._run(bt, offset=3.0)
+        result, set_off = await self._run(bt, calibration_offset=3.0)
         assert result is True
         set_off.assert_not_called()
 
@@ -677,17 +679,17 @@ class TestOffsetWriteBudget:
     async def test_offset_write_after_budget_window_passes(self):
         """Once the window has passed, the next offset write goes through."""
         bt = self._offset_bt()
-        await self._run(bt, offset=2.0)
+        await self._run(bt, calibration_offset=2.0)
         bt.real_trvs["climate.trv"].calibration_received = True
         bt.clock.advance(30.0)
-        _, set_off = await self._run(bt, offset=3.0)
+        _, set_off = await self._run(bt, calibration_offset=3.0)
         set_off.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_offset_budget_is_independent_of_the_setpoint_budget(self):
         """An offset write does not consume the setpoint channel's slot."""
         bt = self._offset_bt()
-        await self._run(bt, offset=2.0)
+        await self._run(bt, calibration_offset=2.0)
         assert bt.real_trvs["climate.trv"].last_write_monotonic is None
 
 
@@ -865,8 +867,10 @@ class TestOffsetReconcileHandoff:
         with (
             patch(f"{_CTRL}.convert_outbound_states") as conv,
             patch(f"{_CTRL}._get_valve_control", return_value=(None, None)),
-            patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=0.0),
-            patch(f"{_CTRL}.set_offset", autospec=True, return_value=True) as set_off,
+            patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=0.0),
+            patch(
+                f"{_CTRL}.set_calibration_offset", autospec=True, return_value=True
+            ) as set_off,
             patch(f"{_CTRL}.set_temperature", autospec=True),
             patch(f"{_CTRL}.set_hvac_mode", autospec=True),
             patch(f"{_CTRL}.override_set_hvac_mode", autospec=True, return_value=False),

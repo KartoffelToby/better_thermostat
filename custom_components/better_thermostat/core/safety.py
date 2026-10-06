@@ -120,12 +120,12 @@ def _clamp_trv(
             )
             setpoint = _clamp_value(setpoint, lower, upper)
 
-    offset = intent.offset
-    if offset is not None:
-        if not math.isfinite(offset):
+    calibration_offset = intent.calibration_offset
+    if calibration_offset is not None:
+        if not math.isfinite(calibration_offset):
             # A non-finite offset carries no correction at all; the hull
             # withholds the write instead of inventing one.
-            offset = None
+            calibration_offset = None
         else:
             lower, upper = _resolve_bounds(
                 reported.local_calibration_min if reported is not None else None,
@@ -133,7 +133,7 @@ def _clamp_trv(
                 FALLBACK_MIN_OFFSET,
                 FALLBACK_MAX_OFFSET,
             )
-            offset = _clamp_value(offset, lower, upper)
+            calibration_offset = _clamp_value(calibration_offset, lower, upper)
 
     valve = intent.valve_percent
     if valve is not None:
@@ -164,10 +164,15 @@ def _clamp_trv(
     if (
         setpoint == intent.setpoint
         and valve == intent.valve_percent
-        and offset == intent.offset
+        and calibration_offset == intent.calibration_offset
     ):
         return intent
-    return replace(intent, setpoint=setpoint, valve_percent=valve, offset=offset)
+    return replace(
+        intent,
+        setpoint=setpoint,
+        valve_percent=valve,
+        calibration_offset=calibration_offset,
+    )
 
 
 def clamp(

@@ -97,27 +97,35 @@ async def get_info(self, entity_id):
 
 
 @async_retry(retries=5)
-async def get_current_offset(self, entity_id):
+async def get_calibration_offset(self, entity_id):
     """Get current offset."""
-    return await self.real_trvs[entity_id].adapter.get_current_offset(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_calibration_offset(
+        self, entity_id
+    )
 
 
 @async_retry(retries=5)
-async def get_offset_step(self, entity_id):
+async def get_calibration_offset_step(self, entity_id):
     """Get offset steps."""
-    return await self.real_trvs[entity_id].adapter.get_offset_step(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_calibration_offset_step(
+        self, entity_id
+    )
 
 
 @async_retry(retries=5)
-async def get_min_offset(self, entity_id):
+async def get_min_calibration_offset(self, entity_id):
     """Get min offset."""
-    return await self.real_trvs[entity_id].adapter.get_min_offset(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_min_calibration_offset(
+        self, entity_id
+    )
 
 
 @async_retry(retries=5)
-async def get_max_offset(self, entity_id):
+async def get_max_calibration_offset(self, entity_id):
     """Get max offset."""
-    return await self.real_trvs[entity_id].adapter.get_max_offset(self, entity_id)
+    return await self.real_trvs[entity_id].adapter.get_max_calibration_offset(
+        self, entity_id
+    )
 
 
 async def set_temperature(self, entity_id, temperature):
@@ -206,7 +214,7 @@ async def set_temperature(self, entity_id, temperature):
     # service call is still in flight, so the value is recorded before it goes
     # out: recorded afterwards, the device's echo would arrive while the
     # previous value still stood and would be adopted as a user setpoint.
-    # ``set_offset`` records after its write for the opposite reason: its
+    # ``set_calibration_offset`` records after its write for the opposite reason: its
     # record says a calibration command is in flight, which a write that never
     # went out must not claim.
     self.real_trvs[entity_id].commanded_setpoint = rounded
@@ -407,7 +415,7 @@ def valve_entity_disabled(self, entity_id: str) -> bool:
     )
 
 
-async def set_offset(self, entity_id, offset) -> bool:
+async def set_calibration_offset(self, entity_id, calibration_offset) -> bool:
     """Set new target offset and record the value that was asked for.
 
     An adapter answers ``True`` once the offset write went out and
@@ -431,7 +439,7 @@ async def set_offset(self, entity_id, offset) -> bool:
         The Better Thermostat climate entity instance
     entity_id : str
         Entity ID of the TRV to write to
-    offset : float
+    calibration_offset : float
         The offset asked for, before the adapter's own range clamp
 
     Returns
@@ -444,10 +452,10 @@ async def set_offset(self, entity_id, offset) -> bool:
     if calibration_entity_disabled(self, entity_id):
         return False
 
-    write = self.real_trvs[entity_id].adapter.set_offset
+    write = self.real_trvs[entity_id].adapter.set_calibration_offset
     try:
         wrote = await _write_on_channel(
-            self, entity_id, "offset", "calibration offset", write, offset
+            self, entity_id, "offset", "calibration offset", write, calibration_offset
         )
     except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
@@ -459,7 +467,7 @@ async def set_offset(self, entity_id, offset) -> bool:
             entity_id,
         )
         return False
-    self.real_trvs[entity_id].last_calibration_requested = float(offset)
+    self.real_trvs[entity_id].last_calibration_requested = float(calibration_offset)
     return True
 
 

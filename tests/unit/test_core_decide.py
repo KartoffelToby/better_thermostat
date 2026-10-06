@@ -410,7 +410,7 @@ class TestHoldRung:
             assert trv.hvac_mode == HvacMode.HEAT
             assert trv.setpoint == 21.0
             assert trv.valve_percent is None
-            assert trv.offset is None
+            assert trv.calibration_offset is None
 
     def test_hold_keeps_mode_suppression(self):
         """The OFF/window tiers stay above the rung."""

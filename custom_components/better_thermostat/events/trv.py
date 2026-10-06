@@ -17,7 +17,7 @@ from homeassistant.core import State, callback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.adapters.delegate import get_current_offset
+from custom_components.better_thermostat.adapters.delegate import get_calibration_offset
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
@@ -496,7 +496,7 @@ async def trigger_trv_change(
                         entity_id,
                     )
                     return
-                trv.last_calibration = await get_current_offset(self, entity_id)
+                trv.last_calibration = await get_calibration_offset(self, entity_id)
 
         # Under SENSOR_FALLBACK the TRV readings are the room temperature,
         # so a new one is controlled on even when it confirms an offset write.

@@ -80,7 +80,7 @@ def _adapter(**writes):
         CAPABILITIES=AdapterCapabilities(offset_write=True, valve_write=True),
         set_temperature=writes.get("temperature", AsyncMock(return_value=None)),
         set_hvac_mode=writes.get("hvac_mode", AsyncMock(return_value=None)),
-        set_offset=writes.get("offset", AsyncMock(return_value=True)),
+        set_calibration_offset=writes.get("offset", AsyncMock(return_value=True)),
         set_valve=writes.get("valve", AsyncMock(return_value=None)),
     )
 
@@ -93,7 +93,7 @@ async def _write(channel, thermostat):
         if channel == "hvac_mode":
             return await delegate.set_hvac_mode(thermostat, ENTITY_ID, "heat")
         if channel == "offset":
-            return await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            return await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
         return await delegate.set_valve(thermostat, ENTITY_ID, 50)
     except HomeAssistantError as exc:
         return exc
@@ -315,7 +315,7 @@ class TestARefusedModeChange:
             patch("asyncio.sleep", new=AsyncMock()),
             patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
         ):
-            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
 
         assert answer is True
         assert calls.count(("number", "set_value")) == 1
@@ -520,7 +520,10 @@ class TestTheModeRestoredAfterAnOffset:
         )
 
         with patch("asyncio.sleep", new=AsyncMock()):
-            assert await delegate.set_offset(thermostat, ENTITY_ID, 1.0) is True
+            assert (
+                await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
+                is True
+            )
 
         assert "hvac_mode" not in trv.unreachable_write_channels
 
@@ -539,9 +542,9 @@ class TestTheModeRestoredAfterAnOffset:
             patch("asyncio.sleep", new=AsyncMock()),
             patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
         ):
-            await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
             caplog.clear()
-            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.5)
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.5)
 
         assert answer is True
         assert [
@@ -564,7 +567,7 @@ class TestTheModeRestoredAfterAnOffset:
             patch("asyncio.sleep", new=AsyncMock()),
             patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()),
         ):
-            answer = await delegate.set_offset(thermostat, ENTITY_ID, 1.0)
+            answer = await delegate.set_calibration_offset(thermostat, ENTITY_ID, 1.0)
 
         assert answer is True
         assert thermostat.real_trvs[ENTITY_ID].last_calibration_requested == 1.0

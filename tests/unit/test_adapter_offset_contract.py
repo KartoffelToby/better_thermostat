@@ -82,13 +82,15 @@ class TestOffsetWriteReportsTrue:
     """A write that went out is reported as one, whatever value it carried."""
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS + SERVICE_ADAPTERS)
-    @pytest.mark.parametrize("offset", [0.0, -2.5])
+    @pytest.mark.parametrize("calibration_offset", [0.0, -2.5])
     @pytest.mark.asyncio
-    async def test_write_reports_true(self, adapter, offset):
+    async def test_write_reports_true(self, adapter, calibration_offset):
         """The answer is True, not the offset that was written."""
         mock_self = _mock_self()
 
-        result = await adapter.set_offset(mock_self, ENTITY_ID, offset)
+        result = await adapter.set_calibration_offset(
+            mock_self, ENTITY_ID, calibration_offset
+        )
 
         assert result is True
         assert mock_self.hass.services.async_call.await_count == 1
@@ -99,7 +101,7 @@ class TestOffsetWriteReportsTrue:
         """The value that went on the wire is kept apart from the answer."""
         mock_self = _mock_self()
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -2.5)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.5)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.5
 
@@ -115,7 +117,11 @@ class TestOffsetBoundsComeFromTheCalibrationEntity:
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize(
         ("getter", "expected"),
-        [("get_min_offset", -5.0), ("get_max_offset", 5.0), ("get_offset_step", 0.5)],
+        [
+            ("get_min_calibration_offset", -5.0),
+            ("get_max_calibration_offset", 5.0),
+            ("get_calibration_offset_step", 0.5),
+        ],
     )
     @pytest.mark.asyncio
     async def test_the_entity_attributes_are_what_is_reported(
@@ -191,7 +197,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """The option goes out through the service a select answers to."""
         mock_self = _mock_self_with_select()
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
 
         assert _called_service(mock_self) == ("select", "select_option")
 
@@ -201,7 +207,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """The option nearest the request is what the device is told."""
         mock_self = _mock_self_with_select()
 
-        result = await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
+        result = await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
 
         assert result is True
         assert _selected_option(mock_self) == "-3.0k"
@@ -212,7 +218,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """The command is the snapped option's value, not the request."""
         mock_self = _mock_self_with_select()
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -3.0
 
@@ -222,7 +228,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """Recording the intent stays the delegate's business."""
         mock_self = _mock_self_with_select()
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration_requested is None
 
@@ -232,7 +238,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """A request the select offers verbatim needs no correction."""
         mock_self = _mock_self_with_select()
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -3.0)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -3.0)
 
         assert _selected_option(mock_self) == "-3.0k"
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -3.0
@@ -243,7 +249,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """An option carries one decimal, so that is what was commanded."""
         mock_self = _mock_self_with_select(options=["-2.3k", "-2.2k"])
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -2.26)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.26)
 
         assert _selected_option(mock_self) == "-2.3k"
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.3
@@ -254,7 +260,7 @@ class TestSelectOffsetRecordsWhatItSelected:
         """A request beyond the offered range reaches the outermost option."""
         mock_self = _mock_self_with_select()
 
-        await adapter.set_offset(mock_self, ENTITY_ID, -12.0)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, -12.0)
 
         assert _selected_option(mock_self) == "-6.0k"
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -6.0
@@ -274,7 +280,7 @@ class TestSelectOffsetIsReadBackAsKelvin:
         """The device's own option is what the reading reports."""
         mock_self = _mock_self_with_select(reported="-3.0k")
 
-        assert await adapter.get_current_offset(mock_self, ENTITY_ID) == -3.0
+        assert await adapter.get_calibration_offset(mock_self, ENTITY_ID) == -3.0
 
 
 class TestForcedZeroAddressesTheEntitysOwnDomain:
@@ -366,7 +372,7 @@ class TestNoOffsetChannelReportsFalse:
         """Nothing is written and nothing is claimed to have been."""
         mock_self = _mock_self(calibration_entity=None)
 
-        result = await adapter.set_offset(mock_self, ENTITY_ID, -2.0)
+        result = await adapter.set_calibration_offset(mock_self, ENTITY_ID, -2.0)
 
         assert result is False
         mock_self.hass.services.async_call.assert_not_awaited()
@@ -410,7 +416,12 @@ class TestNoOffsetChannelIsNeverLookedUp:
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize(
         "getter",
-        ["get_current_offset", "get_offset_step", "get_min_offset", "get_max_offset"],
+        [
+            "get_calibration_offset",
+            "get_calibration_offset_step",
+            "get_min_calibration_offset",
+            "get_max_calibration_offset",
+        ],
     )
     @pytest.mark.asyncio
     async def test_getter_answers_its_no_channel_default(self, adapter, getter):
@@ -430,7 +441,11 @@ class TestNoOffsetChannelIsNeverLookedUp:
 
 
 # The reads that fill the calibration bounds at startup.
-BOUND_GETTERS = ("get_offset_step", "get_min_offset", "get_max_offset")
+BOUND_GETTERS = (
+    "get_calibration_offset_step",
+    "get_min_calibration_offset",
+    "get_max_calibration_offset",
+)
 
 
 def _stateless(calibration_entity=CALIBRATION_ENTITY):
@@ -477,15 +492,15 @@ class TestTheBoundsAreOneInterface:
         """The lower bound is below the upper one, so the clamp holds."""
         thermostat = _stateless()
 
-        assert await adapter.get_min_offset(
+        assert await adapter.get_min_calibration_offset(
             thermostat, ENTITY_ID
-        ) < await adapter.get_max_offset(thermostat, ENTITY_ID)
+        ) < await adapter.get_max_calibration_offset(thermostat, ENTITY_ID)
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS + SERVICE_ADAPTERS)
     @pytest.mark.asyncio
     async def test_the_step_is_a_usable_grid(self, adapter):
         """A step of zero or less would divide the rounding by nothing."""
-        assert await adapter.get_offset_step(_stateless(), ENTITY_ID) > 0
+        assert await adapter.get_calibration_offset_step(_stateless(), ENTITY_ID) > 0
 
 
 class TestTheUndeclaredBoundsAreOneTable:
@@ -541,7 +556,8 @@ class TestTheBoundsOfASelectComeFromItsOptions:
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize(
-        ("getter", "expected"), [("get_min_offset", -6.0), ("get_max_offset", 6.0)]
+        ("getter", "expected"),
+        [("get_min_calibration_offset", -6.0), ("get_max_calibration_offset", 6.0)],
     )
     @pytest.mark.asyncio
     async def test_the_options_name_the_range(self, adapter, getter, expected):
@@ -552,7 +568,8 @@ class TestTheBoundsOfASelectComeFromItsOptions:
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize(
-        ("getter", "expected"), [("get_min_offset", -6.0), ("get_max_offset", 6.0)]
+        ("getter", "expected"),
+        [("get_min_calibration_offset", -6.0), ("get_max_calibration_offset", 6.0)],
     )
     @pytest.mark.asyncio
     async def test_options_published_as_numbers_still_name_the_range(
@@ -565,7 +582,8 @@ class TestTheBoundsOfASelectComeFromItsOptions:
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize(
-        ("getter", "expected"), [("get_min_offset", -3.0), ("get_max_offset", 3.0)]
+        ("getter", "expected"),
+        [("get_min_calibration_offset", -3.0), ("get_max_calibration_offset", 3.0)],
     )
     @pytest.mark.asyncio
     async def test_an_option_without_a_number_is_left_out(
@@ -578,7 +596,8 @@ class TestTheBoundsOfASelectComeFromItsOptions:
 
     @pytest.mark.parametrize("adapter", ENTITY_ADAPTERS)
     @pytest.mark.parametrize(
-        ("getter", "expected"), [("get_min_offset", -10.0), ("get_max_offset", 10.0)]
+        ("getter", "expected"),
+        [("get_min_calibration_offset", -10.0), ("get_max_calibration_offset", 10.0)],
     )
     @pytest.mark.asyncio
     async def test_options_that_name_no_range_fall_back_to_the_default(
@@ -608,12 +627,12 @@ class TestAServiceWriteStaysInsideTheDeclaredRange:
         """What goes out is the nearest offset the ecosystem accepts."""
         mock_self = _mock_self()
         bound = await (
-            adapter.get_min_offset(mock_self, ENTITY_ID)
+            adapter.get_min_calibration_offset(mock_self, ENTITY_ID)
             if requested < 0
-            else adapter.get_max_offset(mock_self, ENTITY_ID)
+            else adapter.get_max_calibration_offset(mock_self, ENTITY_ID)
         )
 
-        await adapter.set_offset(mock_self, ENTITY_ID, requested)
+        await adapter.set_calibration_offset(mock_self, ENTITY_ID, requested)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == bound
 
@@ -665,7 +684,7 @@ class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
         """What goes on the wire is the Kelvin request in deCONZ's units."""
         mock_self = _mock_self()
 
-        await deconz.set_offset(mock_self, ENTITY_ID, kelvin)
+        await deconz.set_calibration_offset(mock_self, ENTITY_ID, kelvin)
 
         assert _written_config(mock_self) == {"offset": expected}
 
@@ -678,7 +697,7 @@ class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
         """
         mock_self = _mock_self()
 
-        await deconz.set_offset(mock_self, ENTITY_ID, -2.5)
+        await deconz.set_calibration_offset(mock_self, ENTITY_ID, -2.5)
 
         assert mock_self.real_trvs[ENTITY_ID].last_calibration == -2.5
 
@@ -689,7 +708,7 @@ class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
     async def test_the_read_answers_in_kelvin(self, reported, expected):
         """A device resting at 2.5 K reports 250 and reads back as 2.5."""
         assert (
-            await deconz.get_current_offset(_deconz_thermostat(reported), ENTITY_ID)
+            await deconz.get_calibration_offset(_deconz_thermostat(reported), ENTITY_ID)
             == expected
         )
 
@@ -702,10 +721,10 @@ class TestTheDeconzOffsetTravelsInHundredthsOfADegree:
         re-assert the offset every cycle.
         """
         writing = _mock_self()
-        await deconz.set_offset(writing, ENTITY_ID, -2.5)
+        await deconz.set_calibration_offset(writing, ENTITY_ID, -2.5)
         echoed = _written_config(writing)["offset"]
 
-        assert await deconz.get_current_offset(
+        assert await deconz.get_calibration_offset(
             _deconz_thermostat(echoed), ENTITY_ID
         ) == pytest.approx(-2.5)
 

@@ -1346,8 +1346,8 @@ class TestControlCoolerModeHysteresis:
             == HVACMode.COOL
         )
 
-        for offset in (0.4, 0.2, 0.0):
-            mock_self.room_temperature = self.HOLD_UNTIL + offset
+        for margin in (0.4, 0.2, 0.0):
+            mock_self.room_temperature = self.HOLD_UNTIL + margin
             mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
             await control_cooler(mock_self)
             assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1

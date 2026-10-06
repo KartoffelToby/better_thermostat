@@ -125,7 +125,9 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         """An entity that reports nothing publishes no granularity."""
         mock_bt_instance.hass.states.get.return_value = None
 
-        result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_calibration_offset_step(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == 1.0
 
@@ -134,7 +136,9 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         """An entity that reports nothing publishes no lower bound."""
         mock_bt_instance.hass.states.get.return_value = None
 
-        result = await adapter.get_min_offset(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_min_calibration_offset(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == -10.0
 
@@ -143,7 +147,9 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         """An entity that reports nothing publishes no upper bound."""
         mock_bt_instance.hass.states.get.return_value = None
 
-        result = await adapter.get_max_offset(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_max_calibration_offset(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == 10.0
 
@@ -152,7 +158,9 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         """A TRV discovery found no entity for gets the same answer."""
         _leave_the_trv_without_a_calibration_entity(mock_bt_instance)
 
-        result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_calibration_offset_step(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == 1.0
 
@@ -161,7 +169,9 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         """The lower bound of a TRV without an entity is the same default."""
         _leave_the_trv_without_a_calibration_entity(mock_bt_instance)
 
-        result = await adapter.get_min_offset(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_min_calibration_offset(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == -10.0
 
@@ -170,7 +180,9 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         """The upper bound of a TRV without an entity is the same default."""
         _leave_the_trv_without_a_calibration_entity(mock_bt_instance)
 
-        result = await adapter.get_max_offset(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_max_calibration_offset(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == 10.0
 
@@ -184,6 +196,8 @@ class TestBoundsOfAnEntityThatDeclaresNone:
         mock_state.attributes = {"step": 0.5}
         mock_bt_instance.hass.states.get.return_value = mock_state
 
-        result = await adapter.get_offset_step(mock_bt_instance, "climate.test_trv")
+        result = await adapter.get_calibration_offset_step(
+            mock_bt_instance, "climate.test_trv"
+        )
 
         assert result == 0.5

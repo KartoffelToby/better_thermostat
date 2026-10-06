@@ -69,9 +69,11 @@ def _cancel_pending_valve_bump(trv_state: ModelFixTrv) -> bool:
     return True
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return unchanged local calibration for TRVZB by default."""
-    return offset
+    return calibration_offset
 
 
 def fix_target_temperature_calibration(

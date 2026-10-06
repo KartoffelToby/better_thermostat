@@ -175,7 +175,7 @@ class Calibration:
     """Numbers a calibration strategy put onto the heating intents."""
 
     setpoint: float | None = None
-    offset: float | None = None
+    calibration_offset: float | None = None
     valve: float | None = None
 
 
@@ -237,7 +237,7 @@ class KernelMachine(RuleBasedStateMachine):
         calibration=st.builds(
             Calibration,
             setpoint=calibration_values,
-            offset=calibration_values,
+            calibration_offset=calibration_values,
             valve=calibration_values,
         ),
     )
@@ -583,14 +583,19 @@ class KernelMachine(RuleBasedStateMachine):
 
     @rule(
         setpoint=st.one_of(st.none(), calibration_values),
-        offset=st.one_of(st.none(), calibration_values),
+        calibration_offset=st.one_of(st.none(), calibration_values),
         valve=st.one_of(st.none(), calibration_values),
     )
     def calibration_output(
-        self, setpoint: float | None, offset: float | None, valve: float | None
+        self,
+        setpoint: float | None,
+        calibration_offset: float | None,
+        valve: float | None,
     ) -> None:
         """A calibration strategy produces new numbers, sane or not."""
-        self.calibration = Calibration(setpoint=setpoint, offset=offset, valve=valve)
+        self.calibration = Calibration(
+            setpoint=setpoint, calibration_offset=calibration_offset, valve=valve
+        )
 
     @rule(host_reboot=st.booleans())
     def home_assistant_restarts(self, host_reboot: bool) -> None:
@@ -800,7 +805,7 @@ class KernelMachine(RuleBasedStateMachine):
                     entity_id=e,
                     hvac_mode=HvacMode.HEAT,
                     setpoint=self.calibration.setpoint,
-                    offset=self.calibration.offset,
+                    calibration_offset=self.calibration.calibration_offset,
                     valve_percent=self.calibration.valve,
                 )
                 for e in snapshot.trvs
@@ -813,7 +818,7 @@ class KernelMachine(RuleBasedStateMachine):
                 e: replace(
                     intent,
                     setpoint=self.calibration.setpoint,
-                    offset=self.calibration.offset,
+                    calibration_offset=self.calibration.calibration_offset,
                     valve_percent=self.calibration.valve,
                 )
                 if intent.hvac_mode not in (None, HvacMode.OFF)
@@ -842,8 +847,8 @@ class KernelMachine(RuleBasedStateMachine):
                 FALLBACK_MAX_SETPOINT,
             )
             self._check_bounded(
-                before.offset,
-                intent.offset,
+                before.calibration_offset,
+                intent.calibration_offset,
                 trv.calibration_min,
                 trv.calibration_max,
                 FALLBACK_MIN_OFFSET,

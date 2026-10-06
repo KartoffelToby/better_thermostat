@@ -62,10 +62,10 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 # Local imports
 from .adapters.delegate import (
-    get_current_offset,
-    get_max_offset,
-    get_min_offset,
-    get_offset_step,
+    get_calibration_offset,
+    get_calibration_offset_step,
+    get_max_calibration_offset,
+    get_min_calibration_offset,
     init,
     load_adapter,
     set_hvac_mode as adapter_set_hvac_mode,
@@ -2534,14 +2534,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
                 try:
                     async with asyncio.timeout(10):
-                        trv.last_calibration = await get_current_offset(self, entity_id)
-                        trv.local_calibration_min = await get_min_offset(
+                        trv.last_calibration = await get_calibration_offset(
                             self, entity_id
                         )
-                        trv.local_calibration_max = await get_max_offset(
+                        trv.local_calibration_min = await get_min_calibration_offset(
                             self, entity_id
                         )
-                        trv.local_calibration_step = await get_offset_step(
+                        trv.local_calibration_max = await get_max_calibration_offset(
+                            self, entity_id
+                        )
+                        trv.local_calibration_step = await get_calibration_offset_step(
                             self, entity_id
                         )
                     # Ensure None values are replaced with sensible defaults

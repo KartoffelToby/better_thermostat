@@ -437,7 +437,7 @@ class TestRoundtripCompleteness:
             "hvac_mode": HvacMode.HEAT,
             "setpoint": 21.5,
             "valve_percent": 60.0,
-            "offset": -1.5,
+            "calibration_offset": -1.5,
             "suppression": Suppression.WINDOW,
         }
         assert set(trv_desired_kwargs) == {f.name for f in fields(TrvDesired)}

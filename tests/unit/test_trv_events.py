@@ -727,7 +727,7 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_calibration_zero_fetches_offset(self, mock_bt):
-        """When calibration==0, get_current_offset() should be called."""
+        """When calibration==0, get_calibration_offset() should be called."""
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
         mock_bt.real_trvs[ENTITY_ID].calibration = 0
         trv_state = _make_state(attributes={"current_temperature": 20.0})
@@ -738,7 +738,7 @@ class TestInternalTemperatureChange:
 
         with (
             patch(
-                "custom_components.better_thermostat.events.trv.get_current_offset",
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
                 autospec=True,
                 return_value=2.5,
             ) as mock_offset,
@@ -757,7 +757,7 @@ class TestInternalTemperatureChange:
         """The handler survives the entry vanishing mid-flight.
 
         A reconfigure/unload can remove the real_trvs entry while the
-        handler awaits get_current_offset; the handler keeps working on
+        handler awaits get_calibration_offset; the handler keeps working on
         its local Trv object and completes without raising.
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
@@ -775,7 +775,7 @@ class TestInternalTemperatureChange:
 
         with (
             patch(
-                "custom_components.better_thermostat.events.trv.get_current_offset",
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
                 autospec=True,
                 side_effect=pop_entry_and_return_offset,
             ),

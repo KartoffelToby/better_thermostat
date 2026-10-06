@@ -18,7 +18,7 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.adapters.delegate import set_offset
+from custom_components.better_thermostat.adapters.delegate import set_calibration_offset
 from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.core.decide import running_kernel_state
@@ -86,7 +86,9 @@ async def test_a_trv_write_the_library_cancelled_is_retried_and_fails_cleanly():
     bt.hass = MagicMock()
     trv = Trv(entity_id=ENTITY_ID)
     trv.adapter = MagicMock()
-    trv.adapter.set_offset = AsyncMock(side_effect=_cancelled_by_the_library)
+    trv.adapter.set_calibration_offset = AsyncMock(
+        side_effect=_cancelled_by_the_library
+    )
     bt.real_trvs = {ENTITY_ID: trv}
 
     async def _skip_delay(_seconds):
@@ -100,10 +102,10 @@ async def test_a_trv_write_the_library_cancelled_is_retried_and_fails_cleanly():
             return_value=False,
         ),
     ):
-        result = await set_offset(bt, ENTITY_ID, 1.0)
+        result = await set_calibration_offset(bt, ENTITY_ID, 1.0)
 
     assert result is False
-    assert trv.adapter.set_offset.await_count > 1
+    assert trv.adapter.set_calibration_offset.await_count > 1
     assert "offset" in trv.unreachable_write_channels
 
 

@@ -102,7 +102,9 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
         A TRV with identity calibration quirks and the requested fields.
     """
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _eid, offset: float(offset)
+    quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (
+        float(calibration_offset)
+    )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _eid, temperature: float(temperature)
     )

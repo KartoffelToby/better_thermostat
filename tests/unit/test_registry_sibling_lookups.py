@@ -537,7 +537,7 @@ async def _write(host: Any) -> bool:
     record = host.real_trvs[TRV_ID]
     if record.valve_position_entity is not None:
         return await delegate.set_valve(host, TRV_ID, 40)
-    return await delegate.set_offset(host, TRV_ID, 1.5)
+    return await delegate.set_calibration_offset(host, TRV_ID, 1.5)
 
 
 RUNTIME_HELPERS = {
