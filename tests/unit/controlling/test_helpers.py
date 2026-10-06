@@ -903,7 +903,7 @@ class TestGetValveControlBoostCalibrationType:
         mock_self = ThermostatStandIn()
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.real_trvs = {"climate.trv1": Trv.from_legacy_dict("climate.trv1", {})}
         return mock_self
 
@@ -959,7 +959,7 @@ class TestGetValveControlBoostMaxOpening:
         mock_self = ThermostatStandIn()
         mock_self.preset_mode = "boost"
         mock_self.cur_temp = 19.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1", {"valve_max_opening": max_opening}

@@ -758,7 +758,7 @@ async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(
     with patch(WRITE_BUDGET, 0.0):
         await _set_target(hass, 68.4)
 
-    assert bt.bt_target_temp == pytest.approx(20.0)
+    assert bt.heat_target_temperature == pytest.approx(20.0)
     assert hass.states.get(BT_ENTITY).attributes[ATTR_TEMPERATURE] == 68.0
 
 

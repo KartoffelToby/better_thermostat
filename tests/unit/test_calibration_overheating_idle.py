@@ -30,7 +30,7 @@ def build_bt(
     trv_temp,
     calibration_mode=CalibrationMode.AGGRESIVE_CALIBRATION,
     protect_overheating=True,
-    bt_target_temp=TARGET_TEMP,
+    heat_target_temperature=TARGET_TEMP,
     tolerance=0.3,
     step=1.0,
 ):
@@ -43,7 +43,7 @@ def build_bt(
     bt.hvac_action = HVACAction.IDLE
     bt.cur_temp = cur_temp
     bt.cur_temp_filtered = None
-    bt.bt_target_temp = bt_target_temp
+    bt.heat_target_temperature = heat_target_temperature
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.outdoor_sensor = None
     bt.weather_entity = None

@@ -214,7 +214,7 @@ def build_tpi_key(bt: BetterThermostat, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
 
     try:
-        target = bt.bt_target_temp
+        target = bt.heat_target_temperature
         bucket = (
             f"t{round(float(target) * 2.0) / 2.0:.1f}"
             if isinstance(target, (int, float))

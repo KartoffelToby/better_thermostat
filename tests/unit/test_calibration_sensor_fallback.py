@@ -103,7 +103,7 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> ThermostatStandIn
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
-    bt.bt_target_temp = 22.0
+    bt.heat_target_temperature = 22.0
     bt.cur_temp = None
     bt.cur_temp_filtered = None
     bt.temp_slope = 0.0

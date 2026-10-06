@@ -109,7 +109,7 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
     """Build a BT-shaped stand-in with a cold room asking for heat."""
     return SimpleNamespace(
         real_trvs=real_trvs,
-        bt_target_temp=21.0,
+        heat_target_temperature=21.0,
         cur_temp=19.0,
         cur_temp_filtered=None,
         tolerance=0.0,

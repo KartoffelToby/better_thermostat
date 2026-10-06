@@ -165,7 +165,7 @@ class TestBuildMpcGroupKey:
         """Group key should contain 'group' instead of entity_id."""
         bt = ThermostatStandIn()
         bt.unique_id = "bt_living_room"
-        bt.bt_target_temp = 22.0
+        bt.heat_target_temperature = 22.0
 
         key = build_mpc_group_key(bt)
         assert "group" in key
@@ -176,7 +176,7 @@ class TestBuildMpcGroupKey:
         """Group key should differ from per-TRV key."""
         bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
-        bt.bt_target_temp = 21.0
+        bt.heat_target_temperature = 21.0
 
         group_key = build_mpc_group_key(bt)
         entity_key = build_mpc_key(bt, "climate.trv_1")
@@ -189,7 +189,7 @@ class TestBuildMpcGroupKey:
         """Group key should use the same bucket logic as entity key."""
         bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
-        bt.bt_target_temp = 21.3  # rounds to t21.5
+        bt.heat_target_temperature = 21.3  # rounds to t21.5
 
         group_key = build_mpc_group_key(bt)
         entity_key = build_mpc_key(bt, "climate.trv_x")
@@ -203,7 +203,7 @@ class TestBuildMpcGroupKey:
         """Group key handles None target temp gracefully."""
         bt = ThermostatStandIn()
         bt.unique_id = "bt_test"
-        bt.bt_target_temp = None
+        bt.heat_target_temperature = None
 
         key = build_mpc_group_key(bt)
         assert "tunknown" in key
@@ -213,7 +213,7 @@ class TestBuildMpcGroupKey:
         bt = ThermostatStandIn()
         bt.unique_id = None
         bt._unique_id = "fallback_id"
-        bt.bt_target_temp = 20.0
+        bt.heat_target_temperature = 20.0
 
         key = build_mpc_group_key(bt)
         assert "fallback_id" in key

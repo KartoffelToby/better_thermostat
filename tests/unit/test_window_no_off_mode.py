@@ -31,7 +31,7 @@ def mock_bt_instance():
     bt.hass = MagicMock()
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cur_temp = 19.0
     bt.window_open = False
     bt.tolerance = 0.3
@@ -202,5 +202,5 @@ class TestControlTrvWithNoOffMode:
         # 4. The TRV should receive the target temperature, not min_temp
 
         assert mock_bt_instance.bt_hvac_mode == HVACMode.HEAT
-        assert mock_bt_instance.bt_target_temp == 21.0
+        assert mock_bt_instance.heat_target_temperature == 21.0
         assert mock_bt_instance.real_trvs["climate.test_trv"].min_temp == 5.0

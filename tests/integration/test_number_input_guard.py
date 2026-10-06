@@ -55,12 +55,12 @@ async def test_a_nan_preset_temperature_is_refused(hass, active):
         await bt.async_set_preset_mode("comfort")
         await hass.async_block_till_done()
     before = bt.preset_mgr.get_temperature("comfort")
-    target = bt.bt_target_temp
+    target = bt.heat_target_temperature
 
     await _set(hass, _number(hass, bt, "preset_comfort"), "nan")
 
     assert bt.preset_mgr.get_temperature("comfort") == before
-    assert bt.bt_target_temp == target
+    assert bt.heat_target_temperature == target
 
 
 @pytest.mark.parametrize("device_role", [SEPARATE_COOLER], indirect=True)
@@ -73,12 +73,12 @@ async def test_a_nan_cooling_preset_temperature_is_refused(hass, device_role):
     await bt.async_set_preset_mode("comfort")
     await hass.async_block_till_done()
     before = bt._preset_cool_temperatures.get("comfort")
-    cool_target = bt.bt_target_cooltemp
+    cool_target = bt.cool_target_temperature
 
     await _set(hass, _number(hass, bt, "preset_comfort_cool"), "nan")
 
     assert bt._preset_cool_temperatures.get("comfort") == before
-    assert bt.bt_target_cooltemp == cool_target
+    assert bt.cool_target_temperature == cool_target
 
 
 @pytest.mark.parametrize("parameter", ["kp", "ki", "kd"])
