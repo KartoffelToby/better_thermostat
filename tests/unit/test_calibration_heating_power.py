@@ -30,7 +30,7 @@ def _make_bt(
     hvac_action,
     *,
     cur_temp=20.0,
-    bt_target_temp=21.0,
+    heat_target_temperature=21.0,
     tolerance=0.3,
     trv_temp=21.0,
     last_calibration=0.0,
@@ -43,7 +43,7 @@ def _make_bt(
     bt.tolerance = tolerance
     bt.hvac_action = hvac_action
     bt.cur_temp = cur_temp
-    bt.bt_target_temp = bt_target_temp
+    bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.bt_hvac_mode = HVACMode.OFF

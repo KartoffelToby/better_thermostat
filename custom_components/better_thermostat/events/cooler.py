@@ -53,7 +53,7 @@ def cooling_writes_as_held(self, state: State) -> tuple[float | None, float | No
         grid, each None while unknown
     """
     return (
-        on_cooler_grid(self, state, self.bt_target_cooltemp),
+        on_cooler_grid(self, state, self.cool_target_temperature),
         on_cooler_grid(self, state, last_sent_cooler_temperature(self)),
     )
 
@@ -135,7 +135,7 @@ async def trigger_cooler_change(self, event):
         )
         self.async_write_ha_state()
         return
-    if _new_cooling_setpoint is not None and self.bt_target_cooltemp is None:
+    if _new_cooling_setpoint is not None and self.cool_target_temperature is None:
         # An unknown cool target holds the cooler OFF on every control cycle,
         # and the gate below cannot lift it: that gate needs a setpoint in the
         # previous state, which a cooler that was away usually no longer
@@ -155,12 +155,12 @@ async def trigger_cooler_change(self, event):
         _LOGGER.debug(
             "better_thermostat %s: trigger_cooler_change / "
             "_old_cooling_setpoint: %s - _new_cooling_setpoint: %s - "
-            "bt_target_cooltemp: %s - last_sent: %s - step: %s - echo: %s - "
+            "cool_target_temperature: %s - last_sent: %s - step: %s - echo: %s - "
             "contact_open: %s",
             self.device_name,
             _old_cooling_setpoint,
             _new_cooling_setpoint.value,
-            self.bt_target_cooltemp,
+            self.cool_target_temperature,
             _last_sent,
             _step,
             _new_cooling_setpoint.is_echo,
@@ -211,10 +211,10 @@ async def trigger_cooler_change(self, event):
                     self.device_name,
                     entity_id,
                     _new_cooling_setpoint.value,
-                    self.bt_target_temp,
+                    self.heat_target_temperature,
                     _adopted_cooling_setpoint,
                 )
-            self.bt_target_cooltemp = _adopted_cooling_setpoint
+            self.cool_target_temperature = _adopted_cooling_setpoint
             # The clamp leaves the heating target alone, so this only settles
             # the degenerate case where no cooling value above the heating
             # target exists inside the range: at a heating target resting on
@@ -231,7 +231,7 @@ async def trigger_cooler_change(self, event):
             # instead of guesswork.
             _LOGGER.debug(
                 "better_thermostat %s: Cooler %s setpoint change %s -> %s NOT "
-                "adopted (echo=%s contact_open=%s bt_target_cooltemp=%s "
+                "adopted (echo=%s contact_open=%s cool_target_temperature=%s "
                 "last_sent=%s step=%s)",
                 self.device_name,
                 entity_id,
@@ -239,7 +239,7 @@ async def trigger_cooler_change(self, event):
                 _new_cooling_setpoint.value,
                 _new_cooling_setpoint.is_echo,
                 self.contact_open,
-                self.bt_target_cooltemp,
+                self.cool_target_temperature,
                 _last_sent,
                 _step,
             )

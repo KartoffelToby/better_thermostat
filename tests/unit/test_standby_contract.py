@@ -35,7 +35,7 @@ ENTITY_ID = "climate.trv"
 def _pid_bt(*, window_open):
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cur_temp = 18.0
     bt.cur_temp_filtered = None
     bt.window_open = window_open

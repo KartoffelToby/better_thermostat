@@ -84,7 +84,7 @@ async def test_a_range_only_head_takes_the_room_target_as_its_lower_bound(
         ATTR_TARGET_TEMP_LOW: trv.last_temperature,
         ATTR_TARGET_TEMP_HIGH: 25.0,
     }
-    assert bt.bt_target_temp == 22.0
+    assert bt.heat_target_temperature == 22.0
 
 
 @pytest.mark.parametrize("fake_trv", [RANGE_ONLY_HEAT_TRV], indirect=True)
@@ -98,11 +98,11 @@ async def test_a_range_only_head_confirms_the_write(hass, fake_trv):
     assert await wait_for(hass, lambda: _head_low(hass) >= 22.0)
     assert await wait_for(hass, lambda: trv.target_temp_received is True)
     assert trv.confirmed_setpoint == trv.last_temperature
-    assert bt.bt_target_temp == 22.0
+    assert bt.heat_target_temperature == 22.0
     writes = len(fake_trv.set_temperature_calls)
     await _set_room_target(hass, 22.0)
     assert len(fake_trv.set_temperature_calls) == writes
-    assert bt.bt_target_temp == 22.0
+    assert bt.heat_target_temperature == 22.0
 
 
 @pytest.mark.parametrize("fake_trv", [LOW_TOP], indirect=True)
@@ -119,4 +119,4 @@ async def test_a_range_only_head_raises_a_top_below_the_new_lower_bound(hass, fa
         ATTR_TARGET_TEMP_LOW: trv.last_temperature,
         ATTR_TARGET_TEMP_HIGH: trv.last_temperature,
     }
-    assert bt.bt_target_temp == 23.0
+    assert bt.heat_target_temperature == 23.0

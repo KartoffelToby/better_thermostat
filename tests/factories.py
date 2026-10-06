@@ -205,7 +205,7 @@ def make_bt(
     trv_ids: tuple[str, ...] = (DEFAULT_TRV_ID,),
     hvac_action=HVACAction.IDLE,
     cur_temp: float | None = 20.0,
-    bt_target_temp: float | None = 21.0,
+    heat_target_temperature: float | None = 21.0,
     tolerance: float = 0.3,
     **trv_fields,
 ) -> MagicMock:
@@ -219,7 +219,7 @@ def make_bt(
         Initial HVAC action reported by the mock.
     cur_temp : float | None
         Current room temperature.
-    bt_target_temp : float | None
+    heat_target_temperature : float | None
         Target temperature.
     tolerance : float
         Control tolerance band.
@@ -237,7 +237,7 @@ def make_bt(
     bt.tolerance = tolerance
     bt.hvac_action = hvac_action
     bt.cur_temp = cur_temp
-    bt.bt_target_temp = bt_target_temp
+    bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.bt_hvac_mode = HVACMode.HEAT

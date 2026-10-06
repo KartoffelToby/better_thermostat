@@ -285,8 +285,8 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         # preset and switches the preset off.
         if self._bt_climate.preset_mode == self._preset_mode:
             bounded = self._bt_climate._bound_target_to_range(val_celsius)
-            if self._bt_climate.bt_target_temp != bounded:
-                self._bt_climate.bt_target_temp = bounded
+            if self._bt_climate.heat_target_temperature != bounded:
+                self._bt_climate.heat_target_temperature = bounded
                 if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                     request_control_cycle(self._bt_climate)
         # The thermostat state carries the preset map a restart restores from,
@@ -421,21 +421,21 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         cool_value = value
         if (
             self._bt_climate.preset_mode == self._preset_mode
-            and self._bt_climate.bt_target_temp is not None
-            and value <= self._bt_climate.bt_target_temp
+            and self._bt_climate.heat_target_temperature is not None
+            and value <= self._bt_climate.heat_target_temperature
         ):
             step = self._bt_climate.bt_target_temp_step or 0.5
-            cool_value = self._bt_climate.bt_target_temp + step
+            cool_value = self._bt_climate.heat_target_temperature + step
 
         cool_lower, cool_upper = get_cool_temperature_range(self._bt_climate)
         cool_value = min(cool_upper, max(cool_lower, cool_value))
         self._bt_climate._preset_cool_temperatures[self._preset_mode] = cool_value
 
         if self._bt_climate.preset_mode == self._preset_mode:
-            self._bt_climate.bt_target_cooltemp = cool_value
+            self._bt_climate.cool_target_temperature = cool_value
             self._bt_climate._enforce_cool_above_heat()
             self._bt_climate._preset_cool_temperatures[self._preset_mode] = (
-                self._bt_climate.bt_target_cooltemp
+                self._bt_climate.cool_target_temperature
             )
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 request_control_cycle(self._bt_climate)

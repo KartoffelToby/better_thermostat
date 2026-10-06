@@ -203,7 +203,7 @@ async def test_the_group_keeps_heating_the_room_while_one_head_is_gone(hass, trv
     for head in present:
         assert_write_is(head.set_temperature_calls[-1], 23.0, head.profile)
     assert setpoint_commands(events, absent.entity_id) == []
-    assert bt.bt_target_temp == pytest.approx(23.0)
+    assert bt.heat_target_temperature == pytest.approx(23.0)
 
 
 @pytest.mark.parametrize("trv_group", [MIXED_GRID_GROUP], indirect=True, ids=profile_id)
@@ -481,7 +481,7 @@ ENTRANCES = [
         "cooler_reports",
         {"cooler": COOLER_ID},
         _cooler_reports,
-        lambda room: room.bt.bt_target_cooltemp == pytest.approx(26.0),
+        lambda room: room.bt.cool_target_temperature == pytest.approx(26.0),
     ),
     Entrance(
         "outdoor_sensor_reports",
@@ -881,7 +881,7 @@ async def test_a_head_that_arrives_after_the_room_started_follows_the_room(
         absent.set_available(True)
         assert await wait_for(hass, lambda: absent.set_temperature_calls)
         assert_write_is(
-            absent.set_temperature_calls[-1], bt.bt_target_temp, absent.profile
+            absent.set_temperature_calls[-1], bt.heat_target_temperature, absent.profile
         )
 
         baselines = {
@@ -981,7 +981,7 @@ async def test_a_head_that_arrives_during_valve_maintenance_waits_for_its_end(
         assert await wait_for(hass, lambda: has_adopted(bt, absent.profile))
         assert await wait_for(hass, lambda: absent.set_temperature_calls)
         assert_write_is(
-            absent.set_temperature_calls[-1], bt.bt_target_temp, absent.profile
+            absent.set_temperature_calls[-1], bt.heat_target_temperature, absent.profile
         )
 
     assert during == (True, False, [])

@@ -37,7 +37,7 @@
   "tests/benchmark/multi_trv_plant.py": 8,
   "tests/benchmark/multi_trv_runner.py": 4,
   "tests/benchmark/plant.py": 6,
-  "tests/benchmark/plant_fit/fit_plant.py": 7,
+  "tests/benchmark/plant_fit/fit_plant.py": 5,
   "tests/benchmark/plant_fit/generate_synthetic_data.py": 16,
   "tests/benchmark/runner.py": 14,
   "tests/benchmark/scenarios.py": 3,

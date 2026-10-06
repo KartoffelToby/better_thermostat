@@ -119,11 +119,11 @@ def _fit_tau_room(window: list[tuple[float, float, float]]) -> float | None:
     xs = []
     ys = []
     for t_s, T, _ in window:
-        dT = T - T_out
-        dT0 = T0 - T_out
-        if dT * dT0 <= 0:
+        delta_kelvin = T - T_out
+        initial_delta_kelvin = T0 - T_out
+        if delta_kelvin * initial_delta_kelvin <= 0:
             continue  # Sign flip, skip
-        ratio = dT / dT0
+        ratio = delta_kelvin / initial_delta_kelvin
         if ratio <= 0:
             continue
         xs.append((t_s - t0_s) / 60.0)  # minutes

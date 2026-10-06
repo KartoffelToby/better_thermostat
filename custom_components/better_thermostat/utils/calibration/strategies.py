@@ -183,7 +183,7 @@ class BalanceStrategy:
         healthy = (
             trv is not None
             and effective_room_temp(bt) is not None
-            and bt.bt_target_temp is not None
+            and bt.heat_target_temperature is not None
             and trv.calibrator_health == CalibratorHealth.HEALTHY
         )
         ready = bool(

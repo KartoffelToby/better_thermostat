@@ -2,7 +2,7 @@
 
 Covers the multi-TRV branch (group key + ``distribute_valve_percent``)
 that the controller-level tests can't exercise — the dispatcher reads
-``self.real_trvs``, ``self.bt_target_temp`` and friends off the BT entity.
+``self.real_trvs``, ``self.heat_target_temperature`` and friends off the BT entity.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
     """Build a minimal BT-shaped namespace good enough for the dispatcher."""
     return SimpleNamespace(
         real_trvs=real_trvs,
-        bt_target_temp=21.0,
+        heat_target_temperature=21.0,
         cur_temp=19.5,
         cur_temp_filtered=None,
         tolerance=0.0,
@@ -187,7 +187,7 @@ def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
         ),
     }
     bt = _make_bt(real_trvs=real_trvs)
-    bt.bt_target_temp = 25.0
+    bt.heat_target_temperature = 25.0
     bt.cur_temp = 15.0
 
     out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
