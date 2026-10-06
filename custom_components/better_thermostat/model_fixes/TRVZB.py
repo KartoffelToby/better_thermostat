@@ -188,7 +188,7 @@ def _valve_number_candidates(
         if not is_sibling_entry(ent, device_id) or ent.domain != "number":
             continue
         # Prefer translation_key (stable, language-independent)
-        tk = getattr(ent, "translation_key", None)
+        tk = ent.translation_key
         if tk:
             if tk in _TK_CLOSING:
                 closing_candidates.append(ent.entity_id)
@@ -199,7 +199,7 @@ def _valve_number_candidates(
         # Fallback: string matching on entity_id / unique_id / original_name
         en = (ent.entity_id or "").lower()
         uid = (ent.unique_id or "").lower()
-        name = (getattr(ent, "original_name", None) or "").lower()
+        name = (ent.original_name or "").lower()
         if (
             "valve_opening_degree" in en
             or "valve_opening_degree" in uid
@@ -393,7 +393,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
             return False
 
         # During valve maintenance we don't want to add additional delayed steps.
-        if getattr(self, "in_maintenance", False):
+        if self.in_maintenance:
             ok = await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
             return bool(ok)
 
@@ -439,7 +439,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
                 except (RuntimeError, ValueError, KeyError) as ex:
                     _LOGGER.debug(
                         "better_thermostat %s: TRVZB delayed valve set exception: %s",
-                        getattr(self, "device_name", "unknown"),
+                        self.device_name,
                         ex,
                     )
 
@@ -523,19 +523,19 @@ def _find_device_entity(
         if is_sibling_entry(ent, device_id) and ent.domain == domain
     ]
     for ent in siblings:
-        if getattr(ent, "translation_key", None) in translation_keys:
+        if ent.translation_key in translation_keys:
             return ent.entity_id
     # The registry hands its entities out in insertion order, so a fragment
     # match tried per entry beats the canonical key of an entry behind it.
     # The fallback therefore runs as a second pass, and only over the entries
     # that name themselves nothing.
     for ent in siblings:
-        if getattr(ent, "translation_key", None) is not None:
+        if ent.translation_key is not None:
             continue
         haystacks = (
             (ent.entity_id or "").lower(),
             (ent.unique_id or "").lower(),
-            (getattr(ent, "original_name", None) or "").lower().replace(" ", "_"),
+            (ent.original_name or "").lower().replace(" ", "_"),
         )
         if any(id_fragment in haystack for haystack in haystacks):
             return ent.entity_id

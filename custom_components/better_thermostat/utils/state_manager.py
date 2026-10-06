@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 import logging
 import math
@@ -227,7 +227,7 @@ _BOOL_FIELDS = frozenset(
 _STR_FIELDS = frozenset({"trv_profile"})
 
 
-def _nullable_fields(cls: Any) -> frozenset[str]:
+def _nullable_fields(cls: type) -> frozenset[str]:
     """Return the names of *cls*'s fields whose declared type admits ``None``.
 
     Read off the declarations rather than listed by hand, so the set
@@ -235,7 +235,7 @@ def _nullable_fields(cls: Any) -> frozenset[str]:
     """
     hints = get_type_hints(cls)
     return frozenset(
-        name for name in cls.__dataclass_fields__ if type(None) in get_args(hints[name])
+        f.name for f in fields(cls) if type(None) in get_args(hints[f.name])
     )
 
 
@@ -658,11 +658,10 @@ def deserialize_mpc_v2_reid(
     # seed a plant prior. The band is two-sided on both: too small a
     # ``tau_room_min`` and the room dynamics blow up, too large and they
     # freeze, and either rail pins the commanded valve.
-    for attr, bounds in (
-        ("tau_room_min", TAU_ROOM_BOUNDS_MIN),
-        ("gain_heater", GAIN_HEATER_BOUNDS),
+    for attr, value, bounds in (
+        ("tau_room_min", state.tau_room_min, TAU_ROOM_BOUNDS_MIN),
+        ("gain_heater", state.gain_heater, GAIN_HEATER_BOUNDS),
     ):
-        value = getattr(state, attr)
         if not _within(value, bounds):
             _LOGGER.warning(
                 "better_thermostat: stored mpc_v2_reid result for %s has %s=%s "
@@ -1256,7 +1255,9 @@ class StateManager:
 
     # -- Load / Save ---------------------------------------------------------
 
-    def schedule_delay_save(self, pre_save=None, delay_s: float = 15.0) -> None:
+    def schedule_delay_save(
+        self, pre_save: Callable[[], None] | None = None, delay_s: float = 15.0
+    ) -> None:
         """Schedule a coalesced disk write through the Store.
 
         The Store flushes a pending delayed save on Home Assistant's
