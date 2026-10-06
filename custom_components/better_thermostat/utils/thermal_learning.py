@@ -46,7 +46,7 @@ class HeatingCycle(TypedDict):
     end: str | None
     temp_start: float | None
     temp_peak: float | None
-    delta_t: float
+    delta_kelvin: float
     minutes: float
     rate_c_min: float
     target: float | None
@@ -79,7 +79,7 @@ class LossCycle(TypedDict):
 class LossStats(TypedDict):
     """Compact heat-loss learning sample."""
 
-    dT: float
+    delta_kelvin: float
     min: float
     rate: float
     alpha: float
@@ -362,7 +362,7 @@ class HeatingPowerTracker:
                     "temp_peak": (
                         round(self.end_temp, 2) if self.end_temp is not None else None
                     ),
-                    "delta_t": round(temp_diff, 3),
+                    "delta_kelvin": round(temp_diff, 3),
                     "minutes": round(duration_min, 2),
                     "rate_c_min": round(heating_rate, 4),
                     "target": target_temp,
@@ -514,7 +514,7 @@ class HeatLossTracker:
 
                 self.stats.append(
                     {
-                        "dT": round(temp_drop, 2),
+                        "delta_kelvin": round(temp_drop, 2),
                         "min": round(duration_min, 1),
                         "rate": round(loss_rate, 5),
                         "alpha": round(alpha, 3),

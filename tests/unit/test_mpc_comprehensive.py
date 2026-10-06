@@ -814,7 +814,7 @@ class TestVirtualTemperature:
         assert state.virtual_temp is not None
 
     def test_virtual_temp_used_for_delta_t(self):
-        """When virtual temp is enabled, delta_t should use virtual temp, not sensor."""
+        """When virtual temp is enabled, delta_kelvin should use virtual temp, not sensor."""
         params = _default_params(use_virtual_temp=True)
         _compute(_inp(key="vdelta", current_temp_C=20.0, target_temp_C=22.0), params)
         state = _STATES["vdelta"]

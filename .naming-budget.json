@@ -41,7 +41,7 @@
   "custom_components/better_thermostat/utils/helpers.py": 10,
   "custom_components/better_thermostat/utils/hvac_action.py": 26,
   "custom_components/better_thermostat/utils/snapshot.py": 9,
-  "custom_components/better_thermostat/utils/thermal_learning.py": 42,
+  "custom_components/better_thermostat/utils/thermal_learning.py": 40,
   "custom_components/better_thermostat/utils/valve_maintenance.py": 4,
   "tests/benchmark/adapters/heating_power_adapter.py": 3,
   "tests/benchmark/metrics.py": 11,

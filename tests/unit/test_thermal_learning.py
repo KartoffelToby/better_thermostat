@@ -335,7 +335,7 @@ class TestHeatingPowerTrackerFinalization:
         assert "end" in entry
         assert "temp_start" in entry
         assert "temp_peak" in entry
-        assert "delta_t" in entry
+        assert "delta_kelvin" in entry
         assert "minutes" in entry
         assert "rate_c_min" in entry
 
@@ -522,7 +522,7 @@ class TestHeatLossTrackerFinalization:
         t, _ = self._run_complete_loss_cycle()
         assert len(t.stats) == 1
         entry = t.stats[0]
-        assert "dT" in entry
+        assert "delta_kelvin" in entry
         assert "min" in entry
         assert "rate" in entry
         assert "alpha" in entry
