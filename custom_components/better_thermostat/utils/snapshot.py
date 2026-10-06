@@ -93,7 +93,7 @@ def build_snapshot(self) -> WorldSnapshot:
         now=self.clock.now(),
         now_monotonic=self.clock.monotonic(),
         target_temp=_as_float(self, self.bt_target_temp),
-        target_cooltemp=_as_float(self, self.bt_target_cooltemp),
+        target_cooltemp=_as_float(self, self.cool_target_temperature),
         hvac_mode=parse_hvac_mode(self.bt_hvac_mode),
         room_temp=_as_float(self, self.cur_temp),
         room_temp_filtered=_as_float(self, self.cur_temp_filtered),

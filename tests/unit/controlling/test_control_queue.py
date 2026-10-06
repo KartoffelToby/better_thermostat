@@ -33,7 +33,7 @@ def _thermostat() -> ThermostatStandIn:
     bt.flight_recorder = FlightRecorder()
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.bt_target_temp = 21.0
-    bt.bt_target_cooltemp = None
+    bt.cool_target_temperature = None
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.cur_temp = 20.0

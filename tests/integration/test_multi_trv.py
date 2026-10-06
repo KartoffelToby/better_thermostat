@@ -481,7 +481,7 @@ ENTRANCES = [
         "cooler_reports",
         {"cooler": COOLER_ID},
         _cooler_reports,
-        lambda room: room.bt.bt_target_cooltemp == pytest.approx(26.0),
+        lambda room: room.bt.cool_target_temperature == pytest.approx(26.0),
     ),
     Entrance(
         "outdoor_sensor_reports",

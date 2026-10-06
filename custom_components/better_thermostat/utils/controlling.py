@@ -805,7 +805,7 @@ class _FailedCycleRun:
 
 def _user_intent(self: BetterThermostat) -> tuple[Any, ...]:
     """Return the room targets a user sets, as the failure pacing compares them."""
-    return (self.bt_target_temp, self.bt_target_cooltemp, self.bt_hvac_mode)
+    return (self.bt_target_temp, self.cool_target_temperature, self.bt_hvac_mode)
 
 
 async def _requeue_failed_cycle(self: BetterThermostat, delay_s: float) -> None:
@@ -1192,7 +1192,7 @@ def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, 
     """Return what a report read at cycle end can move that a cycle acts on."""
     return (
         self.bt_target_temp,
-        self.bt_target_cooltemp,
+        self.cool_target_temperature,
         self.bt_hvac_mode,
         trv.hvac_mode,
         trv.confirmed_setpoint,
@@ -1556,7 +1556,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(cur_temp=%s, bt_target_cooltemp=%s, tolerance=%s, bt_target_temp=%s), "
+            "(cur_temp=%s, cool_target_temperature=%s, tolerance=%s, bt_target_temp=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,

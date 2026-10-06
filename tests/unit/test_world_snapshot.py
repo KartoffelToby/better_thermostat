@@ -34,7 +34,7 @@ def _make_bt() -> MagicMock:
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
     )
     bt.bt_target_temp = 21.5
-    bt.bt_target_cooltemp = 24.0
+    bt.cool_target_temperature = 24.0
     bt.bt_hvac_mode = "heat"
     bt.cur_temp = 20.1
     bt.cur_temp_filtered = 20.2
@@ -71,7 +71,7 @@ def _make_bt() -> MagicMock:
 # Entity attribute -> snapshot field, value from _make_bt.
 COMPLETENESS_TABLE = [
     ("bt_target_temp", "target_temp", 21.5),
-    ("bt_target_cooltemp", "target_cooltemp", 24.0),
+    ("cool_target_temperature", "target_cooltemp", 24.0),
     ("bt_hvac_mode", "hvac_mode", HvacMode.HEAT),
     ("cur_temp", "room_temp", 20.1),
     ("cur_temp_filtered", "room_temp_filtered", 20.2),

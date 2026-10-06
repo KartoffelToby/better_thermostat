@@ -74,7 +74,7 @@ def _make_self() -> ThermostatStandIn:
     entity.cooler_entity_id = None
     entity.real_trvs = {_TRV: Trv.from_legacy_dict(_TRV, {})}
     entity.bt_target_temp = 21.0
-    entity.bt_target_cooltemp = None
+    entity.cool_target_temperature = None
     entity.bt_hvac_mode = HVACMode.HEAT
     entity.clock = FakeClock()
     # The TRV is present, so a cycle that reports it clean did control it.
@@ -189,7 +189,7 @@ async def test_a_retry_that_succeeds_ends_the_run():
     ("attribute", "value"),
     [
         ("bt_target_temp", 23.5),
-        ("bt_target_cooltemp", 26.0),
+        ("cool_target_temperature", 26.0),
         ("bt_hvac_mode", HVACMode.OFF),
     ],
 )

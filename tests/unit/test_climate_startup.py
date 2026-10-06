@@ -132,7 +132,7 @@ def bt():
     mock.bt_target_temp_max = None
     mock.bt_target_temp_step = None
     mock._configured_target_temp_step = None
-    mock.bt_target_cooltemp = None
+    mock.cool_target_temperature = None
     mock.bt_hvac_mode = None
     mock.cur_temp = None
     mock.cur_temp_filtered = None
@@ -1332,7 +1332,7 @@ async def _run_startup(bt, restored_target, restored_cool_target=None):
     async def _restore(_states):
         bt.bt_target_temp = restored_target
         if restored_cool_target is not None:
-            bt.bt_target_cooltemp = restored_cool_target
+            bt.cool_target_temperature = restored_cool_target
 
     bt._restore_state.side_effect = _restore
     with patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()):
@@ -1356,7 +1356,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_the_seed_is_bounded_by_the_cooler_range(self, bt):
@@ -1368,7 +1368,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp == 33.0
+        assert bt.cool_target_temperature == 33.0
 
     @pytest.mark.asyncio
     async def test_range_only_cooler_seeds_from_target_temp_high(self, bt):
@@ -1393,7 +1393,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp == 25.5
+        assert bt.cool_target_temperature == 25.5
 
     @pytest.mark.asyncio
     async def test_unavailable_cooler_leaves_the_cool_target_unknown(self, bt):
@@ -1415,7 +1415,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
 
     @pytest.mark.asyncio
     async def test_setpoint_inside_the_configured_range_is_taken_unchanged(
@@ -1434,7 +1434,7 @@ class TestStartupCoolTargetSeed:
         caplog.set_level(logging.WARNING)
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
         assert bt.bt_target_temp == 21.0
         assert caplog.text == ""
 
@@ -1456,7 +1456,7 @@ class TestStartupCoolTargetSeed:
         caplog.set_level(logging.WARNING)
         await _run_startup(bt, restored_target=15.0)
 
-        assert bt.bt_target_cooltemp == 18.0
+        assert bt.cool_target_temperature == 18.0
         assert (
             "reported setpoint 16.0 outside of range while the cool target is "
             "unknown, taking 18.0 as the cool target" in caplog.text
@@ -1477,7 +1477,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp == 21.5
+        assert bt.cool_target_temperature == 21.5
         assert bt.bt_target_temp == 21.0
 
     @pytest.mark.asyncio
@@ -1493,7 +1493,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0, restored_cool_target=26.0)
 
-        assert bt.bt_target_cooltemp == 26.0
+        assert bt.cool_target_temperature == 26.0
 
     @pytest.mark.asyncio
     async def test_no_cooler_configured_leaves_the_cool_target_unknown(self, bt):
@@ -1508,7 +1508,7 @@ class TestStartupCoolTargetSeed:
 
         await _run_startup(bt, restored_target=21.0)
 
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
         bt._seed_cool_target.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1535,7 +1535,7 @@ class TestStartupCoolTargetSeed:
         await _run_startup(bt, restored_target=21.0)
 
         assert "Could not convert 'unavailable' to float in startup()" in caplog.text
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_unreadable_setpoint_is_logged_against_this_read(self, bt, caplog):
@@ -1554,7 +1554,7 @@ class TestStartupCoolTargetSeed:
         await _run_startup(bt, restored_target=21.0)
 
         assert "Could not convert 'n/a' to float in startup()" in caplog.text
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
 
 
 # ---------------------------------------------------------------------------
@@ -2033,7 +2033,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt._preset_cool_temperatures["comfort"] == 25.5
-        assert bt.bt_target_cooltemp == 25.5
+        assert bt.cool_target_temperature == 25.5
 
     @pytest.mark.asyncio
     async def test_a_restored_preset_off_the_step_applies_the_targets_it_applied_before(
@@ -2054,7 +2054,7 @@ class TestRestoreState:
         bt.control_queue_task = None
 
         await BetterThermostat.async_set_preset_mode(bt, "comfort")
-        selected = (bt.bt_target_temp, bt.bt_target_cooltemp)
+        selected = (bt.bt_target_temp, bt.cool_target_temperature)
 
         old = MagicMock()
         old.state = "heat"
@@ -2068,12 +2068,12 @@ class TestRestoreState:
         }
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.bt_target_temp = None
-        bt.bt_target_cooltemp = None
+        bt.cool_target_temperature = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert selected == (22.0, 25.5)
-        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == selected
+        assert (bt.bt_target_temp, bt.cool_target_temperature) == selected
         assert bt.preset_mgr.mode == "comfort"
 
     @pytest.mark.asyncio
@@ -2102,12 +2102,12 @@ class TestRestoreState:
         }
         bt.async_get_last_state = AsyncMock(return_value=old)
         bt.bt_target_temp = None
-        bt.bt_target_cooltemp = None
+        bt.cool_target_temperature = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.preset_mgr.mode == "comfort"
-        assert (bt.bt_target_temp, bt.bt_target_cooltemp) == (22.0, 33.0)
+        assert (bt.bt_target_temp, bt.cool_target_temperature) == (22.0, 33.0)
 
     @pytest.mark.asyncio
     async def test_a_preset_below_a_bound_off_the_step_applies_one_target(self, bt):
@@ -2188,10 +2188,10 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 20.0
-        assert bt.bt_target_cooltemp == 20.5
+        assert bt.cool_target_temperature == 20.5
         assert bt.bt_min_temp <= bt.bt_target_temp <= bt.bt_max_temp
-        assert bt.bt_min_temp <= bt.bt_target_cooltemp <= bt.bt_max_temp
-        assert bt.bt_target_cooltemp > bt.bt_target_temp
+        assert bt.bt_min_temp <= bt.cool_target_temperature <= bt.bt_max_temp
+        assert bt.cool_target_temperature > bt.bt_target_temp
 
     @pytest.mark.asyncio
     async def test_restored_preset_cool_target_above_the_maximum_is_bounded(self, bt):
@@ -2211,9 +2211,9 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 20.0
-        assert bt.bt_target_cooltemp == 26.0
-        assert bt.bt_min_temp <= bt.bt_target_cooltemp <= bt.bt_max_temp
-        assert bt.bt_target_cooltemp > bt.bt_target_temp
+        assert bt.cool_target_temperature == 26.0
+        assert bt.bt_min_temp <= bt.cool_target_temperature <= bt.bt_max_temp
+        assert bt.cool_target_temperature > bt.bt_target_temp
 
     @pytest.mark.asyncio
     async def test_restored_preset_heating_target_above_the_maximum_is_bounded(
@@ -2238,7 +2238,7 @@ class TestRestoreState:
         """Without a cooling channel there is no pair to order."""
         bt = self._cooling_bt(bt, 16.0, 26.0)
         bt.cooler_entity_id = None
-        bt.bt_target_cooltemp = 18.0
+        bt.cool_target_temperature = 18.0
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.0, "eco": 27.0}
         bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
         old = MagicMock()
@@ -2249,7 +2249,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 22.0
-        assert bt.bt_target_cooltemp == 18.0
+        assert bt.cool_target_temperature == 18.0
 
     @pytest.mark.asyncio
     async def test_a_saved_range_restores_both_targets(self, bt):
@@ -2271,7 +2271,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 20.0
-        assert bt.bt_target_cooltemp == 23.0
+        assert bt.cool_target_temperature == 23.0
 
     @pytest.mark.asyncio
     async def test_a_saved_single_target_restores_without_a_cooling_target(self, bt):
@@ -2289,7 +2289,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 22.5
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
 
     @pytest.mark.asyncio
     async def test_a_restored_cooling_target_survives_the_cooler_read(self, bt):
@@ -2312,7 +2312,7 @@ class TestRestoreState:
         seeded = BetterThermostat._seed_cool_target_from_cooler(bt, "startup()")
 
         assert seeded is False
-        assert bt.bt_target_cooltemp == 23.0
+        assert bt.cool_target_temperature == 23.0
 
     @pytest.mark.asyncio
     async def test_a_saved_range_below_the_minimum_is_bounded_and_ordered(self, bt):
@@ -2334,7 +2334,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 20.0
-        assert bt.bt_target_cooltemp == 20.5
+        assert bt.cool_target_temperature == 20.5
 
     @pytest.mark.asyncio
     async def test_a_saved_fahrenheit_range_restores_as_celsius(self, bt):
@@ -2358,7 +2358,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
         assert bt.bt_target_temp == 20.0
-        assert bt.bt_target_cooltemp == 23.0
+        assert bt.cool_target_temperature == 23.0
 
     @pytest.mark.asyncio
     async def test_restores_heating_power_clamped(self, bt):
@@ -2722,7 +2722,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
         bt._seed_cool_target.assert_called_once()
         assert bt.control_queue_task.qsize() == 1
 
@@ -2739,7 +2739,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
         assert bt.control_queue_task.empty()
 
     @pytest.mark.asyncio
@@ -2766,7 +2766,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         caplog.set_level(logging.WARNING)
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == bounded
+        assert bt.cool_target_temperature == bounded
         assert (
             f"reported setpoint {raw} outside of range while the cool target is "
             f"unknown, taking {bounded} as the cool target" in caplog.text
@@ -2787,7 +2787,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 21.5
+        assert bt.cool_target_temperature == 21.5
         assert bt.bt_target_temp == 21.0
 
     @pytest.mark.asyncio
@@ -2804,7 +2804,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 21.5
+        assert bt.cool_target_temperature == 21.5
         assert bt.bt_target_temp == 21.0
 
     @pytest.mark.asyncio
@@ -2829,7 +2829,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
         bt._seed_cool_target.assert_called_once()
         assert bt.control_queue_task.qsize() == 1
 
@@ -2854,7 +2854,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
         bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.empty()
 
@@ -2877,7 +2877,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
         bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.empty()
 
@@ -2889,7 +2889,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
         bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.empty()
 
@@ -2901,7 +2901,7 @@ class TestCoolerTargetReadAtListenerRegistration:
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
         bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.empty()
 
@@ -2914,12 +2914,12 @@ class TestCoolerTargetReadAtListenerRegistration:
         Better Thermostat already holds.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_cooltemp = 26.0
+        bt.cool_target_temperature = 26.0
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         await _run_finalize_startup(bt)
 
-        assert bt.bt_target_cooltemp == 26.0
+        assert bt.cool_target_temperature == 26.0
         bt._seed_cool_target.assert_not_called()
         assert bt.control_queue_task.empty()
 
@@ -2948,7 +2948,7 @@ class TestCoolerTargetReadAtListenerRegistration:
             await _run_finalize_startup(bt)
 
         assert spy.call_args.kwargs["step"] == 1.1111
-        assert bt.bt_target_cooltemp == 23.89
+        assert bt.cool_target_temperature == 23.89
 
     @pytest.mark.asyncio
     async def test_unreadable_step_is_logged_against_this_read(self, bt, caplog):
@@ -2977,7 +2977,7 @@ class TestCoolerTargetReadAtListenerRegistration:
             "Could not convert 'unavailable' to float in _finalize_startup()"
             in caplog.text
         )
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
 
     @pytest.mark.asyncio
     async def test_unreadable_setpoint_is_logged_against_this_read(self, bt, caplog):
@@ -2996,7 +2996,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         await _run_finalize_startup(bt)
 
         assert "Could not convert 'n/a' to float in _finalize_startup()" in caplog.text
-        assert bt.bt_target_cooltemp is None
+        assert bt.cool_target_temperature is None
 
 
 class TestFinalizeStartupBatteryScan:
@@ -3313,7 +3313,7 @@ class TestFinalizeStartupOnADualRoleEntity:
 
         await self._run_capturing_subscriptions(bt)
 
-        assert bt.bt_target_cooltemp == 24.0
+        assert bt.cool_target_temperature == 24.0
         assert bt.control_queue_task.qsize() == 1
 
     @pytest.mark.asyncio
@@ -3323,12 +3323,12 @@ class TestFinalizeStartupOnADualRoleEntity:
         Nothing was seeded, so there is no new value for a cycle to carry.
         """
         self._make_shared_bt(bt)
-        bt.bt_target_cooltemp = 26.0
+        bt.cool_target_temperature = 26.0
         _install_states(bt, {TRV_ID: _make_trv_state()})
 
         await self._run_capturing_subscriptions(bt)
 
-        assert bt.bt_target_cooltemp == 26.0
+        assert bt.cool_target_temperature == 26.0
         assert bt.control_queue_task.empty()
 
     @pytest.mark.asyncio
@@ -3347,7 +3347,7 @@ class TestFinalizeStartupOnADualRoleEntity:
 
         await self._run_capturing_subscriptions(bt)
 
-        assert bt.bt_target_cooltemp == bt.bt_max_temp
+        assert bt.cool_target_temperature == bt.bt_max_temp
         assert bt.control_queue_task.qsize() == 1
 
 
@@ -3583,7 +3583,7 @@ class TestATrvThatArrivesAfterStartup:
         _room_with_a_trv_left_behind(bt, available=True)
         bt.cooler_entity_id = COOLER_ID
         bt.bt_target_temp = 27.0
-        bt.bt_target_cooltemp = 29.0
+        bt.cool_target_temperature = 29.0
         read_with = []
 
         def narrow(states):
@@ -3598,7 +3598,7 @@ class TestATrvThatArrivesAfterStartup:
 
         assert read_with == [[TRV_ID, TRV_ID_2, COOLER_ID]]
         assert bt.bt_target_temp == 26.0
-        assert bt.bt_target_cooltemp == 26.0
+        assert bt.cool_target_temperature == 26.0
 
     @pytest.mark.asyncio
     async def test_it_is_left_alone_while_it_is_still_unavailable(self, bt):

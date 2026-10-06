@@ -48,7 +48,7 @@ def mock_bt():
     # Temperature
     bt.cur_temp = 20.0
     bt.bt_target_temp = 22.0
-    bt.bt_target_cooltemp = 26.0
+    bt.cool_target_temperature = 26.0
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.cool_min_temperature = None
@@ -295,7 +295,7 @@ class TestComputeHvacAction:
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.cur_temp = 27.0
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
         mock_bt.tolerance = 0.5
         assert self._call(mock_bt) == HVACAction.COOLING
 
@@ -981,7 +981,7 @@ class TestAsyncSetPresetMode:
 
         await self._call(mock_bt, PRESET_COMFORT)
 
-        assert mock_bt.bt_target_cooltemp == 25.5
+        assert mock_bt.cool_target_temperature == 25.5
 
     @pytest.mark.asyncio
     async def test_a_preset_rounded_onto_the_step_stays_inside_the_range(self, mock_bt):
@@ -1068,14 +1068,14 @@ class TestAsyncSetPresetMode:
         mock_bt._preset_cool_temperature = None
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_target_temp = 20.0
-        mock_bt.bt_target_cooltemp = 26.0  # manual cooling target
+        mock_bt.cool_target_temperature = 26.0  # manual cooling target
         # Entering a preset stashes the manual cool target and applies the preset's.
         await self._call(mock_bt, PRESET_COMFORT)
         assert mock_bt._preset_cool_temperature == 26.0
-        assert mock_bt.bt_target_cooltemp == 24.0
+        assert mock_bt.cool_target_temperature == 24.0
         # Returning to NONE restores the manual cool target, not Comfort's.
         await self._call(mock_bt, PRESET_NONE)
-        assert mock_bt.bt_target_cooltemp == 26.0
+        assert mock_bt.cool_target_temperature == 26.0
 
     @pytest.mark.asyncio
     async def test_restored_manual_cool_target_is_ordered_while_off(self, mock_bt):
@@ -1099,15 +1099,19 @@ class TestAsyncSetPresetMode:
         mock_bt._preset_cool_temperatures = {PRESET_NONE: 24.0, PRESET_COMFORT: 26.0}
         mock_bt._preset_cool_temperature = 22.0
         mock_bt.bt_target_temp = 24.0
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
 
         await self._call(mock_bt, PRESET_NONE)
 
         assert mock_bt.bt_target_temp == 24.0
-        assert mock_bt.bt_target_cooltemp == 24.5
+        assert mock_bt.cool_target_temperature == 24.5
         assert mock_bt.bt_min_temp <= mock_bt.bt_target_temp <= mock_bt.bt_max_temp
-        assert mock_bt.bt_min_temp <= mock_bt.bt_target_cooltemp <= mock_bt.bt_max_temp
-        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+        assert (
+            mock_bt.bt_min_temp
+            <= mock_bt.cool_target_temperature
+            <= mock_bt.bt_max_temp
+        )
+        assert mock_bt.cool_target_temperature > mock_bt.bt_target_temp
 
     @pytest.mark.asyncio
     async def test_restored_manual_cool_target_above_the_maximum_is_bounded(
@@ -1130,13 +1134,17 @@ class TestAsyncSetPresetMode:
         mock_bt._preset_cool_temperatures = {PRESET_NONE: 24.0, PRESET_COMFORT: 25.0}
         mock_bt._preset_cool_temperature = 35.0
         mock_bt.bt_target_temp = 20.0
-        mock_bt.bt_target_cooltemp = 25.0
+        mock_bt.cool_target_temperature = 25.0
 
         await self._call(mock_bt, PRESET_NONE)
 
-        assert mock_bt.bt_target_cooltemp == 26.0
-        assert mock_bt.bt_min_temp <= mock_bt.bt_target_cooltemp <= mock_bt.bt_max_temp
-        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+        assert mock_bt.cool_target_temperature == 26.0
+        assert (
+            mock_bt.bt_min_temp
+            <= mock_bt.cool_target_temperature
+            <= mock_bt.bt_max_temp
+        )
+        assert mock_bt.cool_target_temperature > mock_bt.bt_target_temp
 
     @pytest.mark.asyncio
     async def test_preset_temp_clamped_to_max(self, mock_bt):
@@ -1301,7 +1309,7 @@ class TestAsyncSetTemperature:
             mock_bt, **{ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 26.0}
         )
         assert mock_bt.bt_target_temp == 20.0
-        assert mock_bt.bt_target_cooltemp == 26.0
+        assert mock_bt.cool_target_temperature == 26.0
 
     @pytest.mark.asyncio
     async def test_cool_target_enforced_above_heat(self, mock_bt):
@@ -1312,9 +1320,9 @@ class TestAsyncSetTemperature:
         mock_bt.min_temp = mock_bt.bt_min_temp
         mock_bt.max_temp = mock_bt.bt_max_temp
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 20.0  # below heat target → should be adjusted
+        mock_bt.cool_target_temperature = 20.0  # below heat target → should be adjusted
         await self._call(mock_bt, **{ATTR_TEMPERATURE: 22.0})
-        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+        assert mock_bt.cool_target_temperature > mock_bt.bt_target_temp
 
     @pytest.mark.asyncio
     async def test_a_cooling_only_target_moves_the_heating_target_below_it(
@@ -1325,9 +1333,9 @@ class TestAsyncSetTemperature:
         mock_bt.bt_hvac_mode = HVACMode.HEAT_COOL
         mock_bt.preset_mgr.mode = PRESET_NONE
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
         await self._call(mock_bt, **{ATTR_TARGET_TEMP_HIGH: 21.0})
-        assert mock_bt.bt_target_cooltemp == 21.0
+        assert mock_bt.cool_target_temperature == 21.0
         assert mock_bt.bt_target_temp == 20.5
 
     @pytest.mark.asyncio
@@ -1352,9 +1360,9 @@ class TestAsyncSetTemperature:
         mock_bt.preset_mgr.saved_temperature = 20.0
         mock_bt.preset_mgr.temperatures[PRESET_COMFORT] = 22.0
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
         await self._call(mock_bt, **{ATTR_TARGET_TEMP_HIGH: cooling_target})
-        assert mock_bt.bt_target_cooltemp == cooling_target
+        assert mock_bt.cool_target_temperature == cooling_target
         assert mock_bt.bt_target_temp == heating_target
         assert mock_bt.preset_mgr.mode == preset
         assert mock_bt.preset_mgr.temperatures[PRESET_NONE] == manual_target
@@ -1536,83 +1544,83 @@ class TestEnforceCoolAboveHeat:
         """Outside HEAT_COOL the cool target is left untouched even if below heat."""
         mock_bt.hvac_mode = HVACMode.HEAT
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 20.0
+        mock_bt.cool_target_temperature = 20.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 20.0
+        assert mock_bt.cool_target_temperature == 20.0
 
     def test_regardless_of_hvac_mode_skips_the_mode_gate(self, mock_bt):
         """The flag orders the pair in a mode that does not cool at all."""
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 20.0
+        mock_bt.cool_target_temperature = 20.0
         self._call(mock_bt, regardless_of_hvac_mode=True)
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
 
     def test_regardless_of_hvac_mode_keeps_the_none_guards(self, mock_bt):
         """Without both targets there is no pair to order."""
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = None
+        mock_bt.cool_target_temperature = None
         self._call(mock_bt, regardless_of_hvac_mode=True)
-        assert mock_bt.bt_target_cooltemp is None
+        assert mock_bt.cool_target_temperature is None
 
         mock_bt.bt_target_temp = None
-        mock_bt.bt_target_cooltemp = 20.0
+        mock_bt.cool_target_temperature = 20.0
         self._call(mock_bt, regardless_of_hvac_mode=True)
-        assert mock_bt.bt_target_cooltemp == 20.0
+        assert mock_bt.cool_target_temperature == 20.0
 
     def test_regardless_of_hvac_mode_keeps_the_ordering_guard(self, mock_bt):
         """A pair already in order is left alone whatever the mode is."""
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
         self._call(mock_bt, regardless_of_hvac_mode=True)
-        assert mock_bt.bt_target_cooltemp == 26.0
+        assert mock_bt.cool_target_temperature == 26.0
 
     def test_default_is_mode_gated(self, mock_bt):
         """A caller that omits the flag is gated on HEAT_COOL."""
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 20.0
+        mock_bt.cool_target_temperature = 20.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 20.0
+        assert mock_bt.cool_target_temperature == 20.0
 
     def test_cool_above_heat_is_noop(self, mock_bt):
         """A cool target already above the heat target is unchanged."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 26.0
+        assert mock_bt.cool_target_temperature == 26.0
 
     def test_cool_below_heat_is_bumped_by_step(self, mock_bt):
         """A cool target below the heat target is bumped up by one step."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 20.0
+        mock_bt.cool_target_temperature = 20.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
 
     def test_cool_equal_heat_is_bumped(self, mock_bt):
         """A cool target equal to the heat target is bumped above it."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
 
     def test_step_falls_back_to_half_degree(self, mock_bt):
         """A missing/zero step falls back to 0.5."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0
-        mock_bt.bt_target_cooltemp = 21.0
+        mock_bt.cool_target_temperature = 21.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
 
     @pytest.mark.parametrize("step", UNUSABLE_STEPS)
     def test_unusable_step_falls_back_to_the_default_step(self, mock_bt, caplog, step):
@@ -1627,13 +1635,13 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = 30.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = step
-        mock_bt.bt_target_cooltemp = 21.0
+        mock_bt.cool_target_temperature = 21.0
 
         with caplog.at_level(logging.WARNING):
             self._call(mock_bt)
 
-        assert mock_bt.bt_target_cooltemp == 22.5
-        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+        assert mock_bt.cool_target_temperature == 22.5
+        assert mock_bt.cool_target_temperature > mock_bt.bt_target_temp
         assert (
             "cooling target 21.00 adjusted to 22.50 to stay above heating "
             "target 22.00" in caplog.text
@@ -1643,9 +1651,9 @@ class TestEnforceCoolAboveHeat:
         """A None cool target does not raise and stays None."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = None
+        mock_bt.cool_target_temperature = None
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp is None
+        assert mock_bt.cool_target_temperature is None
 
     def test_bump_stops_at_the_configured_maximum(self, mock_bt):
         """A heat target within one step of the maximum shortens the bump.
@@ -1658,11 +1666,11 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = 30.0
         mock_bt.bt_target_temp = 29.8
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 29.0
+        mock_bt.cool_target_temperature = 29.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 30.0
-        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
-        assert mock_bt.bt_target_cooltemp <= mock_bt.bt_max_temp
+        assert mock_bt.cool_target_temperature == 30.0
+        assert mock_bt.cool_target_temperature > mock_bt.bt_target_temp
+        assert mock_bt.cool_target_temperature <= mock_bt.bt_max_temp
 
     def test_heat_target_at_the_maximum_meets_the_cool_target_there(
         self, mock_bt, caplog
@@ -1677,10 +1685,10 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = 30.0
         mock_bt.bt_target_temp = 30.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 28.0
+        mock_bt.cool_target_temperature = 28.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 30.0
+        assert mock_bt.cool_target_temperature == 30.0
         assert (
             "cooling target 28.00 raised to the configured maximum 30.00, which "
             "the heating target occupies as well, because the range holds no "
@@ -1693,10 +1701,10 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = 30.0
         mock_bt.bt_target_temp = 30.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 30.0
+        mock_bt.cool_target_temperature = 30.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 30.0
+        assert mock_bt.cool_target_temperature == 30.0
         assert caplog.text == ""
 
     def test_maximum_below_the_heat_target_does_not_cap(self, mock_bt, caplog):
@@ -1710,11 +1718,11 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = 18.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 17.0
+        mock_bt.cool_target_temperature = 17.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 22.5
-        assert mock_bt.bt_target_cooltemp > mock_bt.bt_target_temp
+        assert mock_bt.cool_target_temperature == 22.5
+        assert mock_bt.cool_target_temperature > mock_bt.bt_target_temp
         assert "adjusted to 22.50 to stay above heating target 22.00" in caplog.text
         assert "raised to the configured maximum" not in caplog.text
 
@@ -1729,9 +1737,9 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = 30.0
         mock_bt.bt_target_temp = 32.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 31.0
+        mock_bt.cool_target_temperature = 31.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 32.5
+        assert mock_bt.cool_target_temperature == 32.5
 
     def test_without_a_maximum_the_bump_is_uncapped(self, mock_bt):
         """No maximum is known until a child entity reports one."""
@@ -1739,9 +1747,9 @@ class TestEnforceCoolAboveHeat:
         mock_bt.bt_max_temp = None
         mock_bt.bt_target_temp = 29.8
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 29.0
+        mock_bt.cool_target_temperature = 29.0
         self._call(mock_bt)
-        assert mock_bt.bt_target_cooltemp == 30.3
+        assert mock_bt.cool_target_temperature == 30.3
 
 
 # ===========================================================================
@@ -1759,7 +1767,7 @@ class TestEnforceHeatBelowCool:
         """Outside HEAT_COOL the heat target is left untouched even if above cool."""
         mock_bt.hvac_mode = HVACMode.HEAT
         mock_bt.bt_target_temp = 22.0
-        mock_bt.bt_target_cooltemp = 20.0
+        mock_bt.cool_target_temperature = 20.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 22.0
 
@@ -1767,7 +1775,7 @@ class TestEnforceHeatBelowCool:
         """A heat target already below the cool target is unchanged."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 20.0
-        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cool_target_temperature = 24.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 20.0
 
@@ -1776,7 +1784,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 24.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 21.5
 
@@ -1785,7 +1793,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 21.5
 
@@ -1794,7 +1802,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 21.5
 
@@ -1811,13 +1819,13 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = step
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
 
         with caplog.at_level(logging.WARNING):
             self._call(mock_bt)
 
         assert mock_bt.bt_target_temp == 21.5
-        assert mock_bt.bt_target_temp < mock_bt.bt_target_cooltemp
+        assert mock_bt.bt_target_temp < mock_bt.cool_target_temperature
         assert (
             "heating target 22.00 adjusted to 21.50 to stay below cooling "
             "target 22.00" in caplog.text
@@ -1834,7 +1842,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_target_temp = 6.0
         mock_bt.bt_target_temp_step = 0.5
         mock_bt.bt_min_temp = 5.0
-        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.cool_target_temperature = 5.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 5.0
@@ -1861,7 +1869,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_target_temp = 22.0
         mock_bt.bt_target_temp_step = 0.5
         mock_bt.bt_min_temp = 20.0
-        mock_bt.bt_target_cooltemp = 15.0
+        mock_bt.cool_target_temperature = 15.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 20.0
@@ -1876,7 +1884,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_target_temp = 24.0
         mock_bt.bt_target_temp_step = 0.5
         mock_bt.bt_min_temp = 5.0
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 21.5
@@ -1892,7 +1900,7 @@ class TestEnforceHeatBelowCool:
         mock_bt.bt_target_temp = 5.0
         mock_bt.bt_target_temp_step = 0.5
         mock_bt.bt_min_temp = 5.0
-        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.cool_target_temperature = 5.0
         caplog.set_level(logging.WARNING)
         self._call(mock_bt)
         assert mock_bt.bt_target_temp == 5.0
@@ -1902,7 +1910,7 @@ class TestEnforceHeatBelowCool:
         """A None heat target does not raise and stays None."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_target_temp = None
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         self._call(mock_bt)
         assert mock_bt.bt_target_temp is None
 
@@ -2073,7 +2081,7 @@ class TestClampInboundHeatTarget:
     def test_without_a_cooler_is_noop(self, mock_bt):
         """Without a cooling channel there is no second bound."""
         mock_bt.cooler_entity_id = None
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         assert self._call(mock_bt, 24.0) == 24.0
 
     def test_a_group_that_is_off_still_keeps_the_targets_apart(self, mock_bt):
@@ -2084,28 +2092,28 @@ class TestClampInboundHeatTarget:
         """
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.OFF
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         assert self._call(mock_bt, 24.0) == 21.5
 
     def test_none_cool_target_is_noop(self, mock_bt):
         """Without a cooling target there is no bound to clamp against."""
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = None
+        mock_bt.cool_target_temperature = None
         assert self._call(mock_bt, 24.0) == 24.0
 
     def test_value_below_cool_target_is_kept(self, mock_bt):
         """A value that already clears the cooling target is returned unchanged."""
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 26.0
+        mock_bt.cool_target_temperature = 26.0
         assert self._call(mock_bt, 22.0) == 22.0
 
     def test_value_above_cool_target_is_lowered_by_one_step(self, mock_bt):
         """A value above the cooling target is lowered just below it."""
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         mock_bt.bt_target_temp_step = 0.5
         assert self._call(mock_bt, 26.0) == 21.5
 
@@ -2113,7 +2121,7 @@ class TestClampInboundHeatTarget:
         """A value on the cooling target still has to clear it."""
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         mock_bt.bt_target_temp_step = 0.5
         assert self._call(mock_bt, 22.0) == 21.5
 
@@ -2121,7 +2129,7 @@ class TestClampInboundHeatTarget:
         """A missing/zero step falls back to 0.5."""
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 22.0
+        mock_bt.cool_target_temperature = 22.0
         mock_bt.bt_target_temp_step = 0
         assert self._call(mock_bt, 22.0) == 21.5
 
@@ -2135,11 +2143,11 @@ class TestClampInboundHeatTarget:
         """
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.bt_min_temp = 5.0
-        mock_bt.bt_target_cooltemp = 24.0
+        mock_bt.cool_target_temperature = 24.0
         mock_bt.bt_target_temp_step = step
         adopted = self._call(mock_bt, 26.0)
         assert adopted == 23.5
-        assert adopted < mock_bt.bt_target_cooltemp
+        assert adopted < mock_bt.cool_target_temperature
 
     def test_ceiling_stays_inside_the_configured_range(self, mock_bt):
         """With the cooling target at the minimum the ceiling stops there.
@@ -2149,7 +2157,7 @@ class TestClampInboundHeatTarget:
         """
         mock_bt.cooler_entity_id = "climate.ac"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
-        mock_bt.bt_target_cooltemp = 5.0
+        mock_bt.cool_target_temperature = 5.0
         mock_bt.bt_min_temp = 5.0
         mock_bt.bt_target_temp_step = 0.5
         assert self._call(mock_bt, 22.0) == 5.0
@@ -2175,7 +2183,7 @@ class TestSeedCoolTarget:
         self._call(
             mock_bt, InboundSetpoint(raw=24.0, value=24.0, clamped=False, is_echo=False)
         )
-        assert mock_bt.bt_target_cooltemp == 24.0
+        assert mock_bt.cool_target_temperature == 24.0
         assert (
             "reports setpoint 24.0 while the cool target is unknown, taking it "
             "as the cool target" in caplog.text
@@ -2189,7 +2197,7 @@ class TestSeedCoolTarget:
         self._call(
             mock_bt, InboundSetpoint(raw=31.0, value=30.0, clamped=True, is_echo=False)
         )
-        assert mock_bt.bt_target_cooltemp == 30.0
+        assert mock_bt.cool_target_temperature == 30.0
         assert (
             "reported setpoint 31.0 outside of range while the cool target is "
             "unknown, taking 30.0 as the cool target" in caplog.text
@@ -2203,7 +2211,7 @@ class TestSeedCoolTarget:
         self._call(
             mock_bt, InboundSetpoint(raw=21.0, value=21.0, clamped=False, is_echo=False)
         )
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
         assert mock_bt.bt_target_temp == 22.0
 
     def test_setpoint_taken_while_off_is_lifted(self, mock_bt):
@@ -2214,7 +2222,7 @@ class TestSeedCoolTarget:
         self._call(
             mock_bt, InboundSetpoint(raw=20.0, value=20.0, clamped=False, is_echo=False)
         )
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
         assert mock_bt.bt_target_temp == 22.0
 
     def test_setpoint_equal_to_the_heat_target_is_lifted(self, mock_bt):
@@ -2225,7 +2233,7 @@ class TestSeedCoolTarget:
         self._call(
             mock_bt, InboundSetpoint(raw=22.0, value=22.0, clamped=False, is_echo=False)
         )
-        assert mock_bt.bt_target_cooltemp == 22.5
+        assert mock_bt.cool_target_temperature == 22.5
         assert mock_bt.bt_target_temp == 22.0
 
 
@@ -2260,11 +2268,11 @@ class TestChannelRanges:
         """A heating target on the heads' maximum leaves the cooler room above it."""
         cooled_bt.hvac_mode = HVACMode.HEAT_COOL
         cooled_bt.bt_target_temp = 30.0
-        cooled_bt.bt_target_cooltemp = 29.0
+        cooled_bt.cool_target_temperature = 29.0
 
         BetterThermostat._enforce_cool_above_heat(cooled_bt)
 
-        assert cooled_bt.bt_target_cooltemp == 30.5
+        assert cooled_bt.cool_target_temperature == 30.5
 
     def test_the_inbound_cooling_floor_is_capped_by_the_cooler_maximum(self, cooled_bt):
         """A cooler report is raised above the heating target up to the cooler's max."""
@@ -2300,7 +2308,7 @@ class TestChannelRanges:
 
         await BetterThermostat.async_set_preset_mode(cooled_bt, PRESET_COMFORT)
 
-        assert cooled_bt.bt_target_cooltemp == 33.0
+        assert cooled_bt.cool_target_temperature == 33.0
 
     @pytest.mark.asyncio
     async def test_a_cooling_target_set_directly_is_held_to_the_cooling_range(
@@ -2311,10 +2319,10 @@ class TestChannelRanges:
         cooled_bt.bt_hvac_mode = HVACMode.HEAT_COOL
         cooled_bt.preset_mgr.mode = PRESET_NONE
         cooled_bt.bt_target_temp = 21.0
-        cooled_bt.bt_target_cooltemp = 26.0
+        cooled_bt.cool_target_temperature = 26.0
 
         await BetterThermostat.async_set_temperature(
             cooled_bt, **{ATTR_TARGET_TEMP_HIGH: 33.0}
         )
 
-        assert cooled_bt.bt_target_cooltemp == 33.0
+        assert cooled_bt.cool_target_temperature == 33.0

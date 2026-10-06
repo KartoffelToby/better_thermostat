@@ -341,7 +341,6 @@ only where a Home Assistant property of the same name lives on the entity class:
 | `bt_min_temp` | `min_temp` | **yes** |
 | `bt_max_temp` | `max_temp` | **yes** |
 | `bt_target_temp` | `target_temperature` | no |
-| `bt_target_cooltemp` | `target_temperature_high` | no |
 
 Where a BT quantity sits next to the same-named TRV quantity, the owner prefix
 `trv.` separates them: `heat_target_temperature` versus `trv.setpoint`.

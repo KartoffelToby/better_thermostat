@@ -139,7 +139,7 @@ class TestPresetCoolNumber:
         bt_climate.bt_target_temp_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
-        bt_climate.bt_target_cooltemp = 24.0
+        bt_climate.cool_target_temperature = 24.0
         bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
         bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
@@ -150,7 +150,7 @@ class TestPresetCoolNumber:
         await entity.async_set_native_value(20.0)
 
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 22.75
-        assert bt_climate.bt_target_cooltemp == 22.75
+        assert bt_climate.cool_target_temperature == 22.75
         assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
@@ -168,7 +168,7 @@ class TestPresetCoolNumber:
         bt_climate.bt_target_temp_step = 0.75
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.bt_target_temp = 22.0
-        bt_climate.bt_target_cooltemp = 24.0
+        bt_climate.cool_target_temperature = 24.0
         bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 24.0}
         bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
@@ -179,7 +179,7 @@ class TestPresetCoolNumber:
         await entity.async_set_native_value(25.0)
 
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 25.0
-        assert bt_climate.bt_target_cooltemp == 25.0
+        assert bt_climate.cool_target_temperature == 25.0
         assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
     @pytest.mark.asyncio
@@ -206,7 +206,7 @@ class TestPresetCoolNumber:
         bt_climate.preset_mode = PRESET_HOME
         bt_climate.hvac_mode = HVACMode.HEAT_COOL
         bt_climate.bt_target_temp = 30.0
-        bt_climate.bt_target_cooltemp = 30.0
+        bt_climate.cool_target_temperature = 30.0
         bt_climate.bt_hvac_mode = HVACMode.HEAT
         bt_climate._preset_cool_temperatures = {PRESET_HOME: 30.0}
         bt_climate.control_queue_task = asyncio.Queue(maxsize=1)
@@ -219,7 +219,7 @@ class TestPresetCoolNumber:
 
         await entity.async_set_native_value(20.0)
 
-        assert bt_climate.bt_target_cooltemp == 30.0
+        assert bt_climate.cool_target_temperature == 30.0
         assert bt_climate._preset_cool_temperatures[PRESET_HOME] == 30.0
         assert bt_climate.control_queue_task.get_nowait() is bt_climate
 
