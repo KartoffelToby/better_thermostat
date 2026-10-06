@@ -11,8 +11,10 @@ the device offers, put each offered entry into a real automation, and drive
 the change it claims to watch.
 """
 
+from datetime import timedelta
 import json
 import logging
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.components import automation
 from homeassistant.components.climate.const import ATTR_HVAC_ACTION, ATTR_HVAC_MODE
@@ -27,15 +29,27 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import State
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
+    async_fire_time_changed,
     async_get_device_automations,
     async_mock_service,
 )
+import voluptuous as vol
 
+from custom_components.better_thermostat import (
+    device_action,
+    device_condition,
+    device_trigger,
+)
 from custom_components.better_thermostat.device_action import ACTION_TYPES
 from custom_components.better_thermostat.device_condition import CONDITION_TYPES
 from custom_components.better_thermostat.device_trigger import TRIGGER_TYPES
@@ -43,6 +57,7 @@ from custom_components.better_thermostat.device_trigger import TRIGGER_TYPES
 from .conftest import (
     BT_ENTITY,
     DOMAIN,
+    WiredRoom,
     make_entry,
     set_room_humidity,
     set_room_sensor,
@@ -50,7 +65,7 @@ from .conftest import (
     wait_for,
     wait_for_startup,
 )
-from .device_profiles import GENERIC_HEAT_TRV, TRV_ID
+from .device_profiles import GENERIC_HEAT_TRV, SEPARATE_COOLER, TRV_ID
 
 # The state change each trigger claims to watch, written as the attributes the
 # thermostat itself publishes. Every key is checked against the live entity
@@ -776,3 +791,249 @@ async def test_a_value_trigger_on_a_missing_value_stays_quiet(
     noise = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert noise == []
     assert not calls
+
+
+def _sample(validator) -> object:
+    """Return a value the automation editor could enter into a field."""
+    if isinstance(validator, vol.In):
+        return next(iter(validator.container))
+    if validator is cv.positive_time_period_dict:
+        return {"minutes": 5}
+    if isinstance(validator, vol.Coerce):
+        return 10.0
+    raise AssertionError(f"no sample for the field validator {validator!r}")
+
+
+def _filled_in(capabilities: dict) -> dict:
+    """Return every extra field the editor offers, filled in."""
+    assert set(capabilities) == {"extra_fields"}, capabilities
+    return {
+        str(key.schema): _sample(validator)
+        for key, validator in capabilities["extra_fields"].schema.items()
+    }
+
+
+@pytest.mark.parametrize(
+    ("automation_type", "types", "capabilities", "schema"),
+    [
+        (
+            DeviceAutomationType.TRIGGER,
+            TRIGGER_TYPES,
+            device_trigger.async_get_trigger_capabilities,
+            device_trigger.TRIGGER_SCHEMA,
+        ),
+        (
+            DeviceAutomationType.CONDITION,
+            CONDITION_TYPES,
+            device_condition.async_get_condition_capabilities,
+            device_condition.CONDITION_SCHEMA,
+        ),
+        (
+            DeviceAutomationType.ACTION,
+            ACTION_TYPES,
+            device_action.async_get_action_capabilities,
+            device_action.ACTION_SCHEMA,
+        ),
+    ],
+    ids=["trigger", "condition", "action"],
+)
+async def test_every_field_the_editor_offers_is_accepted(
+    hass, fake_trv, automation_type, types, capabilities, schema
+):
+    """What the editor asks for, filled in, is a configuration the platform takes.
+
+    The editor builds its form from the capabilities and stores what the user
+    enters next to the offered entry; a field the schema does not accept
+    leaves an automation that fails to load.
+    """
+    _entry, device_id = await _entry_with_device(hass)
+    offered = await async_get_device_automations(hass, automation_type, device_id)
+
+    for wanted in sorted(types):
+        entry = _offered(offered, wanted)
+        fields = _filled_in(await capabilities(hass, entry))
+
+        schema({**entry, **fields})
+
+
+@pytest.mark.parametrize(
+    "capabilities",
+    [
+        device_trigger.async_get_trigger_capabilities,
+        device_condition.async_get_condition_capabilities,
+        device_action.async_get_action_capabilities,
+    ],
+    ids=["trigger", "condition", "action"],
+)
+async def test_a_type_this_version_does_not_offer_has_no_fields(hass, capabilities):
+    """An automation stored by another version opens without extra fields."""
+    assert await capabilities(hass, {CONF_TYPE: "no_such_type"}) == {}
+
+
+def _watching(attach_path: str) -> AsyncMock:
+    """Return a stand-in for a Home Assistant trigger that records its config."""
+    return patch(
+        f"custom_components.better_thermostat.device_trigger.{attach_path}"
+        ".async_attach_trigger",
+        AsyncMock(return_value=lambda: None),
+    )
+
+
+async def _attached_config(hass, trigger: dict) -> dict:
+    """Return the config the trigger hands to the Home Assistant trigger it builds."""
+    with (
+        _watching("state_trigger") as state,
+        _watching("numeric_state_trigger") as numeric,
+    ):
+        await device_trigger.async_attach_trigger(
+            hass, device_trigger.TRIGGER_SCHEMA(trigger), AsyncMock(), {}
+        )
+    (call,) = state.await_args_list + numeric.await_args_list
+    return call.args[1]
+
+
+@pytest.mark.parametrize("trigger_type", sorted(TRIGGER_TYPES), ids=str)
+async def test_the_duration_a_trigger_names_is_waited_out(hass, fake_trv, trigger_type):
+    """A trigger with ``for`` fires only once its change has lasted that long."""
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        trigger_type,
+    )
+    trigger.update(TRIGGER_EXTRA_FIELDS.get(trigger_type, {}))
+
+    attached = await _attached_config(hass, {**trigger, "for": {"minutes": 5}})
+
+    assert attached["for"] == timedelta(minutes=5)
+
+
+@pytest.mark.parametrize(
+    "trigger_type", ["current_temperature_changed", "current_humidity_changed"]
+)
+async def test_a_value_trigger_takes_both_bounds(hass, fake_trv, trigger_type):
+    """A value trigger can watch for a value leaving a band in either direction."""
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        trigger_type,
+    )
+
+    attached = await _attached_config(hass, {**trigger, "above": 15.0, "below": 25.0})
+
+    assert (attached["above"], attached["below"]) == (15.0, 25.0)
+
+
+@pytest.mark.parametrize(
+    ("trigger_type", "bound", "default"),
+    [("humidity_high", "above", 60.0), ("battery_low", "below", 20.0)],
+)
+async def test_a_threshold_the_user_sets_replaces_the_default(
+    hass, fake_trv, trigger_type, bound, default
+):
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        trigger_type,
+    )
+
+    assert (await _attached_config(hass, trigger))[bound] == default
+    assert (await _attached_config(hass, {**trigger, bound: 35.0}))[bound] == 35.0
+
+
+async def test_a_mode_trigger_with_a_duration_waits_before_it_fires(hass, fake_trv):
+    """The mode has to hold for the whole duration, not only change."""
+    _entry, device_id = await _entry_with_device(hass)
+    trigger = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.TRIGGER, device_id
+        ),
+        "hvac_mode_changed",
+    )
+    trigger.update({"to": "off", "for": {"minutes": 5}})
+    calls = async_mock_service(hass, "test", "automation")
+    assert await async_setup_component(
+        hass,
+        automation.DOMAIN,
+        {
+            automation.DOMAIN: [
+                {"trigger": trigger, "action": {"service": "test.automation"}}
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {ATTR_ENTITY_ID: BT_ENTITY, ATTR_HVAC_MODE: "off"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert calls == []
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=6))
+    await hass.async_block_till_done()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("condition_type", sorted(CONDITION_TYPES), ids=str)
+async def test_a_condition_on_a_removed_thermostat_is_not_met(
+    hass, fake_trv, condition_type
+):
+    """A condition outliving the thermostat it names stops passing."""
+    entry, device_id = await _entry_with_device(hass)
+    condition = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.CONDITION, device_id
+        ),
+        condition_type,
+    )
+    field = ATTR_HVAC_MODE if condition_type == "is_hvac_mode" else ATTR_HVAC_ACTION
+    current = hass.states.get(BT_ENTITY)
+    value = current.state if field == ATTR_HVAC_MODE else current.attributes[field]
+    condition = device_condition.CONDITION_SCHEMA({**condition, field: value})
+    check = device_condition.async_condition_from_config(hass, condition)
+    assert check(hass, {}) is True
+
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(BT_ENTITY) is None
+
+    assert check(hass, {}) is False
+
+
+@pytest.mark.parametrize("device_role", [SEPARATE_COOLER], indirect=True, ids=str)
+async def test_the_set_temperature_action_sets_a_range(hass, device_role: WiredRoom):
+    """In a room with a cooler the action sets the heating and cooling targets."""
+    set_room_sensor(hass, 21.0)
+    entry = make_entry(device_role.scenario)
+    await setup_entry(hass, entry)
+    await wait_for_startup(hass, entry)
+    device_id = er.async_get(hass).async_get(BT_ENTITY).device_id
+    action = _offered(
+        await async_get_device_automations(
+            hass, DeviceAutomationType.ACTION, device_id
+        ),
+        "set_temperature",
+    )
+
+    await device_action.async_call_action_from_config(
+        hass,
+        device_action.ACTION_SCHEMA(
+            {**action, "target_temp_low": 19.0, "target_temp_high": 25.0}
+        ),
+        {},
+        None,
+    )
+
+    state = hass.states.get(BT_ENTITY)
+    assert (
+        state.attributes["target_temp_low"],
+        state.attributes["target_temp_high"],
+    ) == (19.0, 25.0)

@@ -18,6 +18,8 @@ from tests import quality_scale
 from tests.conftest import pytest_collection_modifyitems
 from tests.quality_scale import (
     BRONZE_RULES,
+    GOLD_RULES,
+    PLATINUM_RULES,
     REPO_ROOT,
     SILVER_RULES,
     STATUSES,
@@ -55,8 +57,9 @@ def _marked_rules() -> dict[str, list[str]]:
     return dict(found)
 
 
-def test_the_file_records_every_bronze_and_silver_rule_and_nothing_else():
-    assert set(recorded_rules()) == BRONZE_RULES | SILVER_RULES
+def test_the_file_records_every_rule_of_every_tier_and_nothing_else():
+    tiers = BRONZE_RULES | SILVER_RULES | GOLD_RULES | PLATINUM_RULES
+    assert set(recorded_rules()) == tiers
 
 
 def test_every_rule_has_a_known_status():

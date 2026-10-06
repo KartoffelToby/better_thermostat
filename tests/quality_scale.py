@@ -64,6 +64,36 @@ SILVER_RULES = frozenset(
     }
 )
 
+# The Gold tier as Home Assistant's hassfest lists it.
+GOLD_RULES = frozenset(
+    {
+        "devices",
+        "diagnostics",
+        "discovery",
+        "discovery-update-info",
+        "docs-data-update",
+        "docs-examples",
+        "docs-known-limitations",
+        "docs-supported-devices",
+        "docs-supported-functions",
+        "docs-troubleshooting",
+        "docs-use-cases",
+        "dynamic-devices",
+        "entity-category",
+        "entity-device-class",
+        "entity-disabled-by-default",
+        "entity-translations",
+        "exception-translations",
+        "icon-translations",
+        "reconfiguration-flow",
+        "repair-issues",
+        "stale-devices",
+    }
+)
+
+# The Platinum tier as Home Assistant's hassfest lists it.
+PLATINUM_RULES = frozenset({"async-dependency", "inject-websession", "strict-typing"})
+
 STATUSES = frozenset({"done", "todo", "exempt"})
 
 
