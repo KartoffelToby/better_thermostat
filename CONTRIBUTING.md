@@ -342,7 +342,7 @@ only where a Home Assistant property of the same name lives on the entity class:
 | `bt_max_temp` | `max_temp` | **yes** |
 
 Where a BT quantity sits next to the same-named TRV quantity, the owner prefix
-`trv.` separates them: `heat_target_temperature` versus `trv.setpoint`.
+`trv.` separates them: `heat_target_temperature` versus `trv.commanded_setpoint`.
 
 **A loop over keys and a loop over values must not share a variable name.**
 `for trv in self.real_trvs` binds a `str`, `for trv in self.real_trvs.values()`
