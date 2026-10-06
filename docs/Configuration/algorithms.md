@@ -80,7 +80,7 @@ The setup form labels this mode *(AI) MPC v2 (QP + Kalman, experimental)*.
 
 MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. It is written for TRVs with direct valve control; see [Direct valve control](#direct-valve-control).
 
-The **MPC v2 plant preset** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
+The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
 
 ---
 
