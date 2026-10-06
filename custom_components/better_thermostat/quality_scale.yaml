@@ -7,9 +7,9 @@ rules:
   config-flow:
     status: todo
     comment: |
-      Most fields of the user and advanced steps have no data_description, and
-      the whole configuration lives in entry.data; the settings the options
-      flow changes belong in entry.options.
+      Every field carries a data_description, but the whole configuration
+      lives in entry.data; the settings the options flow changes belong in
+      entry.options.
   config-flow-test-coverage:
     status: todo
     comment: config_flow.py is covered to 82 %; the rule asks for 100 %.

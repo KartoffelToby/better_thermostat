@@ -63,10 +63,13 @@ def _sections(page: Path) -> dict[str, str]:
     }
 
 
-@pytest.mark.quality_rule("config-flow")
 @pytest.mark.parametrize("flow", ["config", "options"])
 def test_every_flow_field_is_described(flow):
-    """Each field a step shows carries a ``data_description`` under it."""
+    """Each field a step shows carries a ``data_description`` under it.
+
+    This is half of the config-flow rule; the other half, settings kept in
+    ``entry.options``, is held in ``tests/integration/test_config_flow.py``.
+    """
     strings = json.loads((COMPONENT / "strings.json").read_text(encoding="utf-8"))
     undescribed = {
         step_id: sorted(

@@ -26,6 +26,24 @@
           "presets": "Préréglages activés"
         },
         "data_description": {
+          "name": "Le nom de ce thermostat et de son appareil dans Home Assistant.",
+          "thermostat": "Les têtes thermostatiques (TRV) de cette pièce. Better Thermostat les pilote ensemble.",
+          "cooler": "Facultatif. Un climatiseur ou une autre entité climatique qui refroidit cette pièce en plus des thermostats.",
+          "temperature_sensor": "Le capteur de température de la pièce sur lequel Better Thermostat régule. Placez-le loin du radiateur.",
+          "humidity_sensor": "Facultatif. Sa valeur s’affiche sur le thermostat et sert aux déclencheurs d’humidité.",
+          "window_sensors": "Facultatif. Un capteur ou un groupe qui signale une fenêtre ouverte ; tant qu’il le fait, le chauffage est en pause.",
+          "door_sensors": "Facultatif. Fonctionne comme le capteur de fenêtre, avec ses propres délais.",
+          "off_temperature": "Tant que le capteur extérieur ou l’entité météo indique plus que cette valeur, le chauffage reste éteint.",
+          "tolerance": "De combien la pièce peut descendre sous la consigne avant de chauffer à nouveau : avec une consigne de 20 et une tolérance de 0,3, le chauffage reprend à 19,7.",
+          "window_off_delay": "Combien de temps une fenêtre doit rester ouverte avant que le chauffage se mette en pause.",
+          "window_off_delay_after": "Combien de temps toutes les fenêtres doivent rester fermées avant que le chauffage reprenne.",
+          "door_off_delay": "Combien de temps une porte doit rester ouverte avant que le chauffage se mette en pause.",
+          "door_off_delay_after": "Combien de temps toutes les portes doivent rester fermées avant que le chauffage reprenne.",
+          "outdoor_sensor": "Facultatif. Fournit la température extérieure pour le seuil extérieur et prime sur l’entité météo.",
+          "weather": "Facultatif. Fournit la température extérieure lorsqu’aucun capteur extérieur n’est choisi.",
+          "target_temp_min": "La consigne la plus basse que vous pouvez régler. Auto reprend la plage indiquée par vos appareils.",
+          "target_temp_max": "La consigne la plus haute que vous pouvez régler. Auto reprend la plage indiquée par vos appareils.",
+          "target_temp_step": "De combien la consigne change à chaque pas. Auto reprend le pas le plus grossier de vos thermostats.",
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
         }
       },
@@ -44,10 +62,14 @@
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
+          "heat_auto_swapped": "Pour une TRV dont le mode de chauffage s’appelle « auto » : Better Thermostat envoie alors « auto » pour chauffer.",
+          "child_lock": "Verrouille les boutons de la TRV si elle a une sécurité enfant ; les changements faits sur la TRV elle-même sont ignorés.",
+          "homematicip": "Envoie les commandes moins souvent pour que les appareils HomematicIP restent dans leur duty cycle.",
+          "valve_maintenance": "Ouvre et ferme la vanne de temps en temps pour qu’elle ne se bloque pas. Pour les TRV sans entretien propre.",
+          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage.",
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
-          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
         }
       },
       "confirm": {
@@ -95,15 +117,28 @@
           "target_temp_max": "Température cible maximale",
           "target_temp_step": "Pas de la température cible",
           "presets": "Préréglages activés",
-          "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
-          "calibration": "Le type de calibrage",
-          "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
-          "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
           "cooler": "Le dispositif de refroidissement (optionnel)"
         },
         "data_description": {
-          "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
+          "name": "Le nom de ce thermostat et de son appareil dans Home Assistant.",
+          "thermostat": "Les têtes thermostatiques (TRV) de cette pièce. Better Thermostat les pilote ensemble.",
+          "temperature_sensor": "Le capteur de température de la pièce sur lequel Better Thermostat régule. Placez-le loin du radiateur.",
+          "humidity_sensor": "Facultatif. Sa valeur s’affiche sur le thermostat et sert aux déclencheurs d’humidité.",
+          "window_sensors": "Facultatif. Un capteur ou un groupe qui signale une fenêtre ouverte ; tant qu’il le fait, le chauffage est en pause.",
+          "door_sensors": "Facultatif. Fonctionne comme le capteur de fenêtre, avec ses propres délais.",
+          "off_temperature": "Tant que le capteur extérieur ou l’entité météo indique plus que cette valeur, le chauffage reste éteint.",
+          "tolerance": "De combien la pièce peut descendre sous la consigne avant de chauffer à nouveau : avec une consigne de 20 et une tolérance de 0,3, le chauffage reprend à 19,7.",
+          "window_off_delay": "Combien de temps une fenêtre doit rester ouverte avant que le chauffage se mette en pause.",
+          "window_off_delay_after": "Combien de temps toutes les fenêtres doivent rester fermées avant que le chauffage reprenne.",
+          "door_off_delay": "Combien de temps une porte doit rester ouverte avant que le chauffage se mette en pause.",
+          "door_off_delay_after": "Combien de temps toutes les portes doivent rester fermées avant que le chauffage reprenne.",
+          "outdoor_sensor": "Facultatif. Fournit la température extérieure pour le seuil extérieur et prime sur l’entité météo.",
+          "weather": "Facultatif. Fournit la température extérieure lorsqu’aucun capteur extérieur n’est choisi.",
+          "target_temp_min": "La consigne la plus basse que vous pouvez régler. Auto reprend la plage indiquée par vos appareils.",
+          "target_temp_max": "La consigne la plus haute que vous pouvez régler. Auto reprend la plage indiquée par vos appareils.",
+          "target_temp_step": "De combien la consigne change à chaque pas. Auto reprend le pas le plus grossier de vos thermostats.",
+          "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat.",
+          "cooler": "Facultatif. Un climatiseur ou une autre entité climatique qui refroidit cette pièce en plus des thermostats."
         }
       },
       "advanced": {
@@ -121,10 +156,14 @@
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
+          "heat_auto_swapped": "Pour une TRV dont le mode de chauffage s’appelle « auto » : Better Thermostat envoie alors « auto » pour chauffer.",
+          "child_lock": "Verrouille les boutons de la TRV si elle a une sécurité enfant ; les changements faits sur la TRV elle-même sont ignorés.",
+          "homematicip": "Envoie les commandes moins souvent pour que les appareils HomematicIP restent dans leur duty cycle.",
+          "valve_maintenance": "Ouvre et ferme la vanne de temps en temps pour qu’elle ne se bloque pas. Pour les TRV sans entretien propre.",
+          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage.",
           "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
           "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
-          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size.",
-          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
         }
       }
     },

@@ -34,6 +34,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_MAX,
     CONF_TARGET_TEMP_MIN,
+    CONF_TOLERANCE,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationType,
 )
@@ -758,3 +759,20 @@ async def test_the_settings_of_an_entry_whose_thermostat_went_away_still_save(
 
     assert result["type"] is FlowResultType.FORM, result
     assert result["step_id"] == "advanced", result
+
+
+@pytest.mark.quality_rule("config-flow")
+async def test_the_settings_flow_stores_what_it_changes_as_options(hass, fake_trv):
+    """What the settings change lives in the entry's options, not its data.
+
+    Home Assistant keeps the data a flow sets up an entry with apart from the
+    options a user tunes later, so the two can be changed independently.
+    """
+    set_room_sensor(hass, 19.0)
+    await _run_create_flow(hass, _user_step_input(TRV_ID))
+    entry = _only_entry(hass)
+    await wait_for_startup(hass, entry)
+
+    await _run_options_flow(hass, entry, _user_step_input(TRV_ID, tolerance=0.7))
+
+    assert entry.options.get(CONF_TOLERANCE) == 0.7
