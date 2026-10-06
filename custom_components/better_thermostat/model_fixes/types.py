@@ -13,6 +13,7 @@ provide is an error rather than a promise nobody checks.
 from __future__ import annotations
 
 from collections.abc import Mapping, MutableMapping
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -35,6 +36,11 @@ class ModelFixTrv(Protocol):
     @property
     def extra(self) -> MutableMapping[str, Any]:
         """Scratch space a quirk keeps its own write state in."""
+        ...
+
+    @property
+    def model_quirks(self) -> ModuleType | None:
+        """Quirk module loaded for the TRV, or None before it is loaded."""
         ...
 
     @property
@@ -65,6 +71,11 @@ class ModelFixHost(Protocol):
         ...
 
     @property
+    def in_maintenance(self) -> bool:
+        """Whether a valve maintenance run is under way."""
+        ...
+
+    @property
     def device_name(self) -> str:
         """Name of the Better Thermostat instance, for log lines."""
         ...
@@ -89,4 +100,18 @@ class ModelFixHost(Protocol):
         ...
 
 
-__all__ = ["ModelFixHost", "ModelFixTrv"]
+class QuirkLoaderHost(Protocol):
+    """Surface the quirk loader reads from its caller."""
+
+    @property
+    def device_name(self) -> str:
+        """Name of the caller, for log lines."""
+        ...
+
+    @property
+    def hass(self) -> HomeAssistant:
+        """Home Assistant core the caller is attached to."""
+        ...
+
+
+__all__ = ["ModelFixHost", "ModelFixTrv", "QuirkLoaderHost"]
