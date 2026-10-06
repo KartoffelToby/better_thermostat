@@ -23,6 +23,10 @@ _LOGGER = logging.getLogger(__name__)
 # MPC operates on fixed 5-minute steps and a 6-step horizon.
 MPC_STEP_SECONDS = 300.0
 MPC_HORIZON_STEPS = 6
+# Adaptation learns only from a room-temperature change of at least this size
+# (quantised sensors) and at most this rate (sensor jumps, transients).
+MPC_TEMP_CHANGE_THRESHOLD_C = 0.05
+MPC_MAX_ABS_RATE_C_PER_MIN = 0.35
 
 
 @dataclass
@@ -996,10 +1000,8 @@ def _compute_predictive_percent(
         state.last_learn_time = now
         state.last_learn_temp = current_temp_cost_C
 
-    # Convert constants & params
-    step_s = float(getattr(params, "mpc_step_s", MPC_STEP_SECONDS))
-    step_minutes = step_s / 60.0
-    horizon = int(getattr(params, "mpc_horizon_steps", MPC_HORIZON_STEPS))
+    step_minutes = MPC_STEP_SECONDS / 60.0
+    horizon = MPC_HORIZON_STEPS
 
     # Initialize estimates if missing
     if params.mpc_adapt:
@@ -1099,12 +1101,7 @@ def _compute_predictive_percent(
             implied_delta_kelvin = observed_rate * dt_min if dt_min > 0 else 0.0
 
             # Learn only when the sensor actually changed (quantised sensors).
-            temp_change_threshold_C = float(
-                getattr(params, "mpc_temp_change_threshold_C", 0.05)
-            )
-            if temp_change_threshold_C <= 0:
-                temp_change_threshold_C = 0.05
-            temp_changed = abs(observed_delta_kelvin) >= temp_change_threshold_C
+            temp_changed = abs(observed_delta_kelvin) >= MPC_TEMP_CHANGE_THRESHOLD_C
 
             # Slope logic disabled - we rely purely on actual temperature changes
             # to avoid learning from lagging EMA slopes.
@@ -1121,10 +1118,7 @@ def _compute_predictive_percent(
 
             # sanity: avoid learning on extreme transients / sensor jumps
             # (typical indoor rate is far below 1°C/min)
-            max_abs_rate = float(getattr(params, "mpc_max_abs_rate_C_per_min", 0.35))
-            if max_abs_rate <= 0:
-                max_abs_rate = 0.35
-            rate_ok = abs(observed_rate) <= max_abs_rate
+            rate_ok = abs(observed_rate) <= MPC_MAX_ABS_RATE_C_PER_MIN
 
             if params.enable_min_effective_percent:
                 min_open = (state.min_effective_percent or 5.0) / 100.0
@@ -1440,7 +1434,7 @@ def _compute_predictive_percent(
                 "id_temp_changed": temp_changed,
                 "id_learn_signal": learn_signal,
                 "id_temp_change_threshold_C": _round_for_debug(
-                    temp_change_threshold_C, 3
+                    MPC_TEMP_CHANGE_THRESHOLD_C, 3
                 ),
                 "id_rate": _round_for_debug(observed_rate, 4),
                 "id_rate_delta": _round_for_debug(observed_rate_delta, 4),
