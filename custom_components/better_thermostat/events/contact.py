@@ -319,9 +319,14 @@ async def _settle_contact_region(self: BetterThermostat, role: ContactRole) -> N
                 remaining,
             )
             await asyncio.sleep(remaining)
-        sensor = self.hass.states.get(role.entity_id_of(self))
+        sensor_entity_id = role.entity_id_of(self)
+        sensor = (
+            self.hass.states.get(sensor_entity_id)
+            if sensor_entity_id is not None
+            else None
+        )
         # A non-active sensor (missing / unavailable / unknown) counts as
-        # closed, mirroring the live event handler.
+        # closed, mirroring the live event handler; so does no sensor at all.
         sensor_open = sensor is not None and sensor.state in OPEN_WORDS
         self.kernel_state = role.with_region(
             self.kernel_state,
