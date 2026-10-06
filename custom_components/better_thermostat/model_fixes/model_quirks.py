@@ -115,6 +115,37 @@ async def load_model_quirks(self, model, entity_id):
     return self.model_quirks
 
 
+def register_external_sensor_watch(self):
+    """Register the external sensor watch of every TRV whose quirks define one.
+
+    Call the configured model quirks implementation of each TRV. Some TRVs
+    only read the external temperature while their sensor selector is on the
+    external input, and fall back to the internal sensor on their own, so the
+    quirks module watches the selector and restores it.
+
+    Parameters
+    ----------
+    self : BetterThermostat
+        The Better Thermostat climate entity instance
+
+    Returns
+    -------
+    list[Callable[[], None]]
+        Unsubscribe callables, one per registered watch. Empty when no
+        configured model quirks implementation provides a watch. The caller
+        is responsible for invoking them when the entity is removed.
+    """
+    unsubscribers = []
+    for entity_id, trv in self.real_trvs.items():
+        register = getattr(trv.model_quirks, "register_external_sensor_watch", None)
+        if register is None:
+            continue
+        unsubscribe = register(self, entity_id)
+        if unsubscribe is not None:
+            unsubscribers.append(unsubscribe)
+    return unsubscribers
+
+
 def trv_state_unknown_as_available(self, entity_id):
     """Return True if this TRV is operating when its Climate entity state is STATE_UNKNOWN.
 

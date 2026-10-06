@@ -59,6 +59,7 @@ OPTIONAL = (
     "override_set_valve",
     "initial_tweak",
     "maybe_set_external_temperature",
+    "register_external_sensor_watch",
 )
 SURFACE = REQUIRED + OPTIONAL
 
