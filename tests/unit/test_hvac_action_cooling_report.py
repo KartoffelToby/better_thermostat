@@ -40,7 +40,7 @@ def build_bt(
     """Return a BT mock with the real hvac-action methods bound to it."""
     bt = ThermostatStandIn()
     bt.tolerance = tolerance
-    bt.bt_target_temp = target_temp
+    bt.heat_target_temperature = target_temp
     bt.cool_target_temperature = cool_target
     bt.bt_target_temp_step = None
     bt.cur_temp = cur_temp
@@ -167,7 +167,7 @@ def test_report_agrees_with_the_command(
     reported = compute_hvac_action(
         hysteresis=ToleranceHysteresis(),
         cur_temp=cur_temp,
-        target_temp=target_temp,
+        heat_target_temperature=target_temp,
         cool_target=cool_target,
         hvac_mode=HVACMode.HEAT_COOL,
         bt_hvac_mode=HVACMode.HEAT,

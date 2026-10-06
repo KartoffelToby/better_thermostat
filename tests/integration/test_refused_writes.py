@@ -198,7 +198,7 @@ async def test_a_target_the_trv_takes_reaches_it_after_a_refused_one(
         lambda: (trv.target_temperature or 99.0) <= _DEVICE_TAKES_UP_TO,
         timeout_s=20.0,
     ), trv.set_temperature_calls[-5:]
-    assert bt.bt_target_temp == _TAKEN_TARGET
+    assert bt.heat_target_temperature == _TAKEN_TARGET
 
     # A retry that was already due may still run a refused cycle while the
     # new target is on its way, so the count is taken once the device holds

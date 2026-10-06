@@ -33,7 +33,7 @@ def _make_bt(state_mgr: _TpiStateStub) -> ThermostatStandIn:
     bt.kernel_state = make_state()
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
-    bt.bt_target_temp = 22.0
+    bt.heat_target_temperature = 22.0
     bt.cur_temp = 20.0
     bt.window_open = False
     bt.contact_open = False

@@ -27,7 +27,7 @@ def build_bt(
     calibration_mode,
     hvac_action,
     cur_temp,
-    bt_target_temp=21.0,
+    heat_target_temperature=21.0,
     trv_temp=21.0,
     tolerance=0.0,
     step=0.5,
@@ -42,7 +42,7 @@ def build_bt(
     bt.hvac_action = hvac_action
     bt.cur_temp = cur_temp
     bt.cur_temp_filtered = None
-    bt.bt_target_temp = bt_target_temp
+    bt.heat_target_temperature = heat_target_temperature
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.outdoor_sensor = None
     bt.weather_entity = None

@@ -211,7 +211,7 @@ async def trigger_cooler_change(self, event):
                     self.device_name,
                     entity_id,
                     _new_cooling_setpoint.value,
-                    self.bt_target_temp,
+                    self.heat_target_temperature,
                     _adopted_cooling_setpoint,
                 )
             self.cool_target_temperature = _adopted_cooling_setpoint

@@ -154,7 +154,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
     """Build a minimal BT-shaped namespace with a real StateManager."""
     return SimpleNamespace(
         real_trvs={"climate.x": _trv_info("climate.x", preset)},
-        bt_target_temp=21.0,
+        heat_target_temperature=21.0,
         cur_temp=19.5,
         tolerance=0.0,
         window_open=False,
@@ -485,7 +485,7 @@ def test_reid_buffer_is_shared_across_target_buckets() -> None:
     assert out is not None
 
     bt.clock.advance(120.0)
-    bt.bt_target_temp = 22.5  # different half-degree bucket
+    bt.heat_target_temperature = 22.5  # different half-degree bucket
     out, _ = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is not None
 

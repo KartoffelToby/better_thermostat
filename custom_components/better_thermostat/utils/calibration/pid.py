@@ -719,7 +719,7 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     where target_temp is rounded to 0.5°C buckets.
 
     Args:
-        self: BetterThermostat instance with unique_id and bt_target_temp
+        self: BetterThermostat instance with unique_id and heat_target_temperature
         entity_id: TRV entity ID
 
     Returns
@@ -727,7 +727,7 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
         PID key string
     """
     try:
-        tcur = self.bt_target_temp
+        tcur = self.heat_target_temperature
         bucket_tag = (
             format_bucket(round_to_bucket(tcur))
             if isinstance(tcur, (int, float))

@@ -393,7 +393,7 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     """
 
     try:
-        target = bt.bt_target_temp
+        target = bt.heat_target_temperature
         bucket = (
             f"t{round(float(target) * 2.0) / 2.0:.1f}"
             if isinstance(target, (int, float))
@@ -414,7 +414,7 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     """
 
     try:
-        target = bt.bt_target_temp
+        target = bt.heat_target_temperature
         bucket = (
             f"t{round(float(target) * 2.0) / 2.0:.1f}"
             if isinstance(target, (int, float))
@@ -719,8 +719,8 @@ def compute_mpc(
             and inp.current_temp_C is not None
         ):
             current_temp = float(inp.current_temp_C)
-            target_temp = float(inp.target_temp_C)
-            restart_threshold = target_temp - tolerance
+            heat_target_temperature = float(inp.target_temp_C)
+            restart_threshold = heat_target_temperature - tolerance
 
             if state.tolerance_hold_active:
                 if current_temp <= restart_threshold:
@@ -728,13 +728,13 @@ def compute_mpc(
                     extra_debug["mpc_tolerance_hold_resume"] = True
                 else:
                     tolerance_hold_block = True
-            elif current_temp >= target_temp:
+            elif current_temp >= heat_target_temperature:
                 state.tolerance_hold_active = True
                 tolerance_hold_block = True
 
             if tolerance_hold_block:
                 percent = 0.0
-                delta_kelvin = target_temp - current_temp
+                delta_kelvin = heat_target_temperature - current_temp
                 extra_debug["mpc_tolerance_hold_active"] = True
                 extra_debug["mpc_tolerance_K"] = _round_for_debug(tolerance, 3)
                 extra_debug["mpc_tolerance_restart_C"] = _round_for_debug(

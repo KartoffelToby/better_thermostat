@@ -51,7 +51,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.cur_temp_filtered = None
     bt.temp_slope = None
     bt.tolerance = 0.0
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cool_target_temperature = None
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.bt_min_temp = 5.0

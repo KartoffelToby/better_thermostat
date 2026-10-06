@@ -92,7 +92,7 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.cur_temp = 25.0
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
         mock_self.context = None
 
@@ -144,7 +144,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_cooling_needed_above_target(self):
-        """Test cooling turns on when temp >= target_cooltemp + tolerance AND > bt_target_temp."""
+        """Test cooling turns on when temp >= target_cooltemp + tolerance AND > heat_target_temperature."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -161,7 +161,7 @@ class TestControlCooler:
         mock_self.context = None
         mock_self.cur_temp = 25.0
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
         await control_cooler(mock_self)
@@ -206,7 +206,7 @@ class TestControlCooler:
         mock_self.context = None
         mock_self.cur_temp = 24.5  # Exactly on target_cooltemp + tolerance
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 25.0  # Above the room, so the floor decides
+        mock_self.heat_target_temperature = 25.0  # Above the room, so the floor decides
         mock_self.tolerance = 0.5
 
         await control_cooler(mock_self)
@@ -236,7 +236,7 @@ class TestControlCooler:
         mock_self.context = None
         mock_self.cur_temp = 23.0  # Below cool_target_temperature
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
         # cur_temp (23.0) < cool_target_temperature (24.0), so it is below both
@@ -255,7 +255,7 @@ class TestControlCooler:
         """Test hysteresis behavior between cooling thresholds.
 
         Temperature inside the band [target_cooltemp, target_cooltemp+tolerance)
-        and above bt_target_temp. The switch-on edge is the upper one, and
+        and above heat_target_temperature. The switch-on edge is the upper one, and
         neither an earlier decision nor the reported mode puts the cooler inside
         the band, so 24.2 < 24.5 keeps it off.
         """
@@ -274,7 +274,7 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
         # cur_temp (24.2) < (24.0 + 0.5 = 24.5) -> else branch: OFF
@@ -307,7 +307,7 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.cur_temp = 25.0
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
         mock_self.context = mock_context
 
@@ -336,7 +336,7 @@ class TestControlCooler:
         mock_self.context = None
         mock_self.cur_temp = 25.0
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
         await control_cooler(mock_self)
@@ -350,7 +350,7 @@ class TestControlCooler:
         """Test behavior when temperature is exactly at threshold.
 
         cur_temp (24.5) >= (24.0 + 0.5 = 24.5) -> True
-        cur_temp (24.5) > bt_target_temp (20.0) -> True
+        cur_temp (24.5) > heat_target_temperature (20.0) -> True
         -> first branch: COOL
         """
         mock_hass = Mock()
@@ -368,10 +368,10 @@ class TestControlCooler:
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
         mock_self.cool_target_temperature = 24.0
-        mock_self.bt_target_temp = 20.0
+        mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
-        # Exactly at target_cooltemp + tolerance AND above bt_target_temp
+        # Exactly at target_cooltemp + tolerance AND above heat_target_temperature
         mock_self.cur_temp = 24.5
 
         await control_cooler(mock_self)
@@ -444,7 +444,7 @@ def _make_cooler_setup(
     mock_self.context = None
     mock_self.cur_temp = cur_temp
     mock_self.cool_target_temperature = target_cooltemp
-    mock_self.bt_target_temp = target_temp
+    mock_self.heat_target_temperature = target_temp
     mock_self.tolerance = 0.5
     mock_self._cooler_last_sent = None
     return mock_self, mock_hass, mock_cooler_state
@@ -977,7 +977,7 @@ class TestControlCoolerSendCache:
 
         # A run of four on (24.0, 20.0): that payload would wait eight bases.
         mock_hass.services.async_call = AsyncMock()
-        mock_self.bt_target_temp = 21.0
+        mock_self.heat_target_temperature = 21.0
         mock_self.clock.monotonic_value += COOLER_FAILURE_BACKOFF_BASE_S
         await control_cooler(mock_self)
 
@@ -1807,7 +1807,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
         thermostat.hass = hass
         thermostat.bt_hvac_mode = HVACMode.COOL
         thermostat.cool_target_temperature = 24.0
-        thermostat.bt_target_temp = 20.0
+        thermostat.heat_target_temperature = 20.0
         return thermostat
 
     @staticmethod
@@ -2185,7 +2185,7 @@ class TestControlCoolerTargetRange:
         await control_cooler(mock_self)
         assert len(_service_calls(mock_hass, "set_temperature")) == 1
 
-        mock_self.bt_target_temp = 21.0
+        mock_self.heat_target_temperature = 21.0
         await control_cooler(mock_self)
 
         temp_calls = _service_calls(mock_hass, "set_temperature")
@@ -2325,7 +2325,7 @@ class TestControlCoolerTargetRange:
         mock_cooler_state.attributes = _range_attributes(
             target_temp_high=24.0, target_temp_low=20.0
         )
-        mock_self.bt_target_temp = 21.0
+        mock_self.heat_target_temperature = 21.0
         mock_self.clock.monotonic_value += 1.0
         await control_cooler(mock_self)
 

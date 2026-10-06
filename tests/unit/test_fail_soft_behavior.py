@@ -145,7 +145,7 @@ class TestFallbackSetpointChannel:
         bt.tolerance = 0.0
         bt.hvac_action = HVACAction.HEATING
         bt.cur_temp = 18.0  # stale reading from the dead room sensor
-        bt.bt_target_temp = 5.0
+        bt.heat_target_temperature = 5.0
         bt.kernel_state = KernelState(
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )

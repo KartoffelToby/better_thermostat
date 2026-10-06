@@ -71,5 +71,5 @@ async def test_a_heating_target_above_the_cooling_one_leaves_the_pair_ordered(
         {ATTR_ENTITY_ID: BT_ENTITY, "hvac_mode": HVACMode.HEAT_COOL},
     )
 
-    assert bt.bt_target_temp == 26.0
-    assert bt.cool_target_temperature > bt.bt_target_temp
+    assert bt.heat_target_temperature == 26.0
+    assert bt.cool_target_temperature > bt.heat_target_temperature

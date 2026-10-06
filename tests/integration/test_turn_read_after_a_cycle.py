@@ -72,4 +72,4 @@ async def test_a_head_turned_to_the_rooms_target_during_a_cycle_is_corrected(has
         assert await wait_for(hass, lambda: first.target_temperature == 20.0, 3.0), (
             f"the head stayed at {first.target_temperature}"
         )
-        assert bt.bt_target_temp == 23.0
+        assert bt.heat_target_temperature == 23.0

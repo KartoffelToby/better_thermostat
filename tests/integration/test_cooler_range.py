@@ -145,7 +145,7 @@ async def test_a_heating_target_above_the_heater_is_held_to_its_range(
         {"target_temp_low": TARGET_ABOVE_THE_HEAD, "target_temp_high": 34.0},
     )
 
-    assert bt.bt_target_temp == GENERIC_HEAT_TRV.max_temp
+    assert bt.heat_target_temperature == GENERIC_HEAT_TRV.max_temp
     assert hass.states.get(BT_ENTITY).attributes["target_temp_low"] == (
         GENERIC_HEAT_TRV.max_temp
     )
@@ -202,7 +202,7 @@ async def test_a_heating_target_below_the_cooler_keeps_the_band_inside_it(
         hass, "set_temperature", {"target_temp_low": 10.0, "target_temp_high": 26.0}
     )
 
-    assert bt.bt_target_temp == 10.0
+    assert bt.heat_target_temperature == 10.0
     assert await wait_for(
         hass,
         lambda: (

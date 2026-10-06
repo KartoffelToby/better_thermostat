@@ -57,7 +57,7 @@ class BtRuntime:
     temp_slope: float | None = None
     call_for_heat: bool = True
     ignore_states: bool = False
-    bt_target_temp: float | None = None
+    heat_target_temperature: float | None = None
     cool_target_temperature: float | None = None
 
 

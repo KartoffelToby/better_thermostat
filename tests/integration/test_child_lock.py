@@ -88,7 +88,7 @@ async def test_a_locked_knob_turn_is_turned_back_at_once(hass, turn):
     assert await wait_for(
         hass, lambda: device.target_temperature == commanded, timeout_s=2.0
     )
-    assert bt.bt_target_temp == 21.0
+    assert bt.heat_target_temperature == 21.0
 
 
 @pytest.mark.parametrize(

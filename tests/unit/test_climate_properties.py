@@ -23,7 +23,7 @@ def bt():
     """Minimal BetterThermostat mock for property access."""
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
-    mock.bt_target_temp = 21.0
+    mock.heat_target_temperature = 21.0
     mock.cool_target_temperature = 25.0
     mock.bt_min_temp = 5.0
     mock.bt_max_temp = 30.0
@@ -42,7 +42,7 @@ def _prop(name, bt):
 
 def test_target_temperature_none(bt):
     """No internal target -> None."""
-    bt.bt_target_temp = None
+    bt.heat_target_temperature = None
     assert _prop("target_temperature", bt) is None
 
 
@@ -50,25 +50,25 @@ def test_target_temperature_without_bounds(bt):
     """Without bounds the raw target is returned."""
     bt.bt_min_temp = None
     bt.bt_max_temp = None
-    bt.bt_target_temp = 99.0
+    bt.heat_target_temperature = 99.0
     assert _prop("target_temperature", bt) == 99.0
 
 
 def test_target_temperature_clamped_below_min(bt):
     """A target below min reads as min."""
-    bt.bt_target_temp = 2.0
+    bt.heat_target_temperature = 2.0
     assert _prop("target_temperature", bt) == 5.0
 
 
 def test_target_temperature_clamped_above_max(bt):
     """A target above max reads as max."""
-    bt.bt_target_temp = 99.0
+    bt.heat_target_temperature = 99.0
     assert _prop("target_temperature", bt) == 30.0
 
 
 def test_target_temperature_in_range(bt):
     """An in-range target is returned unchanged."""
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     assert _prop("target_temperature", bt) == 21.0
 
 
