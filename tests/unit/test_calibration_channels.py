@@ -50,7 +50,9 @@ def _make_bt(
     bt.bt_hvac_mode = HVACMode.HEAT
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _eid, offset: float(offset)
+    quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (
+        float(calibration_offset)
+    )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _eid, temperature: float(temperature)
     )
@@ -115,9 +117,9 @@ def test_the_local_channel_holds_its_offset_while_a_controller_drives_the_valve(
     bt = _make_bt(mode, last_calibration=1.5)
 
     with _controller_reports(40.0, drives_the_valve=True):
-        offset = calculate_calibration_local(bt, ENTITY_ID)
+        calibration_offset = calculate_calibration_local(bt, ENTITY_ID)
 
-    assert offset == pytest.approx(1.5)
+    assert calibration_offset == pytest.approx(1.5)
 
 
 def test_the_setpoint_channel_keeps_a_closed_valve_from_heating_on_its_own():
