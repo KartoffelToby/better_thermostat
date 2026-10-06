@@ -56,7 +56,7 @@ def to_pct(value: float | str | None) -> float | None:
 
 
 def should_heat_with_tolerance(
-    cur_temp: float,
+    room_temperature: float,
     heat_target_temperature: float,
     tolerance: float,
     previous_action: HVACAction | None,
@@ -64,16 +64,16 @@ def should_heat_with_tolerance(
     """Determine whether heating should be active based on hysteresis.
 
     Band: ``[target - tolerance, target)``
-    * Start heating when ``cur_temp < target - tolerance``.
-    * Continue heating (if already heating) until ``cur_temp >= target``.
+    * Start heating when ``room_temperature < target - tolerance``.
+    * Continue heating (if already heating) until ``room_temperature >= target``.
     * Stop at ``target`` – never heat *above* target.
     """
     tolerance = max(0.0, tolerance)
     heat_off_threshold = heat_target_temperature
     heat_on_threshold = heat_target_temperature - tolerance
     if previous_action == HVACAction.HEATING:
-        return cur_temp < heat_off_threshold
-    return cur_temp < heat_on_threshold
+        return room_temperature < heat_off_threshold
+    return room_temperature < heat_on_threshold
 
 
 # Minimum width of the cooling decision band. A tolerance narrower than this
@@ -87,7 +87,7 @@ COOLER_MODE_HYSTERESIS_K = 0.2
 
 
 def should_cool_with_tolerance(
-    cur_temp: float,
+    room_temperature: float,
     cool_target: float,
     tolerance: float,
     previously_cooling: bool,
@@ -96,16 +96,16 @@ def should_cool_with_tolerance(
     """Determine whether cooling should be active based on hysteresis.
 
     Band: ``[cool_target, cool_target + tolerance]``
-    * Start cooling when ``cur_temp >= cool_target + tolerance``.
-    * Continue cooling (if already cooling) until ``cur_temp < cool_target``.
+    * Start cooling when ``room_temperature >= cool_target + tolerance``.
+    * Continue cooling (if already cooling) until ``room_temperature < cool_target``.
     * A band narrower than ``min_band`` takes the missing width from below
       ``cool_target``, so a room temperature resting on an edge cannot flip
       the decision on every cycle. The switch-on edge never moves for it.
     """
     tolerance = max(0.0, tolerance)
     if previously_cooling:
-        return cur_temp >= cool_target - max(0.0, min_band - tolerance)
-    return cur_temp >= cool_target + tolerance
+        return room_temperature >= cool_target - max(0.0, min_band - tolerance)
+    return room_temperature >= cool_target + tolerance
 
 
 _VALVE_THRESH = 0.0
@@ -113,7 +113,7 @@ _VALVE_THRESH = 0.0
 
 def compute_hvac_action(
     hysteresis: ToleranceHysteresis,
-    cur_temp: float | None,
+    room_temperature: float | None,
     heat_target_temperature: float | None,
     cool_target: float | None,
     hvac_mode: HVACMode | None,
@@ -139,7 +139,7 @@ def compute_hvac_action(
     """
     prev_action = hysteresis.last_action
 
-    if heat_target_temperature is None or cur_temp is None:
+    if heat_target_temperature is None or room_temperature is None:
         return HvacActionResult(
             action=HVACAction.IDLE,
             tolerance_decision=HVACAction.IDLE,
@@ -170,7 +170,7 @@ def compute_hvac_action(
 
     if heating_allowed:
         if should_heat_with_tolerance(
-            cur_temp, heat_target_temperature, tolerance, prev_action
+            room_temperature, heat_target_temperature, tolerance, prev_action
         ):
             action = HVACAction.HEATING
         else:
@@ -188,13 +188,13 @@ def compute_hvac_action(
         hvac_mode == HVACMode.HEAT_COOL
         and cool_target is not None
         and should_cool_with_tolerance(
-            cur_temp,
+            room_temperature,
             cool_target,
             tolerance,
             cool_previously_active,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        and cur_temp > heat_target_temperature
+        and room_temperature > heat_target_temperature
     ):
         action = HVACAction.COOLING
         tolerance_hold = False
@@ -203,7 +203,7 @@ def compute_hvac_action(
     # Suppressed at or above target so a still-closing valve cannot lift the
     # displayed action above IDLE once the hysteresis decided to stop.
     if action == HVACAction.IDLE:
-        if ignore_states or window_open or cur_temp >= heat_target_temperature:
+        if ignore_states or window_open or room_temperature >= heat_target_temperature:
             return HvacActionResult(
                 action=HVACAction.IDLE,
                 tolerance_decision=tolerance_decision,

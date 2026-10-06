@@ -76,7 +76,7 @@ def _update_external_temp_ema(self, temp_q: float) -> float:
     self._external_temp_ema_ts = now_m
     self.external_temp_ema = ema
     # Expose a generic name so consumers don't need to know EMA vs SMA
-    self.cur_temp_filtered = round(float(ema), 2)
+    self.room_temperature_filtered = round(float(ema), 2)
     return float(ema)
 
 
@@ -140,7 +140,7 @@ async def _commit_temperature_update(self, new_temp):
         self.device_name,
         new_temp,
     )
-    _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
+    _cur_q = None if self.room_temperature is None else round(self.room_temperature, 2)
     new_temp_q = round(new_temp, 2)
 
     # Remember previous value as stable pre-measure before updating
@@ -152,7 +152,7 @@ async def _commit_temperature_update(self, new_temp):
             self.last_change_direction = 1
         elif new_temp_q < _cur_q:
             self.last_change_direction = -1
-    self.cur_temp = new_temp_q
+    self.room_temperature = new_temp_q
     self.last_known_external_temp = new_temp_q
     # Update EMA (useful if called from timer after delay)
     try:
@@ -183,7 +183,7 @@ async def _commit_temperature_update(self, new_temp):
             float(new_temp_q),
             float(_ema),
         )
-    # Write the value used by BT (self.cur_temp) to the TRV. The heads are
+    # Write the value used by BT (self.room_temperature) to the TRV. The heads are
     # read from `real_trvs`, which is what carries the quirks the write goes
     # through: an id from anywhere else resolves to no TRV and no write.
     entity_ids: list[str] = []
@@ -205,7 +205,7 @@ async def _commit_temperature_update(self, new_temp):
             if quirks and hasattr(quirks, "maybe_set_external_temperature"):
                 async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
                     await quirks.maybe_set_external_temperature(
-                        self, entity_id, self.cur_temp
+                        self, entity_id, self.room_temperature
                     )
             else:
                 _LOGGER.debug(
@@ -403,7 +403,7 @@ async def trigger_temperature_change(self, event):
     except TypeError, AttributeError:  # defensive, should not happen
         _age = 999999
     # Rounded comparison values
-    _cur_q = None if self.cur_temp is None else round(self.cur_temp, 2)
+    _cur_q = None if self.room_temperature is None else round(self.room_temperature, 2)
     _diff = None if _cur_q is None else abs(_incoming_temperature_q - _cur_q)
     # Quantized difference for a robust threshold check (avoids 0.099999 errors)
     _diff_q = None if _diff is None else round(_diff, 2)

@@ -121,16 +121,16 @@ class TestHvacActionPrecision:
         sensor_reading = "19.97"
 
         # convert_to_float preserves precision
-        cur_temp = convert_to_float(sensor_reading, "test", "test")
+        room_temperature = convert_to_float(sensor_reading, "test", "test")
 
         # Heating threshold calculation
         heat_on_threshold = target_temp - tolerance
 
         # With correct precision: 19.97 < 20.0 -> should heat
-        should_heat = cur_temp < heat_on_threshold
+        should_heat = room_temperature < heat_on_threshold
 
         assert should_heat is True, (
-            f"Heating decision incorrect: cur_temp={cur_temp}, "
+            f"Heating decision incorrect: room_temperature={room_temperature}, "
             f"threshold={heat_on_threshold}, should_heat={should_heat}"
         )
 
@@ -145,16 +145,16 @@ class TestHvacActionPrecision:
         tolerance = 0.0
         sensor_reading = "19.97"
 
-        cur_temp = convert_to_float(sensor_reading, "test", "test")
+        room_temperature = convert_to_float(sensor_reading, "test", "test")
 
         # Tolerance check as done in calibration.py
-        within_tolerance = (cur_temp >= (target_temp - tolerance)) and (
-            cur_temp <= (target_temp + tolerance)
+        within_tolerance = (room_temperature >= (target_temp - tolerance)) and (
+            room_temperature <= (target_temp + tolerance)
         )
 
         # With precision preserved: 19.97 < 20.0, so within_tolerance = False
         assert within_tolerance is False, (
-            f"Tolerance check failed: cur_temp={cur_temp} (from {sensor_reading}), "
+            f"Tolerance check failed: room_temperature={room_temperature} (from {sensor_reading}), "
             f"target={target_temp}, tolerance={tolerance}. "
             f"within_tolerance={within_tolerance}, expected False"
         )

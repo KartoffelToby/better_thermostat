@@ -384,8 +384,8 @@ each such exception together with its reason.
 
 Under `tests/` a rejected spelling is charged only once production has stopped
 using it. A test has to name the attribute it asserts on, so that spelling is
-production's decision and not the test's, and a new test may write
-`world.cur_temp` for as long as the field is called `cur_temp`. Renaming the
+production's decision and not the test's, and a new test may use a rejected
+spelling for as long as a production field still carries it. Renaming the
 last production site is what makes its readers due, and they come out with it.
 
 New and touched code follows the convention. The spellings the codebase still

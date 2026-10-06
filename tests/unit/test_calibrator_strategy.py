@@ -162,7 +162,7 @@ class TestStrategyRegistry:
         strategy = registry[CalibrationMode.MPC_CALIBRATION]
 
         bt = ThermostatStandIn()
-        bt.cur_temp = 20.0
+        bt.room_temperature = 20.0
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
         bt.real_trvs = {"climate.trv": Trv(entity_id="climate.trv")}
@@ -174,7 +174,7 @@ class TestStrategyRegistry:
         cap = strategy.capability(bt, "climate.trv")
         assert cap.configured and cap.healthy and cap.ready
 
-        bt.cur_temp = None
+        bt.room_temperature = None
         cap = strategy.capability(bt, "climate.trv")
         assert cap.configured and not cap.healthy and not cap.ready
 
@@ -191,7 +191,7 @@ class TestStrategyRegistry:
 
         bt = ThermostatStandIn()
         bt.device_name = "Test BT"
-        bt.cur_temp = None
+        bt.room_temperature = None
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state(
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
@@ -224,7 +224,7 @@ class TestBalanceCalibrator:
             lambda bt, e: (percent, use_valve),
         )
         bt = ThermostatStandIn()
-        bt.cur_temp = 20.0
+        bt.room_temperature = 20.0
         bt.heat_target_temperature = 21.0
         bt.kernel_state = make_state()
         bt.real_trvs = {
@@ -256,7 +256,7 @@ class TestBalanceCalibrator:
         adapter, bt = self._adapter(balance={"valve_percent": 40})
         cap = adapter.capability()
         assert cap.configured and cap.healthy and cap.ready
-        bt.cur_temp = None
+        bt.room_temperature = None
         assert adapter.capability().healthy is False
 
     def test_readiness_means_a_finite_observed_result(self):

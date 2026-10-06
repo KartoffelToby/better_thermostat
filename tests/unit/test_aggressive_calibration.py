@@ -34,7 +34,7 @@ ENTITY_ID = "climate.test_trv"
 def _make_bt(
     calibration_mode,
     hvac_action,
-    cur_temp=20.0,
+    room_temperature=20.0,
     heat_target_temperature=21.0,
     tolerance=0.5,
     trv_temp=21.0,
@@ -60,8 +60,8 @@ def _make_bt(
     bt.tolerance = tolerance
     bt.attr_hvac_action = hvac_action
     bt.hvac_action = hvac_action
-    bt.cur_temp = cur_temp
-    bt.cur_temp_filtered = None
+    bt.room_temperature = room_temperature
+    bt.room_temperature_filtered = None
     bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None
@@ -109,7 +109,7 @@ class TestToleranceDelayBehavior:
     """Tolerance-delay post-adjustment is skipped for DEFAULT, AGGRESSIVE, and MPC/TPI/PID modes.
 
     Each mode skips through a different code-path.
-    With the mock inputs (cur_temp=20.0, trv_temp=21.0, last_calibration=0.0)
+    With the mock inputs (room_temperature=20.0, trv_temp=21.0, last_calibration=0.0)
     the base calibration is ``(20.0 − 21.0) + 0.0 = −1.0``.  All three modes
     return that value unchanged because no post-adjustments fire.
     """
@@ -151,7 +151,7 @@ class TestToleranceDelayBehavior:
 class TestAggressiveCalibrationOffset:
     """The -2.5 offset only fires for AGGRESSIVE + HEATING + cal > -2.5.
 
-    Mock inputs use ``cur_temp=20.5, heat_target_temperature=22.0`` (outside tolerance)
+    Mock inputs use ``room_temperature=20.5, heat_target_temperature=22.0`` (outside tolerance)
     and ``trv_temp=21.0, last_calibration=0.0`` to produce a base calibration
     of ``(20.5 − 21.0) + 0.0 = −0.5``.
     """
@@ -161,7 +161,7 @@ class TestAggressiveCalibrationOffset:
         bt = _make_bt(
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
-            cur_temp=20.5,
+            room_temperature=20.5,
             heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
@@ -172,7 +172,7 @@ class TestAggressiveCalibrationOffset:
         bt = _make_bt(
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.IDLE,
-            cur_temp=20.5,
+            room_temperature=20.5,
             heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
@@ -181,12 +181,12 @@ class TestAggressiveCalibrationOffset:
     def test_aggressive_offset_not_applied_when_already_aggressive(self):
         """Base cal already ≤ -2.5 → no further adjustment.
 
-        cur_temp=18.0 → base = (18.0 − 21.0) + 0.0 = -3.0.
+        room_temperature=18.0 → base = (18.0 − 21.0) + 0.0 = -3.0.
         """
         bt = _make_bt(
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
-            cur_temp=18.0,
+            room_temperature=18.0,
             heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
@@ -217,7 +217,7 @@ class TestCombinedBehavior:
         bt = _make_bt(
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
-            cur_temp=20.5,
+            room_temperature=20.5,
             heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
@@ -231,7 +231,7 @@ class TestCombinedBehavior:
 class TestSetpointCalibration:
     """Setpoint calibration: ``(target − external) + trv_temp``.
 
-    Mock inputs: ``heat_target_temperature=21.3, cur_temp=20.0, trv_temp=20.0``
+    Mock inputs: ``heat_target_temperature=21.3, room_temperature=20.0, trv_temp=20.0``
     → base setpoint = ``(21.3 − 20.0) + 20.0 = 21.3``.
     """
 
@@ -241,7 +241,7 @@ class TestSetpointCalibration:
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.IDLE,
             heat_target_temperature=21.3,
-            cur_temp=20.0,
+            room_temperature=20.0,
             trv_temp=20.0,
         )
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
@@ -253,7 +253,7 @@ class TestSetpointCalibration:
             CalibrationMode.DEFAULT,
             HVACAction.IDLE,
             heat_target_temperature=21.3,
-            cur_temp=20.0,
+            room_temperature=20.0,
             trv_temp=20.0,
         )
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
@@ -265,7 +265,7 @@ class TestSetpointCalibration:
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
             heat_target_temperature=22.0,
-            cur_temp=20.0,
+            room_temperature=20.0,
             trv_temp=20.0,
         )
         # base setpoint = (22.0 - 20.0) + 20.0 = 22.0
@@ -279,7 +279,7 @@ class TestSetpointCalibration:
             CalibrationMode.MPC_CALIBRATION,
             HVACAction.IDLE,
             heat_target_temperature=21.3,
-            cur_temp=20.0,
+            room_temperature=20.0,
             trv_temp=20.0,
         )
         result = calculate_calibration_setpoint(bt, ENTITY_ID)
@@ -304,7 +304,7 @@ class TestHysteresisScenario:
           return the base calibration of (20.4 − 21.0) + 0.0 = −0.6.
         """
         common = {
-            "cur_temp": 20.4,
+            "room_temperature": 20.4,
             "heat_target_temperature": 21.0,
             "tolerance": 0.5,
             "trv_temp": 21.0,

@@ -46,7 +46,7 @@ def _mock_bt():
     mock_self.device_name = "Test BT"
     mock_self.heating_power_normalized = None
     mock_self.contact_open = False
-    mock_self.cur_temp_filtered = None
+    mock_self.room_temperature_filtered = None
     mock_self.temp_slope = None
     mock_self.call_for_heat = True
     mock_self.bt_min_temp = None
@@ -90,7 +90,7 @@ class TestControlCooler:
         mock_self.weather_entity = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
-        mock_self.cur_temp = 25.0
+        mock_self.room_temperature = 25.0
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
@@ -159,7 +159,7 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        mock_self.cur_temp = 25.0
+        mock_self.room_temperature = 25.0
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
@@ -204,7 +204,7 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        mock_self.cur_temp = 24.5  # Exactly on target_cooltemp + tolerance
+        mock_self.room_temperature = 24.5  # Exactly on target_cooltemp + tolerance
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 25.0  # Above the room, so the floor decides
         mock_self.tolerance = 0.5
@@ -234,12 +234,12 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        mock_self.cur_temp = 23.0  # Below cool_target_temperature
+        mock_self.room_temperature = 23.0  # Below cool_target_temperature
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
-        # cur_temp (23.0) < cool_target_temperature (24.0), so it is below both
+        # room_temperature (23.0) < cool_target_temperature (24.0), so it is below both
         # edges of the band and cooling is off regardless of the last decision.
 
         await control_cooler(mock_self)
@@ -277,8 +277,8 @@ class TestControlCooler:
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
-        # cur_temp (24.2) < (24.0 + 0.5 = 24.5) -> else branch: OFF
-        mock_self.cur_temp = 24.2
+        # room_temperature (24.2) < (24.0 + 0.5 = 24.5) -> else branch: OFF
+        mock_self.room_temperature = 24.2
 
         await control_cooler(mock_self)
 
@@ -305,7 +305,7 @@ class TestControlCooler:
         mock_self.weather_entity = None
         mock_self.bt_hvac_mode = HVACMode.OFF
         mock_self.cooler_entity_id = "climate.cooler"
-        mock_self.cur_temp = 25.0
+        mock_self.room_temperature = 25.0
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
@@ -334,7 +334,7 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        mock_self.cur_temp = 25.0
+        mock_self.room_temperature = 25.0
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
@@ -349,8 +349,8 @@ class TestControlCooler:
     async def test_edge_case_exactly_at_threshold(self):
         """Test behavior when temperature is exactly at threshold.
 
-        cur_temp (24.5) >= (24.0 + 0.5 = 24.5) -> True
-        cur_temp (24.5) > heat_target_temperature (20.0) -> True
+        room_temperature (24.5) >= (24.0 + 0.5 = 24.5) -> True
+        room_temperature (24.5) > heat_target_temperature (20.0) -> True
         -> first branch: COOL
         """
         mock_hass = Mock()
@@ -372,12 +372,12 @@ class TestControlCooler:
         mock_self.tolerance = 0.5
 
         # Exactly at target_cooltemp + tolerance AND above heat_target_temperature
-        mock_self.cur_temp = 24.5
+        mock_self.room_temperature = 24.5
 
         await control_cooler(mock_self)
 
         calls = mock_hass.services.async_call.call_args_list
-        # cur_temp (24.5) >= 24.5 AND cur_temp (24.5) > 20.0 -> COOL
+        # room_temperature (24.5) >= 24.5 AND room_temperature (24.5) > 20.0 -> COOL
         assert calls[-1].args[2]["hvac_mode"] == HVACMode.COOL
 
 
@@ -413,7 +413,7 @@ def _make_cooler_setup(
     cooler_state=HVACMode.COOL,
     cooler_temp_attr=24.0,
     system_unit=UnitOfTemperature.CELSIUS,
-    cur_temp=25.0,
+    room_temperature=25.0,
     target_cooltemp=24.0,
     target_temp=20.0,
     cooler_attributes=None,
@@ -442,7 +442,7 @@ def _make_cooler_setup(
     mock_self.bt_hvac_mode = HVACMode.COOL
     mock_self.cooler_entity_id = "climate.cooler"
     mock_self.context = None
-    mock_self.cur_temp = cur_temp
+    mock_self.room_temperature = room_temperature
     mock_self.cool_target_temperature = target_cooltemp
     mock_self.heat_target_temperature = target_temp
     mock_self.tolerance = 0.5
@@ -837,7 +837,7 @@ class TestControlCoolerSendCache:
         assert COOLER_FAILURE_BACKOFF_BASE_S < COOLER_RESEND_INTERVAL_S
 
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_state=HVACMode.COOL, cooler_temp_attr=24.0, cur_temp=20.0
+            cooler_state=HVACMode.COOL, cooler_temp_attr=24.0, room_temperature=20.0
         )
         mock_self.bt_hvac_mode = HVACMode.OFF
 
@@ -1203,7 +1203,7 @@ class TestControlCoolerModeHysteresis:
         elapsed = 0.0
         while elapsed < 3600.0:
             mock_self.clock.monotonic_value = elapsed
-            mock_self.cur_temp = self.SWITCH_ON_AT + (
+            mock_self.room_temperature = self.SWITCH_ON_AT + (
                 0.005 if cycles % 2 == 0 else -0.005
             )
             await control_cooler(mock_self)
@@ -1243,7 +1243,7 @@ class TestControlCoolerModeHysteresis:
         for _ in range(5):
             for room_temp in (24.1, 24.0, 23.9, 24.0):
                 mock_self.clock.monotonic_value = elapsed
-                mock_self.cur_temp = room_temp
+                mock_self.room_temperature = room_temp
                 await control_cooler(mock_self)
                 assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
                 elapsed += 5.0
@@ -1267,13 +1267,13 @@ class TestControlCoolerModeHysteresis:
         )
 
         # Just above the hold edge, so still inside the band.
-        mock_self.cur_temp = self.HOLD_UNTIL + 0.1
+        mock_self.room_temperature = self.HOLD_UNTIL + 0.1
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
 
         # Below the band.
-        mock_self.cur_temp = self.HOLD_UNTIL - 0.1
+        mock_self.room_temperature = self.HOLD_UNTIL - 0.1
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1295,12 +1295,12 @@ class TestControlCoolerModeHysteresis:
         self._make_compliant(mock_hass, cooler_state)
 
         # A hundredth of a degree short of the switch-on edge.
-        mock_self.cur_temp = self.SWITCH_ON_AT - 0.01
+        mock_self.room_temperature = self.SWITCH_ON_AT - 0.01
         await control_cooler(mock_self)
         assert _service_calls(mock_hass, "set_hvac_mode") == []
 
         # Exactly on the switch-on point.
-        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.room_temperature = self.SWITCH_ON_AT
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1321,7 +1321,7 @@ class TestControlCoolerModeHysteresis:
         )
         self._make_compliant(mock_hass, cooler_state)
 
-        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.room_temperature = self.SWITCH_ON_AT
         await control_cooler(mock_self)
         assert (
             _service_calls(mock_hass, "set_hvac_mode")[-1].args[2]["hvac_mode"]
@@ -1329,12 +1329,12 @@ class TestControlCoolerModeHysteresis:
         )
 
         for offset in (0.4, 0.2, 0.0):
-            mock_self.cur_temp = self.HOLD_UNTIL + offset
+            mock_self.room_temperature = self.HOLD_UNTIL + offset
             mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
             await control_cooler(mock_self)
             assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
 
-        mock_self.cur_temp = self.HOLD_UNTIL - 0.01
+        mock_self.room_temperature = self.HOLD_UNTIL - 0.01
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1356,11 +1356,11 @@ class TestControlCoolerModeHysteresis:
         mock_self.tolerance = 0.0
         self._make_compliant(mock_hass, cooler_state)
 
-        mock_self.cur_temp = 23.99
+        mock_self.room_temperature = 23.99
         await control_cooler(mock_self)
         assert _service_calls(mock_hass, "set_hvac_mode") == []
 
-        mock_self.cur_temp = 24.0
+        mock_self.room_temperature = 24.0
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert (
@@ -1369,12 +1369,12 @@ class TestControlCoolerModeHysteresis:
         )
 
         # Inside the minimum band the guard borrows from below the target.
-        mock_self.cur_temp = 23.9
+        mock_self.room_temperature = 23.9
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
 
-        mock_self.cur_temp = 23.7
+        mock_self.room_temperature = 23.7
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1402,7 +1402,7 @@ class TestControlCoolerModeHysteresis:
 
         # On the switch-on edge and above the heating target, so COOL is
         # decided and the hold edge at 23.8 is primed.
-        mock_self.cur_temp = 24.0
+        mock_self.room_temperature = 24.0
         await control_cooler(mock_self)
         assert (
             _service_calls(mock_hass, "set_hvac_mode")[-1].args[2]["hvac_mode"]
@@ -1410,7 +1410,7 @@ class TestControlCoolerModeHysteresis:
         )
 
         # Still above the hold edge, but no longer above the heating target.
-        mock_self.cur_temp = 23.85
+        mock_self.room_temperature = 23.85
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1439,12 +1439,12 @@ class TestControlCoolerModeHysteresis:
 
         # On the switch-on edge and above the heating target, so COOL is
         # decided and the hold edge at 23.8 is primed.
-        mock_self.cur_temp = 24.0
+        mock_self.room_temperature = 24.0
         await control_cooler(mock_self)
         assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
 
         # Above the hold edge and exactly on the heating target.
-        mock_self.cur_temp = 23.9
+        mock_self.room_temperature = 23.9
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1475,7 +1475,7 @@ class TestControlCoolerModeHysteresis:
 
         # On the switch-on edge, so COOL is decided and the hold edge at 23.85
         # — below the heating target — is primed.
-        mock_self.cur_temp = 24.05
+        mock_self.room_temperature = 24.05
         await control_cooler(mock_self)
         assert (
             _service_calls(mock_hass, "set_hvac_mode")[-1].args[2]["hvac_mode"]
@@ -1483,7 +1483,7 @@ class TestControlCoolerModeHysteresis:
         )
 
         # Above both the hold edge and the heating target: the hold stands.
-        mock_self.cur_temp = 23.95
+        mock_self.room_temperature = 23.95
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
@@ -1492,7 +1492,7 @@ class TestControlCoolerModeHysteresis:
         # heating target lowered by the tolerance as well. The floor read at
         # the heating target itself is the only thing that stops the cooler
         # here.
-        mock_self.cur_temp = 23.87
+        mock_self.room_temperature = 23.87
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1525,7 +1525,7 @@ class TestControlCoolerModeHysteresis:
                 cooler_state=HVACMode.OFF,
                 cooler_temp_attr=24.0,
                 target_cooltemp=24.0,
-                cur_temp=room_temp,
+                room_temperature=room_temp,
             )
             mock_self.tolerance = tolerance
             if latched is not None:
@@ -1552,7 +1552,7 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
         )
-        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.room_temperature = self.SWITCH_ON_AT
         mock_hass.services.async_call = AsyncMock(
             side_effect=HomeAssistantError("cooler offline")
         )
@@ -1590,7 +1590,7 @@ class TestControlCoolerModeHysteresis:
         elapsed = 0.0
         while elapsed < 3600.0:
             mock_self.clock.monotonic_value = elapsed
-            mock_self.cur_temp = self.SWITCH_ON_AT + (
+            mock_self.room_temperature = self.SWITCH_ON_AT + (
                 0.005 if cycles % 2 == 0 else -0.005
             )
             await control_cooler(mock_self)
@@ -1619,7 +1619,7 @@ class TestControlCoolerModeHysteresis:
         await control_cooler(mock_self)
 
         cooler_state.state = HVACMode.OFF
-        mock_self.cur_temp = self.SWITCH_ON_AT - 0.1
+        mock_self.room_temperature = self.SWITCH_ON_AT - 0.1
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1640,7 +1640,7 @@ class TestControlCoolerModeHysteresis:
             cooler_state=HVACMode.COOL,
             cooler_temp_attr=24.0,
             target_cooltemp=24.0,
-            cur_temp=24.1,
+            room_temperature=24.1,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1656,7 +1656,7 @@ class TestControlCoolerModeHysteresis:
             cooler_state=HVACMode.COOL,
             cooler_temp_attr=24.0,
             target_cooltemp=24.0,
-            cur_temp=self.HOLD_UNTIL - 0.1,
+            room_temperature=self.HOLD_UNTIL - 0.1,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1693,7 +1693,7 @@ class TestControlCoolerModeHysteresis:
             cooler_state=reported_mode,
             cooler_temp_attr=24.0,
             target_cooltemp=24.0,
-            cur_temp=self.HOLD_UNTIL + 0.1,
+            room_temperature=self.HOLD_UNTIL + 0.1,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1719,7 +1719,7 @@ class TestControlCoolerModeHysteresis:
             cooler_state=HVACMode.COOL,
             cooler_temp_attr=24.0,
             target_cooltemp=24.0,
-            cur_temp=self.HOLD_UNTIL - 0.1,
+            room_temperature=self.HOLD_UNTIL - 0.1,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1729,7 +1729,7 @@ class TestControlCoolerModeHysteresis:
         # The device reports COOL again: either a state update lagging the
         # command, or a mode set from outside Better Thermostat.
         cooler_state.state = HVACMode.COOL
-        mock_self.cur_temp = self.HOLD_UNTIL + 0.1
+        mock_self.room_temperature = self.HOLD_UNTIL + 0.1
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
 
@@ -1742,7 +1742,7 @@ class TestControlCoolerModeHysteresis:
     @pytest.mark.parametrize(
         "interrupt",
         [
-            pytest.param({"cur_temp": None}, id="missing_room_temperature"),
+            pytest.param({"room_temperature": None}, id="missing_room_temperature"),
             pytest.param({"contact_open": True}, id="open_contact"),
             pytest.param({"bt_hvac_mode": HVACMode.OFF}, id="bt_off"),
         ],
@@ -1763,11 +1763,11 @@ class TestControlCoolerModeHysteresis:
         )
         self._make_compliant(mock_hass, cooler_state)
 
-        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.room_temperature = self.SWITCH_ON_AT
         await control_cooler(mock_self)
         assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
 
-        mock_self.cur_temp = self.HOLD_UNTIL + 0.3
+        mock_self.room_temperature = self.HOLD_UNTIL + 0.3
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
@@ -1781,12 +1781,12 @@ class TestControlCoolerModeHysteresis:
         mock_self.bt_hvac_mode = HVACMode.COOL
 
         # Inside the band the room used to be held in, but no longer latched.
-        mock_self.cur_temp = self.HOLD_UNTIL + 0.2
+        mock_self.room_temperature = self.HOLD_UNTIL + 0.2
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.OFF
 
-        mock_self.cur_temp = self.SWITCH_ON_AT
+        mock_self.room_temperature = self.SWITCH_ON_AT
         mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
         await control_cooler(mock_self)
         assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
@@ -1871,7 +1871,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
         """
         mock_hass = self._make_hass(HVACMode.COOL)
         thermostat = self._make_thermostat(mock_hass)
-        thermostat.cur_temp = 24.1
+        thermostat.room_temperature = 24.1
 
         await control_cooler(thermostat)
 
@@ -1888,7 +1888,7 @@ class TestControlCoolerLatchOfAFreshThermostat:
         """
         mock_hass = self._make_hass(HVACMode.OFF)
         thermostat = self._make_thermostat(mock_hass)
-        thermostat.cur_temp = 24.1
+        thermostat.room_temperature = 24.1
 
         await control_cooler(thermostat)
 

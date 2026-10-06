@@ -170,10 +170,11 @@ def _parse(path: Path) -> ast.Module:
 def _production_spellings(glossary: Glossary) -> frozenset[str]:
     """Return the rejected aliases the production tree still spells.
 
-    These are the names a test cannot avoid: it has to say `world.cur_temp` to
-    assert on the field production calls `cur_temp`. Such a use is a reader of
-    a name someone else chose, so it is not counted while that name exists, and
-    it becomes a finding as soon as the production spelling is gone.
+    These are the names a test cannot avoid: to assert on a field, it has to
+    spell the name production gave that field, rejected or not. Such a use is
+    a reader of a name someone else chose, so it is not counted while that
+    name exists, and it becomes a finding as soon as the production spelling
+    is gone.
     """
     return frozenset(
         name

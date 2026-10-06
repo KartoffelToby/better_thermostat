@@ -85,8 +85,8 @@ def thermostat(reported_states):
     bt.bt_max_temp = 30.0
     bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
-    bt.cur_temp = 18.0
-    bt.cur_temp_filtered = None
+    bt.room_temperature = 18.0
+    bt.room_temperature_filtered = None
     bt.temp_slope = None
     bt.call_for_heat = True
     bt.preset_mode = None

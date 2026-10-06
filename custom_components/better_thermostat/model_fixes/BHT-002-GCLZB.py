@@ -34,10 +34,14 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     float
         The normalized integer-valued calibration offset.
     """
-    _cur_temp = self.cur_temp
+    _room_temperature = self.room_temperature
     _target_temp = self.heat_target_temperature
 
-    if _cur_temp is not None and _target_temp is not None and _cur_temp < _target_temp:
+    if (
+        _room_temperature is not None
+        and _target_temp is not None
+        and _room_temperature < _target_temp
+    ):
         offset = float(math.ceil(offset))
     else:
         offset = float(math.floor(offset))

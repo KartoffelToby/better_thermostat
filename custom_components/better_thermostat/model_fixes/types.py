@@ -47,7 +47,7 @@ class ModelFixHost(Protocol):
     """Minimal BetterThermostat surface the model-fix quirks read."""
 
     @property
-    def cur_temp(self) -> float | None:
+    def room_temperature(self) -> float | None:
         """Room temperature Better Thermostat is regulating on.
 
         None while no reading is available, which the entity reports from

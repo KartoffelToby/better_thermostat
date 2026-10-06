@@ -36,8 +36,8 @@ def _pid_bt(*, window_open):
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
     bt.heat_target_temperature = 21.0
-    bt.cur_temp = 18.0
-    bt.cur_temp_filtered = None
+    bt.room_temperature = 18.0
+    bt.room_temperature_filtered = None
     bt.window_open = window_open
     bt.door_open = False
     bt.contact_open = bool(window_open)

@@ -110,8 +110,8 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
     return SimpleNamespace(
         real_trvs=real_trvs,
         heat_target_temperature=21.0,
-        cur_temp=19.0,
-        cur_temp_filtered=None,
+        room_temperature=19.0,
+        room_temperature_filtered=None,
         tolerance=0.0,
         temp_slope=None,
         window_open=window_open,

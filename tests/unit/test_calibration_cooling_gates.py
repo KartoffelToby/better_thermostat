@@ -26,7 +26,7 @@ ENTITY_ID = "climate.trv"
 def build_bt(
     calibration_mode,
     hvac_action,
-    cur_temp,
+    room_temperature,
     heat_target_temperature=21.0,
     trv_temp=21.0,
     tolerance=0.0,
@@ -40,8 +40,8 @@ def build_bt(
     bt.tolerance = tolerance
     bt.attr_hvac_action = hvac_action
     bt.hvac_action = hvac_action
-    bt.cur_temp = cur_temp
-    bt.cur_temp_filtered = None
+    bt.room_temperature = room_temperature
+    bt.room_temperature_filtered = None
     bt.heat_target_temperature = heat_target_temperature
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.outdoor_sensor = None
@@ -96,7 +96,7 @@ def test_cooling_rounds_setpoint_toward_closed():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.DEFAULT,
-        "cur_temp": 21.05,
+        "room_temperature": 21.05,
         "trv_temp": 20.9,
     }
     idle = calculate_calibration_setpoint(
@@ -124,7 +124,7 @@ def test_cooling_rounds_local_offset_toward_closed():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.DEFAULT,
-        "cur_temp": 21.05,
+        "room_temperature": 21.05,
         "trv_temp": 20.9,
     }
     idle = calculate_calibration_local(
@@ -147,7 +147,7 @@ def test_cooling_applies_tolerance_delay_to_local_offset():
     """The tolerance delay lifts the offset while cooling, as it does when idle."""
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "cur_temp": 21.4,
+        "room_temperature": 21.4,
         "trv_temp": 22.0,
         "tolerance": 0.5,
         "step": 0.1,
@@ -177,7 +177,7 @@ def test_cooling_applies_tolerance_delay_to_setpoint():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "cur_temp": 20.5,
+        "room_temperature": 20.5,
         "trv_temp": 21.0,
         "tolerance": 0.5,
         "step": 0.1,
@@ -206,7 +206,7 @@ def test_overheating_protection_applies_to_idle_only():
     """
     kwargs = {
         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-        "cur_temp": 23.0,
+        "room_temperature": 23.0,
         "trv_temp": 21.0,
         "tolerance": 0.5,
         "protect_overheating": True,
@@ -236,15 +236,15 @@ def test_overheating_protection_applies_to_idle_only():
 @pytest.mark.parametrize("calibration_mode", list(CalibrationMode))
 @pytest.mark.parametrize("step", [0.1, 0.5, 1.0])
 @pytest.mark.parametrize("tolerance", [0.0, 0.3, 0.5])
-@pytest.mark.parametrize("cur_temp", [21.05, 21.3, 22.0, 23.7, 24.2, 26.4])
+@pytest.mark.parametrize("room_temperature", [21.05, 21.3, 22.0, 23.7, 24.2, 26.4])
 @pytest.mark.parametrize("trv_temp", [20.0, 20.9, 21.0, 22.5])
 def test_cooling_never_opens_further_than_idle(
-    calibration_mode, step, tolerance, cur_temp, trv_temp
+    calibration_mode, step, tolerance, room_temperature, trv_temp
 ):
     """Cooling never commands a more open valve than the same idle room does."""
     kwargs = {
         "calibration_mode": calibration_mode,
-        "cur_temp": cur_temp,
+        "room_temperature": room_temperature,
         "trv_temp": trv_temp,
         "tolerance": tolerance,
         "step": step,

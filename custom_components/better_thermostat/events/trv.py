@@ -294,7 +294,7 @@ async def trigger_trv_change(
         return
     if (
         self.heat_target_temperature is None
-        or self.cur_temp is None
+        or self.room_temperature is None
         or self.tolerance is None
     ):
         return

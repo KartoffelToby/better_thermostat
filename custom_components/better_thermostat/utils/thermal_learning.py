@@ -196,7 +196,7 @@ class HeatingPowerTracker:
 
     def update(
         self,
-        cur_temp: float,
+        room_temperature: float,
         current_action: HVACAction,
         now: datetime,
         *,
@@ -211,7 +211,7 @@ class HeatingPowerTracker:
             current_action == HVACAction.HEATING
             and self._prev_action != HVACAction.HEATING
         ):
-            self.start_temp = cur_temp
+            self.start_temp = room_temperature
             self.start_ts = now
             self.end_temp = None
             self.end_ts = None
@@ -223,7 +223,7 @@ class HeatingPowerTracker:
             and self.start_temp is not None
             and self.end_temp is None
         ):
-            self.end_temp = cur_temp
+            self.end_temp = room_temperature
             self.end_ts = now
 
         # --- Peak tracking: temp still rising after heating stopped ---
@@ -231,14 +231,14 @@ class HeatingPowerTracker:
             current_action != HVACAction.HEATING
             and self.start_temp is not None
             and self.end_temp is not None
-            and cur_temp > self.end_temp
+            and room_temperature > self.end_temp
         ):
-            self.end_temp = cur_temp
+            self.end_temp = room_temperature
             self.end_ts = now
 
         # --- Finalization criteria ---
         cycle_result = self._maybe_finalize(
-            cur_temp,
+            room_temperature,
             now,
             heat_target_temperature=heat_target_temperature,
             outdoor_temp=outdoor_temp,
@@ -265,7 +265,7 @@ class HeatingPowerTracker:
 
     def _maybe_finalize(
         self,
-        cur_temp: float,
+        room_temperature: float,
         now: datetime,
         *,
         heat_target_temperature: float | None,
@@ -277,7 +277,7 @@ class HeatingPowerTracker:
         if (
             self.start_temp is not None
             and self.end_temp is not None
-            and cur_temp < self.end_temp
+            and room_temperature < self.end_temp
         ):
             finalize = True
         elif self.end_ts is not None and (now - self.end_ts) > timedelta(
@@ -425,7 +425,7 @@ class HeatLossTracker:
 
     def update(
         self,
-        cur_temp: float,
+        room_temperature: float,
         current_action: HVACAction,
         now: datetime,
         *,
@@ -458,12 +458,12 @@ class HeatLossTracker:
         # Track idle cooling
         if current_action != HVACAction.HEATING:
             if self.start_temp is None:
-                self.start_temp = cur_temp
+                self.start_temp = room_temperature
                 self.start_ts = now
-                self.end_temp = cur_temp
+                self.end_temp = room_temperature
                 self.end_ts = now
-            elif self.end_temp is None or cur_temp < self.end_temp:
-                self.end_temp = cur_temp
+            elif self.end_temp is None or room_temperature < self.end_temp:
+                self.end_temp = room_temperature
                 self.end_ts = now
 
         # Finalize when heating restarts

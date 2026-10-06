@@ -1571,7 +1571,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(cur_temp=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
+            "(room_temperature=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,

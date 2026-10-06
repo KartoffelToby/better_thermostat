@@ -29,7 +29,7 @@ COOLER_ID = "climate.air_conditioner"
 
 
 def build_bt(
-    cur_temp,
+    room_temperature,
     target_temp=21.0,
     cool_target=24.0,
     tolerance=0.5,
@@ -43,7 +43,7 @@ def build_bt(
     bt.heat_target_temperature = target_temp
     bt.cool_target_temperature = cool_target
     bt.bt_target_temp_step = None
-    bt.cur_temp = cur_temp
+    bt.room_temperature = room_temperature
     bt.hvac_mode = HVACMode.HEAT_COOL
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.contact_open = False
@@ -74,25 +74,25 @@ def build_bt(
 
 def test_report_holds_cooling_inside_the_hold_band():
     """A running cooler keeps reporting COOLING below the switch-on edge."""
-    bt = build_bt(cur_temp=24.2, decided_mode=HVACMode.COOL)
+    bt = build_bt(room_temperature=24.2, decided_mode=HVACMode.COOL)
     assert bt._compute_hvac_action_pure().action == HVACAction.COOLING
 
 
 def test_report_does_not_start_cooling_inside_the_hold_band():
     """A stopped cooler does not report COOLING below the switch-on edge."""
-    bt = build_bt(cur_temp=24.2, decided_mode=HVACMode.OFF)
+    bt = build_bt(room_temperature=24.2, decided_mode=HVACMode.OFF)
     assert bt._compute_hvac_action_pure().action == HVACAction.IDLE
 
 
 def test_report_starts_cooling_at_the_switch_on_edge():
     """At cooling target plus tolerance the report turns to COOLING."""
-    bt = build_bt(cur_temp=24.5, decided_mode=HVACMode.OFF)
+    bt = build_bt(room_temperature=24.5, decided_mode=HVACMode.OFF)
     assert bt._compute_hvac_action_pure().action == HVACAction.COOLING
 
 
 def test_report_drops_cooling_below_the_hold_edge():
     """Below the cooling target a running cooler stops being reported."""
-    bt = build_bt(cur_temp=23.9, decided_mode=HVACMode.COOL)
+    bt = build_bt(room_temperature=23.9, decided_mode=HVACMode.COOL)
     assert bt._compute_hvac_action_pure().action == HVACAction.IDLE
 
 
@@ -109,8 +109,8 @@ def test_heating_target_floors_the_cooling_report():
         "tolerance": 0.0,
         "decided_mode": HVACMode.COOL,
     }
-    on_the_floor = build_bt(cur_temp=21.0, **kwargs)
-    above_the_floor = build_bt(cur_temp=21.05, **kwargs)
+    on_the_floor = build_bt(room_temperature=21.0, **kwargs)
+    above_the_floor = build_bt(room_temperature=21.05, **kwargs)
 
     assert on_the_floor._compute_hvac_action_pure().action == HVACAction.IDLE
     assert above_the_floor._compute_hvac_action_pure().action == HVACAction.COOLING
@@ -118,7 +118,7 @@ def test_heating_target_floors_the_cooling_report():
 
 def test_cooling_report_does_not_hold_the_heating_tolerance():
     """A reported cooling action clears the tolerance hold."""
-    bt = build_bt(cur_temp=24.2, decided_mode=HVACMode.COOL)
+    bt = build_bt(room_temperature=24.2, decided_mode=HVACMode.COOL)
     result = bt._compute_hvac_action_pure()
     assert result.action == HVACAction.COOLING
     assert result.new_hold_active is False
@@ -128,10 +128,10 @@ def test_cooling_report_does_not_hold_the_heating_tolerance():
 def test_seed_follows_the_latched_cooler_decision():
     """The latched decision decides the hold edge whenever it holds one."""
     latched_on = build_bt(
-        cur_temp=24.2, decided_mode=HVACMode.COOL, reported_mode=HVACMode.OFF
+        room_temperature=24.2, decided_mode=HVACMode.COOL, reported_mode=HVACMode.OFF
     )
     latched_off = build_bt(
-        cur_temp=24.2, decided_mode=HVACMode.OFF, reported_mode=HVACMode.COOL
+        room_temperature=24.2, decided_mode=HVACMode.OFF, reported_mode=HVACMode.COOL
     )
 
     assert latched_on._cooler_previously_active() is True
@@ -140,8 +140,12 @@ def test_seed_follows_the_latched_cooler_decision():
 
 def test_seed_falls_back_to_the_reported_cooler_mode():
     """Without a latched decision the cooler's own mode seeds the hold edge."""
-    running = build_bt(cur_temp=24.2, decided_mode=None, reported_mode=HVACMode.COOL)
-    stopped = build_bt(cur_temp=24.2, decided_mode=None, reported_mode=HVACMode.OFF)
+    running = build_bt(
+        room_temperature=24.2, decided_mode=None, reported_mode=HVACMode.COOL
+    )
+    stopped = build_bt(
+        room_temperature=24.2, decided_mode=None, reported_mode=HVACMode.OFF
+    )
 
     assert running._cooler_previously_active() is True
     assert stopped._cooler_previously_active() is False
@@ -151,7 +155,9 @@ def test_seed_falls_back_to_the_reported_cooler_mode():
 
 def test_seed_is_off_without_a_cooler():
     """An installation without a cooler never holds the cooling band open."""
-    bt = build_bt(cur_temp=24.2, decided_mode=HVACMode.COOL, cooler_entity_id=None)
+    bt = build_bt(
+        room_temperature=24.2, decided_mode=HVACMode.COOL, cooler_entity_id=None
+    )
     assert bt._cooler_previously_active() is False
 
 
@@ -163,10 +169,10 @@ def test_report_agrees_with_the_command(
     target_temp, cool_target, tolerance, cool_previously_active, offset
 ):
     """The reported cooling action matches what control_cooler would command."""
-    cur_temp = round(cool_target + offset, 2)
+    room_temperature = round(cool_target + offset, 2)
     reported = compute_hvac_action(
         hysteresis=ToleranceHysteresis(),
-        cur_temp=cur_temp,
+        room_temperature=room_temperature,
         heat_target_temperature=target_temp,
         cool_target=cool_target,
         hvac_mode=HVACMode.HEAT_COOL,
@@ -179,13 +185,13 @@ def test_report_agrees_with_the_command(
     ).action
     commanded = (
         should_cool_with_tolerance(
-            cur_temp,
+            room_temperature,
             cool_target,
             tolerance,
             cool_previously_active,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        and cur_temp > target_temp
+        and room_temperature > target_temp
     )
 
     assert (reported == HVACAction.COOLING) is commanded
@@ -205,7 +211,9 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
         "climate.cooler", HVACMode.OFF, {"temperature": 24.0}
     )
 
-    bt = build_bt(cur_temp=21.5, cool_target=24.0, target_temp=21.0, tolerance=0.5)
+    bt = build_bt(
+        room_temperature=21.5, cool_target=24.0, target_temp=21.0, tolerance=0.5
+    )
     bt.hass = hass
     bt.context = None
     bt.cooler_entity_id = "climate.cooler"
@@ -216,7 +224,7 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
     sweep = rise + list(reversed(rise))
     seen = {}
     for temp in sweep:
-        bt.cur_temp = temp
+        bt.room_temperature = temp
         snapshot = make_snapshot(
             hvac_mode=CoreHvacMode.HEAT_COOL,
             room_temp=temp,

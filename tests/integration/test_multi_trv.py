@@ -460,7 +460,7 @@ ENTRANCES = [
         "room_sensor_reports",
         {},
         _room_sensor_reports,
-        lambda room: room.bt.cur_temp == pytest.approx(21.3),
+        lambda room: room.bt.room_temperature == pytest.approx(21.3),
     ),
     Entrance(
         "humidity_sensor_reports",

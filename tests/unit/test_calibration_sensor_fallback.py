@@ -1,10 +1,10 @@
 """Tests that balance calibration keeps working under SENSOR_FALLBACK.
 
-When the external room sensor is dead (``cur_temp`` is ``None``) and the
+When the external room sensor is dead (``room_temperature`` is ``None``) and the
 control mode ladder sits on SENSOR_FALLBACK, ``effective_room_temp()``
 substitutes the mean of the TRV-internal temperatures. The balance
 computations must consult that fallback instead of bailing out on the
-bare ``cur_temp`` reading — and must still skip when no temperature is
+bare ``room_temperature`` reading — and must still skip when no temperature is
 available at all.
 """
 
@@ -104,8 +104,8 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> ThermostatStandIn
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.heat_target_temperature = 22.0
-    bt.cur_temp = None
-    bt.cur_temp_filtered = None
+    bt.room_temperature = None
+    bt.room_temperature_filtered = None
     bt.temp_slope = 0.0
     bt.tolerance = 0.0
     bt.window_open = False
@@ -278,7 +278,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     bt = _make_bt(state_mgr, trv_temp=21.0)
     # Sampling is gated to the OPTIMAL rung; the door flag is orthogonal.
     bt.kernel_state = make_state()
-    bt.cur_temp = 20.5
+    bt.room_temperature = 20.5
     bt.window_open = False
     bt.door_open = True
     bt.contact_open = bool(bt.window_open) or bool(bt.door_open)
@@ -304,7 +304,7 @@ def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None
     state_mgr = _StateStub()
     bt = _make_bt(state_mgr, trv_temp=21.0)
     bt.kernel_state = make_state()
-    bt.cur_temp = 20.5
+    bt.room_temperature = 20.5
 
     _record_mpc_v2_reid_sample(
         bt, "key", applied_valve_pct=None, trv_temp=21.0, outdoor_temp=5.0

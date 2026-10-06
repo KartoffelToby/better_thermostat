@@ -34,8 +34,8 @@ def _make_bt(state_mgr: _PidStateStub) -> ThermostatStandIn:
     bt.device_name = "Test BT"
     bt.unique_id = "uid"
     bt.heat_target_temperature = 22.0
-    bt.cur_temp = 20.0
-    bt.cur_temp_filtered = None
+    bt.room_temperature = 20.0
+    bt.room_temperature_filtered = None
     bt.temp_slope = 0.0
     bt.window_open = False
     bt.contact_open = False

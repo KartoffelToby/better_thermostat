@@ -30,7 +30,7 @@ def _bt_with_two_trvs(quirks):
     """A BT stand-in holding a room reading and two TRVs carrying quirks."""
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.cur_temp = ROOM_TEMPERATURE
+    bt.room_temperature = ROOM_TEMPERATURE
     bt.real_trvs = {
         TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
         TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
@@ -94,7 +94,7 @@ async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.cur_temp = None
+    bt.room_temperature = None
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock()
     bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks)}

@@ -67,7 +67,7 @@ def bt():
     mock.heat_target_temperature = 21.0
     mock.cool_target_temperature = 25.0
     mock.bt_hvac_mode = HVACMode.HEAT
-    mock.cur_temp = 20.0
+    mock.room_temperature = 20.0
     mock.tolerance = 0.3
     mock.startup_running = False
     mock.bt_update_lock = False

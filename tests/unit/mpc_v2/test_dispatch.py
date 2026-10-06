@@ -77,8 +77,8 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
     return SimpleNamespace(
         real_trvs=real_trvs,
         heat_target_temperature=21.0,
-        cur_temp=19.5,
-        cur_temp_filtered=None,
+        room_temperature=19.5,
+        room_temperature_filtered=None,
         tolerance=0.0,
         temp_slope=None,
         window_open=False,
@@ -188,7 +188,7 @@ def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
     }
     bt = _make_bt(real_trvs=real_trvs)
     bt.heat_target_temperature = 25.0
-    bt.cur_temp = 15.0
+    bt.room_temperature = 15.0
 
     out_cold, _ = _compute_mpc_v2_balance(bt, "climate.living_cold")
 
@@ -233,13 +233,13 @@ def test_hvac_off_returns_none() -> None:
     assert real_trvs["climate.x"].calibration_balance is None
 
 
-def test_missing_cur_temp_returns_none() -> None:
+def test_missing_room_temperature_returns_none() -> None:
     """A missing BT room temperature short-circuits the dispatch."""
     real_trvs = {
         "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
     }
     bt = _make_bt(real_trvs=real_trvs)
-    bt.cur_temp = None
+    bt.room_temperature = None
 
     out, supports = _compute_mpc_v2_balance(bt, "climate.x")
     assert out is None

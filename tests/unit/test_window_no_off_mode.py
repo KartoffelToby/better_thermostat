@@ -32,7 +32,7 @@ def mock_bt_instance():
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.heat_target_temperature = 21.0
-    bt.cur_temp = 19.0
+    bt.room_temperature = 19.0
     bt.window_open = False
     bt.tolerance = 0.3
     bt.real_trvs = {

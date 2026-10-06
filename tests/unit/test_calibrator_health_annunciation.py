@@ -22,7 +22,7 @@ ENTITY_ID = "climate.trv"
 def _bt():
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.heat_target_temperature = 21.0
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
     return bt

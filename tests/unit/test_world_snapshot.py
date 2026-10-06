@@ -36,8 +36,8 @@ def _make_bt() -> MagicMock:
     bt.heat_target_temperature = 21.5
     bt.cool_target_temperature = 24.0
     bt.bt_hvac_mode = "heat"
-    bt.cur_temp = 20.1
-    bt.cur_temp_filtered = 20.2
+    bt.room_temperature = 20.1
+    bt.room_temperature_filtered = 20.2
     bt.temp_slope = 0.05
     bt.window_open = False
     bt.call_for_heat = True
@@ -73,8 +73,8 @@ COMPLETENESS_TABLE = [
     ("heat_target_temperature", "target_temp", 21.5),
     ("cool_target_temperature", "target_cooltemp", 24.0),
     ("bt_hvac_mode", "hvac_mode", HvacMode.HEAT),
-    ("cur_temp", "room_temp", 20.1),
-    ("cur_temp_filtered", "room_temp_filtered", 20.2),
+    ("room_temperature", "room_temp", 20.1),
+    ("room_temperature_filtered", "room_temp_filtered", 20.2),
     ("temp_slope", "temp_slope", 0.05),
     ("call_for_heat", "call_for_heat", True),
     ("preset_mode", "preset_mode", "eco"),
@@ -119,7 +119,7 @@ class TestSnapshotCompleteness:
         with.
         """
         bt = _make_bt()
-        bt.cur_temp = 19.974999
+        bt.room_temperature = 19.974999
         snapshot = build_snapshot(bt)
         assert snapshot.room_temp == 19.97
 
@@ -127,7 +127,7 @@ class TestSnapshotCompleteness:
     def test_non_finite_observations_become_none(self, bad):
         """NaN/inf readings are rejected at the snapshot boundary."""
         bt = _make_bt()
-        bt.cur_temp = bad
+        bt.room_temperature = bad
         snapshot = build_snapshot(bt)
         assert snapshot.room_temp is None
 

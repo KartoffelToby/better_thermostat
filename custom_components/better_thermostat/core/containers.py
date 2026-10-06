@@ -11,7 +11,7 @@ The entity's attributes split into three lifecycles:
   duplicated here.
 
 The entity exposes the flat attribute names as properties that delegate
-into these containers, so call sites read ``self.cur_temp`` while each
+into these containers, so call sites read ``self.room_temperature`` while each
 value lives in exactly one container.
 """
 
@@ -51,8 +51,8 @@ class BtRuntime:
     home here.
     """
 
-    cur_temp: float | None = None
-    cur_temp_filtered: float | None = None
+    room_temperature: float | None = None
+    room_temperature_filtered: float | None = None
     external_temp_ema: float | None = None
     temp_slope: float | None = None
     call_for_heat: bool = True

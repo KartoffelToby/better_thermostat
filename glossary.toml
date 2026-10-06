@@ -258,16 +258,6 @@ paths = ["custom_components/better_thermostat/trv.py"]
 reason = "Field definition; it moves together with all its readers, not before them."
 
 [[exception]]
-alias = "cur_temp"
-paths = ["custom_components/better_thermostat/core/containers.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
-
-[[exception]]
-alias = "cur_temp_filtered"
-paths = ["custom_components/better_thermostat/core/containers.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
-
-[[exception]]
 alias = "target_temp"
 paths = ["custom_components/better_thermostat/core/snapshot.py"]
 reason = "Field definition; it moves together with all its readers, not before them."

@@ -78,7 +78,7 @@ def mock_bt():
     bt.cool_max_temperature = None
     bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
-    bt.cur_temp = 18.0
+    bt.room_temperature = 18.0
     bt.window_open = False
     bt.door_open = False
     bt.contact_open = False
@@ -270,9 +270,9 @@ class TestTriggerTrvChangeGuards:
         mock_bt.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_returns_early_none_cur_temp(self, mock_bt):
-        """Return early when cur_temp is None."""
-        mock_bt.cur_temp = None
+    async def test_returns_early_none_room_temperature(self, mock_bt):
+        """Return early when room_temperature is None."""
+        mock_bt.room_temperature = None
         event = _make_event(mock_bt)
         await trigger_trv_change(mock_bt, event)
         mock_bt.async_write_ha_state.assert_not_called()
@@ -3511,7 +3511,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.cool_max_temperature = None
     bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
-    bt.cur_temp = 18.0
+    bt.room_temperature = 18.0
     bt.window_open = False
     bt.door_open = False
     bt.contact_open = False

@@ -116,7 +116,7 @@ def _host():
     host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
-    host.cur_temp = 19.5
+    host.room_temperature = 19.5
     host.heat_target_temperature = 21.0
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock()
