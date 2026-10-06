@@ -14,8 +14,8 @@ This page compares 2.0 with 1.9.2, the last 1.9 release.
 
 - **Home Assistant 2026.9.0 or newer is required.** 1.9.2 ran on
   2026.7.2. Update Home Assistant first.
-- **Take a Home Assistant backup.** You can go back to 1.9.2 without one
-  (see [Going back to 1.9.2](#going-back-to-192)), but a backup is the
+- **Take a Home Assistant backup.** You can go back to 1.9.3 without one
+  (see [Going back to 1.9](#going-back-to-19)), but a backup is the
   safe way back.
 
 ## What carries over
@@ -153,15 +153,22 @@ the pause. Your logs get much quieter.
   Zigbee2MQTT, for example one paired through ZHA, as long as its valve
   opening shows up as an enabled number entity on the same device.
 
-## Going back to 1.9.2
+## Going back to 1.9
 
-Both versions store the configuration and the learned values in the same
-format, so you can install 1.9.2 again through HACS and keep your rooms.
+Go back to **1.9.3 or newer**. 2.0 keeps a thermostat's settings in the
+entry's options instead of its data, and 1.9.3 is the first 1.9 release that
+reads them there. Install it again through HACS and you keep your rooms and
+the learned values; if you change a setting in 1.9.3, 2.0 takes the changed
+value over when you update again.
+
+1.9.2 and older read the settings from the old place only. They load your
+rooms without thermostats or sensors, and saving the settings there replaces
+what 2.0 stored.
 
 What you lose by going back:
 
-- **MPC v2 starts learning again.** 1.9.2 can't read the controller state
+- **MPC v2 starts learning again.** 1.9 can't read the controller state
   2.0 saves, and also drops the room model and temperature filters that
   only 2.0 keeps. Everything else you learned stays.
-- **The behaviour changes on this page are undone.** For example, 1.9.2
+- **The behaviour changes on this page are undone.** For example, 1.9
   again treats an unavailable window sensor as open.

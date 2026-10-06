@@ -263,7 +263,7 @@ async def test_a_rename_into_a_taken_id_lands_on_a_free_one(hass, fake_trv):
     assert squatter.entity_id == "climate.bt_livingroom"
 
     hass.config_entries.async_update_entry(
-        entry, data={**entry.data, "name": "BT Livingroom"}
+        entry, options={**entry.options, "name": "BT Livingroom"}
     )
     await hass.async_block_till_done()
     bt = await wait_for_startup(hass, entry)

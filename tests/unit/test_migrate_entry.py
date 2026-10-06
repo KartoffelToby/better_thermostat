@@ -1,4 +1,7 @@
-"""Tests for the config-entry migration to version 18.
+"""Tests for the config-entry migration to version 18.2.
+
+The migration ends with the settings in the entry's options and its data
+empty, at minor version 2.
 
 Every ``CONF_HEATER`` entry stores the entity id of its TRV under the key
 ``"trv"``. The migration to version 18 reads that key, asks the device
@@ -57,6 +60,7 @@ def _make_entry(trvs):
     entry.entry_id = "abcd1234"
     entry.title = ENTRY_NAME
     entry.data = {CONF_NAME: ENTRY_NAME, CONF_SENSOR: ROOM_SENSOR, CONF_HEATER: trvs}
+    entry.options = {}
     return entry
 
 
@@ -112,7 +116,7 @@ class TestMigrationToVersion18:
         assert update.args == (entry,)
         assert update.kwargs["version"] == 18
         # The written mapping is the whole entry, not just its heaters.
-        written = update.kwargs["data"]
+        written = update.kwargs["options"]
         assert written[CONF_NAME] == ENTRY_NAME
         assert written[CONF_SENSOR] == ROOM_SENSOR
         written_trvs = written[CONF_HEATER]
@@ -142,7 +146,7 @@ class TestMigrationToVersion18:
 
         update = hass.config_entries.async_update_entry.call_args
         assert update.kwargs["version"] == 18
-        written = update.kwargs["data"]
+        written = update.kwargs["options"]
         assert written[CONF_NAME] == ENTRY_NAME
         assert written[CONF_SENSOR] == ROOM_SENSOR
         written_trvs = written[CONF_HEATER]
@@ -162,7 +166,7 @@ class TestMigrationToVersion18:
         assert patched_get_device_model.await_count == 1
         update = hass.config_entries.async_update_entry.call_args
         assert update.kwargs["version"] == 18
-        written_trvs = update.kwargs["data"][CONF_HEATER]
+        written_trvs = update.kwargs["options"][CONF_HEATER]
         assert written_trvs[0]["model"] == STALE_MODEL
 
     async def test_migration_to_version_18_records_the_fallback_without_a_model(
@@ -176,7 +180,7 @@ class TestMigrationToVersion18:
         assert await async_migrate_entry(hass, entry) is True
 
         update = hass.config_entries.async_update_entry.call_args
-        written_trvs = update.kwargs["data"][CONF_HEATER]
+        written_trvs = update.kwargs["options"][CONF_HEATER]
         assert written_trvs[0]["model"] == GENERIC_MODEL
 
 
@@ -211,7 +215,7 @@ class TestMigrationChain:
 
         update = hass.config_entries.async_update_entry.call_args
         assert update.kwargs["version"] == 18
-        written = update.kwargs["data"]
+        written = update.kwargs["options"]
         advanced = written[CONF_HEATER][0]["advanced"]
         expected_delay = 0 if version <= 2 else 30
         assert written[CONF_WINDOW_TIMEOUT] == expected_delay
@@ -246,7 +250,7 @@ class TestMigrationChain:
 
         assert await async_migrate_entry(hass, entry) is True
 
-        written = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+        written = hass.config_entries.async_update_entry.call_args.kwargs["options"]
         advanced = written[CONF_HEATER][0]["advanced"]
         assert advanced[CONF_CALIBRATION_MODE] == CalibrationMode.AGGRESIVE_CALIBRATION
 
@@ -284,3 +288,21 @@ class TestMigrationChain:
         assert len(errors) == 1
         assert ENTRY_NAME in errors[0]
         assert "add it again" in errors[0]
+
+
+async def test_the_migration_leaves_the_settings_in_the_options(
+    patched_get_device_model,
+):
+    """The data is emptied, and a setting already in the options is kept."""
+    hass = _make_hass()
+    entry = _make_entry([_make_trv("climate.kinderzimmer")])
+    entry.version = 18
+    entry.options = {CONF_SENSOR: "sensor.newer_sensor"}
+
+    assert await async_migrate_entry(hass, entry) is True
+
+    update = hass.config_entries.async_update_entry.call_args
+    assert update.kwargs["data"] == {}
+    assert update.kwargs["minor_version"] == 2
+    assert update.kwargs["options"][CONF_NAME] == ENTRY_NAME
+    assert update.kwargs["options"][CONF_SENSOR] == "sensor.newer_sensor"

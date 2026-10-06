@@ -4,12 +4,7 @@ rules:
   appropriate-polling: done
   brands: done
   common-modules: done
-  config-flow:
-    status: todo
-    comment: |
-      Every field carries a data_description, but the whole configuration
-      lives in entry.data; the settings the options flow changes belong in
-      entry.options.
+  config-flow: done
   config-flow-test-coverage: done
   dependency-transparency: done
   docs-actions: done

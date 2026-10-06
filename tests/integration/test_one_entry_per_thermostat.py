@@ -144,7 +144,7 @@ async def test_the_settings_cannot_add_a_thermostat_another_entry_controls(
     assert result["errors"] == {CONF_HEATER: "trv_in_use"}
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room A"
-    assert [bundle["trv"] for bundle in room_b.data[CONF_HEATER]] == [SPARE_ID]
+    assert [bundle["trv"] for bundle in room_b.options[CONF_HEATER]] == [SPARE_ID]
 
 
 async def test_the_settings_of_an_entry_that_already_shares_still_save(hass, devices):
@@ -318,7 +318,7 @@ async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
     assert result["errors"] == {CONF_HEATER: "trv_in_use"}
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room C"
-    assert [bundle["trv"] for bundle in room_b.data[CONF_HEATER]] == [SPARE_ID]
+    assert [bundle["trv"] for bundle in room_b.options[CONF_HEATER]] == [SPARE_ID]
     assert config_changes == []
 
 
@@ -341,6 +341,7 @@ async def test_saved_settings_that_change_the_calibration_signal_the_change(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert [
-        bundle["advanced"][CONF_CALIBRATION_MODE] for bundle in room_b.data[CONF_HEATER]
+        bundle["advanced"][CONF_CALIBRATION_MODE]
+        for bundle in room_b.options[CONF_HEATER]
     ] == [CalibrationMode.PID_CALIBRATION]
     assert config_changes == [{"entry_id": room_b.entry_id}]

@@ -472,9 +472,9 @@ async def test_options_flow_swaps_the_thermostat_to_a_device_less_entity(hass):
     swapped = await hass.config_entries.options.async_configure(
         flow["flow_id"],
         {
-            "name": entry.data["name"],
+            "name": entry.options["name"],
             "thermostat": [SPARE_TRV_ID],
-            "temperature_sensor": entry.data["temperature_sensor"],
+            "temperature_sensor": entry.options["temperature_sensor"],
         },
     )
 

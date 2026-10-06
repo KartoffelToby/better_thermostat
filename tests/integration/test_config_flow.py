@@ -198,14 +198,14 @@ def _entry_named(hass, name: str):
     (entry,) = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.data["name"] == name
+        if entry.options["name"] == name
     ]
     return entry
 
 
 def _stored_trv(entry, index: int = 0) -> dict:
     """Return one device bundle out of an entry's stored thermostat list."""
-    return entry.data[CONF_HEATER][index]
+    return entry.options[CONF_HEATER][index]
 
 
 @pytest.mark.parametrize(
@@ -366,7 +366,7 @@ async def test_options_flow_keeps_the_settings_of_a_thermostat_left_alone(hass):
 
     assert form_default(advanced_form, CONF_CHILD_LOCK) is True
     assert _stored_trv(entry)["advanced"][CONF_CHILD_LOCK] is True
-    assert entry.data["name"] == "Renamed Room"
+    assert entry.options["name"] == "Renamed Room"
 
 
 @pytest.mark.parametrize(
@@ -392,13 +392,13 @@ async def test_options_flow_clears_an_optional_entity_field(hass, field, value):
     await _run_create_flow(hass, _user_step_input(TRV_ID, **{field: value}))
     entry = _only_entry(hass)
     await wait_for_startup(hass, entry)
-    assert entry.data[field] == value
+    assert entry.options.get(field) == value
 
     # The submission the user sends after emptying the field: every other
     # field unchanged, and this one simply absent.
     await _run_options_flow(hass, entry, _user_step_input(TRV_ID))
 
-    assert entry.data[field] is None
+    assert entry.options.get(field) is None
 
 
 async def test_options_flow_refuses_to_clear_the_room_sensor(hass):
@@ -424,7 +424,7 @@ async def test_options_flow_refuses_to_clear_the_room_sensor(hass):
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
     assert result["errors"] == {CONF_SENSOR: "no_sensor"}
-    assert entry.data[CONF_SENSOR] == SENSOR_ID
+    assert entry.options[CONF_SENSOR] == SENSOR_ID
 
     # The corrected submission goes through on the same form.
     result = await hass.config_entries.options.async_configure(
@@ -490,7 +490,7 @@ async def test_one_thermostat_reload_does_not_wait_on_another(hass):
         after = await wait_for_startup(hass, waiting)
 
     assert after is not before
-    assert waiting.data["name"] == "Renamed Room"
+    assert waiting.options["name"] == "Renamed Room"
 
 
 async def test_options_flow_offers_the_presets_an_untouched_entry_runs_on(hass):
@@ -539,7 +539,7 @@ async def test_one_options_change_reloads_the_entry_once(hass, fake_trv):
         await click_through_the_options(hass, entry, name="Renamed Room")
     await wait_for_startup(hass, entry)
 
-    assert entry.data["name"] == "Renamed Room"
+    assert entry.options["name"] == "Renamed Room"
     assert len(reloads) == 1
 
 
@@ -588,8 +588,8 @@ async def test_a_configured_range_holds_the_thermostat_below_what_its_device_all
     )
 
     entry = _only_entry(hass)
-    assert entry.data[CONF_TARGET_TEMP_MIN] == "16.0"
-    assert entry.data[CONF_TARGET_TEMP_MAX] == "24.0"
+    assert entry.options[CONF_TARGET_TEMP_MIN] == "16.0"
+    assert entry.options[CONF_TARGET_TEMP_MAX] == "24.0"
 
     bt = await wait_for_startup(hass, entry)
     assert (bt.min_temp, bt.max_temp) == (16.0, 24.0)
@@ -621,7 +621,7 @@ async def test_the_options_form_offers_the_range_the_entry_runs_on(hass, fake_tr
     await wait_for_startup(hass, entry)
 
     assert offered == ("min_max_16", "auto")
-    assert entry.data[CONF_TARGET_TEMP_MIN] == "16.0"
+    assert entry.options[CONF_TARGET_TEMP_MIN] == "16.0"
 
 
 @pytest.mark.parametrize("flow", ["create", "options"])
@@ -656,7 +656,7 @@ async def test_a_minimum_above_the_maximum_is_sent_back_to_the_user(
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], inverted
         )
-        assert entry.data[CONF_TARGET_TEMP_MIN] == TARGET_TEMP_BOUND_AUTO
+        assert entry.options[CONF_TARGET_TEMP_MIN] == TARGET_TEMP_BOUND_AUTO
 
     assert result["type"] is FlowResultType.FORM, result
     assert result["step_id"] == "user", result
@@ -720,7 +720,7 @@ async def test_the_settings_refuse_a_thermostat_home_assistant_does_not_know(
     assert result["type"] is FlowResultType.FORM, result
     assert result["errors"] == {CONF_HEATER: "trv_not_found"}
     assert result["description_placeholders"]["trv"] == "climate.not_there"
-    assert [trv["trv"] for trv in entry.data[CONF_HEATER]] == [TRV_ID]
+    assert [trv["trv"] for trv in entry.options[CONF_HEATER]] == [TRV_ID]
 
 
 @pytest.mark.quality_rule("test-before-configure")
@@ -850,4 +850,7 @@ async def test_each_thermostat_of_a_room_gets_its_own_advanced_step(hass):
 
     assert shown == [TRV_ID, SPARE_TRV_ID]
     assert result["type"] is FlowResultType.CREATE_ENTRY, result
-    assert [trv["trv"] for trv in result["data"][CONF_HEATER]] == [TRV_ID, SPARE_TRV_ID]
+    assert [trv["trv"] for trv in _only_entry(hass).options[CONF_HEATER]] == [
+        TRV_ID,
+        SPARE_TRV_ID,
+    ]
