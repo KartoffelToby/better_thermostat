@@ -996,3 +996,4 @@ def test_an_unfetched_ref_says_how_to_fetch_it(lines):
         script._resolve("origin/nowhere")
 
     assert "git fetch" in str(failure.value)
+    assert "nowhere:refs/remotes/origin/nowhere" in str(failure.value)
