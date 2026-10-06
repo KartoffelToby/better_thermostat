@@ -300,12 +300,12 @@ def compute_pid(
         pid_dbg: PIDDebugInfo = {"mode": "pid", "error": "no_temps"}
         return percent, pid_dbg, st
 
-    delta_T = inp_target_temp_C - current_temp
-    e = delta_T
+    delta_kelvin = inp_target_temp_C - current_temp
+    e = delta_kelvin
 
     # Update previous_abs_error before setting current
     st.previous_abs_error = st.last_abs_error
-    st.last_abs_error = abs(delta_T)
+    st.last_abs_error = abs(delta_kelvin)
 
     # Time difference, bounded to [1.0, MAX_DT_S] seconds. A stale
     # pid_last_time (calibrator switched away and back hours later) would
@@ -407,7 +407,7 @@ def compute_pid(
             st.last_error_sign is not None
             and st.last_error_sign != 0
             and cur_sign not in (0, st.last_error_sign)
-            and abs(delta_T or 0.0) <= params.steady_state_band_K
+            and abs(delta_kelvin or 0.0) <= params.steady_state_band_K
         ):
             decay = 0.8  # 20% relief
             i_term *= decay
@@ -502,7 +502,7 @@ def compute_pid(
     # Optional auto-tuning (conservative)
     if params.auto_tune:
         _auto_tune_pid(
-            params, st, percent, delta_T, inp_temp_slope_K_per_min or 0.0, now
+            params, st, percent, delta_kelvin, inp_temp_slope_K_per_min or 0.0, now
         )
 
     # Store debug values
@@ -557,7 +557,7 @@ def _auto_tune_pid(
     params: PIDParams,
     st: PIDState,
     percent: float,
-    delta_T: float | None,
+    delta_kelvin: float | None,
     slope: float,
     now_ts: float,
 ) -> None:
@@ -570,18 +570,18 @@ def _auto_tune_pid(
     - Minimum interval between adjustments (tune_min_interval_s), clamp the gains within limits.
     """
     try:
-        if delta_T is None:
+        if delta_kelvin is None:
             return
         # Minimum interval
         if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
             return
-        sign = 1 if delta_T > 0 else (-1 if delta_T < 0 else 0)
+        sign = 1 if delta_kelvin > 0 else (-1 if delta_kelvin < 0 else 0)
         overshoot = False
         # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
         if (
             st.previous_abs_error is not None
             and st.previous_abs_error > params.steady_state_band_K
-            and abs(delta_T) < params.steady_state_band_K
+            and abs(delta_kelvin) < params.steady_state_band_K
         ):
             overshoot = True
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
@@ -602,7 +602,7 @@ def _auto_tune_pid(
         # Use EMA slope if available for more stable tuning
         check_slope = st.ema_slope if st.ema_slope is not None else slope
         if (
-            delta_T > params.steady_state_band_K
+            delta_kelvin > params.steady_state_band_K
             and abs(check_slope) < params.sluggish_slope_threshold_K_min
             and percent < 95.0
         ):
@@ -611,7 +611,7 @@ def _auto_tune_pid(
             tuned = True
 
         # 3) Quasi-steady state: |ΔT| < steady_state_band and small control output -> Ki slightly down
-        if abs(delta_T) < params.steady_state_band_K and percent < 20.0:
+        if abs(delta_kelvin) < params.steady_state_band_K and percent < 20.0:
             ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
             tuned = True
 
