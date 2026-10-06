@@ -3292,6 +3292,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: maintenance availability check failed; "
                 "skipping this tick",
                 self.device_name,
+                exc_info=True,
             )
             return
 
@@ -3395,6 +3396,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "better_thermostat %s: maintenance valve set failed for %s",
                         self.device_name,
                         entity_id,
+                        exc_info=True,
                     )
                     return False
 

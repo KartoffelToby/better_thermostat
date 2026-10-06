@@ -672,6 +672,7 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
                 device_name,
                 reid_key,
                 err,
+                exc_info=True,
             )
             return
         if (
@@ -727,6 +728,7 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
             device_name,
             reid_key,
             err,
+            exc_info=True,
         )
         return
     future.add_done_callback(_on_fit_done)

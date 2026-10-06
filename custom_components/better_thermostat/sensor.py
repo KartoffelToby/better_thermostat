@@ -373,6 +373,7 @@ async def _cleanup_stale_algorithm_entities(
                             algorithm.value,
                             entity_id,
                             e,
+                            exc_info=True,
                         )
 
             if removed_count > 0:
@@ -507,6 +508,7 @@ async def _cleanup_preset_number_entities(
                     bt_climate.device_name,
                     entity_id,
                     e,
+                    exc_info=True,
                 )
 
     # Merge new entries for current presets without wiping failed removals
@@ -562,6 +564,7 @@ async def _cleanup_pid_number_entities(
                     bt_climate.device_name,
                     entity_id,
                     e,
+                    exc_info=True,
                 )
 
     # Merge new entries for current PID TRVs without wiping failed removals
@@ -631,6 +634,7 @@ async def _cleanup_pid_switch_entities(
                     bt_climate.device_name,
                     entity_id,
                     e,
+                    exc_info=True,
                 )
 
     # Merge new entries without wiping failed removals

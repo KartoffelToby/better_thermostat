@@ -87,15 +87,9 @@ convention = "numpy"
 # re-raise, or log via `_LOGGER.exception`. BLE001 does not reach
 # `contextlib.suppress(Exception)`, which stays a review concern.
 "custom_components/better_thermostat/adapters/delegate.py" = ["BLE001"]
-"custom_components/better_thermostat/calibration.py" = ["BLE001"]
-"custom_components/better_thermostat/climate.py" = ["BLE001"]
-"custom_components/better_thermostat/events/temperature.py" = ["BLE001"]
-"custom_components/better_thermostat/events/trv.py" = ["BLE001"]
 "custom_components/better_thermostat/model_fixes/default.py" = ["BLE001"]
-"custom_components/better_thermostat/sensor.py" = ["BLE001"]
 "custom_components/better_thermostat/switch.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/controlling.py" = ["BLE001"]
-"custom_components/better_thermostat/utils/valve_maintenance.py" = ["BLE001"]
 
 # Control-theory notation. The state-space matrices `A` and `B`, the Kalman
 # covariance `P` and gain `K`, the process and measurement noise `Q` and `R`
