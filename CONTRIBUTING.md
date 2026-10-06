@@ -550,6 +550,35 @@ uv run python scripts/coverage_floors.py update
 `update` prints every floor it lowers. If a pull request lowers one, the diff
 says which module gave up coverage and by how much.
 
+## Integration Quality Scale
+
+Home Assistant grades integrations by the rules of its
+[Integration Quality Scale](https://developers.home-assistant.io/docs/core/integration-quality-scale/).
+`custom_components/better_thermostat/quality_scale.yaml` records, in Home
+Assistant's own format, which of them Better Thermostat meets: each rule is
+`done`, `todo` or `exempt`, and an exempt rule says why. The file holds the
+Bronze tier for now.
+
+Hassfest checks that file for core integrations only, so the test suite holds
+it here. A test that checks a rule carries its name:
+
+```python
+@pytest.mark.quality_rule("runtime-data")
+async def test_a_loaded_entry_keeps_its_runtime_state_on_the_entry(hass, fake_trv): ...
+```
+
+A test of a `todo` rule runs as strict `xfail`: it has to fail, and once the
+gap is closed it passes, which fails the run until the rule is switched to
+`done` in the file. `tests/gates/test_quality_scale.py` requires a test for
+every rule that is `done` or `todo`, apart from the few listed in
+`REVIEWED_BY_HAND`, and refuses a marker for a rule the file does not record.
+
+The rules a running instance decides are in
+`tests/integration/test_quality_scale_bronze.py`; those the sources decide, the
+manifest, the strings, the coverage floors and the documentation, are in
+`tests/gates/test_quality_scale_bronze_sources.py`. A documentation test only
+checks that the section exists; whether it explains anything is for review.
+
 ## The maintenance line
 
 `1.9` is the maintenance line and `develop` is what ships as the next major

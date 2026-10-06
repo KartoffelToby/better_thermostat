@@ -73,3 +73,38 @@ def mock_async_get_translations():
         side_effect=_get_translations,
     ) as mock_get_translations:
         yield mock_get_translations
+
+
+def pytest_configure(config):
+    """Register the marker that ties a test to a Quality Scale rule."""
+    config.addinivalue_line(
+        "markers",
+        "quality_rule(name): the Integration Quality Scale rule the test holds",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Run the tests of a rule still marked ``todo`` as strict ``xfail``.
+
+    ``quality_scale.yaml`` decides, so the file and the tests cannot disagree:
+    a todo rule whose test starts to pass fails the run until the file says
+    ``done``, and a done rule whose test fails fails it as any test does.
+    """
+    marked = [
+        (item, marker.args[0])
+        for item in items
+        for marker in item.iter_markers("quality_rule")
+    ]
+    if not marked:
+        return
+    # Imported only when a marked test was collected: the suite's own gates
+    # run this conftest from a copy outside the repository.
+    from tests.quality_scale import rule_status
+
+    for item, rule in marked:
+        if rule_status(rule) == "todo":
+            item.add_marker(
+                pytest.mark.xfail(
+                    strict=True, reason=f"quality scale rule {rule} is todo"
+                )
+            )

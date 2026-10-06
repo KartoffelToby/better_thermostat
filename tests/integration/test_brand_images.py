@@ -18,6 +18,7 @@ BRAND_DIR = Path(__file__).parents[2] / "custom_components" / DOMAIN / "brand"
 NOT_LOCAL = b"served by the disk cache or the brands CDN"
 
 
+@pytest.mark.quality_rule("brands")
 @pytest.mark.parametrize(
     "image", ["icon.png", "icon@2x.png", "logo.png", "logo@2x.png"]
 )

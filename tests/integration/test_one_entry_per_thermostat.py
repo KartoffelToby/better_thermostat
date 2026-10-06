@@ -103,6 +103,7 @@ async def devices(hass):
     await build_devices(hass, GENERIC_HEAT_TRV, SPARE_HEAT_TRV)
 
 
+@pytest.mark.quality_rule("unique-config-entry")
 @pytest.mark.parametrize("name", ["Room A", "Room B"])
 async def test_a_new_entry_cannot_take_a_thermostat_another_entry_controls(
     hass, devices, name
@@ -263,6 +264,7 @@ def _record_config_changes(hass, entry: MockConfigEntry) -> list[dict]:
     return received
 
 
+@pytest.mark.quality_rule("unique-config-entry")
 async def test_two_create_flows_cannot_both_take_one_thermostat(hass, devices):
     """The flow that finishes second is refused, although both passed the check."""
     flows = hass.config_entries.flow

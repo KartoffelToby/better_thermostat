@@ -1,0 +1,54 @@
+rules:
+  # Bronze
+  action-setup: done
+  appropriate-polling:
+    status: todo
+    comment: |
+      The preset, PID and valve-opening numbers and both switches keep the
+      default should_poll, so Home Assistant polls them every 30 seconds
+      although they have nothing to fetch.
+  brands: done
+  common-modules: done
+  config-flow:
+    status: todo
+    comment: |
+      Most fields of the user and advanced steps have no data_description, and
+      the whole configuration lives in entry.data; the settings the options
+      flow changes belong in entry.options.
+  config-flow-test-coverage:
+    status: todo
+    comment: config_flow.py is covered to 82 %; the rule asks for 100 %.
+  dependency-transparency: done
+  docs-actions:
+    status: todo
+    comment: No page describes the three actions and their fields.
+  docs-conditions:
+    status: todo
+    comment: No page describes the device conditions is_hvac_mode and is_hvac_action.
+  docs-high-level-description:
+    status: todo
+    comment: The landing page of the documentation holds links and badges, no description.
+  docs-installation-instructions: done
+  docs-removal-instructions:
+    status: todo
+    comment: No page says how to remove the integration.
+  docs-triggers: done
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure:
+    status: todo
+    comment: |
+      Better Thermostat connects to no device of its own; the check it can
+      make is that the thermostat it is to drive exists. The flow accepts an
+      entity id Home Assistant does not know.
+  test-before-setup:
+    status: exempt
+    comment: |
+      Better Thermostat connects to no device or service of its own; it drives
+      other integrations' entities, which may come up after it on a boot. A
+      thermostat that is late is waited for without a message and one that
+      stays away is named in a repair issue, so the entry is set up either
+      way instead of failing with ConfigEntryNotReady.
+  unique-config-entry: done
