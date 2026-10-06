@@ -94,6 +94,9 @@ from custom_components.better_thermostat.utils.hvac_action import (
     COOLER_MODE_HYSTERESIS_K,
     should_cool_with_tolerance,
 )
+from custom_components.better_thermostat.utils.retry import (
+    command_cancellation_as_disconnect,
+)
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from custom_components.better_thermostat.utils.watcher import (
@@ -1343,7 +1346,7 @@ async def control_queue(self: BetterThermostat) -> None:
                         failures: list[tuple[str, BaseException | bool]] = [
                             (controlled_trvs[i], res)
                             for i, res in enumerate(results)
-                            if isinstance(res, Exception) or res is False
+                            if isinstance(res, BaseException) or res is False
                         ]
 
                         # Retry the cycle if some TRVs failed; the retry
@@ -1898,17 +1901,19 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         # retry without pretending the command arrived. Any exception from
         # this one service call is isolated (cloud integrations propagate raw
         # errors such as ConnectionError) so the hvac_mode command below still
-        # runs; CancelledError derives from BaseException and propagates.
+        # runs. A command the device's client library cancelled counts as such
+        # a failure; a cancellation of this task itself propagates.
         _previous_send = last_sent.get("temperature")
         last_sent["temperature"] = (temp_to_send, now_monotonic)
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_temperature",
-                _payload,
-                blocking=True,
-                context=self.context,
-            )
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    _payload,
+                    blocking=True,
+                    context=self.context,
+                )
         except Exception as err:
             if _previous_send is None:
                 last_sent.pop("temperature", None)
@@ -1981,13 +1986,14 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         # Isolated like the temperature call above: one failing channel must
         # not abort the cooler cycle.
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
-                blocking=True,
-                context=self.context,
-            )
+            with command_cancellation_as_disconnect():
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": self.cooler_entity_id, "hvac_mode": desired_mode},
+                    blocking=True,
+                    context=self.context,
+                )
         except Exception as err:
             _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
             _LOGGER.warning(

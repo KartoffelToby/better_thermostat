@@ -1194,18 +1194,18 @@ class TestCheckCalibration:
             mock_state if live_state is not None else None
         )
 
-        cfg = {
+        config = {
             "last_calibration": -2.0,
             "local_calibration_step": 0.5,
             "calibration_received": False,
         }
-        cfg.update(trv_overrides)
+        config.update(trv_overrides)
 
         mock_self = ThermostatStandIn()
         mock_self.device_name = "test_thermostat"
         mock_self.hass = mock_hass
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict("climate.trv1", cfg)
+            "climate.trv1": Trv.from_legacy_dict("climate.trv1", config)
         }
         return mock_self
 

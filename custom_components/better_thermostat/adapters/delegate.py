@@ -18,7 +18,7 @@ from custom_components.better_thermostat.utils.helpers import (
     sibling_disabled_at_write,
 )
 
-from ..utils.retry import async_retry
+from ..utils.retry import async_retry, command_cancellation_as_disconnect
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -334,7 +334,8 @@ async def _write_on_channel(
     outage = outages.get(channel)
 
     async def write_to_device(host, target, payload):
-        return await write(host, target, payload)
+        with command_cancellation_as_disconnect():
+            return await write(host, target, payload)
 
     attempt = (
         write_to_device

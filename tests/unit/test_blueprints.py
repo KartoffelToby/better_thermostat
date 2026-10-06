@@ -142,17 +142,17 @@ def _collect_problems(config) -> list[str]:
 
     def walk(node, path):
         if isinstance(node, dict):
-            for key, val in node.items():
+            for key, value in node.items():
                 here = f"{path}.{key}"
-                if key in ("service", "action") and isinstance(val, str):
-                    reason = _service_problem(val)
+                if key in ("service", "action") and isinstance(value, str):
+                    reason = _service_problem(value)
                     if reason:
                         problems.append(f"{here}: {reason}")
                 if key == "entity_id":
-                    reason = _entity_problem(val)
+                    reason = _entity_problem(value)
                     if reason:
                         problems.append(f"{here}: {reason}")
-                walk(val, here)
+                walk(value, here)
         elif isinstance(node, list):
             for i, item in enumerate(node):
                 walk(item, f"{path}[{i}]")

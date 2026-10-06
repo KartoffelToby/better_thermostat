@@ -213,6 +213,7 @@ from .utils.restore import (
     saved_cooling_target,
     saved_heating_target,
 )
+from .utils.retry import command_cancellation_as_disconnect
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
 from .utils.telemetry import (
@@ -2485,8 +2486,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: initializing TRV %s", self.device_name, entity_id
             )
+            # A device whose client library drops its connection mid-command
+            # cancels the command; that fails this TRV's start like any other
+            # device error instead of ending the whole startup.
             try:
-                await asyncio.wait_for(init(self, entity_id), timeout=30)
+                with command_cancellation_as_disconnect():
+                    await asyncio.wait_for(init(self, entity_id), timeout=30)
                 _LOGGER.debug(
                     "better_thermostat %s: TRV %s initialized",
                     self.device_name,
@@ -2509,7 +2514,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 )
 
             try:
-                await initial_tweak(self, entity_id)
+                with command_cancellation_as_disconnect():
+                    await initial_tweak(self, entity_id)
             except Exception as exc:
                 failed.add(entity_id)
                 _LOGGER.error(
@@ -2877,7 +2883,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # valve. Only bind when there is exactly one TRV; skip for
             # multi-TRV setups.
             trv_ids = [
-                trv_conf.get("trv") for trv_conf in self.all_trvs if trv_conf.get("trv")
+                trv_config.get("trv")
+                for trv_config in self.all_trvs
+                if trv_config.get("trv")
             ]
             if len(trv_ids) == 1:
                 await async_bind_trv_device(

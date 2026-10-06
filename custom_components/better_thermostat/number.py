@@ -132,12 +132,12 @@ async def async_setup_entry(
     # Create PID numbers for each TRV if PID calibration is enabled
     if hasattr(bt_climate, "all_trvs"):
         has_multiple_trvs = len(bt_climate.all_trvs) > 1
-        for trv_conf in bt_climate.all_trvs:
-            trv_entity_id = trv_conf.get("trv")
+        for trv_config in bt_climate.all_trvs:
+            trv_entity_id = trv_config.get("trv")
             if not trv_entity_id:
                 continue
 
-            advanced = trv_conf.get("advanced", {})
+            advanced = trv_config.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             calibration_type = advanced.get(CONF_CALIBRATION)
 
@@ -491,9 +491,9 @@ class BetterThermostatPIDNumber(
             key = build_pid_key(self._bt_climate, self._trv_entity_id)
             pid_state = state_mgr.state.pid.get(key)
             if pid_state is not None:
-                val = getattr(pid_state, f"pid_{self._parameter}")
-                if val is not None:
-                    return val
+                value = getattr(pid_state, f"pid_{self._parameter}")
+                if value is not None:
+                    return value
 
         # Defaults
         if self._parameter == "kp":
@@ -578,8 +578,8 @@ class BetterThermostatValveMaxOpeningNumber(
             "unavailable",
         ):
             try:
-                val = float(last_state.state)
-                self._set_value(val)
+                value = float(last_state.state)
+                self._set_value(value)
             except TypeError, ValueError:
                 pass
 
@@ -595,9 +595,9 @@ class BetterThermostatValveMaxOpeningNumber(
 
     def _get_value(self) -> float:
         trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
-        val = trv_state.valve_max_opening if trv_state is not None else 100.0
+        value = trv_state.valve_max_opening if trv_state is not None else 100.0
         try:
-            return float(val)
+            return float(value)
         except TypeError, ValueError:
             return 100.0
 

@@ -87,16 +87,16 @@ class TelemetrySource(Protocol):
         ...
 
 
-def _to_float(val: object) -> float | None:
+def _to_float(value: object) -> float | None:
     """Best-effort float cast for telemetry values; no rounding."""
-    match val:
+    match value:
         case bool():
             return None
         case int() | float():
-            return float(val)
+            return float(value)
         case str():
             try:
-                return float(val)
+                return float(value)
             except ValueError:
                 return None
         case _:

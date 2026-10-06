@@ -39,17 +39,17 @@ class TrvSnapshot:
     last_valve_percent: float | None = None
 
 
-def to_pct(val: float | str | None) -> float | None:
+def to_pct(value: float | str | None) -> float | None:
     """Normalise a valve value to percent (0-100).
 
     Values in [0, 1) are treated as fractions and multiplied by 100.
     Values >= 1 are returned as-is (already percent).
     Returns *None* for non-numeric / unparseable input.
     """
-    if val is None:
+    if value is None:
         return None
     try:
-        v = float(val)
+        v = float(value)
     except TypeError, ValueError:
         return None
     return v * 100.0 if 0.0 <= v < 1.0 else v
