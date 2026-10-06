@@ -96,7 +96,7 @@ from .events.temperature import (
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import initial_tweak, load_model_quirks
+from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
 from .switch import restored_child_lock
 from .trv import Trv
 from .utils.calibration.pid import (
@@ -2245,7 +2245,11 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self, _s, "min_temp", lower=True, context="startup"
             )
             trv_data.max_temp = 30.0 if _max_temp is None else _max_temp
-            trv_data.min_temp = 5.0 if _min_temp is None else _min_temp
+            # A model whose device reads a setpoint at its minimum as
+            # something else gets a higher floor from its quirk module.
+            trv_data.min_temp = lowest_setpoint(
+                self, trv, 5.0 if _min_temp is None else _min_temp
+            )
             # This step is the grid the device rounds to: it sizes the echo
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
