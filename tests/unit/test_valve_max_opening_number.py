@@ -12,7 +12,7 @@ has to recognise it as unusable itself.
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -24,6 +24,22 @@ from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
 _TRV_ID = "climate.living_room"
+
+
+@pytest.fixture(autouse=True)
+def _detached_state_tracking():
+    """Let the entity subscribe to the thermostat's state without a hass."""
+    with (
+        patch(
+            "custom_components.better_thermostat.entity.async_track_state_change_event",
+            MagicMock(),
+        ),
+        patch(
+            "custom_components.better_thermostat.entity.async_dispatcher_connect",
+            MagicMock(),
+        ),
+    ):
+        yield
 
 
 def _make_entity() -> tuple[

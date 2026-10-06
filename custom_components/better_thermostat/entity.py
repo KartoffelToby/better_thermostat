@@ -14,6 +14,10 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_registry import (
     EntityRegistry,
@@ -29,6 +33,18 @@ if TYPE_CHECKING:
     from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
+
+LEARNED_STATE_SIGNAL = f"{DOMAIN}_learned_state_{{}}"
+
+
+def announce_learned_state(hass: HomeAssistant, bt_unique_id: str) -> None:
+    """Tell the thermostat's entities that its learned state may have changed.
+
+    The PID gains and the auto-tune flag live in the state store and in no
+    attribute of the thermostat, so a change to them alone changes no state
+    the entities showing them could follow.
+    """
+    async_dispatcher_send(hass, LEARNED_STATE_SIGNAL.format(bt_unique_id))
 
 
 def remove_unclaimed_registry_entries(
@@ -138,3 +154,35 @@ class TrvNamedEntity(Entity):
         self._attr_translation_placeholders = {"trv_name": trv_state.name}
         self.__dict__.pop("name", None)
         return True
+
+
+class FollowsThermostat(Entity):
+    """Entity whose value is read from the thermostat when it is published.
+
+    Nothing is polled: the entity is published again whenever the thermostat
+    publishes a new state and whenever its learned state is announced.
+    """
+
+    _attr_should_poll = False
+    _bt_climate: BetterThermostat
+
+    def _follow_thermostat(self) -> None:
+        """Publish this entity again whenever the thermostat's values change."""
+        if self._bt_climate.entity_id:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self._bt_climate.entity_id], self._on_thermostat_state
+                )
+            )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                LEARNED_STATE_SIGNAL.format(self._bt_climate.unique_id),
+                self.async_write_ha_state,
+            )
+        )
+
+    @callback
+    def _on_thermostat_state(self, event: Event[EventStateChangedData]) -> None:
+        """Publish the values the thermostat now holds."""
+        self.async_write_ha_state()

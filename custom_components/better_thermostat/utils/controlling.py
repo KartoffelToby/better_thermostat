@@ -50,6 +50,7 @@ from custom_components.better_thermostat.core.watchdog import (
     WATCHDOG_MAX_AGE_S,
     control_loop_stalled,
 )
+from custom_components.better_thermostat.entity import announce_learned_state
 from custom_components.better_thermostat.events.cooler import cooling_writes_as_held
 from custom_components.better_thermostat.events.trv import (
     convert_outbound_states,
@@ -61,6 +62,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
@@ -1356,6 +1358,8 @@ async def control_queue(self: BetterThermostat) -> None:
                             controlled_trvs,
                             cycle[1] if cycle is not None else None,
                         )
+
+                        announce_learned_state(self.hass, resolve_unique_id(self))
 
                         if not getattr(self, "in_maintenance", False):
                             # The inbound handler stood down for the whole

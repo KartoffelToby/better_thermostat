@@ -1,12 +1,7 @@
 rules:
   # Bronze
   action-setup: done
-  appropriate-polling:
-    status: todo
-    comment: |
-      The preset, PID and valve-opening numbers and both switches keep the
-      default should_poll, so Home Assistant polls them every 30 seconds
-      although they have nothing to fetch.
+  appropriate-polling: done
   brands: done
   common-modules: done
   config-flow:

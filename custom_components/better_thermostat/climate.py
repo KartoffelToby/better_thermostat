@@ -95,6 +95,7 @@ from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
+from .entity import announce_learned_state
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -4929,6 +4930,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     len(self.real_trvs),
                 )
             self.schedule_save_state()
+            announce_learned_state(self.hass, self._unique_id)
             if seeded:
                 # Kick the control loop so the new gains are used promptly
                 request_control_cycle(self)
