@@ -361,7 +361,7 @@ def _schedule_reachability_retry(self: BetterThermostat, entity_id: str) -> None
         due: asyncio.Future[None] = self.hass.loop.create_future()
 
         @callback
-        def _due(_now: Any) -> None:
+        def _due(_now: datetime) -> None:
             if not due.done():
                 due.set_result(None)
 
@@ -798,7 +798,7 @@ class _FailedCycleRun:
     periodic ticks already space it.
     """
 
-    intent: tuple[Any, ...]
+    intent: tuple[object, ...]
     failing: frozenset[str]
     reported: frozenset[tuple[str, str]]
     count: int
@@ -808,7 +808,7 @@ class _FailedCycleRun:
     retry: asyncio.Task[None] | None = None
 
 
-def _user_intent(self: BetterThermostat) -> tuple[Any, ...]:
+def _user_intent(self: BetterThermostat) -> tuple[object, ...]:
     """Return the room targets a user sets, as the failure pacing compares them."""
     return (
         self.heat_target_temperature,
@@ -990,7 +990,7 @@ def advance_hvac_action(self: BetterThermostat) -> None:
     except Exception:
         _LOGGER.debug(
             "better_thermostat %s: hvac action recompute failed (non critical)",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             exc_info=True,
         )
 
@@ -1201,7 +1201,7 @@ def _locked_device_moved(
     return all(abs(reported - value) >= window for value in known_values)
 
 
-def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, ...]:
+def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[object, ...]:
     """Return what a report read at cycle end can move that a cycle acts on."""
     return (
         self.heat_target_temperature,
@@ -1240,7 +1240,7 @@ async def control_queue(self: BetterThermostat) -> None:
     failed_run: _FailedCycleRun | None = None
     try:
         while True:
-            if getattr(self, "in_maintenance", False):
+            if self.in_maintenance:
                 await asyncio.sleep(1)
                 continue
 
@@ -1372,7 +1372,7 @@ async def control_queue(self: BetterThermostat) -> None:
 
                         announce_learned_state(self.hass, resolve_unique_id(self))
 
-                        if not getattr(self, "in_maintenance", False):
+                        if not self.in_maintenance:
                             # The inbound handler stood down for the whole
                             # cycle, so a mode a device reported meanwhile
                             # never reached it. Settle the caches before the
@@ -1399,7 +1399,7 @@ async def control_queue(self: BetterThermostat) -> None:
         if failed_run is not None and failed_run.retry is not None:
             failed_run.retry.cancel()
         # Ensure ignore_states is reset on any exit unless maintenance wants it suppressed.
-        if not getattr(self, "in_maintenance", False):
+        if not self.in_maintenance:
             self.ignore_states = False
 
 

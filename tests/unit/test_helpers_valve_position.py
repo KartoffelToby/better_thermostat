@@ -36,7 +36,9 @@ class TestHeatingPowerValvePosition:
     def test_returns_zero_when_target_equals_current(self):
         """Test that valve position is 0 when target temp equals current temp."""
         mock_bt = MockThermostat(heat_target_temperature=20.0, room_temperature=20.0)
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         # When temp_diff is 0, formula gives 0
         assert result == 0.0
@@ -53,7 +55,12 @@ class TestHeatingPowerValvePosition:
         mock_bt = MockThermostat(
             heat_target_temperature=target, room_temperature=current, heating_power=0.02
         )
-        assert heating_power_valve_position(mock_bt, "climate.test") == 1.0
+        assert (
+            heating_power_valve_position(
+                mock_bt, "climate.test", mock_bt.room_temperature
+            )
+            == 1.0
+        )
 
     def test_higher_temp_diff_gives_higher_valve_position(self):
         """Test that larger temperature difference gives higher valve position."""
@@ -64,8 +71,12 @@ class TestHeatingPowerValvePosition:
             heat_target_temperature=22.0, room_temperature=20.0, heating_power=0.02
         )
 
-        result_small = heating_power_valve_position(mock_bt_small, "climate.test")
-        result_large = heating_power_valve_position(mock_bt_large, "climate.test")
+        result_small = heating_power_valve_position(
+            mock_bt_small, "climate.test", mock_bt_small.room_temperature
+        )
+        result_large = heating_power_valve_position(
+            mock_bt_large, "climate.test", mock_bt_large.room_temperature
+        )
 
         assert result_large > result_small
 
@@ -81,10 +92,14 @@ class TestHeatingPowerValvePosition:
         )
 
         result_good = heating_power_valve_position(
-            mock_bt_good_insulation, "climate.test"
+            mock_bt_good_insulation,
+            "climate.test",
+            mock_bt_good_insulation.room_temperature,
         )
         result_poor = heating_power_valve_position(
-            mock_bt_poor_insulation, "climate.test"
+            mock_bt_poor_insulation,
+            "climate.test",
+            mock_bt_poor_insulation.room_temperature,
         )
 
         # Poor insulation needs higher valve position
@@ -97,7 +112,9 @@ class TestHeatingPowerValvePosition:
         mock_bt_too_low = MockThermostat(
             heat_target_temperature=22.0, room_temperature=20.0, heating_power=0.0001
         )
-        result_low = heating_power_valve_position(mock_bt_too_low, "climate.test")
+        result_low = heating_power_valve_position(
+            mock_bt_too_low, "climate.test", mock_bt_too_low.room_temperature
+        )
 
         # Should be clamped to MIN_HEATING_POWER (0.001)
         # With MIN_HEATING_POWER, temp_diff=2.0 should give high valve position
@@ -107,7 +124,9 @@ class TestHeatingPowerValvePosition:
         mock_bt_too_high = MockThermostat(
             heat_target_temperature=22.0, room_temperature=20.0, heating_power=0.5
         )
-        result_high = heating_power_valve_position(mock_bt_too_high, "climate.test")
+        result_high = heating_power_valve_position(
+            mock_bt_too_high, "climate.test", mock_bt_too_high.room_temperature
+        )
 
         # Should be clamped to MAX_HEATING_POWER (0.1)
         assert result_high < 0.5  # Should be lower than unclamped
@@ -119,7 +138,9 @@ class TestHeatingPowerValvePosition:
         mock_bt = MockThermostat(
             heat_target_temperature=21.5, room_temperature=20.0, heating_power=0.05
         )
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         # Should be at least VALVE_MIN_OPENING_LARGE_DIFF (15%)
         assert result >= 0.15
@@ -130,7 +151,9 @@ class TestHeatingPowerValvePosition:
         mock_bt = MockThermostat(
             heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.05
         )
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         # Should have some minimum valve opening for 0.5°C diff
         assert result > 0.0
@@ -139,7 +162,9 @@ class TestHeatingPowerValvePosition:
         """Test that valve returns 0% when room_temperature > heat_target_temperature."""
         mock_bt = MockThermostat(heat_target_temperature=20.0, room_temperature=22.0)
 
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
         assert result == 0.0
 
     def test_returns_zero_for_negative_temp_diff(self):
@@ -148,7 +173,9 @@ class TestHeatingPowerValvePosition:
             heat_target_temperature=18.0, room_temperature=20.0, heating_power=0.02
         )
 
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
         assert result == 0.0
 
     def test_handles_very_small_temp_diff(self):
@@ -156,7 +183,9 @@ class TestHeatingPowerValvePosition:
         mock_bt = MockThermostat(
             heat_target_temperature=20.05, room_temperature=20.0, heating_power=0.02
         )
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         # Should be valid but small
         assert 0.0 <= result <= 0.3
@@ -168,7 +197,9 @@ class TestHeatingPowerValvePosition:
         mock_bt = MockThermostat(
             heat_target_temperature=20.5, room_temperature=20.0, heating_power=0.02
         )
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         # Allow some tolerance for float arithmetic and minimum valve logic
         assert 0.15 <= result <= 0.50
@@ -178,7 +209,9 @@ class TestHeatingPowerValvePosition:
         mock_bt = MockThermostat(
             heat_target_temperature=25.0, room_temperature=15.0, heating_power=0.001
         )
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         # With 10°C difference and low heating power, should be at or near 100%
         assert result >= 0.95
@@ -197,6 +230,7 @@ class TestHeatingPowerValvePosition:
                 heating_power=MIN_HEATING_POWER,
             ),
             "climate.test",
+            20.0,
         )
         mock_bt = MockThermostat(
             heat_target_temperature=20.1,
@@ -204,7 +238,24 @@ class TestHeatingPowerValvePosition:
             heating_power=heating_power,
         )
 
-        result = heating_power_valve_position(mock_bt, "climate.test")
+        result = heating_power_valve_position(
+            mock_bt, "climate.test", mock_bt.room_temperature
+        )
 
         assert 0.0 < result < 1.0
         assert result == pytest.approx(at_floor)
+
+    @pytest.mark.parametrize(
+        ("target", "room"), [(21.0, None), (None, 20.0)], ids=["no_room", "no_target"]
+    )
+    def test_missing_reading_returns_none(self, target, room):
+        """Without a room temperature or a heating target the valve is not sized."""
+        mock_bt = MockThermostat(heat_target_temperature=target, room_temperature=room)
+        assert heating_power_valve_position(mock_bt, "climate.test", room) is None
+
+    def test_uses_the_passed_room_temperature(self):
+        """The passed reading drives the demand, not the entity's own attribute."""
+        mock_bt = MockThermostat(heat_target_temperature=21.0, room_temperature=None)
+        assert heating_power_valve_position(
+            mock_bt, "climate.test", 20.5
+        ) == pytest.approx(0.3992, abs=1e-4)

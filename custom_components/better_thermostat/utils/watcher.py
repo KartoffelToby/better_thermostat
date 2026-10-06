@@ -15,9 +15,10 @@ from dataclasses import replace
 from datetime import timedelta
 import logging
 import math
+from typing import TYPE_CHECKING
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import State
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat.core.fsm.control_mode import (
@@ -37,6 +38,9 @@ from custom_components.better_thermostat.utils.helpers import (
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 from .const import DOMAIN
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,7 +72,9 @@ UNKNOWN_STATES = (STATE_UNKNOWN, "unknown")
 BATTERY_REREAD_DELAY_SECONDS = 300.0
 
 
-def is_entity_available(hass, entity, state_unknown_as_available: bool = False) -> bool:
+def is_entity_available(
+    hass: HomeAssistant, entity: str | None, state_unknown_as_available: bool = False
+) -> bool:
     """Check if an entity is available without side effects.
 
     Parameters
@@ -97,7 +103,7 @@ def is_entity_available(hass, entity, state_unknown_as_available: bool = False) 
     return entity_states.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
 
 
-def is_trv_available(self, entity_id: str) -> bool:
+def is_trv_available(self: BetterThermostat, entity_id: str) -> bool:
     """Check if a TRV is available, its model's reading of ``unknown`` included.
 
     Parameters
@@ -117,7 +123,7 @@ def is_trv_available(self, entity_id: str) -> bool:
     )
 
 
-def room_sensor_reading(self, state: State | None) -> float | None:
+def room_sensor_reading(self: BetterThermostat, state: State | None) -> float | None:
     """Return the room temperature a room sensor state carries.
 
     An available sensor whose state is no number, or a number outside the
@@ -150,7 +156,7 @@ def room_sensor_reading(self, state: State | None) -> float | None:
     return value
 
 
-def reachable_trv_temperature(self, entity_id: str) -> float | None:
+def reachable_trv_temperature(self: BetterThermostat, entity_id: str) -> float | None:
     """Return a TRV's stored internal temperature while the TRV reports one.
 
     A stored reading only counts while its TRV is available and its current
@@ -192,7 +198,7 @@ def reachable_trv_temperature(self, entity_id: str) -> float | None:
     return float(value)
 
 
-def get_battery_status(self, entity) -> None:
+def get_battery_status(self: BetterThermostat, entity: str) -> None:
     """Read a battery entity for a device and update internal state.
 
     Uses the provided mapping stored in `self.devices_states`.
@@ -229,7 +235,9 @@ def get_battery_status(self, entity) -> None:
     self.async_write_ha_state()
 
 
-def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
+def refresh_battery_reading(
+    self: BetterThermostat, entity: str, *, recovered: bool
+) -> None:
     """Read an available entity's battery, but only when it says something new.
 
     Both availability checks run on nearly every event, and each read costs
@@ -283,7 +291,7 @@ def refresh_battery_reading(self, entity, *, recovered: bool) -> None:
     get_battery_status(self, entity)
 
 
-def get_optional_sensors(self) -> list:
+def get_optional_sensors(self: BetterThermostat) -> list[str]:
     """Return list of optional sensor entity IDs.
 
     Optional sensors are those that can be unavailable without
@@ -303,12 +311,12 @@ def get_optional_sensors(self) -> list:
     list
         List of optional sensor entity IDs
     """
-    optional = []
+    optional: list[str] = []
     if self.window_sensor_entity_id:
         optional.append(self.window_sensor_entity_id)
     if self.door_sensor_entity_id:
         optional.append(self.door_sensor_entity_id)
-    if getattr(self, "humidity_sensor_entity_id", None):
+    if self.humidity_sensor_entity_id:
         optional.append(self.humidity_sensor_entity_id)
     if self.outdoor_sensor_entity_id:
         optional.append(self.outdoor_sensor_entity_id)
@@ -316,12 +324,12 @@ def get_optional_sensors(self) -> list:
         optional.append(self.weather_entity_id)
     # An actuator rather than a sensor, watched on the same terms because
     # its loss leaves the thermostat running.
-    if getattr(self, "cooler_entity_id", None):
+    if self.cooler_entity_id:
         optional.append(self.cooler_entity_id)
     return optional
 
 
-def get_critical_entities(self) -> list:
+def get_critical_entities(self: BetterThermostat) -> list[str]:
     """Return list of critical entity IDs.
 
     Critical entities are TRVs - without them the thermostat cannot function.
@@ -332,13 +340,13 @@ def get_critical_entities(self) -> list:
     list
         List of critical entity IDs (TRVs)
     """
-    critical = []
-    if hasattr(self, "real_trvs") and self.real_trvs:
+    critical: list[str] = []
+    if self.real_trvs:
         critical.extend(list(self.real_trvs.keys()))
     return critical
 
 
-async def check_critical_entities(self) -> None:
+async def check_critical_entities(self: BetterThermostat) -> None:
     """Keep the error list and the repair issues of the TRVs current.
 
     Every event handler runs it, and none waits on its outcome: an
@@ -418,7 +426,7 @@ DEFAULT_OPTIONAL_SENSOR_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25)
 
 
 async def await_optional_sensors(
-    self,
+    self: BetterThermostat,
     delays: tuple[int, ...] | list[int] = DEFAULT_OPTIONAL_SENSOR_DELAYS,
     _sleep=None,
 ) -> list[str]:
@@ -458,7 +466,7 @@ async def await_optional_sensors(
         # The entity may be torn down mid-wait; stop retrying immediately
         # instead of running out the (up to ~60 s) schedule against a
         # being-removed instance.
-        if getattr(self, "is_removed", False):
+        if self.is_removed:
             return pending
         pending = [
             eid
@@ -483,7 +491,7 @@ async def await_optional_sensors(
         )
         await _sleep(delay)
         elapsed += delay
-        if getattr(self, "is_removed", False):
+        if self.is_removed:
             return pending
 
     # Final check after the last sleep
@@ -509,7 +517,7 @@ DEFAULT_CRITICAL_ENTITY_DELAYS: tuple[int, ...] = (3, 5, 10, 15, 25, 30)
 
 
 async def await_critical_entities(
-    self,
+    self: BetterThermostat,
     delays: tuple[int, ...] | list[int] = DEFAULT_CRITICAL_ENTITY_DELAYS,
     _sleep=None,
 ) -> list[str]:
@@ -550,7 +558,7 @@ async def await_critical_entities(
         # The entity may be torn down mid-wait; stop retrying immediately
         # instead of running out the (up to ~90 s) schedule against a
         # being-removed instance.
-        if getattr(self, "is_removed", False):
+        if self.is_removed:
             return pending
         pending = [
             eid
@@ -575,7 +583,7 @@ async def await_critical_entities(
         )
         await _sleep(delay)
         elapsed += delay
-        if getattr(self, "is_removed", False):
+        if self.is_removed:
             return pending
 
     # Final check after the last sleep
@@ -713,7 +721,7 @@ async def check_and_update_degraded_mode(
     degraded = self.kernel_state.control_mode.degraded
 
     in_grace = self.kernel_state.lifecycle.in_grace(self.clock.now())
-    has_warned = getattr(self, "_degraded_warning_emitted", False)
+    has_warned = self._degraded_warning_emitted
 
     if degraded and not has_warned and not in_grace:
         _LOGGER.warning(

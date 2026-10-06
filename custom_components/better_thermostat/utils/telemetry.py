@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import json
 import logging
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict
 
-from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
 from custom_components.better_thermostat.utils.const import (
     ATTR_MPC_V2_DISTURBANCE,
     ATTR_MPC_V2_GROUP_VALVE,
@@ -147,7 +146,7 @@ def _serialize_cycles(
     count_key: str,
     last_key: str,
     label: str,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Serialize a cycle sequence to a count + last-entry JSON dict."""
     if not cycles:
         return {}
@@ -157,9 +156,9 @@ def _serialize_cycles(
     return {count_key: len(cycles), last_key: last}
 
 
-def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
+def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, object]:
     """Heating/loss cycle counts, last-cycle JSON, heat-loss stats, normalized power."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     out.update(
         _serialize_cycles(
@@ -188,9 +187,9 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
     return out
 
 
-def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
+def collect_balance_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Temperature slope plus a compact per-TRV calibration balance summary."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     if bt.temp_slope is not None:
         out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temp_slope, 4)
@@ -237,7 +236,7 @@ def _pick_representative_trv(real_trvs: Mapping[str, TrvInfo]) -> str | None:
     return next(iter(real_trvs), None)
 
 
-def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
+def _extract_pid_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
     """Return PID debug payload when the TRV's calibration is in PID mode."""
     if info is None:
         return None
@@ -249,12 +248,12 @@ def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
         return None
     if str(debug.get("mode")).lower() != "pid":
         return None
-    return cast(PIDDebugInfo, debug)
+    return debug
 
 
-def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
+def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Flatten PID controller debug from a representative TRV's calibration_balance."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     rep = _pick_representative_trv(bt.real_trvs)
     if rep is None:
@@ -303,9 +302,9 @@ def _extract_mpc_v2_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
     return debug
 
 
-def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
+def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Flatten MPC v2 controller diagnostics from a representative TRV."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     rep = _pick_representative_trv(bt.real_trvs)
     if rep is None:

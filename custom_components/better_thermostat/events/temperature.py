@@ -9,11 +9,11 @@ propagated to the target devices.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 import math
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State, callback
@@ -31,6 +31,9 @@ from custom_components.better_thermostat.utils.helpers import (
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from custom_components.better_thermostat.utils.watcher import room_sensor_reading
 
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.climate import BetterThermostat
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -38,7 +41,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATEAU_ACCEPT_WINDOW = 120
 
 
-def _update_room_temperature_ema(self, temp_q: float) -> float:
+def _update_room_temperature_ema(self: BetterThermostat, temp_q: float) -> float:
     """Update and return EMA-filtered external temperature.
 
     Uses a time-based EMA so varying sensor update intervals behave sensibly.
@@ -87,7 +90,7 @@ def _update_room_temperature_ema(self, temp_q: float) -> float:
 EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S = 30.0
 
 
-def temperature_filter_lock(self) -> asyncio.Lock:
+def temperature_filter_lock(self: BetterThermostat) -> asyncio.Lock:
     """Return the lock that serialises this entity's temperature filter.
 
     The filter carries state from one reading to the next: the accumulated
@@ -118,7 +121,7 @@ def temperature_filter_lock(self) -> asyncio.Lock:
     return lock
 
 
-def _room_sensor_returns(self, previous_state: State | None) -> bool:
+def _room_sensor_returns(self: BetterThermostat, previous_state: State | None) -> bool:
     """Tell whether a reading brings the room back from a sensor outage.
 
     The room is off its sensor while the ladder stands on a lower rung, and
@@ -130,7 +133,7 @@ def _room_sensor_returns(self, previous_state: State | None) -> bool:
     return room_sensor_reading(self, previous_state) is None
 
 
-async def _commit_temperature_update(self, new_temp):
+async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
     """Apply the new external temperature and trigger updates.
 
     Callers hold the filter lock.
@@ -171,7 +174,7 @@ async def _commit_temperature_update(self, new_temp):
     self.pending_temp = None
     self.pending_since = None
     # Cancel any pending plateau timer
-    if getattr(self, "plateau_timer_cancel", None) is not None:
+    if self.plateau_timer_cancel is not None:
         self.plateau_timer_cancel()
         self.plateau_timer_cancel = None
     self.async_write_ha_state()
@@ -234,7 +237,7 @@ async def _commit_temperature_update(self, new_temp):
     # Still mark that a control cycle is needed after maintenance so we immediately
     # resume with the latest temperature.
     if self.control_queue_task is not None:
-        if getattr(self, "in_maintenance", False):
+        if self.in_maintenance:
             self._control_needed_after_maintenance = True
         else:
             request_control_cycle(self)
@@ -303,7 +306,7 @@ def _commit_pending_after(self, delay_s: float) -> None:
             await _commit_temperature_update(self, _value)
 
     @callback
-    def _interval_due(_now: Any) -> None:
+    def _interval_due(_now: datetime) -> None:
         self.plateau_timer_cancel = None
         self._spawn_owned(_interval_cb(), name=f"bt_debounce_commit_{self.device_name}")
 
@@ -432,14 +435,14 @@ async def trigger_temperature_change(self, event):
                 self.pending_temp = _incoming_temperature_q
                 self.pending_since = dt_util.now()
                 # Cancel existing timer if pending value changes
-                if getattr(self, "plateau_timer_cancel", None) is not None:
+                if self.plateau_timer_cancel is not None:
                     self.plateau_timer_cancel()
                     self.plateau_timer_cancel = None
         # no change (value back to current): reset pending/timer
         elif self.pending_temp is not None:
             self.pending_temp = None
             self.pending_since = None
-            if getattr(self, "plateau_timer_cancel", None) is not None:
+            if self.plateau_timer_cancel is not None:
                 self.plateau_timer_cancel()
                 self.plateau_timer_cancel = None
 
@@ -462,7 +465,7 @@ async def trigger_temperature_change(self, event):
         _plateau_ok = _plateau_age >= PLATEAU_ACCEPT_WINDOW and _interval_ok
 
         # Schedule timer if not already scheduled
-        if not _plateau_ok and getattr(self, "plateau_timer_cancel", None) is None:
+        if not _plateau_ok and self.plateau_timer_cancel is None:
             remaining = max(0.1, PLATEAU_ACCEPT_WINDOW - _plateau_age)
             _plateau_value = self.pending_temp
             # A value that left and came back starts a new plateau with a

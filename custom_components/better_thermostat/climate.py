@@ -783,7 +783,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             sw_version=VERSION,
         )
 
-        if hasattr(self, "hass") and self.hass and self.all_trvs:
+        if self.hass and self.all_trvs:
             main_trv_id = None
             if isinstance(self.all_trvs, list) and len(self.all_trvs) > 0:
                 main_trv_id = self.all_trvs[0].get("trv")
@@ -1142,6 +1142,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # Anti-flicker state; the timer applies a pending reading later, at
         # the end of a plateau or of the debounce interval.
         self.plateau_timer_cancel = None
+        # Created on first use by ``outdoor_check_lock`` and
+        # ``temperature_filter_lock``.
+        self._outdoor_check_lock: asyncio.Lock | None = None
+        self._temperature_filter_lock: asyncio.Lock | None = None
         self.last_change_direction = 0
         self.prev_stable_temp = None
         self.accum_delta = 0.0
@@ -1189,7 +1193,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
     @callback
     def _start_owned_timer_work(
-        self, coro_fn: Callable[[Any], Coroutine[Any, Any, Any]], name: str, now: Any
+        self,
+        coro_fn: Callable[[datetime], Coroutine[Any, Any, None]],
+        name: str,
+        now: datetime,
     ) -> None:
         """Run one firing of a periodic timer as work this entity owns.
 
@@ -1298,7 +1305,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
             _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
             try:
-                mod_name = getattr(_model_quirks, "__name__", str(_model_quirks))
+                mod_name = _model_quirks.__name__
                 _LOGGER.debug(
                     "better_thermostat %s: loaded model quirks module '%s' for model '%s' (trv %s)",
                     self.device_name,
@@ -1451,7 +1458,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     async def _trigger_time(self, event=None):
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
-        if getattr(self, "in_maintenance", False):
+        if self.in_maintenance:
             _LOGGER.debug(
                 "better_thermostat %s: periodic tick skipped (valve maintenance running)",
                 self.device_name,
@@ -1476,7 +1483,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
-        if getattr(self, "in_maintenance", False):
+        if self.in_maintenance:
             return
         await check_ambient_air_temperature(self)
         if self._last_call_for_heat != self.call_for_heat:
@@ -1560,7 +1567,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 # Use the known TRV entity IDs (keys in real_trvs)
                 trv_ids = list(self.real_trvs.keys())
                 # Fallback (normally should not be needed)
-                if not trv_ids and hasattr(self, "entity_ids"):
+                if not trv_ids:
                     trv_ids = list(self.entity_ids or [])
                 if not trv_ids:
                     _LOGGER.debug(
@@ -1577,11 +1584,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
                 for entity_id in trv_ids:
                     try:
-                        _mq_trv = (
-                            self.real_trvs.get(entity_id)
-                            if hasattr(self, "real_trvs")
-                            else None
-                        )
+                        _mq_trv = self.real_trvs.get(entity_id)
                         if _mq_trv is not None and _mq_trv.awaiting_initialization:
                             # Its first write goes out with its initialization.
                             continue
@@ -1662,7 +1665,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
         publish_when_availability_changed(self)
-        if getattr(self, "in_maintenance", False):
+        if self.in_maintenance:
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
                 self.device_name,
@@ -2709,7 +2712,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         for entity_id, trv in list(self.real_trvs.items()):
             # Maintenance can start while an earlier TRV of this pass is
             # being set up, so it is checked before every TRV.
-            if getattr(self, "in_maintenance", False):
+            if self.in_maintenance:
                 return
             if (
                 not trv.awaiting_initialization
@@ -3038,15 +3041,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             for trv in self.real_trvs.values():
                 advanced = trv.advanced or {}
 
-                raw_balance = advanced.get("balance_mode", "")
-                balance_value = getattr(raw_balance, "value", raw_balance)
+                balance_value = advanced.get("balance_mode", "")
                 if isinstance(balance_value, str):
                     balance_mode = balance_value.lower()
                     if balance_mode in balance_modes:
                         active_balance_modes.add(balance_mode)
 
-                raw_calibration = advanced.get("calibration_mode", "")
-                calibration_value = getattr(raw_calibration, "value", raw_calibration)
+                calibration_value = advanced.get("calibration_mode", "")
                 if isinstance(calibration_value, str):
                     calibration_mode = calibration_value.lower()
                     if calibration_mode in (
@@ -3577,9 +3578,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """Push the entity-held thermal stats and filters into the StateManager."""
         if self.state_mgr is None:
             return
-        self.state_mgr.record_thermal(
-            getattr(self, "heating_power", None), getattr(self, "heat_loss_rate", None)
-        )
+        self.state_mgr.record_thermal(self.heating_power, self.heat_loss_rate)
         self.state_mgr.record_filters(self.room_temperature_ema, self.temp_slope)
 
     @callback
@@ -4059,7 +4058,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.async_write_ha_state()
         # During valve maintenance we must not block on the control queue (maxsize=1)
         # and must not override maintenance valve exercise.
-        if getattr(self, "in_maintenance", False):
+        if self.in_maintenance:
             self._control_needed_after_maintenance = True
             return
 
@@ -4587,7 +4586,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 # A mode-only payload still needs to be published and
                 # applied, exactly like async_set_hvac_mode.
                 self.async_write_ha_state()
-                if getattr(self, "in_maintenance", False):
+                if self.in_maintenance:
                     self._control_needed_after_maintenance = True
                     return
                 request_control_cycle(self)
@@ -4697,7 +4696,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         if self.bt_hvac_mode != HVACMode.OFF:
             # During valve maintenance we must not block on the control queue
             # (Queue maxsize=1) and must not override maintenance.
-            if getattr(self, "in_maintenance", False):
+            if self.in_maintenance:
                 self._control_needed_after_maintenance = True
                 return
             request_control_cycle(self)
@@ -4891,10 +4890,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
 
             self.async_write_ha_state()
-            if (
-                hasattr(self, "control_queue_task")
-                and self.control_queue_task is not None
-            ):
+            if self.control_queue_task is not None:
                 request_control_cycle(self)
         finally:
             self.bt_update_lock = False

@@ -10,11 +10,15 @@ import logging
 import re
 from types import ModuleType
 
+from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.helpers.importlib import async_import_module
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    QuirkLoaderHost,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +47,9 @@ def get_model_quirks_name(model: str | None) -> str:
     return _QUIRK_MODULE_ALIASES.get(model_str, model_str)
 
 
-async def load_model_quirks(self, model, entity_id) -> ModuleType:
+async def load_model_quirks(
+    self: QuirkLoaderHost, model: str | None, entity_id: str
+) -> ModuleType:
     """Load model quirks module for a given TRV model, falling back to default.
 
     Emits debug logs for both the success and the fallback path.
@@ -59,7 +65,7 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
     module_path = f"custom_components.better_thermostat.model_fixes.{model_sanitized}"
 
     try:
-        self.model_quirks = await async_import_module(self.hass, module_path)
+        model_quirks = await async_import_module(self.hass, module_path)
         _LOGGER.debug(
             "better_thermostat %s: using quirks module '%s' for model '%s' (trv %s)",
             self.device_name,
@@ -71,7 +77,7 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
         # Fallback to default and log the reason
         default_module = "custom_components.better_thermostat.model_fixes.default"
         try:
-            self.model_quirks = await async_import_module(self.hass, default_module)
+            model_quirks = await async_import_module(self.hass, default_module)
             _LOGGER.debug(
                 "better_thermostat %s: quirks module '%s' not available for model '%s' (trv %s): %s; using default",
                 self.device_name,
@@ -93,7 +99,14 @@ async def load_model_quirks(self, model, entity_id) -> ModuleType:
             )
             raise
 
-    return self.model_quirks
+    return model_quirks
+
+
+def _quirks(self: ModelFixHost, entity_id: str) -> ModuleType:
+    quirks = self.real_trvs[entity_id].model_quirks
+    if quirks is None:
+        raise AttributeError(f"no model quirks loaded for {entity_id}")
+    return quirks
 
 
 def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
@@ -140,7 +153,8 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
         True when ``unknown`` is this model's way of reporting an
         operating device
     """
-    quirks = getattr(self.real_trvs.get(entity_id), "model_quirks", None)
+    trv = self.real_trvs.get(entity_id)
+    quirks = trv.model_quirks if trv is not None else None
     # The record holds the loaded quirk module, and only a loaded module can
     # answer; anything else is read the way an unquirked device is.
     if not isinstance(quirks, ModuleType):
@@ -182,14 +196,16 @@ def trv_report_is_unreadable(
     )
 
 
-def fix_local_calibration(self, entity_id, calibration_offset):
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Apply model-specific local calibration fix.
 
     Call the configured model quirks implementation to normalize the given
     local calibration offset.
     """
 
-    _new_offset = self.real_trvs[entity_id].model_quirks.fix_local_calibration(
+    _new_offset = _quirks(self, entity_id).fix_local_calibration(
         self, entity_id, calibration_offset
     )
 
@@ -207,7 +223,9 @@ def fix_local_calibration(self, entity_id, calibration_offset):
     return _new_offset
 
 
-def fix_valve_calibration(self, entity_id, valve):
+def fix_valve_calibration(
+    self: ModelFixHost, entity_id: str, valve: float | None
+) -> float | None:
     """Apply model-specific valve calibration fix.
 
     Call the configured model quirks implementation to normalize the given
@@ -232,16 +250,18 @@ def fix_valve_calibration(self, entity_id, valve):
     return _new_valve
 
 
-def fix_target_temperature_calibration(self, entity_id, temperature):
+def fix_target_temperature_calibration(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> float:
     """Apply model-specific setpoint calibration fix.
 
     Delegates to the loaded model quirks module for any adjustments to the
     requested setpoint temperature.
     """
 
-    _new_temperature = self.real_trvs[
-        entity_id
-    ].model_quirks.fix_target_temperature_calibration(self, entity_id, temperature)
+    _new_temperature = _quirks(self, entity_id).fix_target_temperature_calibration(
+        self, entity_id, temperature
+    )
 
     if temperature != _new_temperature:
         _LOGGER.debug(
@@ -255,34 +275,38 @@ def fix_target_temperature_calibration(self, entity_id, temperature):
     return _new_temperature
 
 
-async def override_set_hvac_mode(self, entity_id, hvac_mode):
+async def override_set_hvac_mode(
+    self: ModelFixHost, entity_id: str, hvac_mode: HVACMode | str
+) -> bool:
     """Invoke model-specific HVAC mode override, if implemented.
 
     Returns the model-quirks module's response (True if handled).
     """
-    return await self.real_trvs[entity_id].model_quirks.override_set_hvac_mode(
+    return await _quirks(self, entity_id).override_set_hvac_mode(
         self, entity_id, hvac_mode
     )
 
 
-async def override_set_temperature(self, entity_id, temperature):
+async def override_set_temperature(
+    self: ModelFixHost, entity_id: str, temperature: float
+) -> bool:
     """Invoke model-specific temperature override, if implemented.
 
     Returns the model-quirks module's response (True if handled).
     """
-    return await self.real_trvs[entity_id].model_quirks.override_set_temperature(
+    return await _quirks(self, entity_id).override_set_temperature(
         self, entity_id, temperature
     )
 
 
-async def initial_tweak(self, entity_id):
+async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
     quirks = self.real_trvs[entity_id].model_quirks
     if hasattr(quirks, "initial_tweak"):
         await quirks.initial_tweak(self, entity_id)
 
 
-def lowest_setpoint(self, entity_id, min_temp):
+def lowest_setpoint(self: ModelFixHost, entity_id: str, min_temp: float) -> float:
     """Return the lowest setpoint Better Thermostat writes to a TRV.
 
     That is the minimum the TRV publishes, unless the model's quirk module

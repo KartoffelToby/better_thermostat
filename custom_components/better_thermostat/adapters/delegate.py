@@ -8,7 +8,7 @@ from datetime import datetime
 import logging
 import math
 import time
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.helpers.importlib import async_import_module
 from homeassistant.util import dt as dt_util
@@ -19,6 +19,9 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 
 from ..utils.retry import async_retry, command_cancellation_as_disconnect
+
+if TYPE_CHECKING:
+    from .types import AdapterHost
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,7 +155,7 @@ async def set_temperature(self, entity_id, temperature):
         _LOGGER.error(
             "better_thermostat %s: target temperature %r for %s is not a number, "
             "nothing was written",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             temperature,
             entity_id,
         )
@@ -203,7 +206,7 @@ async def set_temperature(self, entity_id, temperature):
     if rounded != t:
         _LOGGER.debug(
             "better_thermostat %s: delegate.set_temperature rounded %s -> %s (step=%s)",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             t,
             rounded,
             step,
@@ -326,7 +329,7 @@ async def _write_on_channel(
     trv = self.real_trvs.get(entity_id)
     found = getattr(trv, "unreachable_write_channels", None)
     outages: dict[str, WriteOutage] = found if isinstance(found, dict) else {}
-    device_name = getattr(self, "device_name", "unknown")
+    device_name = self.device_name
     outage = outages.get(channel)
 
     async def write_to_device(host, target, payload):
@@ -463,7 +466,7 @@ async def set_calibration_offset(self, entity_id, calibration_offset) -> bool:
         _LOGGER.debug(
             "better_thermostat %s: %s has no calibration offset channel, "
             "nothing was written",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             entity_id,
         )
         return False
@@ -472,7 +475,7 @@ async def set_calibration_offset(self, entity_id, calibration_offset) -> bool:
 
 
 def _valve_channels(
-    self, entity_id: str
+    self: AdapterHost, entity_id: str
 ) -> list[tuple[str, Callable[..., Awaitable[bool | None]], bool]]:
     """List the channels a valve position can go out through, in the order tried."""
     trv_state = self.real_trvs.get(entity_id)
@@ -490,8 +493,10 @@ def _valve_channels(
     # that way, so requiring an entity here would report a TRV as valve
     # capable and then never write to it.
     adapter_needs_valve_entity = declared is None or declared.valve_needs_entity
-    valve_entity = getattr(trv_state, "valve_position_entity", None)
-    valve_writable = getattr(trv_state, "valve_position_writable", None)
+    valve_entity = trv_state.valve_position_entity if trv_state is not None else None
+    valve_writable = (
+        trv_state.valve_position_writable if trv_state is not None else None
+    )
     adapter_write = getattr(getattr(trv_state, "adapter", None), "set_valve", None)
 
     # Each channel carries whether its own answer decides the outcome: a quirk
@@ -504,7 +509,7 @@ def _valve_channels(
     # answers ``has_valve_channel``; one that cannot is taken at its word
     # that ``override_set_valve`` is a channel.
     channels: list[tuple[str, Callable[..., Awaitable[bool | None]], bool]] = []
-    model_quirks = getattr(trv_state, "model_quirks", None)
+    model_quirks = trv_state.model_quirks if trv_state is not None else None
     quirk_write = getattr(model_quirks, "override_set_valve", None)
     quirk_has_channel = getattr(model_quirks, "has_valve_channel", None)
     if quirk_write is not None and (
@@ -581,7 +586,7 @@ async def set_valve(self, entity_id, valve) -> bool:
         _LOGGER.error(
             "better_thermostat %s: valve position %r for %s is not a number, "
             "nothing was written",
-            getattr(self, "device_name", "unknown"),
+            self.device_name,
             valve,
             entity_id,
         )
