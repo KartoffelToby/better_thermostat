@@ -996,6 +996,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         self.cool_max_temperature: float | None = None
         self.heat_target_temperature = DEFAULT_TARGET_TEMP
         self.cool_target_temperature = None
+        # The state saved before the last stop, read when the entity is added.
+        self._saved_state: State | None = None
         self._support_flags = SUPPORT_FLAGS | ClimateEntityFeature.PRESET_MODE
         # The room's intent, not a device spelling: HEAT means "on" in every
         # room, with or without a cooler. room_mode_intent() maps every mode
@@ -1197,6 +1199,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, "
                 "you need to remove the BT devices (integration) and add it again."
             )
+
+        # Home Assistant writes its restore cache once it has started and
+        # drops the saved state of every entity that already publishes one,
+        # so the saved state is read now and not in the startup, which waits
+        # until Home Assistant has started.
+        self._saved_state = await self.async_get_last_state()
 
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
@@ -2093,14 +2101,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
 
     async def _restore_state(self, states: list[State]) -> None:
-        """Restore previous state from HA state machine or fall back to defaults."""
-        _LOGGER.debug(
-            "better_thermostat %s: calling async_get_last_state", self.device_name
-        )
-        old_state = await self.async_get_last_state()
-        _LOGGER.debug(
-            "better_thermostat %s: async_get_last_state returned", self.device_name
-        )
+        """Restore the state saved before the last stop or fall back to defaults."""
+        old_state = self._saved_state
         # A missing heating target falls back to the setpoints of the heads
         # that are on. A head that is off, including a no-off device parked at
         # its minimum, holds its off or frost setpoint, not a room target, and
