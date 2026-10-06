@@ -2179,7 +2179,7 @@ class TestRestoreState:
             "temp_slope_K_min": "0.0012",
             ATTR_TEMPERATURE: 21.0,
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
@@ -2212,7 +2212,7 @@ class TestRestoreState:
             ATTR_STATE_HEAT_LOSS: 0.00123,
             ATTR_TEMPERATURE: 21.0,
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
         bt.state_mgr = MagicMock()
         bt.state_mgr.clamped_thermal.return_value = stored
@@ -2228,7 +2228,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 2.0}  # below min
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.bt_min_temp = 5.0
         bt.bt_max_temp = 30.0
         bt.preset_mgr.temperatures = {}
@@ -2244,7 +2244,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 35.0}  # above max
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.bt_min_temp = 5.0
         bt.bt_max_temp = 30.0
         bt.preset_mgr.temperatures = {}
@@ -2260,7 +2260,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 22.0, "preset_mode": "comfort"}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
 
         states = [_make_trv_state()]
@@ -2279,7 +2279,7 @@ class TestRestoreState:
                 {"comfort": 25.5, "eco": "26.0", "unknown": 10.0}
             ),
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
         bt._preset_cool_temperatures = {"comfort": 24.0, "eco": 27.0}
 
@@ -2300,7 +2300,7 @@ class TestRestoreState:
             "preset_mode": "comfort",
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.5}),
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2339,7 +2339,7 @@ class TestRestoreState:
             ),
             ATTR_STATE_PRESET_COOL_TEMPERATURES: json.dumps({"comfort": 25.28}),
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.bt_target_temp = None
         bt.bt_target_cooltemp = None
 
@@ -2383,7 +2383,7 @@ class TestRestoreState:
                 {"none": 20.0, "comfort": 22.0, "eco": 18.0}
             ),
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.bt_target_temp = None
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2422,7 +2422,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 9.0, "preset_mode": "comfort"}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2445,7 +2445,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 20.0, "preset_mode": "comfort"}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2465,7 +2465,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 31.0, "preset_mode": "comfort"}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2483,7 +2483,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 22.0, "preset_mode": "comfort"}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2505,7 +2505,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2522,7 +2522,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 22.5}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
@@ -2545,7 +2545,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: 23.0}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
         seeded = BetterThermostat._seed_cool_target_from_cooler(bt, "startup()")
@@ -2568,7 +2568,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 9.0, ATTR_TARGET_TEMP_HIGH: 10.0}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2592,7 +2592,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TARGET_TEMP_LOW: 68.0, ATTR_TARGET_TEMP_HIGH: 73.4}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
 
         await BetterThermostat._restore_state(bt, [_make_trv_state()])
 
@@ -2608,7 +2608,7 @@ class TestRestoreState:
             ATTR_TEMPERATURE: 21.0,
             ATTR_STATE_HEATING_POWER: "999.0",  # way above max
         }
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
@@ -2619,7 +2619,7 @@ class TestRestoreState:
     @pytest.mark.asyncio
     async def test_no_old_state_uses_trv_defaults(self, bt):
         """Test No old state uses trv defaults."""
-        bt.async_get_last_state = AsyncMock(return_value=None)
+        bt._saved_state = None
         bt.bt_target_temp = None
 
         states = [_make_trv_state(attrs={ATTR_TEMPERATURE: 20.0})]
@@ -2634,7 +2634,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_CALL_FOR_HEAT: True}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
@@ -2648,7 +2648,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0, ATTR_STATE_HEAT_LOSS: "5.0"}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
 
         states = [_make_trv_state()]
@@ -2662,7 +2662,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {}  # no ATTR_TEMPERATURE
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.preset_mgr.temperatures = {}
 
         states = [
@@ -2679,7 +2679,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "heat"
         old.attributes = {ATTR_TEMPERATURE: 21.0}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.bt_hvac_mode = None
         bt.preset_mgr.temperatures = {}
 
@@ -2693,7 +2693,7 @@ class TestRestoreState:
         old = MagicMock()
         old.state = "not_a_mode"
         old.attributes = {ATTR_TEMPERATURE: 21.0}
-        bt.async_get_last_state = AsyncMock(return_value=old)
+        bt._saved_state = old
         bt.bt_hvac_mode = None
         bt.preset_mgr.temperatures = {}
 
