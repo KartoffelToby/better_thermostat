@@ -16,7 +16,13 @@ import pytest
 
 from tests import quality_scale
 from tests.conftest import pytest_collection_modifyitems
-from tests.quality_scale import BRONZE_RULES, REPO_ROOT, STATUSES, recorded_rules
+from tests.quality_scale import (
+    BRONZE_RULES,
+    REPO_ROOT,
+    SILVER_RULES,
+    STATUSES,
+    recorded_rules,
+)
 
 TESTS_ROOT = REPO_ROOT / "tests"
 
@@ -49,8 +55,8 @@ def _marked_rules() -> dict[str, list[str]]:
     return dict(found)
 
 
-def test_the_file_records_every_bronze_rule_and_nothing_else():
-    assert set(recorded_rules()) == BRONZE_RULES
+def test_the_file_records_every_bronze_and_silver_rule_and_nothing_else():
+    assert set(recorded_rules()) == BRONZE_RULES | SILVER_RULES
 
 
 def test_every_rule_has_a_known_status():

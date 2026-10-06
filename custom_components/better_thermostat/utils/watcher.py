@@ -400,6 +400,11 @@ async def check_critical_entities(self) -> None:
             # Clear error if entity is now available (covers recovery after an
             # outage and stale issues from a previous run).
             if recovered:
+                _LOGGER.info(
+                    "better_thermostat %s: Critical entity %s is available again",
+                    self.device_name,
+                    entity,
+                )
                 self.devices_errors.remove(entity)
                 self.async_write_ha_state()
             ir.async_delete_issue(self.hass, DOMAIN, f"missing_entity_{entity}")
@@ -649,6 +654,12 @@ async def check_and_update_degraded_mode(
                 self.sensor_entity_id,
             )
     else:
+        if self.sensor_entity_id in previously_unavailable:
+            _LOGGER.info(
+                "better_thermostat %s: Room temperature sensor %s is available again",
+                self.device_name,
+                self.sensor_entity_id,
+            )
         refresh_battery_reading(
             self,
             self.sensor_entity_id,

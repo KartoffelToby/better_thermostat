@@ -56,7 +56,6 @@ from homeassistant.helpers.event import (
     async_track_time_change,
     async_track_time_interval,
 )
-from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util.unit_conversion import TemperatureConverter
 
@@ -95,7 +94,11 @@ from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
-from .entity import announce_learned_state
+from .entity import (
+    RestoresLastAvailableState,
+    announce_learned_state,
+    publish_when_availability_changed,
+)
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -251,6 +254,9 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
+
+# Every entity is pushed and none polls; actions are not limited per platform.
+PARALLEL_UPDATES = 0
 
 # Modes in which a head's setpoint is no heating target.
 _MODES_WITHOUT_A_HEATING_SETPOINT = frozenset(
@@ -472,7 +478,7 @@ def unsupported_hvac_mode_error(
     )
 
 
-class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
+class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     """Representation of a Better Thermostat device."""
 
     _attr_has_entity_name = True
@@ -1201,7 +1207,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         # drops the saved state of every entity that already publishes one,
         # so the saved state is read now and not in the startup, which waits
         # until Home Assistant has started.
-        self._saved_state = await self.async_get_last_state()
+        self._saved_state = await self.async_get_last_available_state()
 
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
@@ -1631,6 +1637,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         await self._initialize_arrived_trvs()
         await check_and_update_degraded_mode(self)
         await check_critical_entities(self)
+        publish_when_availability_changed(self)
         if getattr(self, "in_maintenance", False):
             _LOGGER.debug(
                 "better_thermostat %s: TRV change skipped (valve maintenance running)",
@@ -3724,12 +3731,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
     def available(self):
         """Return if thermostat is available.
 
+        A room is available once its startup has finished and while at least
+        one of its TRVs is: a room whose sensors fail keeps controlling in
+        degraded mode, while a room without any TRV has nothing to control.
+
         Returns
         -------
         bool
                 True if the thermostat is available.
         """
-        return self._available
+        return self._available and any(
+            is_trv_available(self, entity_id) for entity_id in self.real_trvs
+        )
 
     @property
     def should_poll(self):
