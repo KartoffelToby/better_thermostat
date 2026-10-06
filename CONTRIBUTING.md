@@ -558,7 +558,7 @@ Home Assistant grades integrations by the rules of its
 `custom_components/better_thermostat/quality_scale.yaml` records, in Home
 Assistant's own format, which of them Better Thermostat meets: each rule is
 `done`, `todo` or `exempt`, and an exempt rule says why. The file holds the
-Bronze tier for now.
+Bronze and Silver tiers for now.
 
 Hassfest checks that file for core integrations only, so the test suite holds
 it here. A test that checks a rule carries its name:
@@ -575,10 +575,11 @@ every rule that is `done` or `todo`, apart from the few listed in
 `REVIEWED_BY_HAND`, and refuses a marker for a rule the file does not record.
 
 The rules a running instance decides are in
-`tests/integration/test_quality_scale_bronze.py`; those the sources decide, the
-manifest, the strings, the coverage floors and the documentation, are in
-`tests/gates/test_quality_scale_bronze_sources.py`. A documentation test only
-checks that the section exists; whether it explains anything is for review.
+`tests/integration/test_quality_scale_<tier>.py`; those the sources decide, the
+manifest, the platform modules, the strings, the coverage floors and the
+documentation, are in `tests/gates/test_quality_scale_<tier>_sources.py`. A
+documentation test only checks that the section exists; whether it explains
+anything is for review.
 
 ## The maintenance line
 
