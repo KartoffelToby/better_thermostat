@@ -25,7 +25,9 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import BetterThermostatConfigEntry
 from .entity import (
+    ControlsOneTrv,
     FollowsThermostat,
+    RestoresLastAvailableState,
     TrvNamedEntity,
     current_trv_name,
     remove_unclaimed_registry_entries,
@@ -52,6 +54,9 @@ from .utils.helpers import (
 from .utils.scheduler import request_control_cycle
 
 _LOGGER = logging.getLogger(__name__)
+
+# Every entity is pushed and none polls; actions are not limited per platform.
+PARALLEL_UPDATES = 0
 
 _PRESET_TRANSLATION_KEYS = {
     PRESET_ECO: "preset_eco",
@@ -538,7 +543,11 @@ class BetterThermostatPIDNumber(
 
 
 class BetterThermostatValveMaxOpeningNumber(
-    FollowsThermostat, TrvNamedEntity, NumberEntity, RestoreEntity
+    ControlsOneTrv,
+    FollowsThermostat,
+    TrvNamedEntity,
+    NumberEntity,
+    RestoresLastAvailableState,
 ):
     """Representation of a Better Thermostat Valve Max Opening Number."""
 
@@ -571,8 +580,9 @@ class BetterThermostatValveMaxOpeningNumber(
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        self._follow_trv_availability()
         self._follow_thermostat()
-        last_state = await self.async_get_last_state()
+        last_state = await self.async_get_last_available_state()
         if last_state is not None and last_state.state not in (
             None,
             "unknown",

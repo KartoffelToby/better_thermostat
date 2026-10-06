@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import (
     Event,
     EventStateChangedData,
@@ -26,8 +27,10 @@ from homeassistant.helpers.entity_registry import (
     async_get_full_entity_name,
 )
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
 
 from .utils.const import DOMAIN
+from .utils.watcher import is_trv_available
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
@@ -35,6 +38,26 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 LEARNED_STATE_SIGNAL = f"{DOMAIN}_learned_state_{{}}"
+
+# The key the last state an entity published while available is saved under.
+LAST_AVAILABLE_STATE = "last_available_state"
+
+
+def last_available_state(
+    saved: State | None, extra: Mapping[str, Any] | None
+) -> State | None:
+    """Return the state a restart restores from ``saved`` and its extra data.
+
+    A state saved as unavailable carries no attributes and stands for no
+    setting; the last state published while available, saved next to it,
+    does.
+    """
+    if saved is None or saved.state != STATE_UNAVAILABLE:
+        return saved
+    recorded = (extra or {}).get(LAST_AVAILABLE_STATE)
+    if not isinstance(recorded, dict):
+        return saved
+    return State.from_dict(recorded) or saved
 
 
 def announce_learned_state(hass: HomeAssistant, bt_unique_id: str) -> None:
@@ -186,3 +209,89 @@ class FollowsThermostat(Entity):
     def _on_thermostat_state(self, event: Event[EventStateChangedData]) -> None:
         """Publish the values the thermostat now holds."""
         self.async_write_ha_state()
+
+
+class RestoresLastAvailableState(RestoreEntity):
+    """Entity that restores the settings it showed while it was available.
+
+    An entity that is unavailable when Home Assistant stops is saved as
+    ``unavailable``, without attributes, and restoring that state would lose
+    every setting the entity holds. The entity saves the last state it
+    published while available next to it, and a restore reads that one.
+    """
+
+    _last_available_state: State | None = None
+
+    @override
+    @callback
+    def _async_write_ha_state(self) -> None:
+        """Publish the state, and remember it while the entity is available."""
+        super()._async_write_ha_state()
+        published = self.hass.states.get(self.entity_id)
+        if published is not None and published.state != STATE_UNAVAILABLE:
+            self._last_available_state = published
+
+    def _extra_restore_data(self) -> dict[str, Any]:
+        """Return what is saved next to the state; an entity may add to it."""
+        if self._last_available_state is None:
+            return {}
+        return {LAST_AVAILABLE_STATE: self._last_available_state.as_dict()}
+
+    @property
+    @override
+    def extra_restore_state_data(self) -> RestoredExtraData:
+        """Save the last available state next to the published one."""
+        return RestoredExtraData(self._extra_restore_data())
+
+    async def async_get_last_available_state(self) -> State | None:
+        """Return the state to restore: the last one published while available.
+
+        It is also what is saved again should the entity stay unavailable
+        until the next stop.
+        """
+        extra = await self.async_get_last_extra_data()
+        restored = last_available_state(
+            await self.async_get_last_state(), extra.as_dict() if extra else None
+        )
+        if restored is not None and restored.state != STATE_UNAVAILABLE:
+            self._last_available_state = restored
+        return restored
+
+
+class ControlsOneTrv(Entity):
+    """Entity that sets something on one TRV, usable only while the TRV is.
+
+    It is unavailable while the TRV is, and published again whenever the
+    TRV's availability changes.
+    """
+
+    _bt_climate: BetterThermostat
+    _trv_entity_id: str
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Return whether the entity and the TRV it sets are available."""
+        return super().available and is_trv_available(
+            self._bt_climate, self._trv_entity_id
+        )
+
+    def _follow_trv_availability(self) -> None:
+        """Publish the entity again whenever the TRV comes or goes."""
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._trv_entity_id], self._on_trv_availability
+            )
+        )
+
+    @callback
+    def _on_trv_availability(self, event: Event[EventStateChangedData]) -> None:
+        publish_when_availability_changed(self)
+
+
+def publish_when_availability_changed(entity: Entity) -> None:
+    """Publish ``entity`` when its availability differs from what it shows."""
+    published = entity.hass.states.get(entity.entity_id)
+    shown_available = published is not None and published.state != STATE_UNAVAILABLE
+    if shown_available != entity.available:
+        entity.async_write_ha_state()

@@ -117,6 +117,7 @@ async def test_restored_state_that_is_not_a_number_keeps_the_default(caplog) -> 
     last_state = MagicMock()
     last_state.state = "nan"
     entity.async_get_last_state = AsyncMock(return_value=last_state)
+    entity.async_get_last_extra_data = AsyncMock(return_value=None)
 
     with caplog.at_level(logging.DEBUG):
         await entity.async_added_to_hass()
