@@ -36,7 +36,7 @@ def test_every_deprecated_attribute_is_published_with_the_current_value():
     assert attrs[ATTR_STATE_PRESET_COOL_TEMPERATURE] == 24.5
     assert json.loads(attrs[ATTR_STATE_PRESET_HEAT_TEMPERATURES]) == {"comfort": 21.0}
     for name, deprecated_name in DEPRECATED_STATE_ATTRIBUTES.items():
-        if name in TELEMETRY_ATTRIBUTES and name not in attrs:
+        if name.startswith(("pid_", "mpc_v2_")):
             continue
         assert name in attrs
         assert attrs[deprecated_name] == attrs[name]
