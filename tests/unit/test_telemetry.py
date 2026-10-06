@@ -186,7 +186,9 @@ class TestCollectPidDebugAttrs:
             ],
         )
         out = collect_pid_debug_attrs(bt)
-        assert out["pid_e_K"] == 0.1235  # 0.12345 → IEEE-754 rounds up at 4 decimals
+        assert (
+            out["pid_error_kelvin"] == 0.1235
+        )  # 0.12345 → IEEE-754 rounds up at 4 decimals
         assert out["pid_P"] == 0.5
         assert out["pid_I"] == 0.25
         assert out["pid_D"] == 0.1
@@ -194,9 +196,9 @@ class TestCollectPidDebugAttrs:
         assert out["pid_kp"] == 0.012346
         assert out["pid_ki"] == 0.000789
         assert out["pid_kd"] == 0.000001
-        assert out["pid_meas_smooth_C"] == 19.875
-        assert out["pid_d_meas_K_per_min"] == 0.06
-        assert out["pid_dt_s"] == 30.123
+        assert out["pid_measurement_filtered"] == 19.875
+        assert out["pid_measurement_slope_kelvin_per_min"] == 0.06
+        assert out["pid_dt_seconds"] == 30.123
 
     def test_missing_fields_omitted(self):
         """Fields absent from the debug dict are not emitted as keys."""
@@ -210,7 +212,7 @@ class TestCollectPidDebugAttrs:
             ],
         )
         out = collect_pid_debug_attrs(bt)
-        assert out == {"pid_e_K": 0.1}
+        assert out == {"pid_error_kelvin": 0.1}
 
     def test_non_numeric_field_silently_skipped(self):
         """Non-numeric scalar values are dropped, valid neighbours kept."""
@@ -226,7 +228,7 @@ class TestCollectPidDebugAttrs:
             ],
         )
         out = collect_pid_debug_attrs(bt)
-        assert "pid_e_K" not in out
+        assert "pid_error_kelvin" not in out
         assert out["pid_P"] == 0.4
 
     def test_prefers_sonoff_or_trvzb_trv(self):
@@ -245,7 +247,7 @@ class TestCollectPidDebugAttrs:
             ],
         )
         out = collect_pid_debug_attrs(bt)
-        assert out["pid_e_K"] == 2.0
+        assert out["pid_error_kelvin"] == 2.0
 
     def test_model_none_does_not_crash(self):
         """A TRV with ``model=None`` must not raise AttributeError on .lower()."""
@@ -259,7 +261,7 @@ class TestCollectPidDebugAttrs:
             ],
         )
         out = collect_pid_debug_attrs(bt)
-        assert out["pid_e_K"] == 1.0
+        assert out["pid_error_kelvin"] == 1.0
 
     def test_no_balance_no_emit(self):
         """A TRV without calibration_balance produces no PID output."""

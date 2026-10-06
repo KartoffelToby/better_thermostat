@@ -499,11 +499,17 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     _attr_has_entity_name = True
     _attr_name = None
     # ``degraded_for_seconds`` counts up on every write while degraded; the
-    # recorded ``control_mode`` already says when the degradation began.
-    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {
-        ATTR_STATE_DEGRADED_FOR_SECONDS,
-        DEPRECATED_STATE_ATTRIBUTES[ATTR_STATE_TEMPERATURE_SLOPE],
-    }
+    # recorded ``control_mode`` already says when the degradation began. A
+    # telemetry attribute stays out of the recorder under its deprecated name
+    # too.
+    _unrecorded_attributes = (
+        TELEMETRY_ATTRIBUTES
+        | {ATTR_STATE_DEGRADED_FOR_SECONDS}
+        | {
+            DEPRECATED_STATE_ATTRIBUTES[name]
+            for name in TELEMETRY_ATTRIBUTES & DEPRECATED_STATE_ATTRIBUTES.keys()
+        }
+    )
 
     # Per-channel cooler send bookkeeping: the last successfully sent command,
     # the settled reading of each written channel, the mode the last cycle
