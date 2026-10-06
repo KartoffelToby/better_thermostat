@@ -69,7 +69,7 @@ does not flip behavior; upgrades require sustained recovery
 events, so a periodic ladder tick (`LADDER_TICK_S`, 60 s) evaluates the
 ladder in every configuration, and a rung commits at most one tick after
 its window has elapsed. The rung is visible as the `control_mode`
-attribute, along with `degraded_for_s` and `unavailable_sensors`;
+attribute, along with `degraded_for_seconds` and `unavailable_sensors`;
 entering degraded mode raises a repair issue that clears itself on
 recovery.
 

@@ -8,7 +8,10 @@ import logging
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
-from custom_components.better_thermostat.utils.const import ATTR_STATE_HEAT_LOSS_STATS
+from custom_components.better_thermostat.utils.const import (
+    ATTR_STATE_HEAT_LOSS_STATS,
+    ATTR_STATE_TEMPERATURE_SLOPE,
+)
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingCycle,
     LossCycle,
@@ -182,7 +185,7 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
     out: dict[str, Any] = {}
 
     if bt.temp_slope is not None:
-        out["temp_slope_K_min"] = round(bt.temp_slope, 4)
+        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temp_slope, 4)
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():
@@ -323,7 +326,7 @@ TELEMETRY_ATTRIBUTES: frozenset[str] = frozenset(
         "heat_loss_cycle_last",
         ATTR_STATE_HEAT_LOSS_STATS,
         "heating_power_norm",
-        "temp_slope_K_min",
+        ATTR_STATE_TEMPERATURE_SLOPE,
         "calibration_balance",
         "pid_d_meas_K_per_min",
         *(dst_key for _, dst_key, _ in _PID_SCALAR_FIELDS),

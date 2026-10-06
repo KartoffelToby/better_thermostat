@@ -11,7 +11,7 @@ Degradation is never silent. The climate entity exposes:
 
 - `control_mode` — the fail-soft rung (`optimal`, `sensor_fallback`,
   `hold`),
-- `degraded_for_s` and `unavailable_sensors` — what is degraded, since
+- `degraded_for_seconds` and `unavailable_sensors` — what is degraded, since
   when,
 - `calibrator_health` — per TRV, whether its calibration controller is
   healthy, has self-healed, or shows oscillating output.

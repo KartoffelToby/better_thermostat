@@ -119,6 +119,7 @@ from .utils.clock import SystemClock
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
+    ATTR_STATE_DEGRADED_FOR_SECONDS,
     ATTR_STATE_DOOR_OPEN,
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
@@ -130,6 +131,8 @@ from .utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
+    ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
+    ATTR_STATE_TEMPERATURE_SLOPE,
     ATTR_STATE_WINDOW_OPEN,
     CONF_CHILD_LOCK,
     CONF_COOLER,
@@ -154,7 +157,7 @@ from .utils.const import (
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
-    DEPRECATED_PRESET_ATTRIBUTES,
+    DEPRECATED_STATE_ATTRIBUTES,
     DOMAIN,
     SUPPORT_FLAGS,
     TARGET_TEMP_BOUND_AUTO,
@@ -381,14 +384,14 @@ def _room_sensor_missing(sensor_state: State | None) -> bool:
     )
 
 
-def _restored_preset_attribute(old_state: State, name: str) -> Any:
-    """Return a preset attribute of a restored state under either of its names.
+def _restored_attribute(old_state: State, name: str) -> Any:
+    """Return an attribute of a restored state under its current or deprecated name.
 
-    A state 1.9 wrote carries only the deprecated `bt_`-prefixed name.
+    A state 1.9 wrote carries only the name in `DEPRECATED_STATE_ATTRIBUTES`.
     """
     value = old_state.attributes.get(name)
     if value is None:
-        value = old_state.attributes.get(DEPRECATED_PRESET_ATTRIBUTES[name])
+        value = old_state.attributes.get(DEPRECATED_STATE_ATTRIBUTES[name])
     return value
 
 
@@ -489,9 +492,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
 
     _attr_has_entity_name = True
     _attr_name = None
-    # ``degraded_for_s`` counts up on every write while degraded; the recorded
-    # ``control_mode`` already says when the degradation began.
-    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {"degraded_for_s"}
+    # ``degraded_for_seconds`` counts up on every write while degraded; the
+    # recorded ``control_mode`` already says when the degradation began.
+    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {
+        ATTR_STATE_DEGRADED_FOR_SECONDS,
+        DEPRECATED_STATE_ATTRIBUTES[ATTR_STATE_TEMPERATURE_SLOPE],
+    }
 
     # Per-channel cooler send bookkeeping: the last successfully sent command,
     # the settled reading of each written channel, the mode the last cycle
@@ -2137,9 +2143,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _store_filters = self.state_mgr.filters if self.state_mgr else None
             if (
                 _store_filters is None or _store_filters.external_temp_ema is None
-            ) and "external_temp_ema" in old_state.attributes:
+            ) and (
+                stored_ema := _restored_attribute(
+                    old_state, ATTR_STATE_ROOM_TEMPERATURE_FILTERED
+                )
+            ) is not None:
                 try:
-                    _restored_ema = float(old_state.attributes["external_temp_ema"])
+                    _restored_ema = float(stored_ema)
                     self.external_temp_ema = _restored_ema
                     self.room_temperature_filtered = round(_restored_ema, 2)
                     # Reset timestamp to now so the next delta is calculated from restart time
@@ -2152,11 +2162,13 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 except ValueError, TypeError:
                     pass
 
-            if (
-                _store_filters is None or _store_filters.temp_slope is None
-            ) and "temp_slope_K_min" in old_state.attributes:
+            if (_store_filters is None or _store_filters.temp_slope is None) and (
+                stored_slope := _restored_attribute(
+                    old_state, ATTR_STATE_TEMPERATURE_SLOPE
+                )
+            ) is not None:
                 try:
-                    _restored_slope = float(old_state.attributes["temp_slope_K_min"])
+                    _restored_slope = float(stored_slope)
                     self.temp_slope = _restored_slope
                     _LOGGER.debug(
                         "better_thermostat %s: restored temp_slope from state: %.4f",
@@ -2227,14 +2239,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             )
             # Restore the persisted per-preset cooling map before applying it below,
             # so a restored preset uses its saved cooling target instead of the default.
-            stored_cool_temperature = _restored_preset_attribute(
+            stored_cool_temperature = _restored_attribute(
                 old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
             )
             if stored_cool_temperature is not None:
                 self._preset_cool_temperature = convert_to_float(
                     str(stored_cool_temperature), self.device_name, "startup()"
                 )
-            stored_cool_temperatures = _restored_preset_attribute(
+            stored_cool_temperatures = _restored_attribute(
                 old_state, ATTR_STATE_PRESET_COOL_TEMPERATURES
             )
             if stored_cool_temperatures is not None:
@@ -2261,7 +2273,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # entities, whose platform is set up after climate, so it comes
             # back from the thermostat's own state here. The block below reads
             # it to pick the target for a restored preset.
-            stored_heat_temperatures = _restored_preset_attribute(
+            stored_heat_temperatures = _restored_attribute(
                 old_state, ATTR_STATE_PRESET_HEAT_TEMPERATURES
             )
             if stored_heat_temperatures is not None:
@@ -3682,7 +3694,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
-            "external_temp_ema": self.room_temperature_filtered,
+            ATTR_STATE_ROOM_TEMPERATURE_FILTERED: self.room_temperature_filtered,
             # Degraded mode: thermostat running with some sensors unavailable
             "degraded_mode": self.degraded_mode,
             "unavailable_sensors": self.unavailable_sensors,
@@ -3693,7 +3705,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 entity_id: str(trv.calibrator_health)
                 for entity_id, trv in self.real_trvs.items()
             },
-            "degraded_for_s": (
+            ATTR_STATE_DEGRADED_FOR_SECONDS: (
                 round(
                     self.clock.monotonic()
                     - self.kernel_state.control_mode.degraded_since
@@ -3708,9 +3720,6 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.preset_mgr.temperatures
             ),
         }
-        for name, deprecated_name in DEPRECATED_PRESET_ATTRIBUTES.items():
-            dev_specific[deprecated_name] = dev_specific[name]
-
         # Optional: next scheduled valve maintenance (ISO8601)
         if self.next_valve_maintenance is not None:
             dev_specific["next_valve_maintenance"] = (
@@ -3730,6 +3739,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         dev_specific.update(collect_balance_attrs(self))
         dev_specific.update(collect_pid_debug_attrs(self))
         dev_specific.update(collect_mpc_v2_debug_attrs(self))
+        for name, deprecated_name in DEPRECATED_STATE_ATTRIBUTES.items():
+            if name in dev_specific:
+                dev_specific[deprecated_name] = dev_specific[name]
 
         return dev_specific
 

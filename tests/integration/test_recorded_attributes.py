@@ -33,7 +33,8 @@ PID = CalibrationMode.PID_CALIBRATION.value
 
 # Telemetry the entity writes outside the PID and MPC v2 families.
 _TELEMETRY = {
-    "degraded_for_s",
+    "degraded_for_seconds",
+    "temperature_slope_kelvin_per_min",
     "temp_slope_K_min",
     "calibration_balance",
     "heating_cycle_count",

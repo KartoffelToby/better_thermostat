@@ -97,14 +97,9 @@ ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "preset_cool_temperature"
 ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "preset_cool_temperatures"
 ATTR_STATE_PRESET_HEAT_TEMPERATURES: Final = "preset_heat_temperatures"
-# Deprecated, removed in 3.0: the preset attributes under their bt_-prefixed
-# names. They are published next to the current ones because templates read
-# them and because 1.9 restores its presets from them after a rollback.
-DEPRECATED_PRESET_ATTRIBUTES: Final[dict[str, str]] = {
-    ATTR_STATE_PRESET_COOL_TEMPERATURE: "bt_preset_cool_temperature",
-    ATTR_STATE_PRESET_COOL_TEMPERATURES: "bt_preset_cool_temperatures",
-    ATTR_STATE_PRESET_HEAT_TEMPERATURES: "bt_preset_heat_temperatures",
-}
+ATTR_STATE_ROOM_TEMPERATURE_FILTERED: Final = "room_temperature_filtered"
+ATTR_STATE_DEGRADED_FOR_SECONDS: Final = "degraded_for_seconds"
+ATTR_STATE_TEMPERATURE_SLOPE: Final = "temperature_slope_kelvin_per_min"
 ATTR_VALVE_POSITION: Final = "valve_position"
 ATTR_STATE_HUMIDITY: Final = "humidity"
 ATTR_STATE_MAIN_MODE: Final = "main_mode"
@@ -115,6 +110,19 @@ ATTR_STATE_HEATING_STATS: Final = "heating_stats"
 ATTR_STATE_ERRORS: Final = "errors"
 ATTR_STATE_BATTERIES: Final = "batteries"
 ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
+
+# DEPRECATED, remove in 3.0: state attributes under the names 1.9 published,
+# keyed by the current name. The entity publishes each value under
+# both names, because templates read the old ones and 1.9 restores from them
+# after a rollback, and a restart reads the current name first and the old one
+# after it. Removing an entry here removes its old name everywhere.
+DEPRECATED_STATE_ATTRIBUTES: Final[dict[str, str]] = {
+    ATTR_STATE_PRESET_COOL_TEMPERATURE: "bt_preset_cool_temperature",
+    ATTR_STATE_PRESET_COOL_TEMPERATURES: "bt_preset_cool_temperatures",
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES: "bt_preset_heat_temperatures",
+    ATTR_STATE_ROOM_TEMPERATURE_FILTERED: "external_temp_ema",
+    ATTR_STATE_TEMPERATURE_SLOPE: "temp_slope_K_min",
+}
 
 SERVICE_RESET_HEATING_POWER: Final = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS: Final = "reset_pid_learnings"

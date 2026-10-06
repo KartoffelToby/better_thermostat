@@ -1895,13 +1895,24 @@ class TestRestoreState:
     """Tests for _restore_state."""
 
     @pytest.mark.asyncio
-    async def test_restores_ema_and_slope(self, bt):
-        """Test Restores ema and slope."""
+    @pytest.mark.parametrize(
+        ("ema_name", "slope_name"),
+        [
+            pytest.param(
+                "room_temperature_filtered",
+                "temperature_slope_kelvin_per_min",
+                id="current",
+            ),
+            pytest.param("external_temp_ema", "temp_slope_K_min", id="written_by_1_9"),
+        ],
+    )
+    async def test_restores_ema_and_slope(self, bt, ema_name, slope_name):
+        """The filtered room reading and slope come back under either name."""
         old = MagicMock()
         old.state = "heat"
         old.attributes = {
-            "external_temp_ema": "20.5",
-            "temp_slope_K_min": "0.0012",
+            ema_name: "20.5",
+            slope_name: "0.0012",
             ATTR_TEMPERATURE: 21.0,
         }
         bt._saved_state = old

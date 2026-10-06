@@ -74,6 +74,10 @@ itself.
   `preset_heat_temperatures`. 2.x publishes the old names as well, with the
   same values, so templates keep working; switch them to the new names before
   3.0, which drops the old ones.
+- **Two more attributes are renamed the same way.** `external_temp_ema` is now
+  `room_temperature_filtered`, and `temp_slope_K_min` is now
+  `temperature_slope_kelvin_per_min`. 2.x publishes the old names as well;
+  3.0 drops them.
 
 ### Cooling devices
 
@@ -118,7 +122,7 @@ relied on that, keep an eye on your battery levels.
 
 The climate entity shows the current step in `control_mode` (`optimal`,
 `sensor_fallback` or `hold`) and how long it has been degraded in
-`degraded_for_s`. A thermostat's own sensor sits next to the hot valve, so
+`degraded_for_seconds`. A thermostat's own sensor sits next to the hot valve, so
 control is less accurate while the fallback runs.
 
 ### A thermostat doesn't come back after a restart
@@ -157,7 +161,7 @@ the pause. Your logs get much quieter.
 - **Sensors for MPC v2:** thermostats on the MPC v2 calibration mode get
   four diagnostic sensors: virtual temperature, coupling, disturbance and
   room time constant.
-- **Climate attributes:** `control_mode` and `degraded_for_s` (see above),
+- **Climate attributes:** `control_mode` and `degraded_for_seconds` (see above),
   and `calibrator_health`, which reports per thermostat whether its
   controller is healthy.
 - **Direct valve control** is now also offered for a Sonoff TRVZB outside
