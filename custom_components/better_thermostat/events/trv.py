@@ -292,7 +292,11 @@ async def trigger_trv_change(
         return
     if self.control_queue_task is None:
         return
-    if self.bt_target_temp is None or self.cur_temp is None or self.tolerance is None:
+    if (
+        self.heat_target_temperature is None
+        or self.cur_temp is None
+        or self.tolerance is None
+    ):
         return
     if self.bt_update_lock:
         return
@@ -728,7 +732,7 @@ async def trigger_trv_change(
                         self.device_name,
                         entity_id,
                         _new_heating_setpoint,
-                        self.bt_target_temp,
+                        self.heat_target_temperature,
                         _adopted_cooling_setpoint,
                     )
                 _LOGGER.debug(
@@ -777,10 +781,10 @@ async def trigger_trv_change(
                     "better_thermostat %s: TRV %s decoded TRV target temp changed from %s to %s",
                     self.device_name,
                     entity_id,
-                    self.bt_target_temp,
+                    self.heat_target_temperature,
                     _adopted_heating_setpoint,
                 )
-                self.bt_target_temp = _adopted_heating_setpoint
+                self.heat_target_temperature = _adopted_heating_setpoint
                 trv.remember_setpoint_adopted(_raw_heating_setpoint)
                 # The clamp leaves the cooling target alone, so this only settles
                 # the degenerate case where no heating value below the cooling
@@ -817,7 +821,7 @@ async def trigger_trv_change(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
                 "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
-                "bt_target_temp=%s last_temperature=%s pending_setpoints=%s step=%s)",
+                "heat_target_temperature=%s last_temperature=%s pending_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -830,7 +834,7 @@ async def trigger_trv_change(
                 self.window_open,
                 self.door_open,
                 trv.ignore_trv_states,
-                self.bt_target_temp,
+                self.heat_target_temperature,
                 trv.last_temperature,
                 trv.echo_setpoint_values(),
                 _step,
@@ -930,19 +934,19 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 self.device_name,
             )
             # Fallback: do not apply local calibration, only set the target temperature
-            _new_heating_setpoint = self.bt_target_temp
+            _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None
 
         elif _calibration_type == CalibrationType.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
-            _new_heating_setpoint = self.bt_target_temp
+            _new_heating_setpoint = self.heat_target_temperature
 
         elif _calibration_type in (
             CalibrationType.TARGET_TEMP_BASED,
             CalibrationType.DIRECT_VALVE_BASED,
         ):
             if _calibration_mode == CalibrationMode.NO_CALIBRATION:
-                _new_heating_setpoint = self.bt_target_temp
+                _new_heating_setpoint = self.heat_target_temperature
             else:
                 _new_heating_setpoint = calculate_calibration_setpoint(self, entity_id)
             _new_local_calibration = None
@@ -954,7 +958,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
                 self.device_name,
                 _calibration_type,
             )
-            _new_heating_setpoint = self.bt_target_temp
+            _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None
 
         # System mode handling - applies to ALL calibration modes including fallback

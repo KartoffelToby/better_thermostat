@@ -140,7 +140,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.cooler_entity_id = kwargs.pop("cooler_entity_id", None)
     mock_self.preset_mode = kwargs.pop("preset_mode", None)
     mock_self.cur_temp = kwargs.pop("cur_temp", 20.0)
-    mock_self.bt_target_temp = kwargs.pop("bt_target_temp", 22.0)
+    mock_self.heat_target_temperature = kwargs.pop("heat_target_temperature", 22.0)
     mock_self.context = kwargs.pop("context", None)
     mock_self.ignore_states = kwargs.pop("ignore_states", False)
     mock_self.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
@@ -390,7 +390,7 @@ class TestControlTrvUnavailablePath:
             trv_state=STATE_UNAVAILABLE,
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _default_trv_config(
                     advanced={
@@ -438,7 +438,7 @@ class TestControlTrvUnavailablePath:
             trv_state=STATE_UNAVAILABLE,
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _default_trv_config(
                     advanced={
@@ -484,7 +484,7 @@ class TestControlTrvUnavailablePath:
             trv_state=STATE_UNAVAILABLE,
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _default_trv_config(
                     advanced={
@@ -605,7 +605,7 @@ class TestControlTrvAvailablePath:
             trv_state=HVACMode.AUTO,
             trv_attrs={"temperature": 20.0},
             call_for_heat=True,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _default_trv_config(
                     hvac_modes=[HVACMode.AUTO, HVACMode.COOL, HVACMode.OFF],
@@ -643,7 +643,7 @@ class TestControlTrvAvailablePath:
             trv_state=HVACMode.OFF,
             trv_attrs={"temperature": 20.0},
             call_for_heat=True,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _default_trv_config(
                     hvac_modes=[HVACMode.OFF, HVACMode.HEAT],
@@ -812,7 +812,7 @@ class TestControlTrvAvailablePath:
             trv_attrs={"temperature": 20.0},
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _with_valve_channel(
                     _default_trv_config(
@@ -1615,7 +1615,7 @@ class TestBoostModeSafetyOverride:
         mock_self._temp_lock = asyncio.Lock()
         mock_self.preset_mode = PRESET_BOOST
         mock_self.cur_temp = 18.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = True  # Window is OPEN
         mock_self.call_for_heat = True
@@ -1703,7 +1703,7 @@ class TestBoostModeSafetyOverride:
             trv_attrs={"temperature": 20.0},
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _default_trv_config(
                     advanced={
@@ -1757,7 +1757,7 @@ class TestBoostModeSafetyOverride:
             trv_attrs={"temperature": 20.0},
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             window_open=True,
             real_trvs={
                 "climate.trv1": _default_trv_config(
@@ -1812,7 +1812,7 @@ class TestBoostModeSafetyOverride:
             trv_attrs={"temperature": 20.0},
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             window_open=True,
             real_trvs={
                 "climate.trv1": _with_valve_channel(
@@ -1886,7 +1886,7 @@ class TestBoostModeSafetyOverride:
             trv_attrs={"temperature": 20.0},
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             window_open=True,
             real_trvs={
                 "climate.trv1": _default_trv_config(
@@ -1961,7 +1961,7 @@ class TestBoostModeSafetyOverride:
         mock_self._temp_lock = asyncio.Lock()
         mock_self.preset_mode = PRESET_BOOST
         mock_self.cur_temp = 18.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
         mock_self.call_for_heat = False  # No heat call
@@ -2054,7 +2054,7 @@ class TestValveWriteResult:
             trv_attrs={"temperature": 20.0},
             preset_mode=PRESET_BOOST,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             real_trvs={
                 "climate.trv1": _with_valve_channel(
                     _default_trv_config(
@@ -2360,7 +2360,7 @@ class TestRaceConditionLockCoverage:
         mock_self.preset_mode = None
         mock_self.cooler_entity_id = None
         mock_self.cur_temp = 20.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
         mock_self.call_for_heat = True
@@ -2562,7 +2562,7 @@ class TestRaceConditionLockCoverage:
         mock_self.preset_mode = None
         mock_self.cooler_entity_id = None
         mock_self.cur_temp = 20.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
         mock_self.call_for_heat = True
@@ -2680,7 +2680,7 @@ class TestRaceConditionLockCoverage:
         mock_self.preset_mode = None
         mock_self.cooler_entity_id = None
         mock_self.cur_temp = 20.0
-        mock_self.bt_target_temp = 22.0
+        mock_self.heat_target_temperature = 22.0
         mock_self.bt_hvac_mode = HVACMode.HEAT
         mock_self.window_open = False
         mock_self.call_for_heat = True
@@ -2785,7 +2785,7 @@ class TestRaceConditionLockCoverage:
             trv_state=HVACMode.HEAT,
             trv_attrs={"temperature": 18.0},
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
         )
         # A setpoint write 10 s ago keeps the budget closed, so the
         # differing target below is deferred rather than written.
@@ -2858,7 +2858,7 @@ def mock_bt_grouped():
     bt.bt_max_temp = 30.0
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = "heat"
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.cur_temp = 20.0
     bt.window_open = False
     bt.call_for_heat = True
@@ -3180,7 +3180,7 @@ class TestControlTrvOnADualRoleEntity:
             real_trvs={cls.SHARED_ID: trv},
             bt_hvac_mode=HVACMode.HEAT,
             cooler_entity_id=cls.SHARED_ID,
-            bt_target_temp=21.0,
+            heat_target_temperature=21.0,
         )
 
     @staticmethod

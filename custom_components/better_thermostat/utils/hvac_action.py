@@ -57,7 +57,7 @@ def to_pct(value: float | str | None) -> float | None:
 
 def should_heat_with_tolerance(
     cur_temp: float,
-    target_temp: float,
+    heat_target_temperature: float,
     tolerance: float,
     previous_action: HVACAction | None,
 ) -> bool:
@@ -69,8 +69,8 @@ def should_heat_with_tolerance(
     * Stop at ``target`` – never heat *above* target.
     """
     tolerance = max(0.0, tolerance)
-    heat_off_threshold = target_temp
-    heat_on_threshold = target_temp - tolerance
+    heat_off_threshold = heat_target_temperature
+    heat_on_threshold = heat_target_temperature - tolerance
     if previous_action == HVACAction.HEATING:
         return cur_temp < heat_off_threshold
     return cur_temp < heat_on_threshold
@@ -114,7 +114,7 @@ _VALVE_THRESH = 0.0
 def compute_hvac_action(
     hysteresis: ToleranceHysteresis,
     cur_temp: float | None,
-    target_temp: float | None,
+    heat_target_temperature: float | None,
     cool_target: float | None,
     hvac_mode: HVACMode | None,
     bt_hvac_mode: HVACMode | None,
@@ -139,7 +139,7 @@ def compute_hvac_action(
     """
     prev_action = hysteresis.last_action
 
-    if target_temp is None or cur_temp is None:
+    if heat_target_temperature is None or cur_temp is None:
         return HvacActionResult(
             action=HVACAction.IDLE,
             tolerance_decision=HVACAction.IDLE,
@@ -169,7 +169,9 @@ def compute_hvac_action(
     tolerance_hold = False
 
     if heating_allowed:
-        if should_heat_with_tolerance(cur_temp, target_temp, tolerance, prev_action):
+        if should_heat_with_tolerance(
+            cur_temp, heat_target_temperature, tolerance, prev_action
+        ):
             action = HVACAction.HEATING
         else:
             tolerance_hold = True
@@ -192,7 +194,7 @@ def compute_hvac_action(
             cool_previously_active,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        and cur_temp > target_temp
+        and cur_temp > heat_target_temperature
     ):
         action = HVACAction.COOLING
         tolerance_hold = False
@@ -201,7 +203,7 @@ def compute_hvac_action(
     # Suppressed at or above target so a still-closing valve cannot lift the
     # displayed action above IDLE once the hysteresis decided to stop.
     if action == HVACAction.IDLE:
-        if ignore_states or window_open or cur_temp >= target_temp:
+        if ignore_states or window_open or cur_temp >= heat_target_temperature:
             return HvacActionResult(
                 action=HVACAction.IDLE,
                 tolerance_decision=tolerance_decision,

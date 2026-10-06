@@ -382,7 +382,7 @@ def _compute_mpc_balance(
         return None, False
 
     mpc_current_temp = effective_room_temp(self)
-    if self.bt_target_temp is None or mpc_current_temp is None:
+    if self.heat_target_temperature is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -436,7 +436,7 @@ def _compute_mpc_balance(
         mpc_output, mpc_state = compute_mpc(
             MpcInput(
                 key=mpc_key,
-                target_temp_C=self.bt_target_temp,
+                target_temp_C=self.heat_target_temperature,
                 current_temp_C=mpc_current_temp,
                 filtered_temp_C=mpc_filtered_temp,
                 trv_temp_C=trv_state.current_temperature,
@@ -745,7 +745,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         return None, False
 
     mpc_current_temp = effective_room_temp(self)
-    if self.bt_target_temp is None or mpc_current_temp is None:
+    if self.heat_target_temperature is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -825,7 +825,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
-                target_temp_C=self.bt_target_temp,
+                target_temp_C=self.heat_target_temperature,
                 current_temp_C=mpc_current_temp,
                 trv_temp_C=trv_state.current_temperature,
                 window_open=bool(self.contact_open),
@@ -919,7 +919,7 @@ def _compute_tpi_balance(
         return None, False
 
     _room_temp = effective_room_temp(self)
-    if self.bt_target_temp is None or _room_temp is None:
+    if self.heat_target_temperature is None or _room_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -945,7 +945,7 @@ def _compute_tpi_balance(
             TpiInput(
                 key=key,
                 current_temp_C=_room_temp,
-                target_temp_C=self.bt_target_temp,
+                target_temp_C=self.heat_target_temperature,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 window_open=self.contact_open,
                 heating_allowed=True,
@@ -999,7 +999,7 @@ def _compute_pid_balance(
         return None, False
 
     _pid_room_temp = effective_room_temp(self)
-    if self.bt_target_temp is None or _pid_room_temp is None:
+    if self.heat_target_temperature is None or _pid_room_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -1070,7 +1070,7 @@ def _compute_pid_balance(
     try:
         percent, debug, pid_state = compute_pid(
             params,
-            self.bt_target_temp,
+            self.heat_target_temperature,
             _pid_room_temp,
             trv_state.current_temperature,
             self.temp_slope,
@@ -1271,10 +1271,10 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
     _cur_external_temp = effective_room_temp(self)
     if _cur_external_temp is None:
         return None
-    if traits.needs_target and self.bt_target_temp is None:
+    if traits.needs_target and self.heat_target_temperature is None:
         return None
 
-    _cur_target_temp = self.bt_target_temp
+    _cur_target_temp = self.heat_target_temperature
 
     if traits.uses_tolerance_band:
         # Add tolerance check – use asymmetric band [target - tol, target]
@@ -1502,14 +1502,14 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
         _calibration_mode = DEFAULT_CALIBRATION_MODE
     traits = _traits_for(_calibration_mode)
 
-    if self.bt_target_temp is None:
+    if self.heat_target_temperature is None:
         return None
 
     _effective_room_temp = effective_room_temp(self)
     if _effective_room_temp is None:
         return None
     _cur_external_temp = float(_effective_room_temp)
-    _cur_target_temp = float(self.bt_target_temp)
+    _cur_target_temp = float(self.heat_target_temperature)
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)

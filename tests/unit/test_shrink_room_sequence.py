@@ -61,7 +61,7 @@ def test_the_rule_comes_from_the_message_not_the_source_above_it():
     output = (
         "    async def assert_rules(room, before):\n"
         "        assert await wait_for(...), (\n"
-        '            f"[intent] the room\'s target is {bt.bt_target_temp}"\n'
+        '            f"[intent] the room\'s target is {bt.heat_target_temperature}"\n'
         "        )\n"
         ">       assert await wait_for(...), (\n"
         '            "[convergence] reachable heads carry "\n'

@@ -46,7 +46,7 @@ class _StateMgrStub:
 def _make_bt() -> MagicMock:
     bt = ThermostatStandIn()
     bt.unique_id = "uid"
-    bt.bt_target_temp = 21.0
+    bt.heat_target_temperature = 21.0
     bt.schedule_save_state = MagicMock()
     bt.state_mgr = _StateMgrStub()
     return bt

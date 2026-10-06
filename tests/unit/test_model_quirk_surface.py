@@ -115,7 +115,7 @@ def _host():
     host.device_name = "Test BT"
     host.context = None
     host.cur_temp = 19.5
-    host.bt_target_temp = 21.0
+    host.heat_target_temperature = 21.0
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock()
     host.hass.states.get = lambda requested: State(

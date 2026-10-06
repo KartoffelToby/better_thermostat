@@ -808,7 +808,11 @@ class _FailedCycleRun:
 
 def _user_intent(self: BetterThermostat) -> tuple[Any, ...]:
     """Return the room targets a user sets, as the failure pacing compares them."""
-    return (self.bt_target_temp, self.cool_target_temperature, self.bt_hvac_mode)
+    return (
+        self.heat_target_temperature,
+        self.cool_target_temperature,
+        self.bt_hvac_mode,
+    )
 
 
 async def _requeue_failed_cycle(self: BetterThermostat, delay_s: float) -> None:
@@ -1194,7 +1198,7 @@ def _locked_device_moved(
 def _held_report_control_inputs(self: BetterThermostat, trv: Trv) -> tuple[Any, ...]:
     """Return what a report read at cycle end can move that a cycle acts on."""
     return (
-        self.bt_target_temp,
+        self.heat_target_temperature,
         self.cool_target_temperature,
         self.bt_hvac_mode,
         trv.hvac_mode,
@@ -1399,7 +1403,7 @@ _CoolerCommand = HVACMode | tuple[float, float | None] | None
 
 
 def cooler_low_bound(
-    high: float, target_temp: float | None, lowest: float | None = None
+    high: float, heat_target_temperature: float | None, lowest: float | None = None
 ) -> float:
     """Return the lower bound that travels with ``high`` in a range write.
 
@@ -1410,7 +1414,11 @@ def cooler_low_bound(
     heating target is held to the heaters' range, not the cooler's, so it is
     raised onto ``lowest``, the cooler's minimum, where it sits below it.
     """
-    low = high if target_temp is None else min(float(target_temp), high)
+    low = (
+        high
+        if heat_target_temperature is None
+        else min(float(heat_target_temperature), high)
+    )
     if lowest is not None and low < lowest:
         low = min(lowest, high)
     return low
@@ -1548,25 +1556,25 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
 
     room_temp = snapshot.room_temp
     target_cooltemp = snapshot.target_cooltemp
-    target_temp = snapshot.target_temp
+    heat_target_temperature = snapshot.target_temp
     tolerance = snapshot.tolerance
 
     if (
         room_temp is None
         or target_cooltemp is None
         or tolerance is None
-        or target_temp is None
+        or heat_target_temperature is None
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(cur_temp=%s, cool_target_temperature=%s, tolerance=%s, bt_target_temp=%s), "
+            "(cur_temp=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
             room_temp,
             target_cooltemp,
             tolerance,
-            target_temp,
+            heat_target_temperature,
         )
         desired_mode = HVACMode.OFF
     elif snapshot.hvac_mode == HVACMode.OFF:
@@ -1613,7 +1621,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             _previously_cooling,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        if _cool_wanted and room_temp > target_temp:
+        if _cool_wanted and room_temp > heat_target_temperature:
             desired_mode = HVACMode.COOL
         else:
             desired_mode = HVACMode.OFF
@@ -1717,7 +1725,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     _low_bound_changed = False
     if _write_range and desired_temp is not None:
         _low_to_set = cooler_low_bound(
-            desired_temp, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
+            desired_temp,
+            on_cooler_grid(self, cooler_state, heat_target_temperature),
+            _cooler_min,
         )
         # A lower bound BT never wrote at this value is a new payload, not a
         # resend; one it already wrote and the device ignored is a retry.
@@ -1836,7 +1846,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             temp_to_send,
             cooler_low_bound(
                 temp_to_send,
-                on_cooler_grid(self, cooler_state, target_temp),
+                on_cooler_grid(self, cooler_state, heat_target_temperature),
                 _cooler_min,
             )
             if _write_range
@@ -1864,7 +1874,9 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         )
         _temp_to_set = temp_to_send
         _low_to_set = _low_to_set_c = cooler_low_bound(
-            temp_to_send, on_cooler_grid(self, cooler_state, target_temp), _cooler_min
+            temp_to_send,
+            on_cooler_grid(self, cooler_state, heat_target_temperature),
+            _cooler_min,
         )
         if self.hass.config.units.temperature_unit == UnitOfTemperature.FAHRENHEIT:
             _temp_to_set = round(

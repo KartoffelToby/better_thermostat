@@ -56,7 +56,7 @@ class ModelFixHost(Protocol):
         ...
 
     @property
-    def bt_target_temp(self) -> float | None:
+    def heat_target_temperature(self) -> float | None:
         """Setpoint Better Thermostat is regulating towards.
 
         Optional on the entity, and the DEFAULT calibration mode is the one

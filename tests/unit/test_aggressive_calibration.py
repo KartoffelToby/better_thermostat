@@ -35,7 +35,7 @@ def _make_bt(
     calibration_mode,
     hvac_action,
     cur_temp=20.0,
-    bt_target_temp=21.0,
+    heat_target_temperature=21.0,
     tolerance=0.5,
     trv_temp=21.0,
     last_calibration=0.0,
@@ -62,7 +62,7 @@ def _make_bt(
     bt.hvac_action = hvac_action
     bt.cur_temp = cur_temp
     bt.cur_temp_filtered = None
-    bt.bt_target_temp = bt_target_temp
+    bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None
     bt.contact_open = False
@@ -151,7 +151,7 @@ class TestToleranceDelayBehavior:
 class TestAggressiveCalibrationOffset:
     """The -2.5 offset only fires for AGGRESSIVE + HEATING + cal > -2.5.
 
-    Mock inputs use ``cur_temp=20.5, bt_target_temp=22.0`` (outside tolerance)
+    Mock inputs use ``cur_temp=20.5, heat_target_temperature=22.0`` (outside tolerance)
     and ``trv_temp=21.0, last_calibration=0.0`` to produce a base calibration
     of ``(20.5 − 21.0) + 0.0 = −0.5``.
     """
@@ -162,7 +162,7 @@ class TestAggressiveCalibrationOffset:
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
             cur_temp=20.5,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
         assert result == pytest.approx(-3.0)
@@ -173,7 +173,7 @@ class TestAggressiveCalibrationOffset:
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.IDLE,
             cur_temp=20.5,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
         assert result == pytest.approx(-0.5)
@@ -187,7 +187,7 @@ class TestAggressiveCalibrationOffset:
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
             cur_temp=18.0,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
         assert result == pytest.approx(-3.0)
@@ -218,7 +218,7 @@ class TestCombinedBehavior:
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
             cur_temp=20.5,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
         )
         result = calculate_calibration_local(bt, ENTITY_ID)
         # base -0.5 − 2.5 = -3.0
@@ -231,7 +231,7 @@ class TestCombinedBehavior:
 class TestSetpointCalibration:
     """Setpoint calibration: ``(target − external) + trv_temp``.
 
-    Mock inputs: ``bt_target_temp=21.3, cur_temp=20.0, trv_temp=20.0``
+    Mock inputs: ``heat_target_temperature=21.3, cur_temp=20.0, trv_temp=20.0``
     → base setpoint = ``(21.3 − 20.0) + 20.0 = 21.3``.
     """
 
@@ -240,7 +240,7 @@ class TestSetpointCalibration:
         bt = _make_bt(
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.IDLE,
-            bt_target_temp=21.3,
+            heat_target_temperature=21.3,
             cur_temp=20.0,
             trv_temp=20.0,
         )
@@ -252,7 +252,7 @@ class TestSetpointCalibration:
         bt = _make_bt(
             CalibrationMode.DEFAULT,
             HVACAction.IDLE,
-            bt_target_temp=21.3,
+            heat_target_temperature=21.3,
             cur_temp=20.0,
             trv_temp=20.0,
         )
@@ -264,7 +264,7 @@ class TestSetpointCalibration:
         bt = _make_bt(
             CalibrationMode.AGGRESIVE_CALIBRATION,
             HVACAction.HEATING,
-            bt_target_temp=22.0,
+            heat_target_temperature=22.0,
             cur_temp=20.0,
             trv_temp=20.0,
         )
@@ -278,7 +278,7 @@ class TestSetpointCalibration:
         bt = _make_bt(
             CalibrationMode.MPC_CALIBRATION,
             HVACAction.IDLE,
-            bt_target_temp=21.3,
+            heat_target_temperature=21.3,
             cur_temp=20.0,
             trv_temp=20.0,
         )
@@ -305,7 +305,7 @@ class TestHysteresisScenario:
         """
         common = {
             "cur_temp": 20.4,
-            "bt_target_temp": 21.0,
+            "heat_target_temperature": 21.0,
             "tolerance": 0.5,
             "trv_temp": 21.0,
             "last_calibration": 0.0,

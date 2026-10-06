@@ -57,7 +57,7 @@ def bt():
     mock.device_name = "Test BT"
     mock._unique_id = "uid"
     mock.unique_id = "uid"
-    mock.bt_target_temp = 21.0
+    mock.heat_target_temperature = 21.0
     mock.real_trvs = {"climate.trv": make_trv("climate.trv")}
     mock.schedule_save_state = MagicMock()
     mock.control_queue_task = MagicMock()
@@ -174,7 +174,7 @@ async def test_defaults_without_a_target_are_refused_before_the_reset(bt, target
     The call asked for a reset followed by seeding. Doing only the first
     half would leave the learned gains gone and no defaults in their place.
     """
-    bt.bt_target_temp = target
+    bt.heat_target_temperature = target
     bt.state_mgr.pid = {"uid:climate.trv:t21.0": PIDState(pid_integral=7.5)}
     with pytest.raises(ServiceValidationError) as refused:
         await BetterThermostat.reset_pid_learnings_service(bt, apply_pid_defaults=True)

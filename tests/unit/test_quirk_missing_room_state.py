@@ -1,6 +1,6 @@
 """Local-calibration quirks that read the room temperature and the setpoint.
 
-Four quirk modules compare ``cur_temp`` against ``bt_target_temp`` before
+Four quirk modules compare ``cur_temp`` against ``heat_target_temperature`` before
 they adjust the offset they were handed. Both members are optional on the
 host: the entity carries no room temperature until the startup sequence
 resolves one, and the DEFAULT calibration mode calls these functions without
@@ -38,25 +38,25 @@ ENTITY_ID = "climate.trv"
 CONDITIONAL_NUDGE_QUIRKS = [TS0601, TS0601_thermostat, SEA801]
 
 
-def _thermostat(cur_temp, bt_target_temp):
+def _thermostat(cur_temp, heat_target_temperature):
     """Build a host reporting the given room temperature and setpoint."""
     bt = ThermostatStandIn()
     bt.cur_temp = cur_temp
-    bt.bt_target_temp = bt_target_temp
+    bt.heat_target_temperature = heat_target_temperature
     bt.device_name = "test"
     bt.real_trvs = {ENTITY_ID: Trv(entity_id=ENTITY_ID)}
     return bt
 
 
 @pytest.mark.parametrize(
-    ("cur_temp", "bt_target_temp"), [(None, 21.0), (20.0, None), (None, None)]
+    ("cur_temp", "heat_target_temperature"), [(None, 21.0), (20.0, None), (None, None)]
 )
 @pytest.mark.parametrize("quirk", CONDITIONAL_NUDGE_QUIRKS)
 def test_conditional_nudge_returns_offset_when_a_reading_is_missing(
-    quirk, cur_temp, bt_target_temp
+    quirk, cur_temp, heat_target_temperature
 ):
     """Without both readings there is nothing to compare, so nothing changes."""
-    bt = _thermostat(cur_temp, bt_target_temp)
+    bt = _thermostat(cur_temp, heat_target_temperature)
 
     assert quirk.fix_local_calibration(bt, ENTITY_ID, 1.3) == 1.3
 
@@ -64,30 +64,32 @@ def test_conditional_nudge_returns_offset_when_a_reading_is_missing(
 @pytest.mark.parametrize("quirk", CONDITIONAL_NUDGE_QUIRKS)
 def test_conditional_nudge_adjusts_with_both_readings(quirk):
     """A room at or above the setpoint keeps the documented +0.5 nudge."""
-    bt = _thermostat(cur_temp=21.0, bt_target_temp=20.0)
+    bt = _thermostat(cur_temp=21.0, heat_target_temperature=20.0)
 
     assert quirk.fix_local_calibration(bt, ENTITY_ID, 1.3) == 1.8
 
 
 @pytest.mark.parametrize(
-    ("cur_temp", "bt_target_temp"), [(None, 21.0), (20.0, None), (None, None)]
+    ("cur_temp", "heat_target_temperature"), [(None, 21.0), (20.0, None), (None, None)]
 )
-def test_bht_002_rounds_down_when_a_reading_is_missing(cur_temp, bt_target_temp):
+def test_bht_002_rounds_down_when_a_reading_is_missing(
+    cur_temp, heat_target_temperature
+):
     """The heating direction is unknown, so the sanitizing round-down applies."""
-    bt = _thermostat(cur_temp, bt_target_temp)
+    bt = _thermostat(cur_temp, heat_target_temperature)
 
     assert BHT_002_GCLZB.fix_local_calibration(bt, ENTITY_ID, 1.7) == 1.0
 
 
 def test_bht_002_rounds_up_while_the_room_is_below_the_setpoint():
     """A room below its setpoint keeps the ceiling direction."""
-    bt = _thermostat(cur_temp=19.0, bt_target_temp=21.0)
+    bt = _thermostat(cur_temp=19.0, heat_target_temperature=21.0)
 
     assert BHT_002_GCLZB.fix_local_calibration(bt, ENTITY_ID, 1.2) == 2.0
 
 
 def test_bht_002_rounds_down_once_the_room_reached_the_setpoint():
     """A room at or above its setpoint keeps the floor direction."""
-    bt = _thermostat(cur_temp=21.0, bt_target_temp=21.0)
+    bt = _thermostat(cur_temp=21.0, heat_target_temperature=21.0)
 
     assert BHT_002_GCLZB.fix_local_calibration(bt, ENTITY_ID, 1.7) == 1.0
