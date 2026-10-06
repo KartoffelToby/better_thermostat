@@ -696,7 +696,7 @@ class TestCalculateHeatingPower:
 
         assert len(mock_bt.heating_cycles) == 1
         cycle = mock_bt.heating_cycles[0]
-        assert "delta_t" in cycle
+        assert "delta_kelvin" in cycle
         assert "rate_c_min" in cycle
 
 
