@@ -142,9 +142,9 @@ class PIDParams:
 # --- Helper Functions -----------------------------------------------
 
 
-def _r(val: float | None, decimals: int = 2) -> float | None:
+def _r(value: float | None, decimals: int = 2) -> float | None:
     """Round to decimals if not None."""
-    return round(val, decimals) if val is not None else None
+    return round(value, decimals) if value is not None else None
 
 
 # --- PID Computation -----------------------------------------------

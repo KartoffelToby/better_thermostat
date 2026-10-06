@@ -2874,7 +2874,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # valve. Only bind when there is exactly one TRV; skip for
             # multi-TRV setups.
             trv_ids = [
-                trv_conf.get("trv") for trv_conf in self.all_trvs if trv_conf.get("trv")
+                trv_config.get("trv")
+                for trv_config in self.all_trvs
+                if trv_config.get("trv")
             ]
             if len(trv_ids) == 1:
                 await async_bind_trv_device(
