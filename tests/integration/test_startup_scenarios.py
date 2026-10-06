@@ -444,7 +444,7 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
     await setup_entry(hass, entry)
     bt = await wait_for_startup(hass, entry)
     await hass.async_block_till_done()
-    assert bt.cur_temp_filtered == 18.0
+    assert bt.room_temperature_filtered == 18.0
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
     bt.clock = clock
@@ -476,12 +476,12 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
         assert effective_room_temp(bt) == 22.0
 
         set_room_sensor(hass, 22.0)
-        assert await wait_for(hass, lambda: bt.cur_temp == 22.0)
-        assert bt.cur_temp_filtered == 22.0
+        assert await wait_for(hass, lambda: bt.room_temperature == 22.0)
+        assert bt.room_temperature_filtered == 22.0
 
         await let_time_pass(LadderParams().up_stability_s + LADDER_TICK_S)
         assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
-        assert bt.cur_temp_filtered == 22.0
+        assert bt.room_temperature_filtered == 22.0
         assert bt.temp_slope == 0.0
 
 
@@ -547,7 +547,7 @@ async def test_a_room_sensor_missing_at_boot_is_replaced_by_the_trv_temperature(
 
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
-    assert bt.cur_temp == trv_temperature
+    assert bt.room_temperature == trv_temperature
     assert effective_room_temp(bt) == trv_temperature
     assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == (
         trv_temperature
@@ -588,7 +588,7 @@ async def test_a_room_sensor_that_arrives_within_the_grace_window_starts_normall
     bt = await wait_for_startup(hass, entry)
     assert hass.states.get(BT_ENTITY).state == "heat"
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
-    assert bt.cur_temp == 17.0
+    assert bt.room_temperature == 17.0
     assert effective_room_temp(bt) == 17.0
     assert bt.unavailable_sensors == []
 
@@ -612,7 +612,7 @@ async def test_a_room_sensor_that_reports_after_a_fallback_start_takes_over(
     stability_s = LadderParams().up_stability_s
 
     set_room_sensor(hass, 17.0)
-    assert await wait_for(hass, lambda: bt.cur_temp == 17.0)
+    assert await wait_for(hass, lambda: bt.room_temperature == 17.0)
 
     clock.advance(stability_s + 60)
     async_fire_time_changed(
@@ -644,7 +644,7 @@ async def test_a_room_sensor_with_an_implausible_reading_at_boot_hands_the_room_
         await setup_entry(hass, entry)
         bt = await wait_for_startup(hass, entry)
 
-    assert bt.cur_temp == trv_temperature
+    assert bt.room_temperature == trv_temperature
     assert bt.kernel_state.control_mode.mode == ControlMode.SENSOR_FALLBACK
 
     # The ladder has been stepped on the real clock since startup, so the
@@ -729,7 +729,7 @@ async def test_a_room_sensor_that_reports_during_a_fallback_start_takes_over(
         await setup_entry(hass, entry)
         bt = await wait_for_startup(hass, entry)
 
-    assert await wait_for(hass, lambda: bt.cur_temp == 17.0)
+    assert await wait_for(hass, lambda: bt.room_temperature == 17.0)
     assert hass.states.get(BT_ENTITY).attributes["current_temperature"] == 17.0
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())
@@ -760,7 +760,7 @@ async def test_a_room_sensor_that_drops_out_during_startup_hands_the_room_to_the
     with publish_room_sensor_while_trvs_initialise(hass, "unavailable"):
         await setup_entry(hass, entry)
         bt = await wait_for_startup(hass, entry)
-    assert bt.cur_temp == 17.0
+    assert bt.room_temperature == 17.0
     assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
 
     clock = FakeClock(monotonic_value=bt.clock.monotonic())

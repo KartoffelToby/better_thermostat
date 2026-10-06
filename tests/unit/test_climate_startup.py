@@ -136,8 +136,8 @@ def bt():
     mock._configured_target_temp_step = None
     mock.cool_target_temperature = None
     mock.bt_hvac_mode = None
-    mock.cur_temp = None
-    mock.cur_temp_filtered = None
+    mock.room_temperature = None
+    mock.room_temperature_filtered = None
     mock.external_temp_ema = None
     mock._external_temp_ema_ts = None
     mock.external_temp_ema_tau_s = 300.0
@@ -1150,11 +1150,11 @@ class TestResolveTemperatureRange:
 class TestInitializeSensors:
     """Tests for _initialize_sensors."""
 
-    def test_sensor_ok_sets_cur_temp(self, bt):
-        """Test Sensor ok sets cur temp."""
+    def test_sensor_ok_sets_room_temperature(self, bt):
+        """A healthy sensor reading sets the room temperature."""
         sensor = _make_sensor_state("21.5")
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.cur_temp is not None
+        assert bt.room_temperature is not None
         assert SENSOR_ID in bt.all_entities
 
     def test_sensor_unavailable_falls_back_to_trv(self, bt):
@@ -1163,7 +1163,7 @@ class TestInitializeSensors:
         trv_state = _make_trv_state(attrs={"current_temperature": 19.5})
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.cur_temp is not None
+        assert bt.room_temperature is not None
 
     def test_no_sensor_no_trv_uses_default(self, bt):
         """Test No sensor no trv uses default."""
@@ -1172,7 +1172,7 @@ class TestInitializeSensors:
         trv_state = _make_trv_state(attrs={"current_temperature": None})
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.cur_temp == DEFAULT_FALLBACK_TEMPERATURE
+        assert bt.room_temperature == DEFAULT_FALLBACK_TEMPERATURE
 
     def test_implausible_sensor_value_falls_back_to_trv(self, bt):
         """AVM 126.5 °C marker from the room sensor falls back to a TRV reading."""
@@ -1180,7 +1180,7 @@ class TestInitializeSensors:
         trv_state = _make_trv_state(attrs={"current_temperature": 19.5})
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.cur_temp == 19.5
+        assert bt.room_temperature == 19.5
 
     def test_implausible_trv_value_falls_back_to_default(self, bt):
         """If both sensor and TRV are implausible, the default fallback is used."""
@@ -1188,7 +1188,7 @@ class TestInitializeSensors:
         trv_state = _make_trv_state(attrs={"current_temperature": 126.5})
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.cur_temp == DEFAULT_FALLBACK_TEMPERATURE
+        assert bt.room_temperature == DEFAULT_FALLBACK_TEMPERATURE
 
     def test_implausible_sensor_implausible_trv_uses_default(self, bt):
         """Implausible sensor AND implausible TRV → default fallback."""
@@ -1196,7 +1196,7 @@ class TestInitializeSensors:
         trv_state = _make_trv_state(attrs={"current_temperature": 126.5})
         bt.hass.states.get.return_value = trv_state
         BetterThermostat._initialize_sensors(bt, sensor)
-        assert bt.cur_temp == DEFAULT_FALLBACK_TEMPERATURE
+        assert bt.room_temperature == DEFAULT_FALLBACK_TEMPERATURE
 
     def test_window_open_detected(self, bt):
         """Test Window open detected."""
@@ -1311,8 +1311,8 @@ class TestInitializeSensors:
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt._current_humidity is None
 
-    def test_ema_initialized_with_cur_temp(self, bt):
-        """Test Ema initialized with cur temp."""
+    def test_ema_initialized_with_room_temperature(self, bt):
+        """The EMA starts from the room temperature."""
         sensor = _make_sensor_state("21.5")
         with patch(
             "custom_components.better_thermostat.climate._update_external_temp_ema"
@@ -1643,7 +1643,7 @@ class TestInitializeTrvEchoSetpoints:
         """The device's own setpoint is the one value a report may carry."""
         bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: 20.0})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID].last_temperature == 20.0
+        assert bt.real_trvs[TRV_ID].commanded_setpoint == 20.0
         assert bt.real_trvs[TRV_ID].confirmed_setpoint == 20.0
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
@@ -1652,7 +1652,7 @@ class TestInitializeTrvEchoSetpoints:
         """A device publishing no setpoint gives startup nothing to remember."""
         bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: None})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID].last_temperature is None
+        assert bt.real_trvs[TRV_ID].commanded_setpoint is None
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 
@@ -1913,7 +1913,7 @@ class TestRestoreState:
         await BetterThermostat._restore_state(bt, states)
 
         assert bt.external_temp_ema == 20.5
-        assert bt.cur_temp_filtered == 20.5
+        assert bt.room_temperature_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
     @pytest.mark.parametrize(

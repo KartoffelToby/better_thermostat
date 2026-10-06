@@ -36,8 +36,8 @@ def _make_bt() -> MagicMock:
     bt.heat_target_temperature = 21.5
     bt.cool_target_temperature = 24.0
     bt.bt_hvac_mode = "heat"
-    bt.cur_temp = 20.1
-    bt.cur_temp_filtered = 20.2
+    bt.room_temperature = 20.1
+    bt.room_temperature_filtered = 20.2
     bt.temp_slope = 0.05
     bt.window_open = False
     bt.call_for_heat = True
@@ -57,7 +57,7 @@ def _make_bt() -> MagicMock:
             {
                 "hvac_mode": "heat",
                 "current_temperature": 21.0,
-                "last_temperature": 22.0,
+                "commanded_setpoint": 22.0,
                 "min_temp": 5.0,
                 "max_temp": 30.0,
                 "valve_max_opening": 80.0,
@@ -70,11 +70,11 @@ def _make_bt() -> MagicMock:
 
 # Entity attribute -> snapshot field, value from _make_bt.
 COMPLETENESS_TABLE = [
-    ("heat_target_temperature", "target_temp", 21.5),
-    ("cool_target_temperature", "target_cooltemp", 24.0),
+    ("heat_target_temperature", "heat_target_temperature", 21.5),
+    ("cool_target_temperature", "cool_target_temperature", 24.0),
     ("bt_hvac_mode", "hvac_mode", HvacMode.HEAT),
-    ("cur_temp", "room_temp", 20.1),
-    ("cur_temp_filtered", "room_temp_filtered", 20.2),
+    ("room_temperature", "room_temperature", 20.1),
+    ("room_temperature_filtered", "room_temperature_filtered", 20.2),
     ("temp_slope", "temp_slope", 0.05),
     ("call_for_heat", "call_for_heat", True),
     ("preset_mode", "preset_mode", "eco"),
@@ -102,7 +102,7 @@ class TestSnapshotCompleteness:
         produced_elsewhere = {
             "now",
             "now_monotonic",
-            "outdoor_temp",
+            "outdoor_temperature",
             "is_day",
             "solar_intensity",
             "trvs",
@@ -119,17 +119,17 @@ class TestSnapshotCompleteness:
         with.
         """
         bt = _make_bt()
-        bt.cur_temp = 19.974999
+        bt.room_temperature = 19.974999
         snapshot = build_snapshot(bt)
-        assert snapshot.room_temp == 19.97
+        assert snapshot.room_temperature == 19.97
 
     @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
     def test_non_finite_observations_become_none(self, bad):
         """NaN/inf readings are rejected at the snapshot boundary."""
         bt = _make_bt()
-        bt.cur_temp = bad
+        bt.room_temperature = bad
         snapshot = build_snapshot(bt)
-        assert snapshot.room_temp is None
+        assert snapshot.room_temperature is None
 
     def test_time_comes_from_the_injected_clock(self):
         """The snapshot carries both clock axes at build time."""
@@ -190,7 +190,7 @@ class TestTrvReportedBuilding:
             entity_id="climate.trv",
             available=True,
             hvac_mode=HvacMode.HEAT,
-            current_temp=21.0,
+            current_temperature=21.0,
             setpoint=22.0,
             min_temp=5.0,
             max_temp=30.0,
@@ -256,17 +256,17 @@ class TestTrvReportedBuilding:
         bt.real_trvs["climate.trv"].hvac_mode = "bogus"
         snapshot = build_snapshot(bt)
         trv = snapshot.trvs["climate.trv"]
-        assert trv.current_temp is None
+        assert trv.current_temperature is None
         assert trv.hvac_mode is None
 
     def test_non_finite_reported_values_become_none(self):
         """NaN/inf in the real_trvs entry degrades to None, not a crash."""
         bt = _make_bt()
         bt.real_trvs["climate.trv"].current_temperature = float("nan")
-        bt.real_trvs["climate.trv"].last_temperature = float("inf")
+        bt.real_trvs["climate.trv"].commanded_setpoint = float("inf")
         snapshot = build_snapshot(bt)
         trv = snapshot.trvs["climate.trv"]
-        assert trv.current_temp is None
+        assert trv.current_temperature is None
         assert trv.setpoint is None
 
 
@@ -277,13 +277,13 @@ class TestWorldSnapshotType:
         """Snapshot fields cannot be reassigned."""
         snapshot = build_snapshot(_make_bt())
         with pytest.raises(FrozenInstanceError):
-            snapshot.room_temp = 99.0
+            snapshot.room_temperature = 99.0
 
     def test_trv_reported_is_frozen(self):
         """TrvReported fields cannot be reassigned."""
         trv = TrvReported(entity_id="climate.trv")
         with pytest.raises(FrozenInstanceError):
-            trv.current_temp = 99.0
+            trv.current_temperature = 99.0
 
 
 class TestParseHvacMode:

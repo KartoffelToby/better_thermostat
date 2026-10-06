@@ -79,7 +79,7 @@ def _make_bt_climate(**overrides):
     bt._available = True
     bt.window_open = False
     bt.hvac_mode = "heat"
-    bt.cur_temp_filtered = None
+    bt.room_temperature_filtered = None
     bt.external_temp_ema = None
     bt.temp_slope = None
     bt.heating_power = None
@@ -157,37 +157,37 @@ class TestExternalTempSensor:
         sensor = BetterThermostatExternalTempSensor(bt)
         assert sensor._attr_unique_id == "test_bt_123_external_temp_ema"
 
-    def test_update_from_cur_temp_filtered(self):
-        """Update from cur temp filtered."""
-        bt = _make_bt_climate(cur_temp_filtered=21.5)
+    def test_update_from_room_temperature_filtered(self):
+        """Update from the filtered room temperature."""
+        bt = _make_bt_climate(room_temperature_filtered=21.5)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 21.5
 
     def test_fallback_to_external_temp_ema(self):
         """Fallback to external temp ema."""
-        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=22.3)
+        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=22.3)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 22.3
 
     def test_none_when_both_missing(self):
         """None when both missing."""
-        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=None)
+        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=None)
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_invalid_float_returns_none(self):
         """Invalid float returns none."""
-        bt = _make_bt_climate(cur_temp_filtered="not_a_number")
+        bt = _make_bt_climate(room_temperature_filtered="not_a_number")
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_string_number_converted(self):
         """A string like '20.5' should be converted to float."""
-        bt = _make_bt_climate(cur_temp_filtered="20.5")
+        bt = _make_bt_climate(room_temperature_filtered="20.5")
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 20.5
@@ -209,7 +209,7 @@ class TestExternalTemp1hEMASensor:
 
     def test_first_update_sets_ema_directly(self):
         """First update sets ema directly."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 20.0
@@ -217,57 +217,57 @@ class TestExternalTemp1hEMASensor:
 
     def test_subsequent_update_applies_ema(self):
         """Subsequent update applies ema."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()  # first
         # Simulate time passing
         sensor._last_update_ts = monotonic() - 60  # 1 minute ago
-        bt.cur_temp_filtered = 25.0
+        bt.room_temperature_filtered = 25.0
         sensor._update_state()  # second
         # EMA should be between 20 and 25, closer to 20
         assert 20.0 < sensor._attr_native_value < 25.0
 
     def test_ema_converges_over_time(self):
         """After many tau periods, EMA should be very close to new value."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()
         # Simulate 5 tau (5 hours) passing in one step
         sensor._last_update_ts = monotonic() - (5 * 3600)
-        bt.cur_temp_filtered = 25.0
+        bt.room_temperature_filtered = 25.0
         sensor._update_state()
         # After 5 tau, alpha ≈ 1 - e^(-5) ≈ 0.993
         assert abs(sensor._attr_native_value - 25.0) < 0.1
 
     def test_zero_dt_does_not_change_ema(self):
         """When dt=0, alpha=0, EMA should not change."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()  # first → EMA = 20.0
         # Set last_update_ts to now so dt ≈ 0
         sensor._last_update_ts = monotonic()
-        bt.cur_temp_filtered = 30.0
+        bt.room_temperature_filtered = 30.0
         sensor._update_state()
         # dt ≈ 0 → alpha ≈ 0 → EMA stays at 20.0
         assert sensor._attr_native_value == 20.0
 
     def test_none_value_gives_none(self):
         """None value gives none."""
-        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=None)
+        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=None)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_invalid_float_gives_none(self):
         """Invalid float gives none."""
-        bt = _make_bt_climate(cur_temp_filtered="invalid")
+        bt = _make_bt_climate(room_temperature_filtered="invalid")
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
 
     def test_ema_math_correctness(self):
         """Verify the EMA formula matches expected math."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_ema(20.0)  # first
         dt_s = 600.0  # 10 minutes
@@ -1698,7 +1698,7 @@ class TestEdgeCasesAndPotentialBugs:
 
     def test_1h_ema_negative_dt_clamped(self):
         """If monotonic() goes backward (shouldn't happen but defensive), dt is clamped to 0."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_ema(20.0)
         # Set last_update to the future
@@ -1745,7 +1745,7 @@ class TestEdgeCasesAndPotentialBugs:
 
     def test_external_temp_sensor_with_nan(self):
         """NaN as temperature value should be handled."""
-        bt = _make_bt_climate(cur_temp_filtered=float("nan"))
+        bt = _make_bt_climate(room_temperature_filtered=float("nan"))
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         # NaN is a valid float, so it will be set (but it's arguably a bug)
@@ -1754,7 +1754,7 @@ class TestEdgeCasesAndPotentialBugs:
 
     def test_external_temp_sensor_with_inf(self):
         """Infinity as temperature should be handled."""
-        bt = _make_bt_climate(cur_temp_filtered=float("inf"))
+        bt = _make_bt_climate(room_temperature_filtered=float("inf"))
         sensor = BetterThermostatExternalTempSensor(bt)
         sensor._update_state()
         # inf is a valid float → will be set (potentially problematic)
@@ -1762,7 +1762,7 @@ class TestEdgeCasesAndPotentialBugs:
 
     def test_1h_ema_with_nan_input(self):
         """NaN input to EMA should propagate NaN."""
-        bt = _make_bt_climate(cur_temp_filtered=20.0)
+        bt = _make_bt_climate(room_temperature_filtered=20.0)
         sensor = BetterThermostatExternalTemp1hEMASensor(bt)
         sensor._update_ema(20.0)
         sensor._last_update_ts = monotonic() - 60
@@ -1848,24 +1848,24 @@ class TestBtSensorBase:
 class TestGetFilteredTemp:
     """Tests for _get_filtered_temp helper."""
 
-    def test_prefers_cur_temp_filtered(self):
-        """Prefers cur temp filtered."""
-        bt = _make_bt_climate(cur_temp_filtered=21.5, external_temp_ema=22.0)
+    def test_prefers_room_temperature_filtered(self):
+        """Prefers the filtered room temperature."""
+        bt = _make_bt_climate(room_temperature_filtered=21.5, external_temp_ema=22.0)
         assert _get_filtered_temp(bt) == 21.5
 
     def test_falls_back_to_external_temp_ema(self):
         """Falls back to external temp ema."""
-        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=22.0)
+        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=22.0)
         assert _get_filtered_temp(bt) == 22.0
 
     def test_returns_none_when_both_missing(self):
         """Returns none when both missing."""
-        bt = _make_bt_climate(cur_temp_filtered=None, external_temp_ema=None)
+        bt = _make_bt_climate(room_temperature_filtered=None, external_temp_ema=None)
         assert _get_filtered_temp(bt) is None
 
     def test_zero_value_not_treated_as_none(self):
         """Zero value not treated as none."""
-        bt = _make_bt_climate(cur_temp_filtered=0.0, external_temp_ema=22.0)
+        bt = _make_bt_climate(room_temperature_filtered=0.0, external_temp_ema=22.0)
         assert _get_filtered_temp(bt) == 0.0
 
 

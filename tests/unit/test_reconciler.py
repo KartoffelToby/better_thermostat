@@ -47,8 +47,8 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.window_open = False
     bt.call_for_heat = True
     bt.preset_mode = None
-    bt.cur_temp = 20.0
-    bt.cur_temp_filtered = None
+    bt.room_temperature = 20.0
+    bt.room_temperature_filtered = None
     bt.temp_slope = None
     bt.tolerance = 0.0
     bt.heat_target_temperature = 21.0
@@ -61,7 +61,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.flight_recorder = FlightRecorder()
     trv = Trv.from_legacy_dict(
         "climate.trv",
-        {"last_temperature": commanded, "min_temp": 5.0, "max_temp": 30.0},
+        {"commanded_setpoint": commanded, "min_temp": 5.0, "max_temp": 30.0},
     )
     trv.model_quirks = MagicMock()
     trv.model_quirks.override_set_temperature = AsyncMock(return_value=False)
@@ -763,7 +763,7 @@ class TestReconcileOnADualRoleEntity:
         bt = _make_bt(**kwargs)
         bt.cooler_entity_id = cls.SHARED_ID
         bt.cool_target_temperature = 24.0
-        bt.cur_temp = 26.0
+        bt.room_temperature = 26.0
         bt._cooler_last_sent = {"hvac_mode_decided": hvac_mode_decided}
         return bt
 

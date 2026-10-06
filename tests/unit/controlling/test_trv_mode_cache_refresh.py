@@ -85,8 +85,8 @@ def thermostat(reported_states):
     bt.bt_max_temp = 30.0
     bt.cool_target_temperature = 25.0
     bt.bt_target_temp_step = 0.5
-    bt.cur_temp = 18.0
-    bt.cur_temp_filtered = None
+    bt.room_temperature = 18.0
+    bt.room_temperature_filtered = None
     bt.temp_slope = None
     bt.call_for_heat = True
     bt.preset_mode = None
@@ -126,7 +126,7 @@ def thermostat(reported_states):
                 "max_temp": 30.0,
                 "current_temperature": 18.0,
                 "temperature": 19.0,
-                "last_temperature": 19.0,
+                "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
                 "target_temp_received": True,
                 "system_mode_received": True,
@@ -839,7 +839,7 @@ class TestALockedPressHeldDuringACycle:
         """A report of the value before an unconfirmed write is not a press."""
         trv = self._lock(thermostat)
         trv.remember_setpoint_confirmed(19.0)
-        trv.last_temperature = 22.0
+        trv.commanded_setpoint = 22.0
         trv.target_temp_received = False
         reported_states[ENTITY_ID] = _reported_state("heat", setpoint=19.0)
 
@@ -881,7 +881,7 @@ class TestALockedPressHeldDuringACycle:
         write itself.
         """
         trv = self._lock(thermostat)
-        trv.last_temperature = 21.0
+        trv.commanded_setpoint = 21.0
         trv.last_hvac_mode = "cool"
         thermostat.cool_target_temperature = 24.3
         state = _reported_state("cool", setpoint=pressed_to)
@@ -915,7 +915,7 @@ class TestALockedPressHeldDuringACycle:
         """
         thermostat.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         trv = self._lock(thermostat)
-        trv.last_temperature = 21.0
+        trv.commanded_setpoint = 21.0
         trv.last_hvac_mode = "cool"
         thermostat.cool_target_temperature = 24.0
         state = _reported_state("cool", setpoint=pressed_to)
@@ -952,7 +952,7 @@ class TestALockedPressHeldDuringACycle:
         """
         trv = self._lock(thermostat)
         trv.last_hvac_mode = "heat"
-        trv.last_temperature = 19.0
+        trv.commanded_setpoint = 19.0
         thermostat.cooler_entity_id = ENTITY_ID
         thermostat._cooler_last_sent = {
             "hvac_mode_decided": HVACMode.COOL,

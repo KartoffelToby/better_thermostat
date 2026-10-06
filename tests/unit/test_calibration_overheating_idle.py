@@ -26,7 +26,7 @@ TARGET_TEMP = 19.0
 
 def build_bt(
     *,
-    cur_temp,
+    room_temperature,
     trv_temp,
     calibration_mode=CalibrationMode.AGGRESIVE_CALIBRATION,
     protect_overheating=True,
@@ -41,8 +41,8 @@ def build_bt(
     bt.tolerance = tolerance
     bt.attr_hvac_action = HVACAction.IDLE
     bt.hvac_action = HVACAction.IDLE
-    bt.cur_temp = cur_temp
-    bt.cur_temp_filtered = None
+    bt.room_temperature = room_temperature
+    bt.room_temperature_filtered = None
     bt.heat_target_temperature = heat_target_temperature
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.outdoor_sensor = None
@@ -94,7 +94,7 @@ def test_idle_at_the_target_keeps_the_setpoint_at_the_trv_reading():
     The unadjusted setpoint is 19 °C, which a TRV reading 19 °C keeps shut.
     """
     result = calculate_calibration_setpoint(
-        build_bt(cur_temp=19.0, trv_temp=19.0), ENTITY_ID
+        build_bt(room_temperature=19.0, trv_temp=19.0), ENTITY_ID
     )
 
     assert result == pytest.approx(19.0)
@@ -103,7 +103,7 @@ def test_idle_at_the_target_keeps_the_setpoint_at_the_trv_reading():
 def test_idle_above_the_target_lowers_the_setpoint():
     """Room and TRV at 20 °C, 0.7 K over target + tolerance: 20 - 5.6 → 13 °C."""
     result = calculate_calibration_setpoint(
-        build_bt(cur_temp=20.0, trv_temp=20.0), ENTITY_ID
+        build_bt(room_temperature=20.0, trv_temp=20.0), ENTITY_ID
     )
 
     assert result == pytest.approx(13.0)
@@ -112,7 +112,7 @@ def test_idle_above_the_target_lowers_the_setpoint():
 def test_idle_at_the_target_keeps_the_local_offset_at_zero():
     """Room and TRV at the 19 °C target: the TRV keeps reading 19 °C, not 17 °C."""
     result = calculate_calibration_local(
-        build_bt(cur_temp=19.0, trv_temp=19.0), ENTITY_ID
+        build_bt(room_temperature=19.0, trv_temp=19.0), ENTITY_ID
     )
 
     assert result == pytest.approx(0.0)
@@ -121,7 +121,7 @@ def test_idle_at_the_target_keeps_the_local_offset_at_zero():
 def test_idle_above_the_target_raises_the_local_offset():
     """Room and TRV at 20 °C: 0 + 5.6 rounds up to the 6 K offset limit."""
     result = calculate_calibration_local(
-        build_bt(cur_temp=20.0, trv_temp=20.0), ENTITY_ID
+        build_bt(room_temperature=20.0, trv_temp=20.0), ENTITY_ID
     )
 
     assert result == pytest.approx(6.0)
@@ -130,15 +130,15 @@ def test_idle_above_the_target_raises_the_local_offset():
 @pytest.mark.parametrize("calibration_mode", list(CalibrationMode))
 @pytest.mark.parametrize("step", [0.1, 0.5, 1.0])
 @pytest.mark.parametrize("tolerance", [0.0, 0.3, 0.5])
-@pytest.mark.parametrize("cur_temp", [18.4, 18.9, 19.0, 19.2, 19.5, 20.0, 21.3])
+@pytest.mark.parametrize("room_temperature", [18.4, 18.9, 19.0, 19.2, 19.5, 20.0, 21.3])
 @pytest.mark.parametrize("trv_temp", [18.0, 19.0, 20.5])
 def test_protection_does_not_open_the_valve_further(
-    calibration_mode, step, tolerance, cur_temp, trv_temp
+    calibration_mode, step, tolerance, room_temperature, trv_temp
 ):
     """The protection leaves both values alone up to the line and closes above it."""
     kwargs = {
         "calibration_mode": calibration_mode,
-        "cur_temp": cur_temp,
+        "room_temperature": room_temperature,
         "trv_temp": trv_temp,
         "tolerance": tolerance,
         "step": step,
@@ -160,7 +160,7 @@ def test_protection_does_not_open_the_valve_further(
     assert plain_setpoint is not None
     assert protected_offset is not None
     assert plain_offset is not None
-    if cur_temp <= TARGET_TEMP + tolerance:
+    if room_temperature <= TARGET_TEMP + tolerance:
         assert protected_setpoint == pytest.approx(plain_setpoint)
         assert protected_offset == pytest.approx(plain_offset)
     else:

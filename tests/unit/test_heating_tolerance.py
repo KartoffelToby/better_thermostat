@@ -31,7 +31,7 @@ def mock_bt():
     bt.tolerance = 0.5
     bt.heat_target_temperature = 21.0
     bt.cool_target_temperature = None
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.hvac_mode = HVACMode.HEAT
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.window_open = False
@@ -78,32 +78,32 @@ class TestShouldHeatWithTolerance:
 
     def test_starts_heating_below_target_minus_tolerance(self, mock_bt):
         """Heating starts when temp drops below target - tolerance."""
-        mock_bt.cur_temp = 20.4  # below 21.0 - 0.5 = 20.5
+        mock_bt.room_temperature = 20.4  # below 21.0 - 0.5 = 20.5
         assert mock_bt._should_heat_with_tolerance(HVACAction.IDLE, 0.5) is True
 
     def test_no_heating_between_target_minus_tol_and_target_when_idle(self, mock_bt):
         """When previously IDLE, temp between (target-tol) and target does NOT start heating."""
-        mock_bt.cur_temp = 20.7  # between 20.5 and 21.0
+        mock_bt.room_temperature = 20.7  # between 20.5 and 21.0
         assert mock_bt._should_heat_with_tolerance(HVACAction.IDLE, 0.5) is False
 
     def test_keeps_heating_between_target_minus_tol_and_target(self, mock_bt):
         """When already HEATING, temp between (target-tol) and target keeps heating."""
-        mock_bt.cur_temp = 20.7  # between 20.5 and 21.0
+        mock_bt.room_temperature = 20.7  # between 20.5 and 21.0
         assert mock_bt._should_heat_with_tolerance(HVACAction.HEATING, 0.5) is True
 
     def test_stops_heating_at_target(self, mock_bt):
         """Heating stops once temp reaches exactly the target."""
-        mock_bt.cur_temp = 21.0
+        mock_bt.room_temperature = 21.0
         assert mock_bt._should_heat_with_tolerance(HVACAction.HEATING, 0.5) is False
 
     def test_stops_heating_above_target(self, mock_bt):
         """Heating stays off when temp is above target."""
-        mock_bt.cur_temp = 21.3  # above target, within old symmetric band
+        mock_bt.room_temperature = 21.3  # above target, within old symmetric band
         assert mock_bt._should_heat_with_tolerance(HVACAction.HEATING, 0.5) is False
 
     def test_no_heating_at_target_plus_tolerance(self, mock_bt):
         """Definitely no heating at target + tolerance."""
-        mock_bt.cur_temp = 21.5  # target + tolerance
+        mock_bt.room_temperature = 21.5  # target + tolerance
         assert mock_bt._should_heat_with_tolerance(HVACAction.HEATING, 0.5) is False
 
 
@@ -117,21 +117,21 @@ class TestComputeHvacActionTolerance:
 
     def test_heating_starts_below_target_minus_tolerance(self, mock_bt):
         """Test that heating starts when temperature is below target minus tolerance."""
-        mock_bt.cur_temp = 20.4
+        mock_bt.room_temperature = 20.4
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         action = _compute_and_commit(mock_bt)
         assert action == HVACAction.HEATING
 
     def test_heating_continues_until_target(self, mock_bt):
         """Test that heating continues when temperature is below target."""
-        mock_bt.cur_temp = 20.8
+        mock_bt.room_temperature = 20.8
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         action = _compute_and_commit(mock_bt)
         assert action == HVACAction.HEATING
 
     def test_heating_stops_at_target(self, mock_bt):
         """Test that heating stops when temperature reaches target."""
-        mock_bt.cur_temp = 21.0
+        mock_bt.room_temperature = 21.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         action = _compute_and_commit(mock_bt)
         assert action == HVACAction.IDLE
@@ -142,7 +142,7 @@ class TestComputeHvacActionTolerance:
         This is the core bug scenario: temp at target + 0.3 (< target + tol)
         should NOT keep heating.
         """
-        mock_bt.cur_temp = 21.3
+        mock_bt.room_temperature = 21.3
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         action = _compute_and_commit(mock_bt)
         assert action == HVACAction.IDLE
@@ -153,14 +153,14 @@ class TestComputeHvacActionTolerance:
         After heating stopped, temp between (target-tol) and target should
         NOT restart heating (hysteresis).
         """
-        mock_bt.cur_temp = 20.7
+        mock_bt.room_temperature = 20.7
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         action = _compute_and_commit(mock_bt)
         assert action == HVACAction.IDLE
 
     def test_heating_restarts_at_target_minus_tolerance(self, mock_bt):
         """Heating restarts once temp drops back to target - tolerance."""
-        mock_bt.cur_temp = 20.49  # just below 20.5
+        mock_bt.room_temperature = 20.49  # just below 20.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         action = _compute_and_commit(mock_bt)
         assert action == HVACAction.HEATING
@@ -181,7 +181,7 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         _hysteresis.last_action so that the next cycle uses the strict threshold.
         """
         # Step 1: temp reaches target → tolerance says IDLE
-        mock_bt.cur_temp = 21.0
+        mock_bt.room_temperature = 21.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
 
         # Simulate TRV still reporting heating
@@ -214,17 +214,17 @@ class TestTrvOverrideDoesNotCorruptHysteresis:
         mock_bt.hass = MagicMock()
 
         # Cycle 1: At target, tolerance says stop
-        mock_bt.cur_temp = 21.0
+        mock_bt.room_temperature = 21.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         _compute_and_commit(mock_bt)
 
         # Cycle 2: TRV stops heating, temp drops slightly but still above target - tol
         mock_bt.real_trvs["climate.trv_1"].hvac_action = "idle"
-        mock_bt.cur_temp = 20.8  # between target - tol (20.5) and target (21.0)
+        mock_bt.room_temperature = 20.8  # between target - tol (20.5) and target (21.0)
         action = _compute_and_commit(mock_bt)
 
         assert action == HVACAction.IDLE, (
-            f"Expected IDLE at {mock_bt.cur_temp}°C (between target-tol and target "
+            f"Expected IDLE at {mock_bt.room_temperature}°C (between target-tol and target "
             f"with prev=IDLE), but got {action}. Heating should NOT restart here."
         )
 

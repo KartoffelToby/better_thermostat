@@ -72,9 +72,9 @@ def make_snapshot(**overrides) -> WorldSnapshot:
     defaults = {
         "now": datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
         "now_monotonic": 1000.0,
-        "target_temp": 21.0,
+        "heat_target_temperature": 21.0,
         "hvac_mode": CoreHvacMode.HEAT,
-        "room_temp": 19.5,
+        "room_temperature": 19.5,
         "call_for_heat": True,
         "tolerance": 0.3,
         "trvs": {
@@ -204,7 +204,7 @@ def make_bt(
     *,
     trv_ids: tuple[str, ...] = (DEFAULT_TRV_ID,),
     hvac_action=HVACAction.IDLE,
-    cur_temp: float | None = 20.0,
+    room_temperature: float | None = 20.0,
     heat_target_temperature: float | None = 21.0,
     tolerance: float = 0.3,
     **trv_fields,
@@ -217,7 +217,7 @@ def make_bt(
         Entity ids for the TRVs to build on the mock.
     hvac_action : HVACAction
         Initial HVAC action reported by the mock.
-    cur_temp : float | None
+    room_temperature : float | None
         Current room temperature.
     heat_target_temperature : float | None
         Target temperature.
@@ -236,7 +236,7 @@ def make_bt(
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
     bt.hvac_action = hvac_action
-    bt.cur_temp = cur_temp
+    bt.room_temperature = room_temperature
     bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None
@@ -287,7 +287,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.heat_loss_rate = 0.0
     bt.devices_errors = []
     bt.devices_states = {}
-    bt.cur_temp_filtered = 20.5
+    bt.room_temperature_filtered = 20.5
     bt.degraded_mode = False
     bt.unavailable_sensors = []
     bt.real_trvs = {}

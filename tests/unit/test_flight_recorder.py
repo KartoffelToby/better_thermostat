@@ -25,9 +25,9 @@ def _snapshot(target=21.0) -> WorldSnapshot:
     return WorldSnapshot(
         now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
         now_monotonic=1000.0,
-        target_temp=target,
+        heat_target_temperature=target,
         hvac_mode=HvacMode.HEAT,
-        room_temp=19.0,
+        room_temperature=19.0,
         call_for_heat=True,
         tolerance=0.3,
         trvs={
@@ -35,7 +35,7 @@ def _snapshot(target=21.0) -> WorldSnapshot:
                 entity_id="climate.trv",
                 available=True,
                 hvac_mode=HvacMode.HEAT,
-                current_temp=20.0,
+                current_temperature=20.0,
                 setpoint=21.0,
                 min_temp=5.0,
                 max_temp=30.0,
@@ -63,7 +63,11 @@ class TestRingBuffer:
             _record_one(recorder, _snapshot(target=target))
         assert len(recorder) == 3
         exported = recorder.export()
-        assert [e["snapshot"]["target_temp"] for e in exported] == [21.0, 22.0, 23.0]
+        assert [e["snapshot"]["heat_target_temperature"] for e in exported] == [
+            21.0,
+            22.0,
+            23.0,
+        ]
 
     def test_negative_capacity_is_rejected(self):
         """A negative capacity is caught at construction, not on first record."""
@@ -97,18 +101,20 @@ class TestExport:
         _record_one(recorder, _snapshot())
         payload = json.loads(json.dumps(recorder.export()))
         entry = payload[0]
-        assert entry["snapshot"]["trvs"]["climate.trv"]["current_temp"] == 20.0
+        assert entry["snapshot"]["trvs"]["climate.trv"]["current_temperature"] == 20.0
         assert entry["desired"]["trvs"]["climate.trv"]["hvac_mode"] == "heat"
         assert entry["state"]["window"]["phase"] == "closed"
 
     def test_non_finite_floats_export_as_none(self):
         """NaN/inf in a recorded snapshot never reach the JSON payload."""
         recorder = FlightRecorder()
-        snapshot = replace(_snapshot(), room_temp=float("nan"), temp_slope=float("inf"))
+        snapshot = replace(
+            _snapshot(), room_temperature=float("nan"), temp_slope=float("inf")
+        )
         _record_one(recorder, snapshot)
         exported = recorder.export()
         entry = exported[0]["snapshot"]
-        assert entry["room_temp"] is None
+        assert entry["room_temperature"] is None
         assert entry["temp_slope"] is None
         json.dumps(exported, allow_nan=False)
 
@@ -254,9 +260,9 @@ def test_replay_roundtrips_reachability_and_null_window_state():
     snapshot = WorldSnapshot(
         now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
         now_monotonic=1000.0,
-        target_temp=21.0,
+        heat_target_temperature=21.0,
         hvac_mode=HvacMode.HEAT,
-        room_temp=19.0,
+        room_temperature=19.0,
         call_for_heat=True,
         trvs={"climate.t": _TrvReported(entity_id="climate.t", available=False)},
     )
@@ -362,7 +368,7 @@ class TestRoundtripCompleteness:
             "entity_id": "climate.trv",
             "available": False,
             "hvac_mode": HvacMode.HEAT,
-            "current_temp": 20.5,
+            "current_temperature": 20.5,
             "setpoint": 21.5,
             "min_temp": 6.0,
             "max_temp": 29.0,
@@ -375,17 +381,17 @@ class TestRoundtripCompleteness:
         snapshot_kwargs = {
             "now": datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
             "now_monotonic": 1000.0,
-            "target_temp": 21.0,
-            "target_cooltemp": 24.0,
+            "heat_target_temperature": 21.0,
+            "cool_target_temperature": 24.0,
             "hvac_mode": HvacMode.HEAT,
-            "room_temp": 19.0,
-            "room_temp_filtered": 19.1,
+            "room_temperature": 19.0,
+            "room_temperature_filtered": 19.1,
             "temp_slope": 0.02,
             "call_for_heat": True,
             "window_open": True,
             "preset_mode": "eco",
             "tolerance": 0.3,
-            "outdoor_temp": 5.5,
+            "outdoor_temperature": 5.5,
             "is_day": False,
             "solar_intensity": 0.4,
             "min_temp": 5.0,

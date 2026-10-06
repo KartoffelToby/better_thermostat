@@ -207,7 +207,7 @@ class TestHeatingPowerTrackerFinalization:
             HVACAction.IDLE,
             _ts(duration_min + 1),
             heat_target_temperature=target,
-            outdoor_temp=outdoor,
+            outdoor_temperature=outdoor,
         )
         return t, result
 
@@ -261,7 +261,7 @@ class TestHeatingPowerTrackerFinalization:
         # heating_rate = 2.0/10 = 0.2
         # weight_factor with target=22, min=18, max=21 (updated to max(21,22)=22)
         # Actually min_target and max_target are defaults 18 and 21,
-        # but target_temp=22 updates max_target to 22
+        # but heat_target_temperature=22 updates max_target to 22
         # So at finalize time: min=18, max=22 (already updated by first update call)
         # Actually the update to max_target happens at the END of update(), after finalize
         # Let's just verify it moved in the right direction
@@ -290,12 +290,12 @@ class TestHeatingPowerTrackerFinalization:
         assert t.heating_power <= MAX_HEATING_POWER
 
     def test_outdoor_normalization(self):
-        """When outdoor_temp is provided, normalized_power should be set."""
+        """When outdoor_temperature is provided, normalized_power should be set."""
         t, _ = self._run_complete_cycle(outdoor=5.0, target=21.0)
         assert t.normalized_power is not None
 
     def test_no_outdoor_no_normalization(self):
-        """Without outdoor_temp, normalized_power stays None (or from prior)."""
+        """Without outdoor_temperature, normalized_power stays None (or from prior)."""
         t = HeatingPowerTracker()
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(21.0, HVACAction.IDLE, _ts(10))
@@ -304,7 +304,7 @@ class TestHeatingPowerTrackerFinalization:
             HVACAction.IDLE,
             _ts(11),
             heat_target_temperature=22.0,
-            outdoor_temp=None,
+            outdoor_temperature=None,
         )
         # normalized_power may be None since no outdoor provided
         # (it was set to None in __init__)

@@ -36,8 +36,8 @@ def _thermostat() -> ThermostatStandIn:
     bt.cool_target_temperature = None
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
-    bt.cur_temp = 20.0
-    bt.cur_temp_filtered = None
+    bt.room_temperature = 20.0
+    bt.room_temperature_filtered = None
     bt.temp_slope = None
     bt.call_for_heat = True
     bt.preset_mode = None

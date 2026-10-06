@@ -639,7 +639,7 @@ def desired_diverges(
         reported_target = attr_to_celsius(
             self, state, "temperature", None, "reconcile()"
         )
-        commanded = trv.last_temperature
+        commanded = trv.commanded_setpoint
         if (
             commanded is not None
             and reported_target is not None
@@ -1184,7 +1184,11 @@ def _locked_device_moved(
         self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
     )
     step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
-    known = [trv.last_temperature, trv.confirmed_setpoint, *trv.echo_setpoint_values()]
+    known = [
+        trv.commanded_setpoint,
+        trv.confirmed_setpoint,
+        *trv.echo_setpoint_values(),
+    ]
     if entity_id == dual_role_entity_id(self):
         # The cooling channel's writes as the device holds them, on the grid
         # the cooling channel sends on, the way the inbound handler compares
@@ -1516,7 +1520,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     # The cooler reports its setpoint in the system unit; resolve it to the
     # Celsius Better Thermostat works in before any comparison. A range-only
     # cooler publishes it under the upper bound instead of "temperature".
-    current_temp = read_setpoint_celsius(
+    cooler_setpoint = read_setpoint_celsius(
         self, cooler_state, COOLER_SETPOINT_KEYS, "control_cooler()"
     )
 
@@ -1542,7 +1546,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     # the send cache work with the value the device is actually sent.
     if snapshot is None:
         snapshot = build_snapshot(self)
-    desired_temp = on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
+    desired_temp = on_cooler_grid(self, cooler_state, snapshot.cool_target_temperature)
     # Home Assistant refuses a setpoint outside the cooler's own range, and
     # the cooling target can leave it where a configured bound widens the
     # cooling range past the device's, so the write is held to the device.
@@ -1558,25 +1562,25 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         if _cooler_max is not None and _cooler_max < desired_temp:
             desired_temp = _cooler_max
 
-    room_temp = snapshot.room_temp
-    target_cooltemp = snapshot.target_cooltemp
-    heat_target_temperature = snapshot.target_temp
+    room_temperature = snapshot.room_temperature
+    cool_target_temperature = snapshot.cool_target_temperature
+    heat_target_temperature = snapshot.heat_target_temperature
     tolerance = snapshot.tolerance
 
     if (
-        room_temp is None
-        or target_cooltemp is None
+        room_temperature is None
+        or cool_target_temperature is None
         or tolerance is None
         or heat_target_temperature is None
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s one or more required values are None "
-            "(cur_temp=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
+            "(room_temperature=%s, cool_target_temperature=%s, tolerance=%s, heat_target_temperature=%s), "
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
-            room_temp,
-            target_cooltemp,
+            room_temperature,
+            cool_target_temperature,
             tolerance,
             heat_target_temperature,
         )
@@ -1619,13 +1623,13 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             else current_hvac_mode == HVACMode.COOL
         )
         _cool_wanted = should_cool_with_tolerance(
-            room_temp,
-            target_cooltemp,
+            room_temperature,
+            cool_target_temperature,
             tolerance,
             _previously_cooling,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        if _cool_wanted and room_temp > heat_target_temperature:
+        if _cool_wanted and room_temperature > heat_target_temperature:
             desired_mode = HVACMode.COOL
         else:
             desired_mode = HVACMode.OFF
@@ -1692,11 +1696,11 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     if (
         not temp_changed_since_last_send
         and last_temp is not None
-        and current_temp is not None
+        and cooler_setpoint is not None
         and settled_temp is None
-        and abs(current_temp - last_temp) <= COOLER_QUANTIZATION_TOLERANCE_K
+        and abs(cooler_setpoint - last_temp) <= COOLER_QUANTIZATION_TOLERANCE_K
     ):
-        settled_temp = current_temp
+        settled_temp = cooler_setpoint
         last_sent["temperature_settled"] = settled_temp
     temp_to_send: float | None = None
     if desired_temp is None:
@@ -1706,7 +1710,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             self.device_name,
             self.cooler_entity_id,
         )
-    elif current_temp is None:
+    elif cooler_setpoint is None:
         if temp_changed_since_last_send:
             temp_to_send = desired_temp
         else:
@@ -1718,7 +1722,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
                 desired_temp,
             )
     elif not matches_any_setpoint(
-        current_temp, {desired_temp}, _reconcile_tolerance(self, cooler_state)
+        cooler_setpoint, {desired_temp}, _reconcile_tolerance(self, cooler_state)
     ):
         temp_to_send = desired_temp
 
@@ -1793,8 +1797,8 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         and not _low_bound_drifted
         and not temp_changed_since_last_send
         and settled_temp is not None
-        and current_temp is not None
-        and abs(current_temp - settled_temp) <= RECONCILE_TOLERANCE_K
+        and cooler_setpoint is not None
+        and abs(cooler_setpoint - settled_temp) <= RECONCILE_TOLERANCE_K
     ):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s settled at %s for desired %s "
@@ -1873,7 +1877,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             "better_thermostat %s: TO COOLER set_temperature: %s from: %s to: %s",
             self.device_name,
             self.cooler_entity_id,
-            current_temp,
+            cooler_setpoint,
             temp_to_send,
         )
         _temp_to_set = temp_to_send
@@ -2508,7 +2512,7 @@ async def control_trv(
                         bypass=_safety_overrode_setpoint
                         or _new_hvac_mode == HVACMode.OFF,
                     ):
-                        old = trv.last_temperature
+                        old = trv.commanded_setpoint
                         _LOGGER.debug(
                             "better_thermostat %s: TO TRV set_temperature: %s from: %s to: %s",
                             self.device_name,
@@ -2516,7 +2520,7 @@ async def control_trv(
                             old,
                             _temperature,
                         )
-                        trv.last_temperature = _temperature
+                        trv.commanded_setpoint = _temperature
                         trv.remember_setpoint_written(_temperature)
                         try:
                             _tvr_has_quirk = await override_set_temperature(
@@ -2531,7 +2535,7 @@ async def control_trv(
                             # goes out. Only writes of this path are
                             # remembered: maintenance drives the device through
                             # the delegate and nothing confirms those writes.
-                            trv.remember_setpoint_written(trv.last_temperature)
+                            trv.remember_setpoint_written(trv.commanded_setpoint)
                             # Every write is watched on its own: a watchdog
                             # still waiting on an earlier write steps aside for
                             # this one rather than holding the channel for a
@@ -2545,7 +2549,7 @@ async def control_trv(
                                     self,
                                     entity_id,
                                     trv.last_setpoint_write_id,
-                                    trv.last_temperature,
+                                    trv.commanded_setpoint,
                                 ),
                                 name=f"bt_check_target_temp_{entity_id}",
                             )
@@ -2653,7 +2657,7 @@ async def check_target_temperature(
     command within SETPOINT_MATCH_TOLERANCE or timeout is reached. Sets
     target_temp_received flag when complete. The command is fixed when the
     watchdog is started: valve maintenance writes through the same delegate
-    and moves ``last_temperature`` on without going through the control
+    and moves ``commanded_setpoint`` on without going through the control
     path, so a maintenance value must not be able to confirm a control
     write. The id that command went out under is fixed with it, so the
     confirmation retires that write and the ones before it and leaves

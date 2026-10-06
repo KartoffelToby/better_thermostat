@@ -123,9 +123,9 @@ def is_boost_heating(snapshot: WorldSnapshot) -> bool:
     """
     return (
         snapshot.preset_mode == PRESET_BOOST
-        and snapshot.room_temp is not None
-        and snapshot.target_temp is not None
-        and snapshot.room_temp < snapshot.target_temp
+        and snapshot.room_temperature is not None
+        and snapshot.heat_target_temperature is not None
+        and snapshot.room_temperature < snapshot.heat_target_temperature
     )
 
 
@@ -245,7 +245,7 @@ def decide(
         entity_id: TrvDesired(
             entity_id=entity_id,
             hvac_mode=state.mode.hvac_mode,
-            setpoint=snapshot.target_temp,
+            setpoint=snapshot.heat_target_temperature,
         )
         for entity_id in addressed
     }

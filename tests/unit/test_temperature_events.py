@@ -56,7 +56,7 @@ def mock_bt():
     bt.sensor_entity_id = SENSOR_ID
 
     # Current temperature state
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.prev_stable_temp = 20.0
     bt.last_change_direction = 0
     bt.last_known_external_temp = 20.0
@@ -66,7 +66,7 @@ def mock_bt():
     bt.external_temp_ema_tau_s = 300.0
     bt._external_temp_ema_ts = None
     bt.external_temp_ema = None
-    bt.cur_temp_filtered = None
+    bt.room_temperature_filtered = None
 
     # Accumulation state
     bt.accum_delta = 0.0
@@ -163,7 +163,7 @@ class TestUpdateExternalTempEma:
         assert result == 21.0
 
     def test_updates_all_state_attributes(self, mock_bt):
-        """Set _external_temp_ema_ts, external_temp_ema, and cur_temp_filtered."""
+        """Set _external_temp_ema_ts, external_temp_ema, and room_temperature_filtered."""
         mock_bt._external_temp_ema_ts = None
         mock_bt.external_temp_ema = None
 
@@ -171,7 +171,7 @@ class TestUpdateExternalTempEma:
 
         assert mock_bt._external_temp_ema_ts is not None
         assert mock_bt.external_temp_ema == 21.5
-        assert mock_bt.cur_temp_filtered == 21.5
+        assert mock_bt.room_temperature_filtered == 21.5
 
 
 # ---------------------------------------------------------------------------
@@ -183,16 +183,16 @@ class TestCommitTemperatureUpdate:
     """Tests for _commit_temperature_update()."""
 
     @pytest.mark.asyncio
-    async def test_updates_cur_temp(self, mock_bt):
-        """Set cur_temp to the rounded new value."""
+    async def test_updates_room_temperature(self, mock_bt):
+        """Set room_temperature to the rounded new value."""
         await _commit_temperature_update(mock_bt, 21.567)
 
-        assert mock_bt.cur_temp == 21.57
+        assert mock_bt.room_temperature == 21.57
 
     @pytest.mark.asyncio
     async def test_updates_prev_stable_temp_on_change(self, mock_bt):
-        """Store old cur_temp in prev_stable_temp when values differ."""
-        mock_bt.cur_temp = 20.0
+        """Store old room_temperature in prev_stable_temp when values differ."""
+        mock_bt.room_temperature = 20.0
 
         await _commit_temperature_update(mock_bt, 21.0)
 
@@ -201,7 +201,7 @@ class TestCommitTemperatureUpdate:
     @pytest.mark.asyncio
     async def test_prev_stable_temp_unchanged_when_same(self, mock_bt):
         """Keep prev_stable_temp unchanged when new equals old."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.prev_stable_temp = 19.0
 
         await _commit_temperature_update(mock_bt, 20.0)
@@ -211,7 +211,7 @@ class TestCommitTemperatureUpdate:
     @pytest.mark.asyncio
     async def test_direction_up(self, mock_bt):
         """Set last_change_direction to 1 on temperature increase."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
 
         await _commit_temperature_update(mock_bt, 21.0)
 
@@ -220,7 +220,7 @@ class TestCommitTemperatureUpdate:
     @pytest.mark.asyncio
     async def test_direction_down(self, mock_bt):
         """Set last_change_direction to -1 on temperature decrease."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
 
         await _commit_temperature_update(mock_bt, 19.0)
 
@@ -412,7 +412,7 @@ class TestReturningRoomSensor:
         mock_bt.kernel_state = replace(
             KernelState(), control_mode=ControlModeState(mode=rung)
         )
-        mock_bt.cur_temp = 18.0
+        mock_bt.room_temperature = 18.0
         mock_bt.external_temp_ema = 18.0
         mock_bt._external_temp_ema_ts = monotonic() - 60.0
         event = MagicMock()
@@ -423,8 +423,8 @@ class TestReturningRoomSensor:
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 22.0
-        return mock_bt.cur_temp_filtered
+        assert mock_bt.room_temperature == 22.0
+        return mock_bt.room_temperature_filtered
 
     @pytest.mark.asyncio
     async def test_the_reading_that_ends_the_outage_seeds_the_filter(self, mock_bt):
@@ -528,15 +528,15 @@ class TestTriggerTemperatureChangeGuards:
 
     @pytest.mark.asyncio
     async def test_first_run_accepts_via_first_reading_path(self, mock_bt):
-        """Accept the first reading via 'first_reading' when cur_temp is None."""
+        """Accept the first reading via 'first_reading' when room_temperature is None."""
         mock_bt.last_external_sensor_change = None
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
         mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
 
 # ---------------------------------------------------------------------------
@@ -554,42 +554,42 @@ class TestTemperatureAcceptance:
 
     @pytest.mark.asyncio
     async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
-        """Accept the first temperature reading when cur_temp is None."""
-        mock_bt.cur_temp = None
+        """Accept the first temperature reading when room_temperature is None."""
+        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
         mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_first_update_accepted_when_timestamp_uninitialized(self, mock_bt):
         """First real update passes even with no prior timestamp.
 
-        With a known cur_temp but ``last_external_sensor_change is None`` the
+        With a known room_temperature but ``last_external_sensor_change is None`` the
         guard must seed a timestamp older than the debounce window (not "now"),
         so the first significant update clears the interval check.
         """
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
         mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_significant_change_accepted_after_interval(self, mock_bt):
         """Accept a significant change (>= 0.11) when the interval has elapsed."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
@@ -599,13 +599,13 @@ class TestTemperatureAcceptance:
         The accept condition requires _interval_ok on both the "significant"
         and "accumulated" paths, so within-debounce changes are rejected.
         """
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=1)
         event = _make_event(State(SENSOR_ID, "20.5"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
@@ -618,19 +618,19 @@ class TestTemperatureAcceptance:
         room temperature itself stays current.
         """
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
         event = _make_event(State(SENSOR_ID, "20.5"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.5
+        assert mock_bt.room_temperature == 20.5
         mock_bt.control_queue_task.put_nowait.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sub_threshold_change_not_accepted_immediately(self, mock_bt):
         """Reject a change below the 0.11 significance threshold."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "20.05"))
 
@@ -641,7 +641,7 @@ class TestTemperatureAcceptance:
     @pytest.mark.asyncio
     async def test_identical_temp_not_accepted(self, mock_bt):
         """Reject an identical temperature (diff=0.0 < threshold 0.11)."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
         event = _make_event(State(SENSOR_ID, "20.0"))
 
@@ -650,26 +650,26 @@ class TestTemperatureAcceptance:
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_accepted_temp_written_to_cur_temp(self, mock_bt):
-        """Write the accepted temperature to cur_temp."""
-        mock_bt.cur_temp = 20.0
+    async def test_accepted_temp_written_to_room_temperature(self, mock_bt):
+        """Write the accepted temperature to room_temperature."""
+        mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "21.5"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 21.5
+        assert mock_bt.room_temperature == 21.5
 
     @pytest.mark.asyncio
     async def test_an_all_homematicip_room_keeps_the_sensor_debounce(self, mock_bt):
         """A reading inside the sensor's own interval waits, HomematicIP or not."""
         mock_bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: True}}]
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=3)
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
 
@@ -684,7 +684,7 @@ class TestAccumulationTracking:
     @pytest.mark.asyncio
     async def test_sub_threshold_change_accumulates(self, mock_bt):
         """Track sub-threshold changes in accum_delta without accepting."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.accum_delta = 0.0
         mock_bt.accum_dir = 0
 
@@ -698,7 +698,7 @@ class TestAccumulationTracking:
     @pytest.mark.asyncio
     async def test_accumulated_change_accepted_above_threshold(self, mock_bt):
         """Accept via accumulation when total delta reaches the threshold."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.accum_delta = 0.08
         mock_bt.accum_dir = 1
 
@@ -716,7 +716,7 @@ class TestAccumulationTracking:
         Even though accum_delta exceeds threshold, _accum_ok also
         requires _interval_ok, so debounce is enforced.
         """
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.accum_delta = 0.08
         mock_bt.accum_dir = 1
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=1)
@@ -730,7 +730,7 @@ class TestAccumulationTracking:
     @pytest.mark.asyncio
     async def test_accum_resets_on_direction_flip(self, mock_bt):
         """Reset accumulation to the new delta on direction change."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.accum_delta = 0.1
         mock_bt.accum_dir = 1
 
@@ -744,7 +744,7 @@ class TestAccumulationTracking:
     @pytest.mark.asyncio
     async def test_pending_temp_set_for_sub_threshold_change(self, mock_bt):
         """Set pending_temp for sub-threshold changes (plateau tracking)."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "20.05"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -753,8 +753,8 @@ class TestAccumulationTracking:
 
     @pytest.mark.asyncio
     async def test_pending_cleared_when_value_returns_to_current(self, mock_bt):
-        """Clear pending_temp when the new value equals cur_temp."""
-        mock_bt.cur_temp = 20.0
+        """Clear pending_temp when the new value equals room_temperature."""
+        mock_bt.room_temperature = 20.0
         mock_bt.pending_temp = 20.05
         mock_bt.pending_since = dt_util.now()
 
@@ -775,7 +775,7 @@ class TestPlateauLogic:
     @pytest.mark.asyncio
     async def test_plateau_accepts_stable_sub_threshold_change(self, mock_bt):
         """Accept a sub-threshold change that has been stable for 120s."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.pending_temp = 20.05
         mock_bt.pending_since = dt_util.now() - timedelta(seconds=300)
 
@@ -793,7 +793,7 @@ class TestPlateauLogic:
     @pytest.mark.asyncio
     async def test_plateau_timer_scheduled_for_new_pending(self, mock_bt):
         """Schedule a plateau timer for a new sub-threshold pending value."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
 
         event = _make_event(State(SENSOR_ID, "20.01"))
 
@@ -816,7 +816,7 @@ class TestPlateauLogic:
         a reading accepted in the meantime is not followed at once by the
         pending value.
         """
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
         event = _make_event(State(SENSOR_ID, "20.05"))
 
@@ -829,13 +829,13 @@ class TestPlateauLogic:
 
         await plateau_callback(dt_util.now())
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sub_threshold_accumulated_to_significant(self, mock_bt):
         """Accept via accumulation when small deltas sum above the threshold."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.accum_delta = 0.10
         mock_bt.accum_dir = 1
 
@@ -858,16 +858,16 @@ class TestEdgeCasesAndRobustness:
     @pytest.mark.asyncio
     async def test_minus_50_exactly_accepted(self, mock_bt):
         """Temperature exactly -50.0 is on the inclusive lower bound."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "-50.0"))
 
         await trigger_temperature_change(mock_bt, event)
-        assert mock_bt.cur_temp == -50.0
+        assert mock_bt.room_temperature == -50.0
 
     @pytest.mark.asyncio
     async def test_below_minus_50_rejected(self, mock_bt):
         """Temperature below the lower plausibility bound is rejected."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "-100.0"))
 
         with patch(
@@ -875,7 +875,7 @@ class TestEdgeCasesAndRobustness:
         ) as mock_create_issue:
             await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
         mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
@@ -906,8 +906,8 @@ class TestEdgeCasesAndRobustness:
 
     @pytest.mark.asyncio
     async def test_avm_off_marker_rejected(self, mock_bt):
-        """AVM Fritz!DECT 126.5 °C (OFF marker) must not update cur_temp."""
-        mock_bt.cur_temp = 20.0
+        """AVM Fritz!DECT 126.5 °C (OFF marker) must not update room_temperature."""
+        mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "126.5"))
 
         with patch(
@@ -915,13 +915,13 @@ class TestEdgeCasesAndRobustness:
         ) as mock_create_issue:
             await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
         mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_avm_on_marker_rejected(self, mock_bt):
-        """AVM Fritz!DECT 127.0 °C (ON marker) must not update cur_temp."""
-        mock_bt.cur_temp = 20.0
+        """AVM Fritz!DECT 127.0 °C (ON marker) must not update room_temperature."""
+        mock_bt.room_temperature = 20.0
         event = _make_event(State(SENSOR_ID, "127.0"))
 
         with patch(
@@ -929,44 +929,44 @@ class TestEdgeCasesAndRobustness:
         ) as mock_create_issue:
             await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
         mock_create_issue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_60_exactly_accepted(self, mock_bt):
         """Temperature exactly 60.0 is on the inclusive upper bound."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "60.0"))
 
         await trigger_temperature_change(mock_bt, event)
-        assert mock_bt.cur_temp == 60.0
+        assert mock_bt.room_temperature == 60.0
 
     @pytest.mark.asyncio
     async def test_control_queue_none_no_crash_in_apply(self, mock_bt):
         """No crash when control_queue_task is None during _commit_temperature_update."""
         mock_bt.control_queue_task = None
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_ema_failure_does_not_block_update(self, mock_bt):
         """EMA calculation failure should not prevent temperature update."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         # Force EMA to fail by making tau_s non-numeric
         mock_bt.external_temp_ema_tau_s = "invalid"
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
         # Temperature should still be updated despite EMA failure
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_plateau_timer_cancelled_on_pending_value_change(self, mock_bt):
         """Changing pending value should cancel the old plateau timer."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.pending_temp = 20.03
         mock_bt.pending_since = dt_util.now() - timedelta(seconds=10)
         cancel_fn = MagicMock()
@@ -988,13 +988,13 @@ class TestEdgeCasesAndRobustness:
     @pytest.mark.asyncio
     async def test_last_external_sensor_change_typeerror_handled(self, mock_bt):
         """TypeError in age calculation should fall back to large age."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = "not_a_datetime"
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
         # With fallback _age=999999, _interval_ok=True → accepted
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_room_sensor_debounce_survives_a_homematicip_trv(self, mock_bt):
@@ -1007,13 +1007,13 @@ class TestEdgeCasesAndRobustness:
             {"advanced": {CONF_HOMEMATICIP: False}},
             {"advanced": {CONF_HOMEMATICIP: True}},
         ]
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=30)
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
 
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
 
 # ---------------------------------------------------------------------------
@@ -1177,7 +1177,7 @@ class TestConcurrentReadings:
         await plateau_timer(dt_util.now())
 
         assert quirks.writes == [("climate.trv1", 20.05)]
-        assert mock_bt.cur_temp == 20.05
+        assert mock_bt.room_temperature == 20.05
 
     @pytest.mark.asyncio
     async def test_a_timer_that_gets_its_turn_after_removal_writes_nothing(
@@ -1198,7 +1198,7 @@ class TestConcurrentReadings:
         await timer
 
         assert quirks.writes == []
-        assert mock_bt.cur_temp == 20.0
+        assert mock_bt.room_temperature == 20.0
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_waits_out_the_debounce_interval(self, mock_bt):
@@ -1215,7 +1215,7 @@ class TestConcurrentReadings:
         await plateau_timer(dt_util.now())
 
         assert quirks.writes == []
-        assert (mock_bt.cur_temp, mock_bt.pending_temp) == (20.0, 20.05)
+        assert (mock_bt.room_temperature, mock_bt.pending_temp) == (20.0, 20.05)
 
     @pytest.mark.asyncio
     async def test_a_superseded_plateau_value_is_not_applied(self, mock_bt):
@@ -1240,7 +1240,7 @@ class TestConcurrentReadings:
         await asyncio.gather(newer, timer)
 
         assert quirks.writes == [("climate.trv1", 21.0)]
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_a_plateau_timer_first_in_turn_leaves_a_newer_reading_to_its_event(
@@ -1267,7 +1267,7 @@ class TestConcurrentReadings:
         await asyncio.gather(timer, newer)
 
         assert quirks.writes == [("climate.trv1", 21.0)]
-        assert mock_bt.cur_temp == 21.0
+        assert mock_bt.room_temperature == 21.0
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_of_a_sensor_without_a_reading_is_not_applied(
@@ -1281,7 +1281,7 @@ class TestConcurrentReadings:
         await plateau_timer(dt_util.now())
 
         assert quirks.writes == []
-        assert (mock_bt.cur_temp, mock_bt.pending_temp) == (20.0, 20.05)
+        assert (mock_bt.room_temperature, mock_bt.pending_temp) == (20.0, 20.05)
 
     @pytest.mark.asyncio
     async def test_a_plateau_value_replaced_below_the_threshold_is_not_applied(
@@ -1313,7 +1313,7 @@ class TestConcurrentReadings:
             await asyncio.gather(newer, timer)
 
         assert quirks.writes == []
-        assert (mock_bt.cur_temp, mock_bt.pending_temp, len(rearmed)) == (
+        assert (mock_bt.room_temperature, mock_bt.pending_temp, len(rearmed)) == (
             20.0,
             19.97,
             1,
@@ -1354,7 +1354,7 @@ class TestConcurrentReadings:
             await asyncio.gather(away, back, timer)
 
         assert quirks.writes == []
-        assert (mock_bt.cur_temp, mock_bt.pending_temp, len(rearmed)) == (
+        assert (mock_bt.room_temperature, mock_bt.pending_temp, len(rearmed)) == (
             20.0,
             20.05,
             2,

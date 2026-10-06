@@ -161,7 +161,7 @@ class TrvWorld:
     """What one TRV reports to Home Assistant."""
 
     available: bool = True
-    current_temp: float | None = 20.0
+    current_temperature: float | None = 20.0
     setpoint: float | None = None
     min_temp: float | None = 5.0
     max_temp: float | None = 30.0
@@ -262,8 +262,8 @@ class KernelMachine(RuleBasedStateMachine):
         self.window = ContactModel(raw_since=self.mono)
         self.door = ContactModel(raw_since=self.mono)
         self.room_available = True
-        self.room_temp: float | None = 19.0
-        self.target_temp: float | None = 21.0
+        self.room_temperature: float | None = 19.0
+        self.heat_target_temperature: float | None = 21.0
         self.call_for_heat = True
         self.trvs = {entity_id: TrvWorld() for entity_id in TRV_IDS}
         self.calibration = calibration
@@ -362,8 +362,8 @@ class KernelMachine(RuleBasedStateMachine):
     def _trv_temp_ok(self) -> bool:
         return any(
             trv.available
-            and trv.current_temp is not None
-            and math.isfinite(trv.current_temp)
+            and trv.current_temperature is not None
+            and math.isfinite(trv.current_temperature)
             for trv in self.trvs.values()
         )
 
@@ -420,9 +420,9 @@ class KernelMachine(RuleBasedStateMachine):
         return WorldSnapshot(
             now=self.wall,
             now_monotonic=self.mono,
-            target_temp=self.target_temp,
+            heat_target_temperature=self.heat_target_temperature,
             hvac_mode=self.kernel.mode.hvac_mode,
-            room_temp=self.room_temp,
+            room_temperature=self.room_temperature,
             call_for_heat=self.call_for_heat,
             window_open=self.window.raw_open,
             preset_mode=self.kernel.mode.preset,
@@ -431,7 +431,7 @@ class KernelMachine(RuleBasedStateMachine):
                     entity_id=entity_id,
                     available=trv.available,
                     hvac_mode=HvacMode.HEAT,
-                    current_temp=trv.current_temp,
+                    current_temperature=trv.current_temperature,
                     setpoint=trv.setpoint,
                     min_temp=trv.min_temp,
                     max_temp=trv.max_temp,
@@ -500,22 +500,22 @@ class KernelMachine(RuleBasedStateMachine):
         """
         self.room_available = available
         if available and temp is not None:
-            self.room_temp = temp
+            self.room_temperature = temp
         self._watch()
         self._control_cycle()
 
     @rule(
         entity_id=st.sampled_from(TRV_IDS),
         available=st.booleans(),
-        current_temp=st.one_of(st.none(), temperatures, st.just(math.nan)),
+        current_temperature=st.one_of(st.none(), temperatures, st.just(math.nan)),
     )
     def trv_report(
-        self, entity_id: str, available: bool, current_temp: float | None
+        self, entity_id: str, available: bool, current_temperature: float | None
     ) -> None:
         """A TRV goes away, comes back, or reports its internal temperature."""
         trv = self.trvs[entity_id]
         trv.available = available
-        trv.current_temp = current_temp
+        trv.current_temperature = current_temperature
         self._watch()
         self._control_cycle()
 
@@ -572,7 +572,7 @@ class KernelMachine(RuleBasedStateMachine):
     @rule(new_target=st.one_of(st.none(), temperatures))
     def user_sets_target(self, new_target: float | None) -> None:
         """The room target changes (user, preset or schedule)."""
-        self.target_temp = new_target
+        self.heat_target_temperature = new_target
         self._control_cycle()
 
     @rule(demand=st.booleans())
@@ -690,9 +690,9 @@ class KernelMachine(RuleBasedStateMachine):
 
         boost = (
             self.model_preset == PRESET_BOOST
-            and self.room_temp is not None
-            and self.target_temp is not None
-            and self.room_temp < self.target_temp
+            and self.room_temperature is not None
+            and self.heat_target_temperature is not None
+            and self.room_temperature < self.heat_target_temperature
         )
         addressed = [e for e, trv in self.trvs.items() if trv.available or boost]
 
@@ -722,7 +722,9 @@ class KernelMachine(RuleBasedStateMachine):
             call_for_heat=True,
             trvs={
                 e: TrvDesired(
-                    entity_id=e, hvac_mode=self.model_mode, setpoint=self.target_temp
+                    entity_id=e,
+                    hvac_mode=self.model_mode,
+                    setpoint=self.heat_target_temperature,
                 )
                 for e in addressed
             },

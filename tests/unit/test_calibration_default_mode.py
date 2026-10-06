@@ -27,7 +27,7 @@ def bt_default_mode():
     bt.tolerance = 0.5
     bt.attr_hvac_action = None
     bt.hvac_action = None
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
 
     quirks = MagicMock()
     quirks.fix_local_calibration.side_effect = lambda _self, _entity_id, offset: float(

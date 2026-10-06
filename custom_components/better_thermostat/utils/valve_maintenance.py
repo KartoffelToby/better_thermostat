@@ -36,7 +36,7 @@ class MaintenanceTrvInfo:
 
     entity_id: str
     cur_mode: str
-    cur_temp: float | None
+    setpoint: float | None
     use_direct_valve: bool
     max_temp: float
     min_temp: float
@@ -269,7 +269,7 @@ def build_trv_snapshots(
             MaintenanceTrvInfo(
                 entity_id=entity_id,
                 cur_mode=trv_state.state,
-                cur_temp=read_setpoint(trv_state),
+                setpoint=read_setpoint(trv_state),
                 use_direct_valve=use_direct,
                 max_temp=float(raw_max) if isinstance(raw_max, (int, float)) else 30.0,
                 min_temp=float(raw_min) if isinstance(raw_min, (int, float)) else 5.0,
@@ -388,9 +388,9 @@ async def restore_one(
     woken : bool
         Whether this TRV's wake write went out without raising.
     """
-    if info.cur_temp is not None:
+    if info.setpoint is not None:
         try:
-            await set_temperature_fn(info.entity_id, info.cur_temp)
+            await set_temperature_fn(info.entity_id, info.setpoint)
         except Exception:
             _LOGGER.debug(
                 "better_thermostat: restoring the setpoint of %s failed",

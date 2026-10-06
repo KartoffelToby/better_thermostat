@@ -157,7 +157,7 @@ def effective_room_temp(self: BetterThermostat) -> float | None:
         ]
         if temps:
             return sum(temps) / len(temps)
-    return self.cur_temp
+    return self.room_temperature
 
 
 def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
@@ -386,9 +386,11 @@ def _compute_mpc_balance(
     params = MpcParams()
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
-    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    # `room_temperature_filtered` is maintained by events/temperature.py (EMA) and passed separately.
     mpc_filtered_temp = (
-        self.cur_temp_filtered if mpc_current_temp is self.cur_temp else None
+        self.room_temperature_filtered
+        if mpc_current_temp is self.room_temperature
+        else None
     )
 
     _is_day, _solar_intensity = _get_solar_context(self)
@@ -535,7 +537,7 @@ def _record_mpc_v2_reid_sample(
     *,
     applied_valve_pct: float | None,
     trv_temp: float | None,
-    outdoor_temp: float | None,
+    outdoor_temperature: float | None,
 ) -> None:
     """Append one observation to the re-identification buffer for a key.
 
@@ -546,7 +548,7 @@ def _record_mpc_v2_reid_sample(
     right place.
 
     Sampling is gated to the OPTIMAL rung of the fail-soft ladder: under
-    SENSOR_FALLBACK ``cur_temp`` freezes at the last valid reading while
+    SENSOR_FALLBACK ``room_temperature`` freezes at the last valid reading while
     the valve keeps moving, so a recorded sample would pair a frozen
     temperature with live valve activity and bias the tau/gain fit (the
     holdout is drawn from the same buffer and cannot catch this). The
@@ -557,7 +559,7 @@ def _record_mpc_v2_reid_sample(
     if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
         return
     try:
-        t_room = float(self.cur_temp)
+        t_room = float(self.room_temperature)
     except TypeError, ValueError:
         return
     if applied_valve_pct is None:
@@ -574,7 +576,7 @@ def _record_mpc_v2_reid_sample(
             t_s=self.clock.monotonic(),
             T_room_C=t_room,
             u_frac=u_frac,
-            T_outdoor_C=outdoor_temp,
+            T_outdoor_C=outdoor_temperature,
             T_trv_C=trv_temp if isinstance(trv_temp, (int, float)) else None,
             window_open=bool(self.contact_open),
         )
@@ -779,7 +781,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         )
     v2_params = MpcV2Params(plant=plant_prior)
 
-    outdoor_temp = _get_current_outdoor_temp(self)
+    outdoor_temperature = _get_current_outdoor_temp(self)
     # The single-TRV path has one physical input.  A group controller's
     # distributed outputs are intentionally not collapsed into a fictional
     # single valve fraction; it keeps its optimistic command until group
@@ -808,7 +810,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
-                outdoor_temp_C=outdoor_temp,
+                outdoor_temp_C=outdoor_temperature,
                 max_opening_pct=max_opening_pct,
                 applied_valve_pct=controller_applied_pct,
             ),
@@ -833,7 +835,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
             reid_key,
             applied_valve_pct=confirmed_valve_pct,
             trv_temp=trv_state.current_temperature,
-            outdoor_temp=outdoor_temp,
+            outdoor_temperature=outdoor_temperature,
         )
         _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params)
 
@@ -988,7 +990,9 @@ def _compute_pid_balance(
             _pid_room_temp,
             self.clock.monotonic(),
             inp_current_temp_ema_C=(
-                self.cur_temp_filtered if _pid_room_temp is self.cur_temp else None
+                self.room_temperature_filtered
+                if _pid_room_temp is self.room_temperature
+                else None
             ),
         )
         state_mgr.set_pid(key, pid_state)
@@ -1043,7 +1047,9 @@ def _compute_pid_balance(
             self.temp_slope,
             key,
             inp_current_temp_ema_C=(
-                self.cur_temp_filtered if _pid_room_temp is self.cur_temp else None
+                self.room_temperature_filtered
+                if _pid_room_temp is self.room_temperature
+                else None
             ),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,

@@ -43,14 +43,14 @@ async def test_a_room_reading_inside_the_debounce_is_taken_once_it_is_over(
     bt = await _started(hass, fake_trv)
 
     set_room_sensor(hass, 18.4)
-    assert await wait_for(hass, lambda: bt.cur_temp == 18.4)
+    assert await wait_for(hass, lambda: bt.room_temperature == 18.4)
     set_room_sensor(hass, 22.3)
     await hass.async_block_till_done()
-    assert bt.cur_temp == 18.4
+    assert bt.room_temperature == 18.4
     async_fire_time_changed(hass, dt_util.utcnow() + DEBOUNCE_OVER)
 
-    assert await wait_for(hass, lambda: bt.cur_temp == 22.3, 3.0), (
-        f"the room stayed at {bt.cur_temp}"
+    assert await wait_for(hass, lambda: bt.room_temperature == 22.3, 3.0), (
+        f"the room stayed at {bt.room_temperature}"
     )
 
 

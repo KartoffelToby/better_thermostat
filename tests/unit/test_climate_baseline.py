@@ -46,7 +46,7 @@ def mock_bt():
     bt.hass = MagicMock()
     bt.device_name = "Test BT"
     # Temperature
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.heat_target_temperature = 22.0
     bt.cool_target_temperature = 26.0
     bt.bt_min_temp = 5.0
@@ -180,60 +180,60 @@ class TestShouldHeatWithTolerance:
         mock_bt.heat_target_temperature = None
         assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
 
-    def test_cur_temp_none(self, mock_bt):
+    def test_room_temperature_none(self, mock_bt):
         """Return False when current temp is None."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
 
     def test_heating_cur_below_target(self, mock_bt):
         """Continue heating when current temp is below target."""
-        mock_bt.cur_temp = 21.5
+        mock_bt.room_temperature = 21.5
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.HEATING, 0.5) is True
 
     def test_heating_cur_equals_target(self, mock_bt):
         """Stop heating when current temp equals target."""
-        mock_bt.cur_temp = 22.0
+        mock_bt.room_temperature = 22.0
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.HEATING, 0.5) is False
 
     def test_heating_cur_above_target(self, mock_bt):
         """Stop heating when current temp exceeds target."""
-        mock_bt.cur_temp = 22.5
+        mock_bt.room_temperature = 22.5
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.HEATING, 0.5) is False
 
     def test_idle_cur_below_threshold(self, mock_bt):
         """Start heating when idle and temp is below threshold."""
-        mock_bt.cur_temp = 21.0
+        mock_bt.room_temperature = 21.0
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.IDLE, 0.5) is True
 
     def test_idle_cur_equals_threshold(self, mock_bt):
         """Stay idle when current temp equals threshold."""
-        mock_bt.cur_temp = 21.5
+        mock_bt.room_temperature = 21.5
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
 
     def test_idle_cur_above_threshold(self, mock_bt):
         """Stay idle when current temp is above threshold."""
-        mock_bt.cur_temp = 21.8
+        mock_bt.room_temperature = 21.8
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.IDLE, 0.5) is False
 
     def test_negative_tolerance_clamped_to_zero(self, mock_bt):
         """Negative tolerance → clamped to 0 → threshold == target."""
-        mock_bt.cur_temp = 21.9
+        mock_bt.room_temperature = 21.9
         mock_bt.heat_target_temperature = 22.0
         # With tol=0, IDLE threshold is target itself → 21.9 < 22.0 → True
         assert self._call(mock_bt, HVACAction.IDLE, -1.0) is True
 
     def test_zero_tolerance_no_hysteresis(self, mock_bt):
         """Tolerance 0 → IDLE threshold == target (no hysteresis band)."""
-        mock_bt.cur_temp = 21.9
+        mock_bt.room_temperature = 21.9
         mock_bt.heat_target_temperature = 22.0
         assert self._call(mock_bt, HVACAction.IDLE, 0.0) is True
-        mock_bt.cur_temp = 22.0
+        mock_bt.room_temperature = 22.0
         assert self._call(mock_bt, HVACAction.IDLE, 0.0) is False
 
 
@@ -253,9 +253,9 @@ class TestComputeHvacAction:
         mock_bt.heat_target_temperature = None
         assert self._call(mock_bt) == HVACAction.IDLE
 
-    def test_cur_temp_none_returns_idle(self, mock_bt):
+    def test_room_temperature_none_returns_idle(self, mock_bt):
         """Return IDLE when current temp is None."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         assert self._call(mock_bt) == HVACAction.IDLE
 
     def test_hvac_mode_off_returns_off(self, mock_bt):
@@ -276,7 +276,7 @@ class TestComputeHvacAction:
 
     def test_heat_mode_cur_below_threshold(self, mock_bt):
         """HEAT mode, cur < target - tol → HEATING."""
-        mock_bt.cur_temp = 21.0
+        mock_bt.room_temperature = 21.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -284,7 +284,7 @@ class TestComputeHvacAction:
 
     def test_heat_mode_cur_at_target(self, mock_bt):
         """HEAT mode, cur >= target → IDLE."""
-        mock_bt.cur_temp = 22.0
+        mock_bt.room_temperature = 22.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         assert self._call(mock_bt) == HVACAction.IDLE
@@ -293,7 +293,7 @@ class TestComputeHvacAction:
         """HEAT_COOL, cur > cooltemp + tol → COOLING."""
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_hvac_mode = HVACMode.HEAT
-        mock_bt.cur_temp = 27.0
+        mock_bt.room_temperature = 27.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.cool_target_temperature = 26.0
         mock_bt.tolerance = 0.5
@@ -301,7 +301,9 @@ class TestComputeHvacAction:
 
     def test_trv_override_hvac_action_heating(self, mock_bt):
         """TRV reports hvac_action='heating' in band → override to HEATING."""
-        mock_bt.cur_temp = 21.7  # in band: target-tol(21.5) < cur < target(22.0)
+        mock_bt.room_temperature = (
+            21.7  # in band: target-tol(21.5) < cur < target(22.0)
+        )
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
@@ -313,7 +315,7 @@ class TestComputeHvacAction:
 
     def test_trv_override_valve_position(self, mock_bt):
         """TRV valve_position=50 in band → override to HEATING."""
-        mock_bt.cur_temp = 21.7
+        mock_bt.room_temperature = 21.7
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
@@ -323,7 +325,7 @@ class TestComputeHvacAction:
 
     def test_trv_override_last_valve_percent_0_1_range(self, mock_bt):
         """TRV last_valve_percent=0.8 (0-1 range) → normalized to 80% → HEATING."""
-        mock_bt.cur_temp = 21.7
+        mock_bt.room_temperature = 21.7
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
@@ -335,7 +337,7 @@ class TestComputeHvacAction:
 
     def test_trv_override_suppressed_above_target(self, mock_bt):
         """Above target with TRV still reporting heating → action stays IDLE."""
-        mock_bt.cur_temp = 22.3  # above target → BT has decided IDLE
+        mock_bt.room_temperature = 22.3  # above target → BT has decided IDLE
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.HEATING
         mock_bt.real_trvs = {
@@ -347,7 +349,7 @@ class TestComputeHvacAction:
 
     def test_ignore_states_no_trv_override(self, mock_bt):
         """ignore_states=True in band → TRV override still skipped, returns IDLE."""
-        mock_bt.cur_temp = 21.7
+        mock_bt.room_temperature = 21.7
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.ignore_states = True
@@ -360,7 +362,7 @@ class TestComputeHvacAction:
 
     def test_ignore_trv_states_per_trv(self, mock_bt):
         """ignore_trv_states=True on specific TRV in band → that TRV is skipped."""
-        mock_bt.cur_temp = 21.7
+        mock_bt.room_temperature = 21.7
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
@@ -372,7 +374,7 @@ class TestComputeHvacAction:
 
     def test_tolerance_decision_saved_before_trv_override(self, mock_bt):
         """Hysteresis state uses tolerance decision, not TRV-overridden action."""
-        mock_bt.cur_temp = 21.7  # in band → tolerance says IDLE
+        mock_bt.room_temperature = 21.7  # in band → tolerance says IDLE
         mock_bt.heat_target_temperature = 22.0
         mock_bt._hysteresis.last_action = HVACAction.IDLE
         mock_bt.real_trvs = {
@@ -386,7 +388,9 @@ class TestComputeHvacAction:
 
     def test_tolerance_hold_active_set(self, mock_bt):
         """_tolerance_hold_active is True when tolerance says no-heat but not cooling."""
-        mock_bt.cur_temp = 21.8  # in band: target-tol(21.5) < cur < target(22.0)
+        mock_bt.room_temperature = (
+            21.8  # in band: target-tol(21.5) < cur < target(22.0)
+        )
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -406,9 +410,9 @@ class TestCalculateHeatingPower:
         return await BetterThermostat.calculate_heating_power(bt)
 
     @pytest.mark.asyncio
-    async def test_cur_temp_none_early_return(self, mock_bt):
+    async def test_room_temperature_none_early_return(self, mock_bt):
         """Skip update when current temp is None."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         old_power = mock_bt.heating_power
         await self._call(mock_bt)
         assert mock_bt.heating_power == old_power
@@ -416,7 +420,7 @@ class TestCalculateHeatingPower:
     @pytest.mark.asyncio
     async def test_heating_start_transition(self, mock_bt):
         """Transition to HEATING sets start_temp and start_timestamp."""
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -442,7 +446,7 @@ class TestCalculateHeatingPower:
     async def test_heating_stop_sets_end(self, mock_bt):
         """Transition from HEATING → IDLE sets end_temp/timestamp."""
         now = datetime(2025, 1, 1, 12, 10, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 22.0
+        mock_bt.room_temperature = 22.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.HEATING
@@ -465,7 +469,7 @@ class TestCalculateHeatingPower:
     async def test_peak_tracking(self, mock_bt):
         """Temperature still rising after heating stopped → end_temp updated."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 22.5  # above previous end_temp
+        mock_bt.room_temperature = 22.5  # above previous end_temp
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -488,7 +492,7 @@ class TestCalculateHeatingPower:
     async def test_finalization_on_temp_drop(self, mock_bt):
         """Temperature falls below peak → cycle finalized, power updated."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 21.8  # below peak of 22.5
+        mock_bt.room_temperature = 21.8  # below peak of 22.5
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -517,7 +521,7 @@ class TestCalculateHeatingPower:
     async def test_finalization_on_timeout(self, mock_bt):
         """30-minute timeout triggers finalization even without temp drop."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 22.5  # still at peak (no drop)
+        mock_bt.room_temperature = 22.5  # still at peak (no drop)
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -542,7 +546,7 @@ class TestCalculateHeatingPower:
     async def test_short_cycle_discarded(self, mock_bt):
         """Cycles shorter than 1 minute are discarded."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 21.8
+        mock_bt.room_temperature = 21.8
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -567,7 +571,7 @@ class TestCalculateHeatingPower:
     async def test_negative_temp_diff_discarded(self, mock_bt):
         """Negative temperature diff (end < start) is discarded."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 19.0  # below peak → finalize
+        mock_bt.room_temperature = 19.0  # below peak → finalize
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -592,7 +596,7 @@ class TestCalculateHeatingPower:
     async def test_ema_smoothing(self, mock_bt):
         """EMA: new = old * (1-alpha) + rate * alpha."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = (
+        mock_bt.room_temperature = (
             21.8  # above tol threshold (21.5) so action=IDLE, below end_temp
         )
         mock_bt.heat_target_temperature = 22.0
@@ -622,7 +626,9 @@ class TestCalculateHeatingPower:
     async def test_outdoor_normalization(self, mock_bt):
         """Outdoor sensor present → normalized_power is calculated."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 21.8  # above tol threshold so action=IDLE, below end_temp
+        mock_bt.room_temperature = (
+            21.8  # above tol threshold so action=IDLE, below end_temp
+        )
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -651,7 +657,9 @@ class TestCalculateHeatingPower:
     async def test_min_max_clamping(self, mock_bt):
         """Power is clamped to [MIN_HEATING_POWER, MAX_HEATING_POWER]."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 21.8  # above tol threshold so action=IDLE, below end_temp
+        mock_bt.room_temperature = (
+            21.8  # above tol threshold so action=IDLE, below end_temp
+        )
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -677,7 +685,9 @@ class TestCalculateHeatingPower:
     async def test_cycle_telemetry_appended(self, mock_bt):
         """Finalized cycle appends to heating_cycles deque."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 21.8  # above tol threshold so action=IDLE, below end_temp
+        mock_bt.room_temperature = (
+            21.8  # above tol threshold so action=IDLE, below end_temp
+        )
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -712,9 +722,9 @@ class TestCalculateHeatLoss:
         return await BetterThermostat.calculate_heat_loss(bt)
 
     @pytest.mark.asyncio
-    async def test_cur_temp_none_early_return(self, mock_bt):
+    async def test_room_temperature_none_early_return(self, mock_bt):
         """Skip update when current temp is None."""
-        mock_bt.cur_temp = None
+        mock_bt.room_temperature = None
         await self._call(mock_bt)
         assert mock_bt._loss_tracker.start_temp is None
 
@@ -740,7 +750,7 @@ class TestCalculateHeatLoss:
     @pytest.mark.asyncio
     async def test_idle_starts_tracking(self, mock_bt):
         """Entering IDLE starts tracking (loss_start_temp set)."""
-        mock_bt.cur_temp = 22.0
+        mock_bt.room_temperature = 22.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -760,8 +770,8 @@ class TestCalculateHeatLoss:
     async def test_tracks_lowest_temp(self, mock_bt):
         """While idle, end_temp tracks the lowest temperature."""
         now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        # cur_temp must yield IDLE (>= target - tol) AND be below loss_end_temp
-        mock_bt.cur_temp = 21.6
+        # room_temperature must yield IDLE (>= target - tol) AND be below loss_end_temp
+        mock_bt.room_temperature = 21.6
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5  # threshold = 21.5, 21.6 >= 21.5 → IDLE
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -780,7 +790,7 @@ class TestCalculateHeatLoss:
         """Heating starts again → cycle finalized, heat_loss updated."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         # Set up a completed idle period
-        mock_bt.cur_temp = 20.0  # below target-tol → HEATING
+        mock_bt.room_temperature = 20.0  # below target-tol → HEATING
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -805,7 +815,7 @@ class TestCalculateHeatLoss:
     async def test_short_loss_cycle_discarded(self, mock_bt):
         """Loss cycles shorter than 1 minute are discarded."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -828,7 +838,7 @@ class TestCalculateHeatLoss:
     async def test_ema_smoothing(self, mock_bt):
         """EMA smoothing applied to heat_loss_rate."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -852,7 +862,7 @@ class TestCalculateHeatLoss:
     async def test_min_max_clamping(self, mock_bt):
         """Loss rate is clamped to [MIN_HEAT_LOSS, MAX_HEAT_LOSS]."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE
@@ -876,7 +886,7 @@ class TestCalculateHeatLoss:
     async def test_loss_cycle_telemetry(self, mock_bt):
         """Finalized loss cycle appends telemetry to loss_cycles deque."""
         base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        mock_bt.cur_temp = 20.0
+        mock_bt.room_temperature = 20.0
         mock_bt.heat_target_temperature = 22.0
         mock_bt.tolerance = 0.5
         mock_bt._hysteresis.last_action = HVACAction.IDLE

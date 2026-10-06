@@ -68,8 +68,8 @@ class TestRuntimeAndLearnedBridges:
     def test_runtime_bridge_roundtrip(self):
         """Writing the flat attribute lands in the runtime container."""
         bare = _bare_entity()
-        bare.cur_temp = 21.5
-        assert bare.runtime.cur_temp == 21.5
+        bare.room_temperature = 21.5
+        assert bare.runtime.room_temperature == 21.5
         bare.runtime.call_for_heat = False
         assert bare.call_for_heat is False
 

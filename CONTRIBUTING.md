@@ -342,7 +342,7 @@ only where a Home Assistant property of the same name lives on the entity class:
 | `bt_max_temp` | `max_temp` | **yes** |
 
 Where a BT quantity sits next to the same-named TRV quantity, the owner prefix
-`trv.` separates them: `heat_target_temperature` versus `trv.setpoint`.
+`trv.` separates them: `heat_target_temperature` versus `trv.commanded_setpoint`.
 
 **A loop over keys and a loop over values must not share a variable name.**
 `for trv in self.real_trvs` binds a `str`, `for trv in self.real_trvs.values()`
@@ -384,8 +384,8 @@ each such exception together with its reason.
 
 Under `tests/` a rejected spelling is charged only once production has stopped
 using it. A test has to name the attribute it asserts on, so that spelling is
-production's decision and not the test's, and a new test may write
-`world.cur_temp` for as long as the field is called `cur_temp`. Renaming the
+production's decision and not the test's, and a new test may use a rejected
+spelling for as long as a production field still carries it. Renaming the
 last production site is what makes its readers due, and they come out with it.
 
 New and touched code follows the convention. The spellings the codebase still

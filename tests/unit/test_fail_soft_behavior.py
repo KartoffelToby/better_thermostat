@@ -40,7 +40,7 @@ from tests.factories import ThermostatStandIn
 def _bt(mode: ControlMode) -> MagicMock:
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {
         "climate.a": Trv.from_legacy_dict("climate.a", {"current_temperature": 21.0}),
@@ -144,7 +144,7 @@ class TestFallbackSetpointChannel:
         bt.device_name = "Test BT"
         bt.tolerance = 0.0
         bt.hvac_action = HVACAction.HEATING
-        bt.cur_temp = 18.0  # stale reading from the dead room sensor
+        bt.room_temperature = 18.0  # stale reading from the dead room sensor
         bt.heat_target_temperature = 5.0
         bt.kernel_state = KernelState(
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
@@ -182,9 +182,9 @@ class TestBulkhead:
         snapshot = WorldSnapshot(
             now=datetime(2026, 1, 10, tzinfo=UTC),
             now_monotonic=1000.0,
-            target_temp=21.0,
+            heat_target_temperature=21.0,
             hvac_mode=HvacMode.HEAT,
-            room_temp=19.0,
+            room_temperature=19.0,
             call_for_heat=True,
             trvs={
                 "climate.ok": TrvReported(entity_id="climate.ok", available=True),

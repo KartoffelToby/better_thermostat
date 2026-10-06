@@ -30,7 +30,7 @@ _CAL = "custom_components.better_thermostat.calibration"
 def _make_bt(
     mode=CalibrationMode.DEFAULT,
     *,
-    cur_temp: float | None = 18.0,
+    room_temperature: float | None = 18.0,
     heat_target_temperature: float | None = 21.0,
     trv_temp: float | None = 20.0,
     last_calibration: float = 1.5,
@@ -43,7 +43,7 @@ def _make_bt(
     bt.device_name = "Test BT"
     bt.tolerance = 0.3
     bt.hvac_action = HVACAction.HEATING
-    bt.cur_temp = cur_temp
+    bt.room_temperature = room_temperature
     bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None
@@ -85,7 +85,7 @@ def _controller_reports(percent: float, *, drives_the_valve: bool):
     "calculate", [calculate_calibration_local, calculate_calibration_setpoint]
 )
 def test_without_a_room_temperature_nothing_is_sent(calculate):
-    assert calculate(_make_bt(cur_temp=None), ENTITY_ID) is None
+    assert calculate(_make_bt(room_temperature=None), ENTITY_ID) is None
 
 
 def test_the_setpoint_channel_without_a_target_sends_nothing():

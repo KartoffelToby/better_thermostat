@@ -57,7 +57,9 @@ def _boost_snapshot():
     WorldSnapshot
         Snapshot with boost preset enabled and room temperature below target.
     """
-    return make_snapshot(preset_mode="boost", room_temp=19.0, target_temp=22.0)
+    return make_snapshot(
+        preset_mode="boost", room_temperature=19.0, heat_target_temperature=22.0
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +293,7 @@ def _watch_last_write(mock_self, entity_id):
     """Start the setpoint watchdog for the last write the TRV records."""
     trv = mock_self.real_trvs[entity_id]
     return check_target_temperature(
-        mock_self, entity_id, trv.last_setpoint_write_id, trv.last_temperature
+        mock_self, entity_id, trv.last_setpoint_write_id, trv.commanded_setpoint
     )
 
 
@@ -313,7 +315,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -338,7 +340,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -368,7 +370,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
         trv = mock_self.real_trvs["climate.trv1"]
@@ -400,7 +402,7 @@ class TestCheckTargetTemperature:
     async def test_step_grid_written_value_confirms_against_read_grid(self):
         """A step-grid written setpoint confirms against the 0.01 read grid.
 
-        The write side stores last_temperature rounded on the device step
+        The write side stores commanded_setpoint rounded on the device step
         grid (round_by_step(20.7, 0.1) == 20.700000000000003), while the
         read-back passes through convert_to_float's 0.01 grid (20.7). The
         tolerance-based comparison must confirm immediately instead of
@@ -423,7 +425,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": written, "target_temp_received": False},
+                {"commanded_setpoint": written, "target_temp_received": False},
             )
         }
 
@@ -453,7 +455,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -477,7 +479,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -501,7 +503,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -533,7 +535,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -572,7 +574,7 @@ class TestCheckTargetTemperature:
         the watchdog of the newest write to release.
         """
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+            "climate.trv1", {"commanded_setpoint": 23.0, "target_temp_received": False}
         )
         watched = trv.remember_setpoint_written(23.0)
 
@@ -611,7 +613,7 @@ class TestCheckTargetTemperature:
         watchdog of the newer write.
         """
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+            "climate.trv1", {"commanded_setpoint": 23.0, "target_temp_received": False}
         )
         watched = trv.remember_setpoint_written(23.0)
         trv.remember_setpoint_written(24.0)
@@ -649,7 +651,7 @@ class TestCheckTargetTemperature:
         without a warning and without releasing the channel.
         """
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"last_temperature": 23.0, "target_temp_received": False}
+            "climate.trv1", {"commanded_setpoint": 23.0, "target_temp_received": False}
         )
         watched = trv.remember_setpoint_written(23.0)
 
@@ -689,7 +691,7 @@ class TestCheckTargetTemperature:
     async def test_the_watchdog_of_the_newest_write_releases_the_channel(self):
         """The newest write's watchdog confirms it and opens the channel again."""
         trv = Trv.from_legacy_dict(
-            "climate.trv1", {"last_temperature": 24.0, "target_temp_received": False}
+            "climate.trv1", {"commanded_setpoint": 24.0, "target_temp_received": False}
         )
         trv.remember_setpoint_written(23.0)
         newest = trv.remember_setpoint_written(24.0)
@@ -717,7 +719,7 @@ class TestCheckTargetTemperature:
 
     @pytest.mark.asyncio
     async def test_a_maintenance_write_cannot_confirm_the_control_write(self):
-        """Valve maintenance moves last_temperature without going through control.
+        """Valve maintenance moves commanded_setpoint without going through control.
 
         The watchdog waits on the command it was started for, so a device
         report of the maintenance value confirms nothing and the control
@@ -726,7 +728,7 @@ class TestCheckTargetTemperature:
         trv = Trv.from_legacy_dict(
             "climate.trv1",
             {
-                "last_temperature": 23.0,
+                "commanded_setpoint": 23.0,
                 **_seed_pending(23.0),
                 "target_temp_received": False,
             },
@@ -735,7 +737,7 @@ class TestCheckTargetTemperature:
         # The watchdog is polling for 23.0 when maintenance drives the delegate
         # to 8.0; the device then reports the maintenance value.
         def report(_entity_id):
-            trv.last_temperature = 8.0
+            trv.commanded_setpoint = 8.0
             return State("climate.trv1", HVACMode.HEAT, {"temperature": 8.0})
 
         mock_hass = MagicMock()
@@ -774,7 +776,7 @@ class TestCheckTargetTemperature:
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
                 {
-                    "last_temperature": 25.0,
+                    "commanded_setpoint": 25.0,
                     **_seed_pending(26.0, 25.0),
                     "target_temp_received": False,
                 },
@@ -789,7 +791,7 @@ class TestCheckTargetTemperature:
         assert result is True
         assert trv.confirmed_setpoint == 25.0
         assert trv.echo_setpoint_values() == []
-        assert trv.last_temperature == 25.0
+        assert trv.commanded_setpoint == 25.0
         assert trv.target_temp_received is True
 
     @pytest.mark.asyncio
@@ -812,7 +814,7 @@ class TestCheckTargetTemperature:
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
                 {
-                    "last_temperature": 22.0,
+                    "commanded_setpoint": 22.0,
                     **_seed_pending(20.0, 22.0),
                     "target_temp_received": False,
                 },
@@ -848,7 +850,7 @@ class TestCheckTargetTemperature:
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
                 {
-                    "last_temperature": 25.0,
+                    "commanded_setpoint": 25.0,
                     **_seed_pending(26.0, 25.0),
                     "target_temp_received": False,
                 },
@@ -862,7 +864,7 @@ class TestCheckTargetTemperature:
         trv = mock_self.real_trvs["climate.trv1"]
         assert result is True
         assert trv.echo_setpoint_values() == [26.0, 25.0]
-        assert trv.last_temperature == 25.0
+        assert trv.commanded_setpoint == 25.0
         assert trv.target_temp_received is True
         assert "did not confirm the target temperature" in caplog.text
 
@@ -881,7 +883,7 @@ class TestCheckTargetTemperature:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
 
@@ -902,7 +904,7 @@ class TestGetValveControlBoostCalibrationType:
     def _mock_in_boost(self):
         mock_self = ThermostatStandIn()
         mock_self.preset_mode = "boost"
-        mock_self.cur_temp = 19.0
+        mock_self.room_temperature = 19.0
         mock_self.heat_target_temperature = 22.0
         mock_self.real_trvs = {"climate.trv1": Trv.from_legacy_dict("climate.trv1", {})}
         return mock_self
@@ -958,7 +960,7 @@ class TestGetValveControlBoostMaxOpening:
     def _mock_in_boost(self, max_opening):
         mock_self = ThermostatStandIn()
         mock_self.preset_mode = "boost"
-        mock_self.cur_temp = 19.0
+        mock_self.room_temperature = 19.0
         mock_self.heat_target_temperature = 22.0
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
@@ -1607,7 +1609,7 @@ class TestWriteConfirmTimeout:
         mock_self.real_trvs = {
             "climate.trv1": Trv.from_legacy_dict(
                 "climate.trv1",
-                {"last_temperature": 21.0, "target_temp_received": False},
+                {"commanded_setpoint": 21.0, "target_temp_received": False},
             )
         }
         durations, sleep_patch = _sleep_recorder()

@@ -29,7 +29,7 @@ VALVE_INTENT_SOURCE = {"source": "heating_power_calibration"}
 def _make_bt(
     hvac_action,
     *,
-    cur_temp=20.0,
+    room_temperature=20.0,
     heat_target_temperature=21.0,
     tolerance=0.3,
     trv_temp=21.0,
@@ -42,7 +42,7 @@ def _make_bt(
     bt.device_name = "Test BT"
     bt.tolerance = tolerance
     bt.hvac_action = hvac_action
-    bt.cur_temp = cur_temp
+    bt.room_temperature = room_temperature
     bt.heat_target_temperature = heat_target_temperature
     bt.outdoor_sensor = None
     bt.weather_entity = None

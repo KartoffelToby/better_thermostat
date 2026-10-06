@@ -49,7 +49,7 @@ def _thermostat_without_target(stored_mode: object) -> ThermostatStandIn:
     bt.tolerance = 0.5
     bt.attr_hvac_action = None
     bt.hvac_action = None
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.heat_target_temperature = None
 
     quirks = MagicMock()

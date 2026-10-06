@@ -76,7 +76,7 @@ class TestLearnedRatesConverge:
         # temperature above it give the smallest alpha the tracker uses.
         tracker.min_target, tracker.max_target = 18.0, 24.0
         before = tracker.heating_power
-        context = {"heat_target_temperature": 18.0, "outdoor_temp": 25.0}
+        context = {"heat_target_temperature": 18.0, "outdoor_temperature": 25.0}
         tracker.update(20.0, HVACAction.IDLE, _ts(0.0), **context)
         tracker.update(20.0, HVACAction.HEATING, _ts(1.0), **context)
         tracker.update(21.1, HVACAction.IDLE, _ts(101.0), **context)

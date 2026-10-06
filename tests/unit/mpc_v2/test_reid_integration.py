@@ -155,7 +155,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
     return SimpleNamespace(
         real_trvs={"climate.x": _trv_info("climate.x", preset)},
         heat_target_temperature=21.0,
-        cur_temp=19.5,
+        room_temperature=19.5,
         tolerance=0.0,
         window_open=False,
         contact_open=False,
@@ -260,7 +260,7 @@ def test_dispatch_does_not_identify_from_an_unconfirmed_recommendation() -> None
 def test_dispatch_skips_sampling_when_control_mode_degraded() -> None:
     """Samples are recorded only on the OPTIMAL rung of the fail-soft ladder.
 
-    Under SENSOR_FALLBACK ``cur_temp`` freezes at the last valid reading
+    Under SENSOR_FALLBACK ``room_temperature`` freezes at the last valid reading
     while the valve keeps moving; recording such samples would fit the
     plant against a frozen temperature tail. HOLD has no usable reading
     at all. Both rungs must leave the buffer untouched.

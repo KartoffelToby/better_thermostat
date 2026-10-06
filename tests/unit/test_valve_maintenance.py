@@ -117,7 +117,7 @@ def _reports_a_moved_mode(infos: list[MaintenanceTrvInfo]):
 def _info(
     entity_id: str = "climate.trv1",
     cur_mode: str = "heat",
-    cur_temp: float | None = 21.0,
+    setpoint: float | None = 21.0,
     use_direct_valve: bool = False,
     max_temp: float = 30,
     min_temp: float = 5,
@@ -127,7 +127,7 @@ def _info(
     return MaintenanceTrvInfo(
         entity_id=entity_id,
         cur_mode=cur_mode,
-        cur_temp=cur_temp,
+        setpoint=setpoint,
         use_direct_valve=use_direct_valve,
         max_temp=max_temp,
         min_temp=min_temp,
@@ -301,7 +301,7 @@ class TestBuildTrvSnapshots:
         assert len(result) == 1
         assert result[0].entity_id == "trv1"
         assert result[0].cur_mode == "heat"
-        assert result[0].cur_temp == 22.0
+        assert result[0].setpoint == 22.0
         assert result[0].max_temp == 28
         assert result[0].min_temp == 6
         assert result[0].use_direct_valve is False
@@ -323,7 +323,7 @@ class TestBuildTrvSnapshots:
             read_setpoint=lambda state: (state.attributes["temperature"] - 32) / 1.8,
         )
 
-        assert result[0].cur_temp == pytest.approx(20.0)
+        assert result[0].setpoint == pytest.approx(20.0)
 
     def test_direct_valve_detection(self):
         """Test Direct valve detection."""
@@ -485,7 +485,7 @@ class TestRestoreOne:
         """Test Restores temp and mode."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
-        info = _info(cur_temp=22.5, cur_mode="heat")
+        info = _info(setpoint=22.5, cur_mode="heat")
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -496,11 +496,11 @@ class TestRestoreOne:
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
 
     @pytest.mark.asyncio
-    async def test_cur_temp_none_skips_temperature(self):
-        """Test Cur temp none skips temperature."""
+    async def test_no_setpoint_skips_the_setpoint_restore(self):
+        """Without a recorded setpoint nothing is written back."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
-        info = _info(cur_temp=None)
+        info = _info(setpoint=None)
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -515,7 +515,7 @@ class TestRestoreOne:
         """Test Temp exception still sets mode."""
         temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
         mode_fn = AsyncMock()
-        info = _info(cur_temp=20.0, cur_mode="heat")
+        info = _info(setpoint=20.0, cur_mode="heat")
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -529,7 +529,7 @@ class TestRestoreOne:
         """Both restore writes report the TRV they could not reach."""
         temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
         mode_fn = AsyncMock(side_effect=HomeAssistantError("fail"))
-        info = _info(cur_temp=20.0, cur_mode="heat")
+        info = _info(setpoint=20.0, cur_mode="heat")
         with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
             await restore_one(
                 info,
@@ -544,7 +544,7 @@ class TestRestoreOne:
     @pytest.mark.asyncio
     async def test_successful_restore_is_not_traced(self, caplog):
         """A restore that lands reports nothing."""
-        info = _info(cur_temp=20.0, cur_mode="heat")
+        info = _info(setpoint=20.0, cur_mode="heat")
         with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
             await restore_one(
                 info,
@@ -607,7 +607,7 @@ class TestRunValveMaintenance:
         async def write_through_the_delegate(entity_id: str, temp: float) -> None:
             await delegate_set_temperature(bt, entity_id, temp)
 
-        infos = [_info(entity_id="climate.trv1", cur_temp=21.0)]
+        infos = [_info(entity_id="climate.trv1", setpoint=21.0)]
         await run_valve_maintenance(
             infos,
             set_valve_fn=AsyncMock(return_value=True),
@@ -620,7 +620,7 @@ class TestRunValveMaintenance:
 
         sent = [c.args[2] for c in trv.adapter.set_temperature.await_args_list]
         assert sent == [30.0, 5.0, 30.0, 5.0, 21.0]
-        assert trv.last_temperature == 21.0
+        assert trv.commanded_setpoint == 21.0
         assert trv.echo_setpoint_values() == [21.0]
 
     @pytest.mark.asyncio
@@ -679,7 +679,7 @@ class TestRunValveMaintenance:
         mode_fn = AsyncMock()
         infos = [
             _info(
-                entity_id="trv1", cur_temp=22.0, cur_mode="heat", use_direct_valve=True
+                entity_id="trv1", setpoint=22.0, cur_mode="heat", use_direct_valve=True
             )
         ]
 
@@ -729,7 +729,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode=None,
             )
         ]
@@ -759,7 +759,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 max_temp=30.0,
                 min_temp=5.0,
                 wake_mode="heat",
@@ -807,7 +807,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 max_temp=30.0,
                 min_temp=5.0,
                 wake_mode="heat",
@@ -816,7 +816,7 @@ class TestRunValveMaintenance:
                 entity_id="trv2",
                 cur_mode="heat",
                 use_direct_valve=False,
-                cur_temp=21.0,
+                setpoint=21.0,
                 max_temp=30.0,
                 min_temp=5.0,
             ),
@@ -866,7 +866,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode="heat",
             )
         ]
@@ -902,7 +902,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode=None,
             )
         ]
@@ -955,7 +955,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=True,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode=None,
             )
         ]
@@ -1142,7 +1142,7 @@ class TestRestoreLeavesAnUnmovedModeAlone:
         """A single-mode TRV gets its setpoint back and no mode write."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
-        info = _info(cur_temp=21.5, cur_mode="heat", wake_mode=None)
+        info = _info(setpoint=21.5, cur_mode="heat", wake_mode=None)
         await restore_one(
             info,
             set_temperature_fn=temp_fn,

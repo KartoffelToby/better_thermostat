@@ -31,13 +31,13 @@ def _snapshot() -> WorldSnapshot:
     return WorldSnapshot(
         now=datetime(2026, 1, 10, 7, 0, tzinfo=UTC),
         now_monotonic=1000.0,
-        target_temp=21.0,
+        heat_target_temperature=21.0,
         hvac_mode=HvacMode.HEAT,
-        room_temp=19.0,
+        room_temperature=19.0,
         call_for_heat=True,
         trvs={
             "climate.trv": TrvReported(
-                entity_id="climate.trv", available=True, current_temp=20.0
+                entity_id="climate.trv", available=True, current_temperature=20.0
             )
         },
     )
@@ -113,7 +113,7 @@ async def test_diagnostics_exports_the_flight_recorder():
     diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
     exported = diagnostics["flight_recorder"]
     assert len(exported) == 1
-    assert exported[0]["snapshot"]["trvs"]["climate.trv"]["current_temp"] == 20.0
+    assert exported[0]["snapshot"]["trvs"]["climate.trv"]["current_temperature"] == 20.0
     assert exported[0]["desired"]["call_for_heat"] is True
 
 

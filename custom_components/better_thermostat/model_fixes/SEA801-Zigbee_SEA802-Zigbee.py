@@ -41,7 +41,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     """
     if entity_uses_mpc_calibration(self, entity_id):
         return offset
-    _cur_external_temp = self.cur_temp
+    _cur_external_temp = self.room_temperature
     _target_temp = self.heat_target_temperature
 
     if _cur_external_temp is None or _target_temp is None:

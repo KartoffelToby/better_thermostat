@@ -412,11 +412,11 @@ class TestPIDController:
         # Simulate 10 cycles with varying errors
         for i in range(10):
             error = 2.0 if i % 2 == 0 else -0.5  # Alternate positive and overshoot
-            current_temp = 20.0 + (2.0 - error)  # Adjust to create error
+            room_temperature = 20.0 + (2.0 - error)  # Adjust to create error
             self._compute(
                 params=params,
                 inp_target_temp_C=22.0,
-                inp_current_temp_C=current_temp,
+                inp_current_temp_C=room_temperature,
                 inp_trv_temp_C=21.0,
                 inp_temp_slope_K_per_min=0.0,
                 key=key,

@@ -39,7 +39,7 @@ def _production_valve_pct(temp_diff_K: float, heating_power: float) -> float:
     """Run the real production formula and return valve percent (0..100)."""
     fake_entity = SimpleNamespace(
         heat_target_temperature=20.0 + temp_diff_K,
-        cur_temp=20.0,
+        room_temperature=20.0,
         heating_power=heating_power,
         device_name="drift-guard",
     )
@@ -85,7 +85,7 @@ def test_non_heating_returns_zero_in_both() -> None:
     # Room above target (negative diff): production short-circuits to 0.
     fake_entity = SimpleNamespace(
         heat_target_temperature=19.5,
-        cur_temp=20.0,
+        room_temperature=20.0,
         heating_power=0.02,
         device_name="drift",
     )

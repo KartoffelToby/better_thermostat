@@ -219,7 +219,7 @@ async def test_a_payload_that_drifts_between_failures_keeps_the_run():
 
     def outcome(n):
         # The worker records what it sends before the device refuses it.
-        trv.last_temperature = 22.0 + 0.1 * n
+        trv.commanded_setpoint = 22.0 + 0.1 * n
         return ServiceValidationError("out of range")
 
     async with _Queue(entity, outcome) as queue:
@@ -480,8 +480,8 @@ async def test_a_trv_still_away_since_it_failed_keeps_the_run():
 def _decided_cycle(entity):
     """Observe the TRV as the snapshot does and run the kernel's decision on it."""
     snapshot = make_snapshot(
-        target_temp=entity.heat_target_temperature,
-        room_temp=18.0,
+        heat_target_temperature=entity.heat_target_temperature,
+        room_temperature=18.0,
         preset_mode=entity.preset_mode,
         trvs={_TRV: _build_trv_reported(entity, _TRV, entity.real_trvs[_TRV])},
     )

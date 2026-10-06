@@ -593,24 +593,24 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.config.tolerance
 
     @property
-    def cur_temp(self) -> float | None:
+    def room_temperature(self) -> float | None:
         """Return the current room temperature."""
-        return self.runtime.cur_temp
+        return self.runtime.room_temperature
 
-    @cur_temp.setter
-    def cur_temp(self, value: float | None) -> None:
+    @room_temperature.setter
+    def room_temperature(self, value: float | None) -> None:
         """Set the current room temperature."""
-        self.runtime.cur_temp = value
+        self.runtime.room_temperature = value
 
     @property
-    def cur_temp_filtered(self) -> float | None:
+    def room_temperature_filtered(self) -> float | None:
         """Return the EMA-filtered room temperature."""
-        return self.runtime.cur_temp_filtered
+        return self.runtime.room_temperature_filtered
 
-    @cur_temp_filtered.setter
-    def cur_temp_filtered(self, value: float | None) -> None:
+    @room_temperature_filtered.setter
+    def room_temperature_filtered(self, value: float | None) -> None:
         """Set the EMA-filtered room temperature."""
-        self.runtime.cur_temp_filtered = value
+        self.runtime.room_temperature_filtered = value
 
     @property
     def external_temp_ema(self) -> float | None:
@@ -963,7 +963,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.next_valve_maintenance = self.clock.now() + timedelta(
             hours=randint(1, 24 * 5)
         )
-        self.cur_temp = None
+        self.room_temperature = None
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
@@ -1108,7 +1108,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.external_temp_ema_tau_s = 300.0
         self.external_temp_ema = None
         self._external_temp_ema_ts = None
-        self.cur_temp_filtered = None
+        self.room_temperature_filtered = None
         # Unified state persistence (replaces per-controller stores)
         self.state_mgr: StateManager | None = None
 
@@ -1525,10 +1525,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         try:
             async with temperature_filter_lock(self):
-                cur = self.cur_temp
+                cur = self.room_temperature
                 if cur is None:
                     _LOGGER.debug(
-                        "better_thermostat %s: external_temperature keepalive skipped (cur_temp is None)",
+                        "better_thermostat %s: external_temperature keepalive skipped (room_temperature is None)",
                         self.device_name,
                     )
                     return
@@ -2031,20 +2031,20 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
 
         if room_candidate is not None:
-            self.cur_temp = room_candidate
+            self.room_temperature = room_candidate
         else:
-            self.cur_temp = None
+            self.room_temperature = None
             trv_reading = self._first_plausible_trv_temperature()
             if trv_reading is not None:
-                entity_id, self.cur_temp = trv_reading
+                entity_id, self.room_temperature = trv_reading
                 _LOGGER.info(
                     "better_thermostat %s: Using TRV '%s' temperature: %.1f°C",
                     self.device_name,
                     entity_id,
-                    self.cur_temp,
+                    self.room_temperature,
                 )
-            if self.cur_temp is None:
-                self.cur_temp = DEFAULT_FALLBACK_TEMPERATURE
+            if self.room_temperature is None:
+                self.room_temperature = DEFAULT_FALLBACK_TEMPERATURE
                 _LOGGER.warning(
                     "better_thermostat %s: No temperature available, using default %.1f°C",
                     self.device_name,
@@ -2052,14 +2052,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 )
 
         # Initialize EMA with current temperature at startup
-        if self.cur_temp is not None:
-            self.last_known_external_temp = self.cur_temp
+        if self.room_temperature is not None:
+            self.last_known_external_temp = self.room_temperature
             try:
-                _update_external_temp_ema(self, float(self.cur_temp))
+                _update_external_temp_ema(self, float(self.room_temperature))
                 _LOGGER.debug(
                     "better_thermostat %s: initialized external_temp_ema at startup with %.2f",
                     self.device_name,
-                    self.cur_temp,
+                    self.room_temperature,
                 )
             except (ValueError, TypeError) as e:
                 _LOGGER.warning(
@@ -2132,7 +2132,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 try:
                     _restored_ema = float(old_state.attributes["external_temp_ema"])
                     self.external_temp_ema = _restored_ema
-                    self.cur_temp_filtered = round(_restored_ema, 2)
+                    self.room_temperature_filtered = round(_restored_ema, 2)
                     # Reset timestamp to now so the next delta is calculated from restart time
                     self._external_temp_ema_ts = self.clock.monotonic()
                     _LOGGER.debug(
@@ -2632,7 +2632,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             _reported_setpoint = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
-            trv.last_temperature = _reported_setpoint
+            trv.commanded_setpoint = _reported_setpoint
             trv.remember_setpoint_confirmed(_reported_setpoint)
             # No reading is no reading: a fabricated value would feed
             # SENSOR_FALLBACK as if it were live and keep the ladder's
@@ -3291,7 +3291,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         reading = room_sensor_reading(self, sensor_state)
         if sensor_state is None or reading is None:
             return
-        if self.cur_temp is not None and round(reading, 2) == round(self.cur_temp, 2):
+        if self.room_temperature is not None and round(reading, 2) == round(
+            self.room_temperature, 2
+        ):
             return
         await self._trigger_temperature_change(
             Event(
@@ -3537,7 +3539,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         filters = self.state_mgr.filters
         if filters.external_temp_ema is not None:
             self.external_temp_ema = filters.external_temp_ema
-            self.cur_temp_filtered = round(filters.external_temp_ema, 2)
+            self.room_temperature_filtered = round(filters.external_temp_ema, 2)
             self._external_temp_ema_ts = self.clock.monotonic()
         if filters.temp_slope is not None:
             self.temp_slope = filters.temp_slope
@@ -3573,18 +3575,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
         Delegates to :class:`HeatingPowerTracker` and handles HA side-effects.
         """
-        if self.cur_temp is None:
+        if self.room_temperature is None:
             return
 
         current_action = self._compute_hvac_action()
-        outdoor_temp = self._get_outdoor_temp()
+        outdoor_temperature = self._get_outdoor_temp()
 
         result = self._heating_tracker.update(
-            self.cur_temp,
+            self.room_temperature,
             current_action,
             self.clock.utcnow(),
             heat_target_temperature=self.heat_target_temperature,
-            outdoor_temp=outdoor_temp,
+            outdoor_temperature=outdoor_temperature,
         )
 
         if result.action_changed:
@@ -3601,13 +3603,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
         Delegates to :class:`HeatLossTracker` and handles HA side-effects.
         """
-        if self.cur_temp is None:
+        if self.room_temperature is None:
             return
 
         current_action = self._compute_hvac_action()
 
         result = self._loss_tracker.update(
-            self.cur_temp,
+            self.room_temperature,
             current_action,
             self.clock.utcnow(),
             window_open=bool(self.contact_open),
@@ -3676,7 +3678,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
-            "external_temp_ema": self.cur_temp_filtered,
+            "external_temp_ema": self.room_temperature_filtered,
             # Degraded mode: thermostat running with some sensors unavailable
             "degraded_mode": self.degraded_mode,
             "unavailable_sensors": self.unavailable_sensors,
@@ -3821,7 +3823,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        return self.cur_temp
+        return self.room_temperature
 
     @property
     def current_humidity(self) -> float | None:
@@ -3890,10 +3892,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self, previous_action: HVACAction | None, tol: float
     ) -> bool:
         """Apply hysteresis so heating restarts only below target - tolerance."""
-        if self.heat_target_temperature is None or self.cur_temp is None:
+        if self.heat_target_temperature is None or self.room_temperature is None:
             return False
         return should_heat_with_tolerance(
-            self.cur_temp, self.heat_target_temperature, tol, previous_action
+            self.room_temperature, self.heat_target_temperature, tol, previous_action
         )
 
     def _build_trv_snapshots(self) -> list[TrvSnapshot]:
@@ -3959,7 +3961,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         return compute_hvac_action(
             hysteresis=self._hysteresis,
-            cur_temp=self.cur_temp,
+            room_temperature=self.room_temperature,
             heat_target_temperature=self.heat_target_temperature,
             cool_target=self.cool_target_temperature,
             hvac_mode=self.hvac_mode,
@@ -5037,7 +5039,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 )
                 # If the sensor entity is listening to state changes, we should trigger an update
                 # But we don't want to spam the state machine if nothing changed significantly?
-                # The sensor entity reads `cur_temp_filtered` from `self`.
+                # The sensor entity reads `room_temperature_filtered` from `self`.
                 # We can just write state if we want the sensor to update.
                 # But `async_write_ha_state` updates the climate entity state.
                 # The sensor listens to the climate entity.

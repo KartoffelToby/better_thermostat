@@ -45,8 +45,8 @@ async def test_the_cooling_setpoint_lands_on_the_coolers_grid(
     mock_self, mock_hass, _ = _make_cooler_setup(
         cooler_attributes={"temperature": reported, "target_temp_step": step},
         system_unit=system_unit,
-        cur_temp=27.0,
-        target_cooltemp=target,
+        room_temperature=27.0,
+        cool_target_temperature=target,
     )
 
     await control_cooler(mock_self)
@@ -61,9 +61,9 @@ async def test_both_bounds_of_a_range_land_on_the_coolers_grid():
         cooler_attributes=_range_attributes(
             target_temp_high=28.0, target_temp_low=18.0, target_temp_step=0.5
         ),
-        cur_temp=27.0,
-        target_cooltemp=24.3,
-        target_temp=20.2,
+        room_temperature=27.0,
+        cool_target_temperature=24.3,
+        heat_target_temperature=20.2,
     )
 
     await control_cooler(mock_self)
@@ -89,8 +89,8 @@ async def test_the_write_is_known_while_its_call_is_in_flight(
     mock_self, mock_hass, _ = _make_cooler_setup(
         cooler_attributes={"temperature": reported, "target_temp_step": step},
         system_unit=system_unit,
-        cur_temp=27.0,
-        target_cooltemp=24.3,
+        room_temperature=27.0,
+        cool_target_temperature=24.3,
     )
     seen_during_call = []
 
@@ -110,8 +110,8 @@ async def test_a_failed_write_leaves_the_previous_one_recorded():
     """A call that raises is not recorded as the cooler channel's write."""
     mock_self, mock_hass, _ = _make_cooler_setup(
         cooler_attributes={"temperature": 27.0, "target_temp_step": 0.5},
-        cur_temp=27.0,
-        target_cooltemp=24.3,
+        room_temperature=27.0,
+        cool_target_temperature=24.3,
     )
     previous = (22.0, mock_self.clock.monotonic() - 10_000.0)
     cooler_send_cache(mock_self)["temperature"] = previous
@@ -141,8 +141,8 @@ async def test_a_fahrenheit_cooler_without_a_step_gets_whole_degrees(target, exp
     mock_self, mock_hass, _ = _make_cooler_setup(
         cooler_attributes={"temperature": 80.0},
         system_unit=UnitOfTemperature.FAHRENHEIT,
-        cur_temp=27.0,
-        target_cooltemp=target,
+        room_temperature=27.0,
+        cool_target_temperature=target,
     )
 
     await control_cooler(mock_self)

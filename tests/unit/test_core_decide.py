@@ -251,7 +251,9 @@ class TestReachability:
     def test_boost_keeps_commanding_offline_trvs(self):
         """Active boost heating overrides the reachability skip."""
         desired, _ = decide(
-            self._snapshot(preset_mode="boost", room_temp=18.0, target_temp=22.0),
+            self._snapshot(
+                preset_mode="boost", room_temperature=18.0, heat_target_temperature=22.0
+            ),
             make_state(window=WindowState(phase=WindowPhase.OPEN)),
         )
         assert set(desired.trvs) == {"climate.up", "climate.down"}
@@ -259,7 +261,9 @@ class TestReachability:
     def test_boost_without_heat_demand_does_not_override(self):
         """Boost at/above target does not force-command offline TRVs."""
         desired, _ = decide(
-            self._snapshot(preset_mode="boost", room_temp=22.5, target_temp=22.0),
+            self._snapshot(
+                preset_mode="boost", room_temperature=22.5, heat_target_temperature=22.0
+            ),
             make_state(window=WindowState(phase=WindowPhase.OPEN)),
         )
         assert set(desired.trvs) == {"climate.up"}

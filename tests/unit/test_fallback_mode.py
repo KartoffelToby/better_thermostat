@@ -28,7 +28,7 @@ def mock_bt_instance_no_calibration():
     bt.device_name = "Test Thermostat"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.heat_target_temperature = 21.0
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
         "climate.test_trv": Trv.from_legacy_dict(
@@ -60,7 +60,7 @@ def mock_bt_instance_no_calibration_with_remap():
     bt.device_name = "Test Thermostat Remap"
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.heat_target_temperature = 21.0
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
         "climate.test_trv_remap": Trv.from_legacy_dict(
@@ -94,7 +94,7 @@ def mock_bt_instance_no_calibration_no_off():
     bt.device_name = "Test Thermostat No Off"
     bt.bt_hvac_mode = HVACMode.OFF
     bt.heat_target_temperature = 21.0
-    bt.cur_temp = 20.0
+    bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
         "climate.test_trv_no_off": Trv.from_legacy_dict(

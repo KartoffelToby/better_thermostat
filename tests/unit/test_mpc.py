@@ -79,8 +79,8 @@ class TestMPCController:
         # A 0.5 K error opens the valve part of the way, not to a rail.
         assert 0 < result.valve_percent < 100
 
-    @pytest.mark.parametrize("current_temp", [22.2, 22.3, 22.4])
-    def test_negative_error_shutoff(self, current_temp):
+    @pytest.mark.parametrize("room_temperature", [22.2, 22.3, 22.4])
+    def test_negative_error_shutoff(self, room_temperature):
         """A room above its target gets a closed valve from the controller itself.
 
         The forced loss calibration, which also closes the valve above
@@ -88,12 +88,12 @@ class TestMPCController:
         what the test sees.
         """
         params = MpcParams(mpc_adapt=False)
-        key = f"test_shutoff_{current_temp}"
+        key = f"test_shutoff_{room_temperature}"
         _STATES[key] = MpcState(loss_learn_count=100)
         inp = MpcInput(
             key=key,
             target_temp_C=22.0,
-            current_temp_C=current_temp,
+            current_temp_C=room_temperature,
             temp_slope_K_per_min=0.0,
         )
         with patch(f"{_MPC}.random.random", return_value=0.99):

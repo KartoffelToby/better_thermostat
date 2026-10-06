@@ -30,7 +30,7 @@ def trv():
             "min_temp": 5.0,
             "max_temp": 30.0,
             "current_temperature": 18.0,
-            "last_temperature": 19.0,
+            "commanded_setpoint": 19.0,
             "target_temp_received": True,
             "system_mode_received": True,
             "ignore_trv_states": False,

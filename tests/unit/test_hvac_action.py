@@ -27,7 +27,7 @@ def _default_kwargs(**overrides):
     """Return compute_hvac_action kwargs with sensible defaults."""
     base = {
         "hysteresis": ToleranceHysteresis(),
-        "cur_temp": 20.0,
+        "room_temperature": 20.0,
         "heat_target_temperature": 21.0,
         "cool_target": None,
         "hvac_mode": HVACMode.HEAT,
@@ -207,7 +207,7 @@ class TestComputeHvacAction:
 
     def test_none_temps_idle(self):
         """Test None temps idle."""
-        r = compute_hvac_action(**_default_kwargs(cur_temp=None))
+        r = compute_hvac_action(**_default_kwargs(room_temperature=None))
         assert r.action == HVACAction.IDLE
 
     def test_none_target_idle(self):
@@ -234,24 +234,28 @@ class TestComputeHvacAction:
 
     def test_heating_below_threshold(self):
         """Test Heating below threshold."""
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.4))
+        r = compute_hvac_action(**_default_kwargs(room_temperature=20.4))
         assert r.action == HVACAction.HEATING
 
     def test_idle_in_band(self):
         """Test Idle in band."""
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7))
+        r = compute_hvac_action(**_default_kwargs(room_temperature=20.7))
         assert r.action == HVACAction.IDLE
 
     def test_continues_heating_in_band(self):
         """Test Continues heating in band."""
         hyst = ToleranceHysteresis(last_action=HVACAction.HEATING)
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=20.7))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=20.7)
+        )
         assert r.action == HVACAction.HEATING
 
     def test_stops_at_target(self):
         """Test Stops at target."""
         hyst = ToleranceHysteresis(last_action=HVACAction.HEATING)
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=21.0))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=21.0)
+        )
         assert r.action == HVACAction.IDLE
 
     # --- cooling -----------------------------------------------------------
@@ -262,7 +266,7 @@ class TestComputeHvacAction:
             **_default_kwargs(
                 hvac_mode=HVACMode.HEAT_COOL,
                 bt_hvac_mode=HVACMode.HEAT,
-                cur_temp=27.0,
+                room_temperature=27.0,
                 cool_target=25.0,
                 tolerance=0.5,
             )
@@ -275,7 +279,7 @@ class TestComputeHvacAction:
             **_default_kwargs(
                 hvac_mode=HVACMode.HEAT_COOL,
                 bt_hvac_mode=HVACMode.HEAT,
-                cur_temp=25.3,
+                room_temperature=25.3,
                 cool_target=25.0,
                 tolerance=0.5,
             )
@@ -287,26 +291,34 @@ class TestComputeHvacAction:
     def test_trv_hvac_action_override(self):
         """Test Trv hvac action override."""
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
+        r = compute_hvac_action(
+            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
+        )
         assert r.action == HVACAction.HEATING
 
     def test_trv_valve_position_override(self):
         """Test Trv valve position override."""
         snap = TrvSnapshot(entity_id="trv1", valve_position=0.5)
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
+        r = compute_hvac_action(
+            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
+        )
         assert r.action == HVACAction.HEATING
 
     def test_trv_last_valve_percent_override(self):
         """Test Trv last valve percent override."""
         snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
+        r = compute_hvac_action(
+            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
+        )
         assert r.action == HVACAction.HEATING
 
     def test_ignore_states_skips_trv_override(self):
         """Test Ignore states skips trv override."""
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
-            **_default_kwargs(cur_temp=20.7, ignore_states=True, trv_snapshots=[snap])
+            **_default_kwargs(
+                room_temperature=20.7, ignore_states=True, trv_snapshots=[snap]
+            )
         )
         assert r.action == HVACAction.IDLE
 
@@ -315,13 +327,17 @@ class TestComputeHvacAction:
         snap = TrvSnapshot(
             entity_id="trv1", ignore_trv_states=True, hvac_action="heating"
         )
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
+        r = compute_hvac_action(
+            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
+        )
         assert r.action == HVACAction.IDLE
 
     def test_trv_zero_valve_no_override(self):
         """Test Trv zero valve no override."""
         snap = TrvSnapshot(entity_id="trv1", valve_position=0.0)
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7, trv_snapshots=[snap]))
+        r = compute_hvac_action(
+            **_default_kwargs(room_temperature=20.7, trv_snapshots=[snap])
+        )
         assert r.action == HVACAction.IDLE
 
     # --- TRV override suppressed above target ------------------------------
@@ -331,7 +347,9 @@ class TestComputeHvacAction:
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(
-                cur_temp=21.3, heat_target_temperature=21.0, trv_snapshots=[snap]
+                room_temperature=21.3,
+                heat_target_temperature=21.0,
+                trv_snapshots=[snap],
             )
         )
         assert r.action == HVACAction.IDLE
@@ -341,7 +359,9 @@ class TestComputeHvacAction:
         snap = TrvSnapshot(entity_id="trv1", valve_position=0.15)
         r = compute_hvac_action(
             **_default_kwargs(
-                cur_temp=21.3, heat_target_temperature=21.0, trv_snapshots=[snap]
+                room_temperature=21.3,
+                heat_target_temperature=21.0,
+                trv_snapshots=[snap],
             )
         )
         assert r.action == HVACAction.IDLE
@@ -351,7 +371,9 @@ class TestComputeHvacAction:
         snap = TrvSnapshot(entity_id="trv1", last_valve_percent=30.0)
         r = compute_hvac_action(
             **_default_kwargs(
-                cur_temp=21.3, heat_target_temperature=21.0, trv_snapshots=[snap]
+                room_temperature=21.3,
+                heat_target_temperature=21.0,
+                trv_snapshots=[snap],
             )
         )
         assert r.action == HVACAction.IDLE
@@ -361,7 +383,9 @@ class TestComputeHvacAction:
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(
-                cur_temp=21.0, heat_target_temperature=21.0, trv_snapshots=[snap]
+                room_temperature=21.0,
+                heat_target_temperature=21.0,
+                trv_snapshots=[snap],
             )
         )
         assert r.action == HVACAction.IDLE
@@ -371,7 +395,9 @@ class TestComputeHvacAction:
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
             **_default_kwargs(
-                cur_temp=20.7, heat_target_temperature=21.0, trv_snapshots=[snap]
+                room_temperature=20.7,
+                heat_target_temperature=21.0,
+                trv_snapshots=[snap],
             )
         )
         assert r.action == HVACAction.HEATING
@@ -381,7 +407,7 @@ class TestComputeHvacAction:
     def test_hysteresis_not_mutated(self):
         """Calling compute_hvac_action must NOT mutate the hysteresis input."""
         hyst = ToleranceHysteresis(last_action=HVACAction.HEATING, hold_active=True)
-        compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=21.0))
+        compute_hvac_action(**_default_kwargs(hysteresis=hyst, room_temperature=21.0))
         assert hyst.last_action == HVACAction.HEATING
         assert hyst.hold_active is True
 
@@ -410,7 +436,9 @@ class TestHysteresisTransitions:
         hyst = ToleranceHysteresis(last_action=HVACAction.IDLE)
         snap = TrvSnapshot(entity_id="trv1", hvac_action="heating")
         r = compute_hvac_action(
-            **_default_kwargs(hysteresis=hyst, cur_temp=20.7, trv_snapshots=[snap])
+            **_default_kwargs(
+                hysteresis=hyst, room_temperature=20.7, trv_snapshots=[snap]
+            )
         )
         assert r.tolerance_decision == HVACAction.IDLE
         assert r.action == HVACAction.HEATING
@@ -418,12 +446,12 @@ class TestHysteresisTransitions:
 
     def test_hold_active_set_in_band(self):
         """Test Hold active set in band."""
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.7))
+        r = compute_hvac_action(**_default_kwargs(room_temperature=20.7))
         assert r.new_hold_active is True
 
     def test_hold_active_false_when_heating(self):
         """Test Hold active false when heating."""
-        r = compute_hvac_action(**_default_kwargs(cur_temp=20.4))
+        r = compute_hvac_action(**_default_kwargs(room_temperature=20.4))
         assert r.new_hold_active is False
 
     def test_hold_active_false_when_cooling(self):
@@ -432,7 +460,7 @@ class TestHysteresisTransitions:
             **_default_kwargs(
                 hvac_mode=HVACMode.HEAT_COOL,
                 bt_hvac_mode=HVACMode.HEAT,
-                cur_temp=27.0,
+                room_temperature=27.0,
                 cool_target=25.0,
             )
         )
@@ -441,7 +469,7 @@ class TestHysteresisTransitions:
     def test_100_dashboard_reads_no_drift(self):
         """Repeated reads with same hysteresis must produce identical results."""
         hyst = ToleranceHysteresis(last_action=HVACAction.IDLE)
-        kwargs = _default_kwargs(hysteresis=hyst, cur_temp=20.7)
+        kwargs = _default_kwargs(hysteresis=hyst, room_temperature=20.7)
         first = compute_hvac_action(**kwargs)
         for _ in range(100):
             r = compute_hvac_action(**kwargs)
@@ -455,31 +483,41 @@ class TestHysteresisTransitions:
         hyst = ToleranceHysteresis()
 
         # 1) Cold start → HEATING
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=20.0))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=20.0)
+        )
         assert r.action == HVACAction.HEATING
         hyst.last_action = r.new_last_action
         hyst.hold_active = r.new_hold_active
 
         # 2) In band, still heating (hysteresis)
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=20.7))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=20.7)
+        )
         assert r.action == HVACAction.HEATING
         hyst.last_action = r.new_last_action
         hyst.hold_active = r.new_hold_active
 
         # 3) Reach target → IDLE
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=21.0))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=21.0)
+        )
         assert r.action == HVACAction.IDLE
         hyst.last_action = r.new_last_action
         hyst.hold_active = r.new_hold_active
 
         # 4) Drop into band → still IDLE (hysteresis prevents restart)
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=20.7))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=20.7)
+        )
         assert r.action == HVACAction.IDLE
         hyst.last_action = r.new_last_action
         hyst.hold_active = r.new_hold_active
 
         # 5) Drop below band → HEATING again
-        r = compute_hvac_action(**_default_kwargs(hysteresis=hyst, cur_temp=20.4))
+        r = compute_hvac_action(
+            **_default_kwargs(hysteresis=hyst, room_temperature=20.4)
+        )
         assert r.action == HVACAction.HEATING
 
     def test_off_resets_hysteresis(self):

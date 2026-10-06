@@ -193,10 +193,10 @@ def observe_standby(
     no derivative kick and no one-step integral jump computed from an
     hours-old timestamp. The integral itself stays frozen.
     """
-    current_temp = inp_current_temp_C
+    room_temperature = inp_current_temp_C
     if inp_current_temp_ema_C is not None:
-        current_temp = inp_current_temp_ema_C
-    if current_temp is None:
+        room_temperature = inp_current_temp_ema_C
+    if room_temperature is None:
         return state
 
     _forget_stamps_from_a_previous_uptime(state, now)
@@ -207,10 +207,12 @@ def observe_standby(
             a = 0.5
         prev = state.pid_last_meas
         state.pid_last_meas = (
-            current_temp if prev is None else ((1.0 - a) * prev + a * current_temp)
+            room_temperature
+            if prev is None
+            else ((1.0 - a) * prev + a * room_temperature)
         )
     else:
-        state.pid_last_meas = current_temp
+        state.pid_last_meas = room_temperature
     state.pid_last_time = now
     return state
 
@@ -289,18 +291,18 @@ def compute_pid(
     )
 
     # Determine effective current temperature (prefer EMA)
-    current_temp = inp_current_temp_C
+    room_temperature = inp_current_temp_C
     if inp_current_temp_ema_C is not None:
-        current_temp = inp_current_temp_ema_C
+        room_temperature = inp_current_temp_ema_C
 
     # Delta T
-    if inp_target_temp_C is None or current_temp is None:
+    if inp_target_temp_C is None or room_temperature is None:
         # Without temperatures we can only keep the previous value
         percent = 0.0
         pid_dbg: PIDDebugInfo = {"mode": "pid", "error": "no_temps"}
         return percent, pid_dbg, st
 
-    delta_kelvin = inp_target_temp_C - current_temp
+    delta_kelvin = inp_target_temp_C - room_temperature
     e = delta_kelvin
 
     # Update previous_abs_error before setting current
@@ -337,7 +339,7 @@ def compute_pid(
     if params.d_on_measurement:
         if dt > 0:
             # Use effective current temperature (EMA) for derivative
-            meas_now = current_temp
+            meas_now = room_temperature
             if meas_now is not None:
                 # EMA smoothing for the D channel only
                 try:
@@ -479,7 +481,7 @@ def compute_pid(
 
     # Update PID state (store the measurement for the D term)
     if params.d_on_measurement:
-        base = current_temp
+        base = room_temperature
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
         except TypeError, ValueError:
@@ -488,7 +490,7 @@ def compute_pid(
             prev = st.pid_last_meas
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
-        st.pid_last_meas = current_temp
+        st.pid_last_meas = room_temperature
     # Refresh the last error together with pid_last_time on every cycle,
     # regardless of the derivative mode. Otherwise a switch back to
     # derivative-on-error would pair a stale error with a fresh timestamp and
@@ -526,7 +528,7 @@ def compute_pid(
             "slope_in": _r(inp_temp_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
             # Measurements
-            "meas_current_used": _r(current_temp, 2),
+            "meas_current_used": _r(room_temperature, 2),
             "meas_external_raw": _r(inp_current_temp_C, 2),
             "meas_trv_C": _r(inp_trv_temp_C, 2),
             "meas_smooth_C": _r(smoothed, 2),
