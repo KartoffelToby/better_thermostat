@@ -193,17 +193,19 @@ async def test_the_flow_suggests_an_off_temperature_of_20_celsius(
 
 @pytest.mark.usefixtures("fahrenheit_system")
 async def test_a_configured_step_is_a_celsius_step_published_in_fahrenheit(hass):
-    """A step picked as 0.5 °C is the device's grid and is shown as 0.9 °F.
+    """A step picked as 0.5 °C is shown as 0.9 °F.
 
     The step dropdown is labelled in Celsius, like the range next to it, so
     it is read as Celsius. Home Assistant publishes the step unconverted next
-    to a target it converted, so the thermostat states it in Fahrenheit.
+    to a target it converted, so the thermostat states it in Fahrenheit. The
+    device keeps writing on its own whole degree Fahrenheit, which is coarser
+    than the configured step.
     """
     await _fahrenheit_trv(hass)
     _publish_room(hass, 67.0)
     bt = await _start(hass, step="0.5")
 
-    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(0.5)
+    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(5 / 9, abs=1e-3)
     assert hass.states.get(BT_ENTITY).attributes["target_temp_step"] == 0.9
 
 
