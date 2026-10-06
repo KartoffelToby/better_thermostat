@@ -11,7 +11,7 @@ from homeassistant.const import CONF_NAME
 import pytest
 
 from custom_components.better_thermostat.config_flow import OptionsFlowHandler
-from custom_components.better_thermostat.utils.const import CONF_HEATER
+from custom_components.better_thermostat.utils.const import CONF_THERMOSTAT
 
 ADVANCED_CONTEXT = {
     "trv_id": "climate.trv",
@@ -36,7 +36,7 @@ def _bundles(count: int) -> list[dict]:
 async def test_only_the_last_thermostat_form_is_the_last_step(count: int):
     """Every advanced form but the last one leads on to another form."""
     entry = MagicMock()
-    entry.data = {CONF_NAME: "Room", CONF_HEATER: _bundles(count)}
+    entry.data = {CONF_NAME: "Room", CONF_THERMOSTAT: _bundles(count)}
     flow = OptionsFlowHandler(entry)
     flow.hass = MagicMock()
     flow.trv_bundle = _bundles(count)

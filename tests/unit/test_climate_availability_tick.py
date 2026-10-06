@@ -85,7 +85,7 @@ async def test_the_default_calibration_mode_gets_one_too():
         (CalibrationMode.MPC_CALIBRATION.value, True),
         (CalibrationMode.HEATING_POWER_CALIBRATION.value, False),
         (CalibrationMode.NO_CALIBRATION.value, False),
-        (CalibrationMode.AGGRESIVE_CALIBRATION.value, False),
+        (CalibrationMode.AGGRESSIVE_CALIBRATION.value, False),
     ],
 )
 async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, recomputes):

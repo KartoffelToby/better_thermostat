@@ -54,7 +54,7 @@ from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
 
 from . import DOMAIN
-from .utils.const import CONF_HUMIDITY
+from .utils.const import CONF_HUMIDITY_SENSOR
 from .utils.helpers import entry_settings, is_bt_climate_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -158,7 +158,9 @@ async def async_get_triggers(
             else None
         )
         watches_humidity = bool(
-            (entry_settings(config_entry) if config_entry else {}).get(CONF_HUMIDITY)
+            (entry_settings(config_entry) if config_entry else {}).get(
+                CONF_HUMIDITY_SENSOR
+            )
         )
 
         # Purpose-specific triggers (primary – shown first in the UI)

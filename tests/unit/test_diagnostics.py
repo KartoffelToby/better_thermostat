@@ -19,7 +19,10 @@ from custom_components.better_thermostat.core.snapshot import (
 from custom_components.better_thermostat.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
+from custom_components.better_thermostat.utils.const import (
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
+)
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 _DIAGNOSTICS = "custom_components.better_thermostat.diagnostics"
@@ -52,7 +55,7 @@ def _config_entry(bt=None, *, loaded=True):
         # Home Assistant drops the runtime data when the entry unloads.
         del entry.runtime_data
     entry.data = {
-        CONF_HEATER: [
+        CONF_THERMOSTAT: [
             {
                 "trv": "climate.trv",
                 "integration": "mqtt",
@@ -60,7 +63,7 @@ def _config_entry(bt=None, *, loaded=True):
                 "model": "TRVZB",
             }
         ],
-        CONF_SENSOR: "sensor.room",
+        CONF_TEMPERATURE_SENSOR: "sensor.room",
     }
     return entry
 
@@ -92,7 +95,7 @@ async def test_diagnostics_contains_the_basic_sections():
     """The download carries config info, TRV state, and the sensors."""
     diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry())
     assert "info" in diagnostics
-    assert CONF_HEATER not in diagnostics["info"]
+    assert CONF_THERMOSTAT not in diagnostics["info"]
     assert diagnostics["thermostat"]["climate.trv"]["model"] == "TRVZB"
     assert diagnostics["thermostat"]["climate.trv"]["bt_integration"] == "mqtt"
     assert "external_temperature_sensor" in diagnostics
@@ -142,7 +145,7 @@ async def test_diagnostics_skips_unknown_trvs():
 async def test_missing_integration_falls_back_to_unknown_adapter():
     """A TRV without integration reports adapter 'unknown'."""
     entry = _config_entry()
-    entry.data[CONF_HEATER][0]["integration"] = None
+    entry.data[CONF_THERMOSTAT][0]["integration"] = None
     diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
     assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == "unknown"
 
@@ -151,10 +154,10 @@ async def test_missing_integration_falls_back_to_unknown_adapter():
 @pytest.mark.usefixtures("_empty_registries")
 async def test_window_sensor_state_is_included_when_configured():
     """With a window sensor configured, its state lands in the download."""
-    from custom_components.better_thermostat.utils.const import CONF_SENSOR_WINDOW
+    from custom_components.better_thermostat.utils.const import CONF_WINDOW_SENSORS
 
     entry = _config_entry()
-    entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
+    entry.data[CONF_WINDOW_SENSORS] = "binary_sensor.window"
     hass = _hass()
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
     expected = dict(hass.states.get.return_value.as_dict())
@@ -166,13 +169,13 @@ async def test_window_sensor_state_is_included_when_configured():
 @pytest.mark.usefixtures("_empty_registries")
 async def test_no_state_in_the_download_carries_its_context():
     """A user-triggered change leaves no user or logbook id in the download."""
-    from custom_components.better_thermostat.utils.const import CONF_SENSOR_WINDOW
+    from custom_components.better_thermostat.utils.const import CONF_WINDOW_SENSORS
 
     context = Context(user_id="user-4711", parent_id="parent-4711", id="context-4711")
     bt = ThermostatStandIn()
     bt.entity_id = "climate.bt"
     entry = _config_entry(bt)
-    entry.data[CONF_SENSOR_WINDOW] = "binary_sensor.window"
+    entry.data[CONF_WINDOW_SENSORS] = "binary_sensor.window"
     hass = _hass()
     hass.states.get.return_value = State(
         "climate.trv", "heat", {"temperature": 21.0}, context=context
@@ -210,7 +213,7 @@ async def test_diagnostics_leave_the_entry_data_untouched(
         domain=DOMAIN,
         entry_id="entry-1",
         data={
-            CONF_HEATER: [
+            CONF_THERMOSTAT: [
                 {
                     "trv": "climate.trv",
                     "integration": integration,
@@ -218,7 +221,7 @@ async def test_diagnostics_leave_the_entry_data_untouched(
                     "model": "TRVZB",
                 }
             ],
-            CONF_SENSOR: "sensor.room",
+            CONF_TEMPERATURE_SENSOR: "sensor.room",
         },
     )
     before = copy.deepcopy(dict(entry.data))
@@ -226,7 +229,7 @@ async def test_diagnostics_leave_the_entry_data_untouched(
     diagnostics = await async_get_config_entry_diagnostics(_hass(), entry)
 
     assert dict(entry.data) == before
-    assert "adapter" not in entry.data[CONF_HEATER][0]
+    assert "adapter" not in entry.data[CONF_THERMOSTAT][0]
     assert diagnostics["thermostat"]["climate.trv"]["bt_adapter"] == expected_adapter
 
 
@@ -236,7 +239,7 @@ async def test_an_entry_without_a_room_sensor_still_downloads(hass):
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_HEATER: [
+            CONF_THERMOSTAT: [
                 {
                     "trv": "climate.trv",
                     "integration": "mqtt",
@@ -244,7 +247,7 @@ async def test_an_entry_without_a_room_sensor_still_downloads(hass):
                     "model": "TRVZB",
                 }
             ],
-            CONF_SENSOR: None,
+            CONF_TEMPERATURE_SENSOR: None,
         },
     )
     hass.states.async_set("climate.trv", "heat")
@@ -261,8 +264,8 @@ async def test_a_device_bundle_without_integration_or_model_still_downloads(hass
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_HEATER: [{"trv": "climate.trv", "advanced": {}}],
-            CONF_SENSOR: "sensor.room",
+            CONF_THERMOSTAT: [{"trv": "climate.trv", "advanced": {}}],
+            CONF_TEMPERATURE_SENSOR: "sensor.room",
         },
     )
     hass.states.async_set("climate.trv", "heat")

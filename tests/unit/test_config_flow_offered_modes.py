@@ -27,7 +27,7 @@ from custom_components.better_thermostat.config_flow import (
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
-    CONF_HEATER,
+    CONF_THERMOSTAT,
     CalibrationOutput,
 )
 from tests.factories import make_entity_registry, make_registry_entry
@@ -232,7 +232,7 @@ async def _create_flow_advanced_form(model):
 async def _options_flow_advanced_form(model):
     """Render the advanced step an existing entry is reconfigured through."""
     entry = MagicMock()
-    entry.data = {CONF_NAME: "Living Room", CONF_HEATER: [_trv_bundle_entry(model)]}
+    entry.data = {CONF_NAME: "Living Room", CONF_THERMOSTAT: [_trv_bundle_entry(model)]}
     flow = OptionsFlowHandler(entry)
     flow.hass = _hass_holding_the_trv()
     flow.trv_bundle = [_trv_bundle_entry(model)]

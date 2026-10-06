@@ -14,20 +14,20 @@ from custom_components.better_thermostat.config_flow import (
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_COOLER,
-    CONF_DOOR_TIMEOUT,
-    CONF_DOOR_TIMEOUT_AFTER,
-    CONF_HEATER,
-    CONF_SENSOR,
-    CONF_SENSOR_DOOR,
+    CONF_DOOR_OFF_DELAY,
+    CONF_DOOR_OFF_DELAY_AFTER,
+    CONF_DOOR_SENSORS,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
 )
 
 
 def _base_with_cooler():
     return {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
+        CONF_THERMOSTAT: ["climate.trv"],
         CONF_COOLER: "climate.ac",
-        CONF_SENSOR: "sensor.temp",
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
 
 
@@ -35,8 +35,8 @@ def test_cooler_removed_when_key_absent_from_input():
     """Clearing the cooler omits the key; the stored value must be dropped."""
     user_input = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
-        CONF_SENSOR: "sensor.temp",
+        CONF_THERMOSTAT: ["climate.trv"],
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
 
     normalized = _normalize_user_submission(
@@ -51,9 +51,9 @@ def test_cooler_removed_when_input_empty():
     for empty in ("", None):
         user_input = {
             CONF_NAME: "Living Room",
-            CONF_HEATER: ["climate.trv"],
+            CONF_THERMOSTAT: ["climate.trv"],
             CONF_COOLER: empty,
-            CONF_SENSOR: "sensor.temp",
+            CONF_TEMPERATURE_SENSOR: "sensor.temp",
         }
 
         normalized = _normalize_user_submission(
@@ -67,9 +67,9 @@ def test_cooler_retained_when_present_in_input():
     """A submitted cooler entity is kept."""
     user_input = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
+        CONF_THERMOSTAT: ["climate.trv"],
         CONF_COOLER: "climate.ac",
-        CONF_SENSOR: "sensor.temp",
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
 
     normalized = _normalize_user_submission(
@@ -83,9 +83,9 @@ def test_cooler_updated_to_different_entity():
     """A changed cooler entity replaces the stored one."""
     user_input = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
+        CONF_THERMOSTAT: ["climate.trv"],
         CONF_COOLER: "climate.new_ac",
-        CONF_SENSOR: "sensor.temp",
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
 
     normalized = _normalize_user_submission(
@@ -99,43 +99,43 @@ def test_door_sensor_removed_when_key_absent_from_input():
     """Clearing the door sensor omits the key; the stored value must be dropped."""
     base = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
-        CONF_SENSOR: "sensor.temp",
-        CONF_SENSOR_DOOR: "binary_sensor.door",
+        CONF_THERMOSTAT: ["climate.trv"],
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
+        CONF_DOOR_SENSORS: "binary_sensor.door",
     }
     user_input = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
-        CONF_SENSOR: "sensor.temp",
+        CONF_THERMOSTAT: ["climate.trv"],
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
     normalized = _normalize_user_submission(user_input, mode="options", base=base)
-    assert normalized[CONF_SENSOR_DOOR] is None
+    assert normalized[CONF_DOOR_SENSORS] is None
 
 
 def test_door_timeouts_normalized_from_duration_dicts():
     """Door delays submitted as duration dicts are stored as seconds."""
     user_input = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
-        CONF_SENSOR: "sensor.temp",
-        CONF_DOOR_TIMEOUT: {"hours": 0, "minutes": 5, "seconds": 0},
-        CONF_DOOR_TIMEOUT_AFTER: {"hours": 0, "minutes": 0, "seconds": 30},
+        CONF_THERMOSTAT: ["climate.trv"],
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
+        CONF_DOOR_OFF_DELAY: {"hours": 0, "minutes": 5, "seconds": 0},
+        CONF_DOOR_OFF_DELAY_AFTER: {"hours": 0, "minutes": 0, "seconds": 30},
     }
     normalized = _normalize_user_submission(user_input, mode="create")
-    assert normalized[CONF_DOOR_TIMEOUT] == 300
-    assert normalized[CONF_DOOR_TIMEOUT_AFTER] == 30
+    assert normalized[CONF_DOOR_OFF_DELAY] == 300
+    assert normalized[CONF_DOOR_OFF_DELAY_AFTER] == 30
 
 
 def test_door_timeouts_default_to_zero_on_create():
     """Omitted door delays default to no delay for new entries."""
     user_input = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: ["climate.trv"],
-        CONF_SENSOR: "sensor.temp",
+        CONF_THERMOSTAT: ["climate.trv"],
+        CONF_TEMPERATURE_SENSOR: "sensor.temp",
     }
     normalized = _normalize_user_submission(user_input, mode="create")
-    assert normalized[CONF_DOOR_TIMEOUT] == 0
-    assert normalized[CONF_DOOR_TIMEOUT_AFTER] == 0
+    assert normalized[CONF_DOOR_OFF_DELAY] == 0
+    assert normalized[CONF_DOOR_OFF_DELAY_AFTER] == 0
 
 
 def test_heaters_are_preserved_when_the_form_is_redisplayed():
@@ -147,10 +147,10 @@ def test_heaters_are_preserved_when_the_form_is_redisplayed():
     error message they were supposed to correct.
     """
     fields = _build_user_fields(
-        mode="create", current={CONF_HEATER: ["climate.trv", "climate.trv_2"]}
+        mode="create", current={CONF_THERMOSTAT: ["climate.trv", "climate.trv_2"]}
     )
 
-    heater_marker = next(marker for marker in fields if marker == CONF_HEATER)
+    heater_marker = next(marker for marker in fields if marker == CONF_THERMOSTAT)
 
     assert heater_marker.description["suggested_value"] == [
         "climate.trv",

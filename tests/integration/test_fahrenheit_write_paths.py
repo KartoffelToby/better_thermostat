@@ -37,13 +37,13 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.better_thermostat.utils.const import (
-    CONF_HEATER,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
-    CONF_SENSOR,
     CONF_TARGET_TEMP_MAX,
     CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     SERVICE_RUN_VALVE_MAINTENANCE,
 )
 
@@ -616,8 +616,8 @@ async def test_accepting_the_suggested_off_temperature_keeps_a_cold_room_heating
         hass,
         {
             "name": "BT Test",
-            CONF_HEATER: [TRV_ID],
-            CONF_SENSOR: SENSOR_ID,
+            CONF_THERMOSTAT: [TRV_ID],
+            CONF_TEMPERATURE_SENSOR: SENSOR_ID,
             CONF_OUTDOOR_SENSOR: OUTDOOR_ID,
         },
     )
@@ -643,8 +643,8 @@ async def test_configured_bounds_are_read_in_the_unit_their_label_names(hass):
         hass,
         {
             "name": "BT Test",
-            CONF_HEATER: [TRV_ID],
-            CONF_SENSOR: SENSOR_ID,
+            CONF_THERMOSTAT: [TRV_ID],
+            CONF_TEMPERATURE_SENSOR: SENSOR_ID,
             CONF_TARGET_TEMP_MIN: "min_max_16",
             CONF_TARGET_TEMP_MAX: "min_max_24",
         },
@@ -675,8 +675,8 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
         hass,
         {
             "name": "BT Test",
-            CONF_HEATER: [TRV_ID],
-            CONF_SENSOR: SENSOR_ID,
+            CONF_THERMOSTAT: [TRV_ID],
+            CONF_TEMPERATURE_SENSOR: SENSOR_ID,
             CONF_TARGET_TEMP_STEP: "step_0_5",
         },
     )
@@ -705,7 +705,11 @@ async def test_the_thermostat_publishes_its_step_in_the_system_unit(
     1 °F.
     """
     _publish_room_at_device_reading(hass, fake_trv.profile)
-    user_input = {"name": "BT Test", CONF_HEATER: [TRV_ID], CONF_SENSOR: SENSOR_ID}
+    user_input = {
+        "name": "BT Test",
+        CONF_THERMOSTAT: [TRV_ID],
+        CONF_TEMPERATURE_SENSOR: SENSOR_ID,
+    }
     if configured is not None:
         user_input[CONF_TARGET_TEMP_STEP] = configured
     entry = await _run_create_flow(hass, user_input)
@@ -749,8 +753,8 @@ async def test_a_target_from_the_fahrenheit_slider_lands_on_the_configured_step(
         hass,
         {
             "name": "BT Test",
-            CONF_HEATER: [TRV_ID],
-            CONF_SENSOR: SENSOR_ID,
+            CONF_THERMOSTAT: [TRV_ID],
+            CONF_TEMPERATURE_SENSOR: SENSOR_ID,
             CONF_TARGET_TEMP_STEP: "step_0_5",
         },
     )

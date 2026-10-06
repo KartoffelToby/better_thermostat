@@ -35,13 +35,13 @@ from custom_components.better_thermostat.device_trigger import (
     TRIGGER_TYPES,
     async_get_triggers,
 )
-from custom_components.better_thermostat.utils.const import CONF_HUMIDITY
+from custom_components.better_thermostat.utils.const import CONF_HUMIDITY_SENSOR
 
 # The two shapes a config entry takes when it names no humidity sensor. An
 # entry created without one never carries the key; clearing the selector in
 # the options flow writes it back as None, because `_normalize` keeps every
 # optional key the form submitted. Both have to read as "no humidity".
-NO_HUMIDITY_ENTRIES = ({}, {CONF_HUMIDITY: None})
+NO_HUMIDITY_ENTRIES = ({}, {CONF_HUMIDITY_SENSOR: None})
 
 
 def _create_device(
@@ -63,7 +63,7 @@ def _create_device(
         The registered device entry.
     """
     if entry_data is None:
-        entry_data = {CONF_HUMIDITY: "sensor.room_humidity"}
+        entry_data = {CONF_HUMIDITY_SENSOR: "sensor.room_humidity"}
     config_entry = MockConfigEntry(domain=DOMAIN, data=entry_data)
     config_entry.add_to_hass(hass)
     device_registry = dr.async_get(hass)

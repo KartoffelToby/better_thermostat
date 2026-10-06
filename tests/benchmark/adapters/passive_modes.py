@@ -10,7 +10,7 @@ In production:
   calibration offset of ``(external - trv_internal)``. The TRV's
   internal regulator then effectively tracks the external sensor:
   ``valve = p_gain · (bt_target - external)``.
-* **AGGRESIVE_CALIBRATION** (UI: *Fix Calibration*) — same as DEFAULT
+* **AGGRESSIVE_CALIBRATION** (UI: *Fix Calibration*) — same as DEFAULT
   plus a −2.5 K bias on the offset while heating, so the TRV thinks
   it's 2.5 K colder than it is and opens the valve more aggressively.
 * **NO_CALIBRATION** — BT pushes only ``bt_target``, no offset. The
@@ -85,7 +85,7 @@ class DefaultCalibrationAdapter:
 
 
 class AggressiveCalibrationAdapter:
-    """``CalibrationMode.AGGRESIVE_CALIBRATION`` — DEFAULT + −2.5 K boost while heating.
+    """``CalibrationMode.AGGRESSIVE_CALIBRATION`` — DEFAULT + −2.5 K boost while heating.
 
     The boost adds ``p_gain · 2.5`` to the proportional valve command on
     every step where the room is below the target (positive error),

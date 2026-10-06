@@ -168,7 +168,7 @@ rejected = ["trv_data", "trv_info", "_real_trv", "trv_entry"]
 [[term]]
 name = "trv_config"
 zone = "A"
-definition = "One entry of the `CONF_HEATER` list. A dict, not an id."
+definition = "One entry of the `CONF_THERMOSTAT` list. A dict, not an id."
 rejected = ["trv_conf", "trv_cfg"]
 note = "`trv_id` is rejected for this too; which sites become `entity_id` and which become `trv_config` has to be decided per site."
 
