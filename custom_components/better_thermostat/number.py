@@ -38,8 +38,8 @@ from .utils.calibration.pid import (
     build_pid_key,
 )
 from .utils.const import (
+    CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    CONF_CALIBRATION_OUTPUT,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -139,7 +139,7 @@ async def async_setup_entry(
 
             advanced = trv_config.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            calibration_output = advanced.get(CONF_CALIBRATION_OUTPUT)
+            calibration_output = advanced.get(CONF_CALIBRATION)
 
             # Normalize string values to CalibrationMode enum
             try:
