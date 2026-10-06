@@ -12,11 +12,16 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.number.const import SERVICE_SET_VALUE
+from homeassistant.const import STATE_UNAVAILABLE
 
 from ..utils.helpers import find_valve_entity
 from .types import AdapterHost
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class ValveEntityUnreachableError(RuntimeError):
+    """The valve entity has no state a valve position could be written to."""
 
 
 async def discover_valve_entity(self: AdapterHost, entity_id: str) -> None:
@@ -65,8 +70,13 @@ async def write_valve_percent(
     offers.
 
     Nothing is written for a TRV whose valve entity is known to be
-    read-only, was never discovered, or reports no state: without a state
-    there are no bounds to scale onto.
+    read-only or was never discovered; neither one is a valve channel.
+
+    A valve entity that reports no state, or reports ``unavailable``, takes
+    no write either: without a state there are no bounds to scale onto, and
+    Home Assistant drops a service call to an unavailable entity without
+    saying so. Both raise, so the caller neither records the position as
+    sent nor takes a later write of the same position as already done.
 
     Parameters
     ----------
@@ -76,6 +86,11 @@ async def write_valve_percent(
         Entity ID of the TRV to write to.
     valve_percent : float
         Opening degree Better Thermostat asks for, 0-100.
+
+    Raises
+    ------
+    ValveEntityUnreachableError
+        When the valve entity reports no state or reports ``unavailable``.
     """
     _LOGGER.debug(
         "better_thermostat %s: TO TRV %s set_valve: %s",
@@ -97,15 +112,12 @@ async def write_valve_percent(
         return
 
     valve_entity = self.hass.states.get(valve_entity_id)
-    if valve_entity is None:
-        _LOGGER.debug(
-            "better_thermostat %s: valve entity %s for %s reports no state, "
-            "so its bounds are unknown, skip adapter write",
-            self.device_name,
-            valve_entity_id,
-            entity_id,
+    if valve_entity is None or valve_entity.state == STATE_UNAVAILABLE:
+        raise ValveEntityUnreachableError(
+            f"valve entity {valve_entity_id} for {entity_id} reports "
+            f"{valve_entity.state if valve_entity is not None else 'no state'}, "
+            "so it cannot take a valve position"
         )
-        return
 
     min_valve = float(str(valve_entity.attributes.get("min", 0)))
     max_valve = float(str(valve_entity.attributes.get("max", 100)))

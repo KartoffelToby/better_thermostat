@@ -25,7 +25,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
@@ -38,10 +38,14 @@ from custom_components.better_thermostat.adapters import (
     tado,
     zwave_js,
 )
+from custom_components.better_thermostat.adapters.valve_entity import (
+    ValveEntityUnreachableError,
+)
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
+_RETRY = "custom_components.better_thermostat.utils.retry"
 VALVE_ENTITY = "number.trv_valve_position"
 
 ADAPTERS = {
@@ -90,6 +94,7 @@ def _thermostat(
     valve_bounds=(0.0, 100.0, 1.0),
     unit=UnitOfTemperature.CELSIUS,
     head_attributes=None,
+    valve_state="0",
 ):
     """Build a thermostat whose service calls are recorded, not executed.
 
@@ -109,6 +114,8 @@ def _thermostat(
     head_attributes : dict or None
         The attributes the TRV's climate state publishes; ``None`` publishes
         none.
+    valve_state : str
+        The state the valve number entity reports.
 
     Returns
     -------
@@ -124,7 +131,7 @@ def _thermostat(
     thermostat.hass.config.units.temperature_unit = unit
     states = {
         VALVE_ENTITY: State(
-            VALVE_ENTITY, "0", {"min": minimum, "max": maximum, "step": step}
+            VALVE_ENTITY, valve_state, {"min": minimum, "max": maximum, "step": step}
         ),
         ENTITY_ID: State(ENTITY_ID, "heat", head_attributes or {}),
     }
@@ -203,6 +210,28 @@ class TestTheDeclarationIsTheContract:
 
         assert answer is False
         assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("valve_entity", "valve_state"),
+        [("number.no_longer_there", "0"), (VALVE_ENTITY, STATE_UNAVAILABLE)],
+        ids=["no-state", "unavailable"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_valve_entity_without_a_usable_state_is_never_reported_as_written(
+        self, name, valve_entity, valve_state
+    ):
+        """No position is recorded, so the next cycle sends it again."""
+        thermostat = _thermostat(
+            adapter=ADAPTERS[name], valve_entity=valve_entity, valve_state=valve_state
+        )
+
+        with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+            answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is False
+        assert _calls(thermostat) == []
+        assert thermostat.real_trvs[ENTITY_ID].last_valve_percent is None
 
 
 class TestAValveQuirkOutranksTheAdapter:
@@ -335,16 +364,25 @@ class TestTheValveWriteStaysInsideTheDeclaredBounds:
 
     @pytest.mark.parametrize("name", VALVE_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_a_valve_entity_without_a_state_writes_nothing(self, name):
-        """An entity that reports nothing declares no bounds either.
+    @pytest.mark.parametrize(
+        ("valve_entity", "valve_state"),
+        [("number.no_longer_there", "0"), (VALVE_ENTITY, STATE_UNAVAILABLE)],
+        ids=["no-state", "unavailable"],
+    )
+    async def test_a_valve_entity_without_a_usable_state_takes_no_write(
+        self, name, valve_entity, valve_state
+    ):
+        """The write raises instead of going out or passing for done.
 
-        Discovery can outlive the entity it found. The bounds come from
-        the state, so without one there is no range to land the write in
-        and the percentage would go out unscaled.
+        Discovery can outlive the entity it found, and without a state there
+        is no range to land the write in. Home Assistant drops a call to an
+        unavailable entity without a word, so a write that returned would be
+        taken for one the valve received.
         """
-        thermostat = _thermostat(valve_entity="number.no_longer_there")
+        thermostat = _thermostat(valve_entity=valve_entity, valve_state=valve_state)
 
-        await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
+        with pytest.raises(ValveEntityUnreachableError):
+            await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
 
         assert _calls(thermostat) == []
 
