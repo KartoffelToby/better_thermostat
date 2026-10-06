@@ -34,8 +34,8 @@ from . import DOMAIN, other_entries_controlling, trv_entity_ids
 from .adapters.delegate import load_adapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
 from .utils.const import (
+    CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
-    CONF_CALIBRATION_OUTPUT,
     CONF_CHILD_LOCK,
     CONF_COOLER,
     CONF_DOOR_TIMEOUT,
@@ -372,7 +372,7 @@ def _build_advanced_fields(
 
     # Build fields directly in the final desired order without post-reordering
     # Compute values used below
-    calib_default = get_value(CONF_CALIBRATION_OUTPUT, default_calibration)
+    calib_default = get_value(CONF_CALIBRATION, default_calibration)
 
     options = []
     if support_valve:
@@ -393,9 +393,7 @@ def _build_advanced_fields(
     ordered: OrderedDict = OrderedDict()
 
     # 1) Calibration + protection flags
-    ordered[vol.Required(CONF_CALIBRATION_OUTPUT, default=calib_default)] = (
-        calib_selector
-    )
+    ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
     ordered[
         vol.Required(
             CONF_CALIBRATION_MODE,
@@ -444,9 +442,7 @@ def _normalize_advanced_submission(
     data: dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
 ) -> dict[str, Any]:
     normalized: dict[str, Any] = dict(data)
-    normalized[CONF_CALIBRATION_OUTPUT] = normalized.get(
-        CONF_CALIBRATION_OUTPUT, default_calibration
-    )
+    normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
     normalized[CONF_CALIBRATION_MODE] = normalized.get(
         CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE
     )
