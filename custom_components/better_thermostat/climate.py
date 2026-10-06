@@ -715,7 +715,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         )
         # ``bt_target_temp_step`` also absorbs the step derived from the child
         # entities, so the explicitly configured value is kept apart: it is the
-        # only step that may override a device's own grid.
+        # only step that may coarsen a device's own grid.
         self._configured_target_temp_step: float | None = (
             self.bt_target_temp_step
             if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
@@ -2246,15 +2246,18 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
             # across all children in ``bt_target_temp_step``. An explicitly
-            # configured step still overrides the device, and the aggregate
-            # only fills in for a device that publishes no usable step.
+            # configured step coarser than the device's own replaces it. A
+            # finer one does not: the device would hold every write on its own
+            # grid and never report the value it was sent. The aggregate only
+            # fills in for a device that publishes no usable step.
             _device_step = _target_temp_step_celsius(
                 _s, self.device_name, self.hass.config.units.temperature_unit
             )
-            if self._configured_target_temp_step is not None:
-                trv_data.target_temp_step = self._configured_target_temp_step
-            elif _device_step is not None and _device_step > 0.0:
-                trv_data.target_temp_step = _device_step
+            _configured_step = self._configured_target_temp_step
+            if _device_step is not None and _device_step > 0.0:
+                trv_data.target_temp_step = max(_device_step, _configured_step or 0.0)
+            elif _configured_step is not None:
+                trv_data.target_temp_step = _configured_step
             elif self.bt_target_temp_step and self.bt_target_temp_step > 0.0:
                 trv_data.target_temp_step = self.bt_target_temp_step
             else:

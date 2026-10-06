@@ -147,14 +147,28 @@ async def test_half_degree_user_change_on_a_fine_trv_is_adopted(bt):
 
 
 @pytest.mark.asyncio
-async def test_configured_step_overrides_the_device_step(bt):
-    """An explicitly configured step is the user's decision and wins."""
-    bt.bt_target_temp_step = 0.25
-    bt._configured_target_temp_step = 0.25
+@pytest.mark.parametrize(
+    ("configured", "device", "expected"),
+    [
+        pytest.param(0.25, FINE_STEP, 0.25, id="coarser_configured_step_wins"),
+        pytest.param(0.1, 0.5, 0.5, id="finer_configured_step_yields"),
+        pytest.param(0.25, None, 0.25, id="configured_step_without_device_step"),
+    ],
+)
+async def test_the_coarser_of_configured_and_device_step_is_written_on(
+    bt, configured, device, expected
+):
+    """A TRV is written on the coarser of the configured step and its own.
 
-    await _run_startup(bt, _child_state(TRV_ID, FINE_STEP))
+    A device holds every write on its own grid, so a value on a finer grid
+    comes back rounded and never as the value Better Thermostat sent.
+    """
+    bt.bt_target_temp_step = configured
+    bt._configured_target_temp_step = configured
 
-    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(0.25)
+    await _run_startup(bt, _child_state(TRV_ID, device))
+
+    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(expected)
 
 
 @pytest.mark.asyncio
