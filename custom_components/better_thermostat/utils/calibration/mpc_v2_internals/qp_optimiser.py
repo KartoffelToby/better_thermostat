@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import importlib
 import logging
 import math
-from typing import Any
+from types import ModuleType
 
 import numpy as np
 
@@ -32,7 +32,7 @@ from .plant import PlantModelRC2
 _LOGGER = logging.getLogger(__name__)
 
 
-def _try_import_daqp() -> Any | None:
+def _try_import_daqp() -> ModuleType | None:
     """Return the optional DAQP module, or ``None`` when it is unavailable.
 
     ``daqp`` is an optional dependency — it is not a manifest requirement
