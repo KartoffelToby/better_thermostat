@@ -634,6 +634,16 @@ class TestSolarIntensitySensor:
         sensor._update_state()
         assert sensor._attr_native_value == 10.0
 
+    def test_weather_numbers_beyond_float_range_fall_back_to_the_condition(self):
+        """Integers too large for a float give the condition-based estimate."""
+        bt = _make_bt_climate(weather_entity="weather.home")
+        bt.hass.states.get.return_value = State(
+            "weather.home", "sunny", {"cloud_coverage": 10**400, "uv_index": 10**400}
+        )
+        sensor = BetterThermostatSolarIntensitySensor(bt)
+        sensor._update_state()
+        assert sensor._attr_native_value == 100.0
+
     @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
     def test_full_intensity_gives_100_percent(self, mock_solar):
         """Full intensity gives 100 percent."""

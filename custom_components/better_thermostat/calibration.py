@@ -225,7 +225,7 @@ def _get_current_solar_intensity(self: BetterThermostat) -> float:
             try:
                 # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
                 return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
-            except ValueError, TypeError:
+            except ValueError, TypeError, OverflowError:
                 pass
 
     # 2. UV Index (0-10+) -> Higher is better
@@ -235,7 +235,7 @@ def _get_current_solar_intensity(self: BetterThermostat) -> float:
             try:
                 # Normalize UV index (approx 0-10 range)
                 return max(0.0, min(1.0, float(uv) / 10.0))
-            except ValueError, TypeError:
+            except ValueError, TypeError, OverflowError:
                 pass
 
     # 3. Weather condition mapping
