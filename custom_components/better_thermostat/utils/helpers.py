@@ -54,6 +54,7 @@ from custom_components.better_thermostat.utils.const import (
 if TYPE_CHECKING:
     from homeassistant.core import Event, EventStateChangedData
 
+    from custom_components.better_thermostat.adapters.types import AdapterProbeHost
     from custom_components.better_thermostat.climate import BetterThermostat
     from custom_components.better_thermostat.trv import Trv
 
@@ -138,7 +139,7 @@ _ENABLE_AND_RELOAD: Final = (
 
 
 def _report_disabled_sibling(
-    self: Any, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
+    self: object, trv_entity_id: str, sibling_entity_id: str, role: str, outcome: str
 ) -> None:
     """Warn that the ``role`` entity of a TRV is disabled in Home Assistant.
 
@@ -206,7 +207,7 @@ def find_device_entity(
     for ent in entity_registry.entities.values():
         if not is_sibling_entry(ent, device_id) or ent.domain not in domains:
             continue
-        name = (getattr(ent, "original_name", "") or "").lower()
+        name = (ent.original_name or "").lower()
         uid = (ent.unique_id or "").lower()
         # Match keywords against the object-id only; the "<domain>." prefix
         # would otherwise let a keyword such as "lock" match every lock-domain
@@ -435,12 +436,12 @@ def normalize_hvac_mode(value: HVACMode | str) -> HVACMode | str:
     return value
 
 
-def device_offers_mode(trv_modes: Iterable[Any], hvac_mode: str) -> bool:
+def device_offers_mode(trv_modes: Iterable[HVACMode | str], hvac_mode: str) -> bool:
     """Whether the device's reported mode list contains this mode.
 
     Parameters
     ----------
-    trv_modes : Iterable[Any]
+    trv_modes : Iterable[HVACMode | str]
             The device's reported ``hvac_modes`` list.
     hvac_mode : str
             The mode to look for.
@@ -456,12 +457,14 @@ def device_offers_mode(trv_modes: Iterable[Any], hvac_mode: str) -> bool:
     return any(normalize_hvac_mode(mode) == target for mode in trv_modes)
 
 
-def offered_mode_signature(trv_modes: Iterable[Any] | None) -> frozenset[str]:
+def offered_mode_signature(
+    trv_modes: Iterable[HVACMode | str] | None,
+) -> frozenset[str]:
     """Reduce a reported mode list to the set of modes it offers.
 
     Parameters
     ----------
-    trv_modes : Iterable[Any] | None
+    trv_modes : Iterable[HVACMode | str] | None
             HVAC modes a device reports, in any spelling.
 
     Returns
@@ -2184,7 +2187,9 @@ _VALVE_TRANSLATION_KEYS: dict[str, str] = {
 _MODELS_WITHOUT_VALVE_ENTITY = frozenset({"trv-zbt"})
 
 
-async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
+async def find_valve_entity(
+    self: AdapterProbeHost, entity_id: str
+) -> ValveEntityInfo | None:
     """Locate a per-TRV valve position helper entity, if available.
 
     Returns a mapping with the entity_id, whether it appears writable, and the
@@ -2199,10 +2204,10 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     # under a different Home Assistant device_id than the climate entity.
     # To support these, also match candidates by shared device identifiers.
     dev_reg = dr.async_get(self.hass)
-    device_id = getattr(reg_entity, "device_id", None)
+    device_id = reg_entity.device_id
     base_device = dev_reg.async_get(device_id) if device_id is not None else None
     base_identifiers: set[tuple[str, str]] = set(
-        getattr(base_device, "identifiers", set()) or set()
+        base_device.identifiers if base_device is not None else set()
     )
 
     base_model_id = getattr(base_device, "model_id", None)
@@ -2232,16 +2237,16 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
         # Fallback: match by shared device identifiers
         if not base_identifiers:
             return False
-        cand_device_id = getattr(candidate, "device_id", None)
+        cand_device_id = candidate.device_id
         if not cand_device_id:
             return False
         cand_device = dev_reg.async_get(cand_device_id)
-        cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
+        cand_identifiers = cand_device.identifiers if cand_device is not None else set()
         return bool(base_identifiers.intersection(cand_identifiers))
 
     def _classify_by_translation_key(entity: er.RegistryEntry) -> str | None:
         """Classify entity by its translation_key (stable, language-independent)."""
-        tk = getattr(entity, "translation_key", None)
+        tk = entity.translation_key
         if tk and tk in _VALVE_TRANSLATION_KEYS:
             return _VALVE_TRANSLATION_KEYS[tk]
         return None
@@ -2299,11 +2304,7 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
         # Prefer translation_key (stable, language-independent) over string matching
         reason = _classify_by_translation_key(entity)
         if reason is None:
-            reason = _classify(
-                uid,
-                entity.entity_id or "",
-                getattr(entity, "original_name", None) or "",
-            )
+            reason = _classify(uid, entity.entity_id or "", entity.original_name or "")
         if reason is None:
             continue
         if entity.disabled_by is not None:
@@ -2467,7 +2468,9 @@ _CALIBRATION_TRANSLATION_KEYS: set[str] = {
 _CALIBRATION_ENTITY_DOMAINS: set[str] = {"number", "select"}
 
 
-async def find_local_calibration_entity(self, entity_id) -> str | None:
+async def find_local_calibration_entity(
+    self: AdapterProbeHost, entity_id: str
+) -> str | None:
     """Find the local calibration entity for the TRV.
 
     Uses the entity registry's ``translation_key`` and ``original_name``
@@ -2506,7 +2509,7 @@ async def find_local_calibration_entity(self, entity_id) -> str | None:
             continue
         if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
             continue
-        tk = getattr(entity, "translation_key", None)
+        tk = entity.translation_key
         if tk and tk in _CALIBRATION_TRANSLATION_KEYS:
             if entity.disabled_by is not None:
                 disabled_match = disabled_match or entity.entity_id
@@ -2531,7 +2534,7 @@ async def find_local_calibration_entity(self, entity_id) -> str | None:
                 continue
             if entity.domain not in _CALIBRATION_ENTITY_DOMAINS:
                 continue
-            descriptor = f"{entity.unique_id} {entity.entity_id} {getattr(entity, 'original_name', '') or ''}".lower()
+            descriptor = f"{entity.unique_id} {entity.entity_id} {entity.original_name or ''}".lower()
             if (
                 "temperature_calibration" in descriptor
                 or "temperature_offset" in descriptor
@@ -2614,7 +2617,7 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         entry = entity_reg.async_get(entity_id)
         dev_reg = dr.async_get(self.hass)
         device = None
-        dev_id = getattr(entry, "device_id", None)
+        dev_id = entry.device_id if entry is not None else None
         if isinstance(dev_id, str) and dev_id:
             device = dev_reg.async_get(dev_id)
         # Selection exclusively via Device-Registry
