@@ -537,7 +537,7 @@ def compute_pid(
                 else 0
             ),
         }
-    except Exception:
+    except TypeError, ValueError, OverflowError:
         pid_dbg = {"mode": "pid", "error": "debug_failed"}
 
     _LOGGER.debug(
@@ -733,7 +733,7 @@ def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
             if isinstance(tcur, (int, float))
             else "tunknown"
         )
-    except Exception:
+    except ValueError, OverflowError:
         bucket_tag = "tunknown"
 
     return f"{resolve_unique_id(self)}:{entity_id}:{bucket_tag}"

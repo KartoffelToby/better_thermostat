@@ -750,37 +750,31 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             sw_version=VERSION,
         )
 
-        try:
-            if hasattr(self, "hass") and self.hass and self.all_trvs:
-                main_trv_id = None
-                if isinstance(self.all_trvs, list) and len(self.all_trvs) > 0:
-                    main_trv_id = self.all_trvs[0].get("trv")
-                elif isinstance(self.all_trvs, str):
-                    main_trv_id = self.all_trvs
+        if hasattr(self, "hass") and self.hass and self.all_trvs:
+            main_trv_id = None
+            if isinstance(self.all_trvs, list) and len(self.all_trvs) > 0:
+                main_trv_id = self.all_trvs[0].get("trv")
+            elif isinstance(self.all_trvs, str):
+                main_trv_id = self.all_trvs
 
-                if main_trv_id:
-                    ent_reg = er.async_get(self.hass)
-                    dev_reg = dr.async_get(self.hass)
-                    trv_ent = ent_reg.async_get(main_trv_id)
-                    if trv_ent and trv_ent.device_id:
-                        # Only a real device can be a via device: the
-                        # registry rejects a child device, and a composite
-                        # id stands for a set of devices, not one.
-                        trv_dev = dev_reg.async_get(
-                            trv_ent.device_id,
-                            include_child_devices=False,
-                            include_composite_devices=False,
-                        )
-                        # The registry refuses a device as its own via device,
-                        # which is what a TRV entity sitting on this very BT
-                        # device would ask for.
-                        if (
-                            trv_dev
-                            and (DOMAIN, self.unique_id) not in trv_dev.identifiers
-                        ):
-                            info["via_device_id"] = trv_dev.id
-        except Exception as e:
-            _LOGGER.debug("better_thermostat: Error getting via device: %s", e)
+            if main_trv_id:
+                ent_reg = er.async_get(self.hass)
+                dev_reg = dr.async_get(self.hass)
+                trv_ent = ent_reg.async_get(main_trv_id)
+                if trv_ent and trv_ent.device_id:
+                    # Only a real device can be a via device: the
+                    # registry rejects a child device, and a composite
+                    # id stands for a set of devices, not one.
+                    trv_dev = dev_reg.async_get(
+                        trv_ent.device_id,
+                        include_child_devices=False,
+                        include_composite_devices=False,
+                    )
+                    # The registry refuses a device as its own via device,
+                    # which is what a TRV entity sitting on this very BT
+                    # device would ask for.
+                    if trv_dev and (DOMAIN, self.unique_id) not in trv_dev.identifiers:
+                        info["via_device_id"] = trv_dev.id
 
         return info
 
@@ -2512,6 +2506,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     entity_id,
                     exc,
+                    exc_info=True,
                 )
 
             try:
@@ -2524,6 +2519,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     entity_id,
                     exc,
+                    exc_info=True,
                 )
 
             if trv.calibration != 1:
@@ -2567,6 +2563,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         self.device_name,
                         entity_id,
                         exc,
+                        exc_info=True,
                     )
                     self._set_trv_calibration_defaults(entity_id)
             else:
@@ -2786,6 +2783,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.device_name,
                     trv,
                     exc,
+                    exc_info=True,
                 )
 
     async def _post_grace_recheck(
@@ -3022,6 +3020,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     ):
                         active_calibration_modes.add(calibration_mode)
         except Exception:
+            # The ladder tick below does not depend on these modes; a failed
+            # read costs only the recompute tick.
+            _LOGGER.warning(
+                "better_thermostat %s: could not read the balance and "
+                "calibration modes; the recompute tick stays off",
+                self.device_name,
+                exc_info=True,
+            )
             active_balance_modes = set()
             active_calibration_modes = set()
 
@@ -3071,6 +3077,12 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         try:
             maint_trvs = collect_maintenance_trvs(self.real_trvs)
         except Exception:
+            _LOGGER.warning(
+                "better_thermostat %s: could not read which TRVs have valve "
+                "maintenance enabled; the maintenance tick stays off",
+                self.device_name,
+                exc_info=True,
+            )
             maint_trvs = []
 
         if maint_trvs:
@@ -3205,6 +3217,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: Failed to create external temperature keepalive task: %s",
                 self.device_name,
                 exc,
+                exc_info=True,
             )
         self.async_on_remove(
             async_track_time_interval(
@@ -3297,6 +3310,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 "better_thermostat %s: maintenance availability check failed; "
                 "skipping this tick",
                 self.device_name,
+                exc_info=True,
             )
             return
 
@@ -3305,14 +3319,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         # Check if any TRV actually has maintenance enabled
-        try:
-            trvs_to_service = collect_maintenance_trvs(self.real_trvs)
-        except Exception:
-            _LOGGER.debug(
-                "better_thermostat %s: could not collect maintenance TRVs",
-                self.device_name,
-            )
-            trvs_to_service = []
+        trvs_to_service = collect_maintenance_trvs(self.real_trvs)
 
         # Adopt the schedule the entity attribute carries, then advance the
         # region.
@@ -3407,6 +3414,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                         "better_thermostat %s: maintenance valve set failed for %s",
                         self.device_name,
                         entity_id,
+                        exc_info=True,
                     )
                     return False
 
@@ -3826,10 +3834,10 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
         else:
             try:
                 result = HVACMode(mapped)
-            except Exception:
+            except ValueError:
                 try:
                     result = HVACMode[mapped.upper()]
-                except Exception:
+                except KeyError, AttributeError:
                     return HVACMode.OFF
 
         # Ensure result is in available modes list
@@ -3880,20 +3888,15 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             action_val = info.hvac_action
             action_str = str(action_val).lower() if action_val is not None else ""
             if not action_str:
-                try:
-                    trv_state = self.hass.states.get(entity_id)
-                    action_raw = None
-                    if trv_state is not None:
-                        action_raw = trv_state.attributes.get("hvac_action")
-                        if action_raw is None:
-                            action_raw = trv_state.attributes.get("action")
-                    action_str = (
-                        str(action_raw).lower() if action_raw is not None else ""
-                    )
-                    if action_str:
-                        info.hvac_action = action_str
-                except Exception:
-                    action_str = ""
+                trv_state = self.hass.states.get(entity_id)
+                action_raw = None
+                if trv_state is not None:
+                    action_raw = trv_state.attributes.get("hvac_action")
+                    if action_raw is None:
+                        action_raw = trv_state.attributes.get("action")
+                action_str = str(action_raw).lower() if action_raw is not None else ""
+                if action_str:
+                    info.hvac_action = action_str
 
             snapshots.append(
                 TrvSnapshot(
@@ -5025,6 +5028,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     "better_thermostat %s: error in _async_update_ema_periodic: %s",
                     self.device_name,
                     e,
+                    exc_info=True,
                 )
         else:
             _LOGGER.debug(

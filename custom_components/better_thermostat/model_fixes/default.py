@@ -102,7 +102,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                     blocking=True,
                     context=self.context,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                 _LOGGER.warning(
                     "better_thermostat %s: Failed to reset calibration for %s: %s",
                     self.device_name,
@@ -161,7 +161,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                                 blocking=True,
                                 context=self.context,
                             )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                     _LOGGER.warning(
                         "better_thermostat %s: Failed to set child lock for %s: %s",
                         self.device_name,
@@ -191,7 +191,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                         blocking=True,
                         context=self.context,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                 _LOGGER.warning(
                     "better_thermostat %s: Failed to disable window detection for %s: %s",
                     self.device_name,
@@ -220,7 +220,7 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                         blocking=True,
                         context=self.context,
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - a device failure arrives as any exception type
                 _LOGGER.warning(
                     "better_thermostat %s: Failed to disable away mode for %s: %s",
                     self.device_name,

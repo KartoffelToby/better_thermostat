@@ -5,12 +5,12 @@ exception with its traceback. A handler that calls `_LOGGER.exception(...)`, or
 passes `exc_info=True`, is not flagged. So what this budget counts is broad
 handlers that swallow the failure silently, not broad handlers as such.
 
-Silencing the rule per file — which `pyproject.toml` does for the files that
-carry the backlog — exempts the handlers written tomorrow along with the ones
-written yesterday, and the file holding the largest backlog is exactly where
-the next one lands. So the budget is per file and it counts: a file may not
-exceed the number it has today, and a file that is not in the budget may not
-have a single finding.
+Silencing the rule per file exempts the handlers written tomorrow along with
+the ones written yesterday, and the file holding the largest backlog is exactly
+where the next one lands. A handler that is meant to stay therefore carries an
+inline `# noqa: BLE001` with its reason, and the budget is per file and it
+counts: a file may not exceed the number it has today, and a file that is not in
+the budget may not have a single finding.
 
 The count therefore does not come from `ruff check`. It comes from a scan that
 runs with ruff's own configuration ignored, with inline `noqa` directives

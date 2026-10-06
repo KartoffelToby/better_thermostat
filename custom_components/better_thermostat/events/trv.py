@@ -389,6 +389,7 @@ async def trigger_trv_change(
             self.device_name,
             entity_id,
             e,
+            exc_info=True,
         )
 
     _new_current_temp = attr_to_celsius(

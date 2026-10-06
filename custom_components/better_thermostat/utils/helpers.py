@@ -2186,17 +2186,12 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
     # Some integrations (notably certain Zigbee stacks) may expose valve helpers
     # under a different Home Assistant device_id than the climate entity.
     # To support these, also match candidates by shared device identifiers.
-    dev_reg = None
-    base_device = None
-    base_identifiers: set[tuple[str, str]] = set()
-    try:
-        dev_reg = dr.async_get(self.hass)
-        device_id = getattr(reg_entity, "device_id", None)
-        base_device = dev_reg.async_get(device_id) if device_id is not None else None
-        base_identifiers = set(getattr(base_device, "identifiers", set()) or set())
-    except Exception:
-        dev_reg = None
-        base_identifiers = set()
+    dev_reg = dr.async_get(self.hass)
+    device_id = getattr(reg_entity, "device_id", None)
+    base_device = dev_reg.async_get(device_id) if device_id is not None else None
+    base_identifiers: set[tuple[str, str]] = set(
+        getattr(base_device, "identifiers", set()) or set()
+    )
 
     base_model_id = getattr(base_device, "model_id", None)
     if (
@@ -2222,16 +2217,13 @@ async def find_valve_entity(self, entity_id) -> ValveEntityInfo | None:
         # Strong match: same device
         if _shares_device(candidate, reg_entity.device_id):
             return True
-        # Fallback: match by shared identifiers if device registry is available
-        if dev_reg is None or not base_identifiers:
+        # Fallback: match by shared device identifiers
+        if not base_identifiers:
             return False
         cand_device_id = getattr(candidate, "device_id", None)
         if not cand_device_id:
             return False
-        try:
-            cand_device = dev_reg.async_get(cand_device_id)
-        except Exception:
-            return False
+        cand_device = dev_reg.async_get(cand_device_id)
         cand_identifiers = set(getattr(cand_device, "identifiers", set()) or set())
         return bool(base_identifiers.intersection(cand_identifiers))
 
@@ -2610,12 +2602,9 @@ async def get_device_model(self: _DeviceModelHost, entity_id: str) -> str:
         entry = entity_reg.async_get(entity_id)
         dev_reg = dr.async_get(self.hass)
         device = None
-        try:
-            dev_id = getattr(entry, "device_id", None)
-            if isinstance(dev_id, str) and dev_id:
-                device = dev_reg.async_get(dev_id)
-        except Exception:
-            device = None
+        dev_id = getattr(entry, "device_id", None)
+        if isinstance(dev_id, str) and dev_id:
+            device = dev_reg.async_get(dev_id)
         # Selection exclusively via Device-Registry
         _LOGGER.debug(
             "better_thermostat %s: device registry -> manufacturer=%s model=%s model_id=%s name=%s identifiers=%s",
