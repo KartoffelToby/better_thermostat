@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
@@ -171,6 +171,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
         hass=None,
         state_mgr=_make_manager(),
         clock=FakeClock(monotonic_value=1_000_000.0),
+        schedule_save_state=MagicMock(),
     )
 
 
@@ -424,6 +425,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     assert adopted is not None
     assert adopted.tau_room_min == _REID.tau_room_min
     assert runtime.fit_inflight is False
+    bt.schedule_save_state.assert_called()
 
     # A second immediate call is throttled by the attempt interval.
     cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
@@ -616,3 +618,126 @@ def test_prior_lookup_picks_freshest_legacy_bucket_entry() -> None:
 
     found = _lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t22.0")
     assert found is fresh
+
+
+# -- Preset and compute failures ----------------------------------------------
+
+
+def test_dispatch_reads_an_unknown_stored_preset_as_auto() -> None:
+    """A preset this version does not know runs as AUTO and keeps sampling."""
+    bt = _make_bt(preset="retired_preset")  # type: ignore[arg-type]
+    bt.real_trvs["climate.x"].last_valve_percent = 37
+
+    out, _ = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is not None
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    assert len(bt.state_mgr.get_mpc_v2_reid_runtime(key).buffer.samples) == 1
+
+
+def test_a_failed_compute_publishes_no_valve() -> None:
+    bt = _make_bt()
+
+    with patch(
+        "custom_components.better_thermostat.calibration.compute_mpc_v2",
+        side_effect=ValueError("boom"),
+    ):
+        out, supports_valve = _compute_mpc_v2_balance(bt, "climate.x")
+
+    assert out is None
+    assert supports_valve is False
+    assert bt.real_trvs["climate.x"].calibration_balance is None
+
+
+# -- Fit scheduling failures --------------------------------------------------
+
+
+def _due_fit(bt: Any) -> tuple[str, Any]:
+    """Dispatch once and fill the buffer so a fit is due; return key and runtime."""
+    bt.real_trvs["climate.x"].last_valve_percent = 50
+    _compute_mpc_v2_balance(bt, "climate.x")
+    key = next(iter(bt.state_mgr._mpc_v2_reid_live))
+    runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
+    runtime.buffer.samples.clear()
+    for i in range(300):
+        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room_C=20.0, u_frac=0.5))
+    runtime.last_fit_attempt_ts = 0.0
+    return key, runtime
+
+
+class _RaisingFuture(_FakeFuture):
+    """Future double whose job raised."""
+
+    def result(self) -> object:
+        """Raise what the job raised."""
+        raise RuntimeError("fit crashed")
+
+
+def test_a_fit_already_running_starts_no_second_one(monkeypatch) -> None:
+    from custom_components.better_thermostat import calibration as cal
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    key, runtime = _due_fit(bt)
+    runtime.fit_inflight = True
+    started: list[int] = []
+    monkeypatch.setattr(cal, "run_reid_fit", lambda samples, prior: started.append(1))
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+
+    assert started == []
+    assert runtime.fit_inflight is True
+
+
+def test_a_rejected_fit_leaves_the_prior_alone(monkeypatch) -> None:
+    from custom_components.better_thermostat import calibration as cal
+    from custom_components.better_thermostat.utils.calibration.mpc_v2 import ReidOutcome
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    key, runtime = _due_fit(bt)
+    monkeypatch.setattr(
+        cal,
+        "run_reid_fit",
+        lambda samples, prior: ReidOutcome(
+            status="rejected", n_segments=2, n_samples=300
+        ),
+    )
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+
+    assert bt.state_mgr.get_mpc_v2_reid(key) is None
+    assert runtime.fit_inflight is False
+
+
+def test_a_fit_that_crashes_frees_the_next_attempt(caplog) -> None:
+    """A crashed fit is reported and does not block every later one."""
+    from custom_components.better_thermostat import calibration as cal
+
+    bt = _make_bt()
+    bt.hass = SimpleNamespace(
+        async_add_executor_job=lambda func, *args: _RaisingFuture(None)
+    )
+    key, runtime = _due_fit(bt)
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+
+    assert runtime.fit_inflight is False
+    assert bt.state_mgr.get_mpc_v2_reid(key) is None
+    assert "re-identification failed" in caplog.text
+
+
+def test_a_fit_that_cannot_be_scheduled_frees_the_next_attempt(caplog) -> None:
+    from custom_components.better_thermostat import calibration as cal
+
+    def _refuse(func, *args):
+        raise RuntimeError("executor shut down")
+
+    bt = _make_bt()
+    bt.hass = SimpleNamespace(async_add_executor_job=_refuse)
+    key, runtime = _due_fit(bt)
+
+    cal._maybe_start_mpc_v2_reid_fit(bt, key, MpcV2Params())
+
+    assert runtime.fit_inflight is False
+    assert "could not schedule MPC v2 re-identification" in caplog.text
