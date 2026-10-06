@@ -7,12 +7,14 @@ from collections import deque
 from contextlib import suppress
 from datetime import datetime, timedelta
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.recorder import history
 from homeassistant.components.weather import (
     DOMAIN as WEATHER_DOMAIN,
     WeatherEntityFeature,
 )
+from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 
 # get_instance location can differ between HA versions; prefer helpers API.
@@ -21,6 +23,9 @@ import homeassistant.util.dt as dt_util
 from sqlalchemy.exc import SQLAlchemyError
 
 from .helpers import async_fire_logbook_entry, convert_to_float_celsius
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -307,7 +312,7 @@ async def check_weather_prediction(self) -> bool | None:
         return None
 
 
-def outdoor_check_lock(self) -> asyncio.Lock:
+def outdoor_check_lock(self: BetterThermostat) -> asyncio.Lock:
     """Return the lock that serialises this entity's ambient air check.
 
     The check stores the live outdoor reading on the entity, may suspend
@@ -468,7 +473,7 @@ async def _read_outdoor_history_mean(self, outdoor_state) -> float | None:
         dt_util.utcnow(),
         lower_entity_id,
     )
-    items = []
+    items: list[State] = []
     try:
         items = history_list.get(lower_entity_id) or []
     except AttributeError, KeyError, TypeError:
@@ -484,7 +489,7 @@ async def _read_outdoor_history_mean(self, outdoor_state) -> float | None:
                         self.device_name,
                         "check_ambient_air_temperature()",
                         unit_of_measurement=(
-                            getattr(item, "attributes", {}).get("unit_of_measurement")
+                            item.attributes.get("unit_of_measurement")
                             or outdoor_state.attributes.get("unit_of_measurement")
                         ),
                     ),
