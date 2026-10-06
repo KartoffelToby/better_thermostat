@@ -435,3 +435,34 @@ class TestTelemetryAttributes:
             written |= collect_mpc_v2_debug_attrs(bt).keys()
 
         assert written == TELEMETRY_ATTRIBUTES
+
+
+class TestCollectMpcV2DebugAttrs:
+    """MPC v2 diagnostics are published under their glossary names."""
+
+    def test_publishes_each_diagnostic_under_its_name(self):
+        """Each debug value lands under its own spelled-out key."""
+        bt = _fully_populated_bt(
+            {
+                "controller_version": "v2",
+                "T_room_hat": 20.5,
+                "T_rad_hat": 35.25,
+                "D_hat_K_per_min": 0.0123,
+                "tau_room_min": 180.5,
+                "coupling_rad_room": 0.75,
+                "group_valve_pct": 42.5,
+                "reid_tau_room": 200.5,
+                "reid_gain": 3.25,
+            }
+        )
+
+        assert collect_mpc_v2_debug_attrs(bt) == {
+            "mpc_v2_T_room_hat": 20.5,
+            "mpc_v2_T_rad_hat": 35.25,
+            "mpc_v2_disturbance_kelvin_per_min": 0.0123,
+            "mpc_v2_tau_room_minutes": 180.5,
+            "mpc_v2_coupling_rad_room": 0.75,
+            "mpc_v2_group_valve_percent": 42.5,
+            "mpc_v2_reid_tau_room_minutes": 200.5,
+            "mpc_v2_reid_gain": 3.25,
+        }
