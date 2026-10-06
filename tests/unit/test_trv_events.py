@@ -111,7 +111,7 @@ def mock_bt():
                 "max_temp": 30.0,
                 "current_temperature": 18.0,
                 "temperature": 19.0,
-                "last_temperature": 19.0,
+                "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
                 "target_temp_received": True,
                 "system_mode_received": True,
@@ -181,7 +181,7 @@ def _add_homematicip_peer(bt):
             "max_temp": 30.0,
             "current_temperature": 18.0,
             "temperature": 19.0,
-            "last_temperature": 19.0,
+            "commanded_setpoint": 19.0,
             "last_hvac_mode": "heat",
             "target_temp_received": True,
             "system_mode_received": True,
@@ -1523,7 +1523,7 @@ class TestHvacModeUpdate:
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.advanced["child_lock"] = True
-        trv.last_temperature = 21.0
+        trv.commanded_setpoint = 21.0
         mock_bt.heat_target_temperature = 21.0
         new_state = _make_state(attributes={"temperature": reported})
         mock_bt.hass.states.get.return_value = new_state
@@ -1925,7 +1925,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -1975,7 +1975,7 @@ class TestTargetTempAdoption:
         room target where it is.
         """
         mock_bt.heat_target_temperature = 24.0
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 25.0
         for _value in (26.0, 25.0):
             mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
@@ -2013,7 +2013,7 @@ class TestTargetTempAdoption:
         write before it, a report of 27.0 is nobody's write and is adopted.
         """
         mock_bt.heat_target_temperature = 24.0
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 25.0
         for _value in (26.0, 25.0):
             mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
@@ -2051,7 +2051,7 @@ class TestTargetTempAdoption:
         last confirmation are remembered.
         """
         mock_bt.heat_target_temperature = 24.0
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 25.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 25.0
         for _value in (25.0,):
             mock_bt.real_trvs[ENTITY_ID].remember_setpoint_written(_value)
 
@@ -2091,7 +2091,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 3.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2117,7 +2117,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 35.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2143,7 +2143,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 35.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
         caplog.set_level(logging.WARNING)
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
@@ -2177,7 +2177,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 35.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 30.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 30.0
         caplog.set_level(logging.WARNING)
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
@@ -2206,7 +2206,7 @@ class TestTargetTempAdoption:
             attributes={"temperature": 33.5, "current_temperature": 18.0}
         )
         mock_bt.hass.states.get.return_value = new_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 33.5
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 33.5
         caplog.set_level(logging.DEBUG)
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
@@ -2228,7 +2228,7 @@ class TestTargetTempAdoption:
         """A valve resting on its own minimum republishes BT's own write.
 
         BT parks a no_off valve on the device minimum while it is OFF and
-        records that write in ``last_temperature``. The report sits below
+        records that write in ``commanded_setpoint``. The report sits below
         ``bt_min_temp``, so the clamp lifts it onto the configured minimum and
         only the reported value still identifies the write. The ordered pair
         the user configured has to survive the report unchanged.
@@ -2241,7 +2241,7 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.test_cooler"
         trv = mock_bt.real_trvs[ENTITY_ID]
         trv.advanced["no_off_system_mode"] = True
-        trv.last_temperature = 5.0
+        trv.commanded_setpoint = 5.0
         old_state = _make_state(
             attributes={"temperature": 5.0, "current_temperature": 18.0}
         )
@@ -2334,7 +2334,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "target_temp_low": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2372,7 +2372,7 @@ class TestTargetTempAdoption:
             },
         )
         mock_bt.hass.states.get.return_value = new_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2403,7 +2403,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2440,7 +2440,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2477,7 +2477,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 24.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2528,7 +2528,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2570,7 +2570,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2608,7 +2608,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2667,7 +2667,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 20.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 5.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2691,7 +2691,7 @@ class TestTargetTempAdoption:
         """
         mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = True
         mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 20.0
         mock_bt.map_on_hvac_mode = HVACMode.HEAT_COOL
         mock_bt.bt_hvac_mode = HVACMode.HEAT
         mock_bt.heat_target_temperature = 20.0
@@ -2744,7 +2744,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 24.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 5.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2794,7 +2794,7 @@ class TestTargetTempAdoption:
             attributes={"current_temperature": 18.0, "temperature": 22.0},
         )
         mock_bt.hass.states.get.return_value = trv_state
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 5.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 5.0
 
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
 
@@ -2840,7 +2840,7 @@ class TestTargetTempBasedSync:
         """User raises TRV from 19.0 to 22.0 — heat_target_temperature follows."""
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 19.0
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2870,7 +2870,7 @@ class TestTargetTempBasedSync:
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 21.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
         mock_bt.real_trvs[ENTITY_ID].target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2901,7 +2901,7 @@ class TestTargetTempBasedSync:
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 21.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
         mock_bt.real_trvs[ENTITY_ID].target_temp_step = 0.5
 
         old_state = _make_state(
@@ -2938,7 +2938,7 @@ class TestTargetTempBasedSync:
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
         mock_bt.bt_target_temp_step = 0.5
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 21.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
         mock_bt.real_trvs[ENTITY_ID].target_temp_step = 0.5
 
         old_state = _make_state(
@@ -3542,7 +3542,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
                 "max_temp": 30.0,
                 "current_temperature": 18.0,
                 "temperature": 19.0,
-                "last_temperature": 19.0,
+                "commanded_setpoint": 19.0,
                 "last_hvac_mode": "heat",
                 "target_temp_received": True,
                 "system_mode_received": True,
@@ -3839,7 +3839,7 @@ class TestDualRoleEntityReports:
             HVACMode.COOL,
             HVACMode.HEAT_COOL,
         ]
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 20.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 20.0
         mock_bt._clamp_inbound_cool_target = lambda v: (
             BetterThermostat._clamp_inbound_cool_target(mock_bt, v)
         )
@@ -4089,7 +4089,7 @@ class TestDualRoleEntityReports:
         mock_bt.cool_target_temperature = 24.0
         mock_bt._cooler_last_sent = {"temperature": (24.0, 0.0)}
         mock_bt.bt_max_temp = 30.0
-        mock_bt.real_trvs[ENTITY_ID].last_temperature = 19.0
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 19.0
         mock_bt.real_trvs[ENTITY_ID].max_temp = 30.0
 
         await self._report(

@@ -794,7 +794,7 @@ async def test_a_setpoint_is_an_echo_only_when_it_is_what_was_written(hass, turn
     step = INTEGER_GRID_TRV.target_temperature_step
     assert bt.heat_target_temperature == pytest.approx(target)
     assert written != pytest.approx(target)
-    assert trv.last_temperature == pytest.approx(written)
+    assert trv.commanded_setpoint == pytest.approx(written)
 
     toward = written - step if written > target else written + step
     away = written + step if written > target else written - step

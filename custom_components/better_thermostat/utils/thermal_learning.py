@@ -126,15 +126,15 @@ def compute_weight_factor(
 
 
 def compute_env_factor(
-    outdoor_temp: float | None, heat_target_temperature: float | None
+    outdoor_temperature: float | None, heat_target_temperature: float | None
 ) -> float:
     """Environmental factor based on outdoor-to-setpoint gradient.
 
     Returns a factor in ``[0.7, 1.3]``.  Without outdoor data returns 1.0.
     """
-    if outdoor_temp is None or heat_target_temperature is None:
+    if outdoor_temperature is None or heat_target_temperature is None:
         return 1.0
-    delta_env = max(heat_target_temperature - outdoor_temp, 0.1)
+    delta_env = max(heat_target_temperature - outdoor_temperature, 0.1)
     return clamp(delta_env / 20.0, 0.7, 1.3)
 
 
@@ -201,7 +201,7 @@ class HeatingPowerTracker:
         now: datetime,
         *,
         heat_target_temperature: float | None = None,
-        outdoor_temp: float | None = None,
+        outdoor_temperature: float | None = None,
     ) -> HeatingPowerUpdate:
         """Process one temperature reading and return what changed."""
         action_changed = current_action != self._prev_action
@@ -241,7 +241,7 @@ class HeatingPowerTracker:
             room_temperature,
             now,
             heat_target_temperature=heat_target_temperature,
-            outdoor_temp=outdoor_temp,
+            outdoor_temperature=outdoor_temperature,
         )
 
         # --- Dynamic target range ---
@@ -269,7 +269,7 @@ class HeatingPowerTracker:
         now: datetime,
         *,
         heat_target_temperature: float | None,
-        outdoor_temp: float | None,
+        outdoor_temperature: float | None,
     ) -> CycleResult | None:
         """Check finalization criteria and compute a new EMA value if met."""
         finalize = False
@@ -304,11 +304,13 @@ class HeatingPowerTracker:
             weight_factor = compute_weight_factor(
                 heat_target_temperature, self.min_target, self.max_target
             )
-            env_factor = compute_env_factor(outdoor_temp, heat_target_temperature)
+            env_factor = compute_env_factor(
+                outdoor_temperature, heat_target_temperature
+            )
 
             normalized_power: float | None = None
-            if outdoor_temp is not None and heat_target_temperature is not None:
-                delta_env = max(heat_target_temperature - outdoor_temp, 0.1)
+            if outdoor_temperature is not None and heat_target_temperature is not None:
+                delta_env = max(heat_target_temperature - outdoor_temperature, 0.1)
                 normalized_power = round((temp_diff / duration_min) / delta_env, 5)
 
             heating_rate = temp_diff / duration_min
@@ -371,7 +373,7 @@ class HeatingPowerTracker:
                     "minutes": round(duration_min, 2),
                     "rate_c_min": round(heating_rate, 4),
                     "target": heat_target_temperature,
-                    "outdoor": outdoor_temp,
+                    "outdoor": outdoor_temperature,
                     "norm_power": normalized_power,
                 }
             )

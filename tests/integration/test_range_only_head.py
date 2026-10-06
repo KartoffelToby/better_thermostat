@@ -5,7 +5,7 @@ publishes its heating setpoint as ``target_temp_low``. Home Assistant refuses a
 ``temperature`` write to it, so the setpoint has to travel as the lower bound
 of the range, with the upper bound the head already holds. The value on the
 wire is the calibrated setpoint BT computes for the room target, which it
-keeps as the head's ``last_temperature``.
+keeps as the head's ``commanded_setpoint``.
 
 Every test moves the room target after startup, so the write under test is
 the one that follows a user's change rather than the startup write. The write
@@ -79,9 +79,9 @@ async def test_a_range_only_head_takes_the_room_target_as_its_lower_bound(
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 22.0)
-    assert _head_low(hass) == trv.last_temperature
+    assert _head_low(hass) == trv.commanded_setpoint
     assert fake_trv.set_temperature_calls[-1] == {
-        ATTR_TARGET_TEMP_LOW: trv.last_temperature,
+        ATTR_TARGET_TEMP_LOW: trv.commanded_setpoint,
         ATTR_TARGET_TEMP_HIGH: 25.0,
     }
     assert bt.heat_target_temperature == 22.0
@@ -97,7 +97,7 @@ async def test_a_range_only_head_confirms_the_write(hass, fake_trv):
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 22.0)
     assert await wait_for(hass, lambda: trv.target_temp_received is True)
-    assert trv.confirmed_setpoint == trv.last_temperature
+    assert trv.confirmed_setpoint == trv.commanded_setpoint
     assert bt.heat_target_temperature == 22.0
     writes = len(fake_trv.set_temperature_calls)
     await _set_room_target(hass, 22.0)
@@ -114,9 +114,9 @@ async def test_a_range_only_head_raises_a_top_below_the_new_lower_bound(hass, fa
 
     trv = bt.real_trvs[TRV_ID]
     assert await wait_for(hass, lambda: _head_low(hass) >= 23.0)
-    assert _head_low(hass) == trv.last_temperature
+    assert _head_low(hass) == trv.commanded_setpoint
     assert fake_trv.set_temperature_calls[-1] == {
-        ATTR_TARGET_TEMP_LOW: trv.last_temperature,
-        ATTR_TARGET_TEMP_HIGH: trv.last_temperature,
+        ATTR_TARGET_TEMP_LOW: trv.commanded_setpoint,
+        ATTR_TARGET_TEMP_HIGH: trv.commanded_setpoint,
     }
     assert bt.heat_target_temperature == 23.0

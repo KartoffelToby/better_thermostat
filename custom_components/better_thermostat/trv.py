@@ -143,7 +143,7 @@ class Trv:
     # Whether a reading turned away by that debounce is due to be read again
     # once the interval is over.
     internal_reread_pending: bool = False
-    last_temperature: float | None = None
+    commanded_setpoint: float | None = None
     # The setpoint in °C the device last confirmed, its own at startup. A
     # device may report it again at any time, so it stays a value BT itself
     # wrote even once later writes are in flight.
@@ -324,7 +324,7 @@ class Trv:
 
         The device holds ``value`` now, so the writes through
         ``through_write_id`` cannot come back. The caller passes the command
-        it waited on rather than the current ``last_temperature``, which
+        it waited on rather than the current ``commanded_setpoint``, which
         another task may have moved on to. A write made while the wait ran
         carries a higher id and is still on the wire; it stays. Matching on
         the id rather than the value keeps a command that was sent again
@@ -377,7 +377,7 @@ class Trv:
         value : float
             the setpoint in °C the device holds
         """
-        self.last_temperature = value
+        self.commanded_setpoint = value
         self.remember_setpoint_confirmed(value, self.confirmed_write_id)
 
     def capabilities(self) -> TrvCapabilities:

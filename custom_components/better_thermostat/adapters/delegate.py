@@ -209,7 +209,7 @@ async def set_temperature(self, entity_id, temperature):
     # ``set_offset`` records after its write for the opposite reason: its
     # record says a calibration command is in flight, which a write that never
     # went out must not claim.
-    self.real_trvs[entity_id].last_temperature = rounded
+    self.real_trvs[entity_id].commanded_setpoint = rounded
 
     return await _write_on_channel(
         self,

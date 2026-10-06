@@ -57,7 +57,7 @@ def _make_bt() -> MagicMock:
             {
                 "hvac_mode": "heat",
                 "current_temperature": 21.0,
-                "last_temperature": 22.0,
+                "commanded_setpoint": 22.0,
                 "min_temp": 5.0,
                 "max_temp": 30.0,
                 "valve_max_opening": 80.0,
@@ -263,7 +263,7 @@ class TestTrvReportedBuilding:
         """NaN/inf in the real_trvs entry degrades to None, not a crash."""
         bt = _make_bt()
         bt.real_trvs["climate.trv"].current_temperature = float("nan")
-        bt.real_trvs["climate.trv"].last_temperature = float("inf")
+        bt.real_trvs["climate.trv"].commanded_setpoint = float("inf")
         snapshot = build_snapshot(bt)
         trv = snapshot.trvs["climate.trv"]
         assert trv.current_temp is None

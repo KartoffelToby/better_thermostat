@@ -59,7 +59,7 @@ async def test_per_trv_step_rounds_the_setpoint(bt):
 # The field the delegate records the outbound setpoint in on the TRV. It is
 # read by name because `glossary.toml` retires this spelling as an identifier
 # in favour of `trv.setpoint`.
-_RECORDED_SETPOINT_FIELD = "last_temperature"
+_RECORDED_SETPOINT_FIELD = "commanded_setpoint"
 
 
 @pytest.mark.asyncio

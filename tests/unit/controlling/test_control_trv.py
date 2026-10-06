@@ -180,7 +180,7 @@ def _default_trv_config(**overrides):
         "min_temp": 5.0,
         "max_temp": 30.0,
         "temperature": 20.0,
-        "last_temperature": 20.0,
+        "commanded_setpoint": 20.0,
         "last_hvac_mode": HVACMode.HEAT,
         "last_calibration": 0.0,
         "system_mode_received": False,
@@ -2374,7 +2374,7 @@ class TestRaceConditionLockCoverage:
                     "min_temp": 5.0,
                     "max_temp": 30.0,
                     "temperature": 18.0,
-                    "last_temperature": 18.0,
+                    "commanded_setpoint": 18.0,
                     "last_hvac_mode": HVACMode.OFF,
                     "system_mode_received": True,
                     "target_temp_received": True,
@@ -2396,7 +2396,7 @@ class TestRaceConditionLockCoverage:
                     "min_temp": 5.0,
                     "max_temp": 30.0,
                     "temperature": 18.0,
-                    "last_temperature": 18.0,
+                    "commanded_setpoint": 18.0,
                     "last_hvac_mode": HVACMode.OFF,
                     "system_mode_received": True,
                     "target_temp_received": True,
@@ -3160,7 +3160,7 @@ class TestControlTrvOnADualRoleEntity:
                 "min_temp": 16.0,
                 "max_temp": 30.0,
                 "temperature": 21.0,
-                "last_temperature": 21.0,
+                "commanded_setpoint": 21.0,
                 "last_hvac_mode": HVACMode.HEAT,
                 "current_temperature": 19.0,
                 "hvac_mode": HVACMode.HEAT,
@@ -3269,7 +3269,7 @@ def _offset_trv_config(**overrides):
         "min_temp": 5.0,
         "max_temp": 30.0,
         "temperature": 20.0,
-        "last_temperature": 20.0,
+        "commanded_setpoint": 20.0,
         "last_hvac_mode": HVACMode.HEAT,
         "hvac_mode": HVACMode.HEAT,
         "system_mode_received": False,
@@ -3932,7 +3932,7 @@ class TestEchoSetpointBookkeeping:
             }
             await control_trv(mock_self, "climate.trv1")
 
-        assert trv.last_temperature == 25.0
+        assert trv.commanded_setpoint == 25.0
         assert trv.confirmed_setpoint == 26.0
         assert trv.echo_setpoint_values() == [25.0]
 
@@ -4010,7 +4010,7 @@ class TestEchoSetpointBookkeeping:
         trv.adapter.set_temperature.assert_awaited_once_with(
             mock_self, "climate.trv1", pytest.approx(20.5)
         )
-        assert trv.last_temperature == pytest.approx(20.5)
+        assert trv.commanded_setpoint == pytest.approx(20.5)
         assert trv.echo_setpoint_values() == [pytest.approx(20.7), pytest.approx(20.5)]
 
 
@@ -4220,7 +4220,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
             State("climate.trv1", HVACMode.HEAT, {"temperature": sent}),
             keys=("temperature",),
             known_values=(
-                trv.last_temperature,
+                trv.commanded_setpoint,
                 trv.confirmed_setpoint,
                 *trv.echo_setpoint_values(),
             ),
@@ -4252,7 +4252,7 @@ def _paced_trv(entity_id, *, homematicip):
             "min_temp": 5.0,
             "max_temp": 30.0,
             "temperature": 20.0,
-            "last_temperature": 20.0,
+            "commanded_setpoint": 20.0,
             "last_hvac_mode": HVACMode.HEAT,
             "hvac_mode": HVACMode.HEAT,
             "advanced": {

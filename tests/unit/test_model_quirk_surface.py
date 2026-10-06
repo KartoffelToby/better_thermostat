@@ -140,7 +140,7 @@ def _host():
     trv.local_calibration_min = -10.0
     trv.local_calibration_max = 10.0
     trv.last_hvac_mode = "heat"
-    trv.last_temperature = 20.0
+    trv.commanded_setpoint = 20.0
     host.real_trvs = {ENTITY_ID: trv}
     return host
 

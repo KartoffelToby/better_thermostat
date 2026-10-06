@@ -88,7 +88,7 @@ def bt():
             model="SomeModel",
             hvac_mode=HVACMode.HEAT,
             last_hvac_mode=HVACMode.HEAT,
-            last_temperature=21.0,
+            commanded_setpoint=21.0,
             advanced={
                 "calibration": CalibrationType.TARGET_TEMP_BASED,
                 "calibration_mode": CalibrationMode.DEFAULT,

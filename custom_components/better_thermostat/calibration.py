@@ -560,7 +560,7 @@ def _record_mpc_v2_reid_sample(
     *,
     applied_valve_pct: float | None,
     trv_temp: float | None,
-    outdoor_temp: float | None,
+    outdoor_temperature: float | None,
 ) -> None:
     """Append one observation to the re-identification buffer for a key.
 
@@ -599,7 +599,7 @@ def _record_mpc_v2_reid_sample(
             t_s=self.clock.monotonic(),
             T_room_C=t_room,
             u_frac=u_frac,
-            T_outdoor_C=outdoor_temp,
+            T_outdoor_C=outdoor_temperature,
             T_trv_C=trv_temp if isinstance(trv_temp, (int, float)) else None,
             window_open=bool(self.contact_open),
         )
@@ -807,7 +807,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         )
     v2_params = MpcV2Params(plant=plant_prior)
 
-    outdoor_temp = _get_current_outdoor_temp(self)
+    outdoor_temperature = _get_current_outdoor_temp(self)
     # The single-TRV path has one physical input.  A group controller's
     # distributed outputs are intentionally not collapsed into a fictional
     # single valve fraction; it keeps its optimistic command until group
@@ -836,7 +836,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
-                outdoor_temp_C=outdoor_temp,
+                outdoor_temp_C=outdoor_temperature,
                 max_opening_pct=max_opening_pct,
                 applied_valve_pct=controller_applied_pct,
             ),
@@ -861,7 +861,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
             reid_key,
             applied_valve_pct=confirmed_valve_pct,
             trv_temp=trv_state.current_temperature,
-            outdoor_temp=outdoor_temp,
+            outdoor_temperature=outdoor_temperature,
         )
         _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params)
 

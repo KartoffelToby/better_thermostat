@@ -718,23 +718,23 @@ def compute_mpc(
             and inp.target_temp_C is not None
             and inp.current_temp_C is not None
         ):
-            current_temp = float(inp.current_temp_C)
+            room_temperature = float(inp.current_temp_C)
             heat_target_temperature = float(inp.target_temp_C)
             restart_threshold = heat_target_temperature - tolerance
 
             if state.tolerance_hold_active:
-                if current_temp <= restart_threshold:
+                if room_temperature <= restart_threshold:
                     state.tolerance_hold_active = False
                     extra_debug["mpc_tolerance_hold_resume"] = True
                 else:
                     tolerance_hold_block = True
-            elif current_temp >= heat_target_temperature:
+            elif room_temperature >= heat_target_temperature:
                 state.tolerance_hold_active = True
                 tolerance_hold_block = True
 
             if tolerance_hold_block:
                 percent = 0.0
-                delta_kelvin = heat_target_temperature - current_temp
+                delta_kelvin = heat_target_temperature - room_temperature
                 extra_debug["mpc_tolerance_hold_active"] = True
                 extra_debug["mpc_tolerance_K"] = _round_for_debug(tolerance, 3)
                 extra_debug["mpc_tolerance_restart_C"] = _round_for_debug(

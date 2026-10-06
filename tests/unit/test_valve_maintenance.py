@@ -620,7 +620,7 @@ class TestRunValveMaintenance:
 
         sent = [c.args[2] for c in trv.adapter.set_temperature.await_args_list]
         assert sent == [30.0, 5.0, 30.0, 5.0, 21.0]
-        assert trv.last_temperature == 21.0
+        assert trv.commanded_setpoint == 21.0
         assert trv.echo_setpoint_values() == [21.0]
 
     @pytest.mark.asyncio

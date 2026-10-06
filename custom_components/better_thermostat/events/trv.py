@@ -638,14 +638,14 @@ async def trigger_trv_change(
     _cooling_owns = cooling_owns_dual_role_report(self, entity_id, _org_trv_state.state)
     if entity_id == dual_role_entity_id(self):
         _known_values = (
-            trv.last_temperature,
+            trv.commanded_setpoint,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
             *cooling_writes_as_held(self, _org_trv_state),
         )
     else:
         _known_values = (
-            trv.last_temperature,
+            trv.commanded_setpoint,
             trv.confirmed_setpoint,
             *trv.echo_setpoint_values(),
         )
@@ -683,11 +683,11 @@ async def trigger_trv_change(
             else f"{_setpoint.value}"
         )
         _LOGGER.debug(
-            "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - _last_temperature: %s",
+            "better_thermostat %s: trigger_trv_change / _old_heating_setpoint: %s - _new_heating_setpoint: %s - commanded_setpoint: %s",
             self.device_name,
             _old_heating_setpoint,
             _reported_setpoint,
-            trv.last_temperature,
+            trv.commanded_setpoint,
         )
         # The no_off OFF detection compares against the TRV's minimum, so it
         # uses the reported value, not one the clamp may have raised into the
@@ -822,7 +822,7 @@ async def trigger_trv_change(
                 "better_thermostat %s: TRV %s setpoint change %s -> %s NOT adopted "
                 "(echo=%s child_lock=%s target_temp_received=%s system_mode_received=%s "
                 "hvac_mode=%s window_open=%s door_open=%s ignore_trv_states=%s "
-                "heat_target_temperature=%s last_temperature=%s pending_setpoints=%s step=%s)",
+                "heat_target_temperature=%s commanded_setpoint=%s pending_setpoints=%s step=%s)",
                 self.device_name,
                 entity_id,
                 _old_heating_setpoint,
@@ -836,7 +836,7 @@ async def trigger_trv_change(
                 self.door_open,
                 trv.ignore_trv_states,
                 self.heat_target_temperature,
-                trv.last_temperature,
+                trv.commanded_setpoint,
                 trv.echo_setpoint_values(),
                 _step,
             )

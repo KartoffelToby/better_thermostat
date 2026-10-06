@@ -42,7 +42,7 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
         available=available,
         hvac_mode=parse_hvac_mode(trv.hvac_mode),
         current_temp=_as_float(self, trv.current_temperature),
-        setpoint=_as_float(self, trv.last_temperature),
+        setpoint=_as_float(self, trv.commanded_setpoint),
         min_temp=_as_float(self, trv.min_temp),
         max_temp=_as_float(self, trv.max_temp),
         valve_max_opening=_as_float(self, trv.valve_max_opening),

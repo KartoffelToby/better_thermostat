@@ -1641,7 +1641,7 @@ class TestInitializeTrvEchoSetpoints:
         """The device's own setpoint is the one value a report may carry."""
         bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: 20.0})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID].last_temperature == 20.0
+        assert bt.real_trvs[TRV_ID].commanded_setpoint == 20.0
         assert bt.real_trvs[TRV_ID].confirmed_setpoint == 20.0
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
@@ -1650,7 +1650,7 @@ class TestInitializeTrvEchoSetpoints:
         """A device publishing no setpoint gives startup nothing to remember."""
         bt = self._trv_only_bt(bt, {ATTR_TEMPERATURE: None})
         await self._run(bt)
-        assert bt.real_trvs[TRV_ID].last_temperature is None
+        assert bt.real_trvs[TRV_ID].commanded_setpoint is None
         assert bt.real_trvs[TRV_ID].echo_setpoint_values() == []
 
 

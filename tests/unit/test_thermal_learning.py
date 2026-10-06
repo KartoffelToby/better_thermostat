@@ -207,7 +207,7 @@ class TestHeatingPowerTrackerFinalization:
             HVACAction.IDLE,
             _ts(duration_min + 1),
             heat_target_temperature=target,
-            outdoor_temp=outdoor,
+            outdoor_temperature=outdoor,
         )
         return t, result
 
@@ -290,12 +290,12 @@ class TestHeatingPowerTrackerFinalization:
         assert t.heating_power <= MAX_HEATING_POWER
 
     def test_outdoor_normalization(self):
-        """When outdoor_temp is provided, normalized_power should be set."""
+        """When outdoor_temperature is provided, normalized_power should be set."""
         t, _ = self._run_complete_cycle(outdoor=5.0, target=21.0)
         assert t.normalized_power is not None
 
     def test_no_outdoor_no_normalization(self):
-        """Without outdoor_temp, normalized_power stays None (or from prior)."""
+        """Without outdoor_temperature, normalized_power stays None (or from prior)."""
         t = HeatingPowerTracker()
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(21.0, HVACAction.IDLE, _ts(10))
@@ -304,7 +304,7 @@ class TestHeatingPowerTrackerFinalization:
             HVACAction.IDLE,
             _ts(11),
             heat_target_temperature=22.0,
-            outdoor_temp=None,
+            outdoor_temperature=None,
         )
         # normalized_power may be None since no outdoor provided
         # (it was set to None in __init__)

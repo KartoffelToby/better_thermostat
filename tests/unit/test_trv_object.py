@@ -291,11 +291,11 @@ class TestEchoSetpoints:
         """After a turn to 22.0, the 20.5 BT confirmed earlier is no longer held."""
         trv = _make()
         awaited = trv.remember_setpoint_written(20.5)
-        trv.last_temperature = 20.5
+        trv.commanded_setpoint = 20.5
         trv.remember_setpoint_confirmed(20.5, awaited)
         trv.remember_setpoint_adopted(22.0)
         assert trv.confirmed_setpoint == 22.0
-        assert trv.last_temperature == 22.0
+        assert trv.commanded_setpoint == 22.0
         assert 20.5 not in trv.echo_setpoint_values()
 
     def test_an_adopted_turn_keeps_the_writes_in_flight(self):
@@ -309,10 +309,10 @@ class TestEchoSetpoints:
         """20.0 turned at the device and wanted by the room is BT's own now."""
         trv = _make()
         awaited = trv.remember_setpoint_written(22.0)
-        trv.last_temperature = 22.0
+        trv.commanded_setpoint = 22.0
         trv.remember_setpoint_confirmed(22.0, awaited)
         trv.remember_setpoint_held(20.0)
-        assert (trv.last_temperature, trv.confirmed_setpoint) == (20.0, 20.0)
+        assert (trv.commanded_setpoint, trv.confirmed_setpoint) == (20.0, 20.0)
 
     def test_a_held_setpoint_keeps_the_writes_in_flight(self):
         """23.0 went out unanswered, so it may still land after the match."""

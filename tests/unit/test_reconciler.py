@@ -61,7 +61,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.flight_recorder = FlightRecorder()
     trv = Trv.from_legacy_dict(
         "climate.trv",
-        {"last_temperature": commanded, "min_temp": 5.0, "max_temp": 30.0},
+        {"commanded_setpoint": commanded, "min_temp": 5.0, "max_temp": 30.0},
     )
     trv.model_quirks = MagicMock()
     trv.model_quirks.override_set_temperature = AsyncMock(return_value=False)

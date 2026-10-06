@@ -61,12 +61,13 @@ name = "setpoint"
 zone = "A"
 definition = "A target temperature on the device side: the value written to a TRV, or the value one reports back."
 rejected = []
-note = "What BT itself holds is `target_temp`. `setpoint` stays the device-facing word, which is how the ~250 sites already using it read."
+note = "What BT itself holds is `heat_target_temperature` and `cool_target_temperature`. `setpoint` stays the device-facing word, which is how the ~250 sites already using it read."
 
 [[term]]
-name = "trv.setpoint"
+name = "trv.commanded_setpoint"
 zone = "A"
-definition = "Target temperature as one TRV reports it."
+definition = "The setpoint BT last commanded to one TRV, set when the write goes out."
+note = "What the device has confirmed is `trv.confirmed_setpoint`; the two differ while a write is in flight."
 rejected = ["last_temperature"]
 
 [[term]]
@@ -251,11 +252,6 @@ paths = [
   "custom_components/better_thermostat/trv.py",
 ]
 reason = "The HA property BT implements, and the `Trv` field it is read from."
-
-[[exception]]
-alias = "last_temperature"
-paths = ["custom_components/better_thermostat/trv.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
 
 [[exception]]
 alias = "target_temp"

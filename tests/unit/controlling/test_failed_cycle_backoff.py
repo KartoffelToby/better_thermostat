@@ -219,7 +219,7 @@ async def test_a_payload_that_drifts_between_failures_keeps_the_run():
 
     def outcome(n):
         # The worker records what it sends before the device refuses it.
-        trv.last_temperature = 22.0 + 0.1 * n
+        trv.commanded_setpoint = 22.0 + 0.1 * n
         return ServiceValidationError("out of range")
 
     async with _Queue(entity, outcome) as queue:

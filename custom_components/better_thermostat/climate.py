@@ -2625,7 +2625,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             _reported_setpoint = attr_to_celsius(
                 self, _s, "temperature", None, "startup()"
             )
-            trv.last_temperature = _reported_setpoint
+            trv.commanded_setpoint = _reported_setpoint
             trv.remember_setpoint_confirmed(_reported_setpoint)
             # No reading is no reading: a fabricated value would feed
             # SENSOR_FALLBACK as if it were live and keep the ladder's
@@ -3572,14 +3572,14 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
             return
 
         current_action = self._compute_hvac_action()
-        outdoor_temp = self._get_outdoor_temp()
+        outdoor_temperature = self._get_outdoor_temp()
 
         result = self._heating_tracker.update(
             self.room_temperature,
             current_action,
             self.clock.utcnow(),
             heat_target_temperature=self.heat_target_temperature,
-            outdoor_temp=outdoor_temp,
+            outdoor_temperature=outdoor_temperature,
         )
 
         if result.action_changed:
