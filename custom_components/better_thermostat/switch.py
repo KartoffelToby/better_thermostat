@@ -8,9 +8,11 @@ import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, restore_state
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoredExtraData, RestoreEntity
+import voluptuous as vol
 
 from . import BetterThermostatConfigEntry
 from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
@@ -371,7 +373,9 @@ class BetterThermostatChildLockSwitch(TrvNamedEntity, SwitchEntity, RestoreEntit
                         await self._bt_climate.hass.services.async_call(
                             "lock", service, {"entity_id": cl_entity}
                         )
-            except Exception as e:
+            # Without ``blocking`` only a call Home Assistant refuses outright
+            # raises here; a device failure is logged by the task it runs in.
+            except (HomeAssistantError, vol.Invalid) as e:
                 _LOGGER.warning(
                     "Better Thermostat Child Lock: Failed to set child lock for %s: %s",
                     cl_entity,

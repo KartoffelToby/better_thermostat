@@ -238,16 +238,12 @@ async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
     bool
         True when the mode went out, False when every attempt raised
     """
+    write = self.real_trvs[entity_id].adapter.set_hvac_mode
     try:
         await _write_on_channel(
-            self,
-            entity_id,
-            "hvac_mode",
-            f"hvac mode {hvac_mode}",
-            self.real_trvs[entity_id].adapter.set_hvac_mode,
-            hvac_mode,
+            self, entity_id, "hvac_mode", f"hvac mode {hvac_mode}", write, hvac_mode
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     return True
 
@@ -447,16 +443,12 @@ async def set_offset(self, entity_id, offset) -> bool:
     if calibration_entity_disabled(self, entity_id):
         return False
 
+    write = self.real_trvs[entity_id].adapter.set_offset
     try:
         wrote = await _write_on_channel(
-            self,
-            entity_id,
-            "offset",
-            "calibration offset",
-            self.real_trvs[entity_id].adapter.set_offset,
-            offset,
+            self, entity_id, "offset", "calibration offset", write, offset
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
         return False
     if wrote is not True:
         _LOGGER.debug(
@@ -601,7 +593,7 @@ async def set_valve(self, entity_id, valve) -> bool:
                 write,
                 target_pct,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - _write_on_channel logged the failure
             continue
         if answer_decides and not answer:
             continue

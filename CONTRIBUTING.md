@@ -450,6 +450,13 @@ in the budget may not have one at all. A file that drops below its number fails
 until `update` records the lower one. The scan ignores ruff's configuration and
 every `noqa`, so the budget file is the only place a silent handler is recorded.
 
+A broad handler that has to stay, one around a write to another integration's
+device where a failure can arrive as any exception type, carries
+`# noqa: BLE001` with its reason on the `except` line. The directive covers that
+one line, and `ruff check` reports the next blind handler in the same file.
+BLE001 does not reach `contextlib.suppress(Exception)`, which stays a review
+concern.
+
 ```bash
 uv run python scripts/blind_except_budget.py check     # what CI runs
 uv run python scripts/blind_except_budget.py update    # after converting handlers

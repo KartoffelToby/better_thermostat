@@ -1905,7 +1905,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
                 blocking=True,
                 context=self.context,
             )
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
             if _previous_send is None:
                 last_sent.pop("temperature", None)
             else:
@@ -1984,7 +1984,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
                 blocking=True,
                 context=self.context,
             )
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - a device failure arrives as any exception type
             _record_cooler_failure(last_sent, "hvac_mode", desired_mode, now_monotonic)
             _LOGGER.warning(
                 "better_thermostat %s: set_hvac_mode for cooler %s failed (%s); "
@@ -2192,6 +2192,7 @@ async def control_trv(
                     "better_thermostat %s: set_valve not applied for %s (unsupported or failed)",
                     self.device_name,
                     entity_id,
+                    exc_info=True,
                 )
 
             # Apply the kernel's intent: a suppression (open window/door, no heat
