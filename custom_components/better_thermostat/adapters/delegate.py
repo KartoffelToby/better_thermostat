@@ -164,7 +164,7 @@ async def set_temperature(self, entity_id, temperature):
             global_cfg_step = None
         step = per_trv_step or global_cfg_step or 0.5
         rounded = round_by_step(float(t), float(step))
-    except Exception:
+    except TypeError, ValueError, OverflowError:
         rounded = float(t)
 
     # Clamp to device min/max if available
@@ -209,15 +209,7 @@ async def set_temperature(self, entity_id, temperature):
     # ``set_offset`` records after its write for the opposite reason: its
     # record says a calibration command is in flight, which a write that never
     # went out must not claim.
-    try:
-        self.real_trvs[entity_id].last_temperature = rounded
-    except Exception as e:
-        _LOGGER.warning(
-            "better_thermostat %s: Failed to update last_temperature for entity_id %s: %s",
-            getattr(self, "device_name", "unknown"),
-            entity_id,
-            e,
-        )
+    self.real_trvs[entity_id].last_temperature = rounded
 
     return await _write_on_channel(
         self,

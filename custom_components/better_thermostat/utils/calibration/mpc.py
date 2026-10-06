@@ -524,7 +524,7 @@ def _detect_regime_change(recent_errors: deque[float] | list[float]) -> bool:
     try:
         variance = sum((e - mean_error) ** 2 for e in errors_to_check) / N
         std_error = variance**0.5
-    except Exception:
+    except OverflowError:
         return False
 
     if std_error == 0:

@@ -170,6 +170,7 @@ async def wait_for_calibration_entity_or_timeout(
                         self.device_name,
                         calibration_entity,
                         e,
+                        exc_info=True,
                     )
                 return
             await asyncio.sleep(5)

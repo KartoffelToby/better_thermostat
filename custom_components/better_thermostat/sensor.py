@@ -1098,12 +1098,9 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
 
     def _update_state(self) -> None:
         """Update state using utility function."""
-        try:
-            val = _get_current_solar_intensity(self._bt_climate)
-            if val is not None:
-                # Function returns 0.0-1.0, convert to %
-                self._attr_native_value = round(float(val) * 100.0, 1)
-            else:
-                self._attr_native_value = 0.0
-        except Exception:
-            self._attr_native_value = None
+        val = _get_current_solar_intensity(self._bt_climate)
+        if val is not None:
+            # Function returns 0.0-1.0, convert to %
+            self._attr_native_value = round(float(val) * 100.0, 1)
+        else:
+            self._attr_native_value = 0.0

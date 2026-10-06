@@ -13,6 +13,7 @@ import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
+from homeassistant.core import State
 from homeassistant.helpers import entity_registry as er
 import pytest
 
@@ -623,14 +624,15 @@ class TestSolarIntensitySensor:
         sensor._update_state()
         assert sensor._attr_native_value == 0.0
 
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_exception_returns_none(self, mock_solar):
-        """Exception returns none."""
-        mock_solar.side_effect = RuntimeError("weather unavailable")
-        bt = _make_bt_climate()
+    def test_unreadable_weather_attributes_fall_back_to_the_condition(self):
+        """Attributes that are not numbers give the condition-based estimate."""
+        bt = _make_bt_climate(weather_entity="weather.home")
+        bt.hass.states.get.return_value = State(
+            "weather.home", "unknown", {"cloud_coverage": "n/a", "uv_index": "high"}
+        )
         sensor = BetterThermostatSolarIntensitySensor(bt)
         sensor._update_state()
-        assert sensor._attr_native_value is None
+        assert sensor._attr_native_value == 10.0
 
     @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
     def test_full_intensity_gives_100_percent(self, mock_solar):
