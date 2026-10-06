@@ -12,6 +12,10 @@ the check sees the whole suite even when a run selects part of it.
 import ast
 from collections import defaultdict
 
+import pytest
+
+from tests import quality_scale
+from tests.conftest import pytest_collection_modifyitems
 from tests.quality_scale import BRONZE_RULES, REPO_ROOT, STATUSES, recorded_rules
 
 TESTS_ROOT = REPO_ROOT / "tests"
@@ -104,3 +108,56 @@ def test_a_rule_reviewed_by_hand_has_no_test():
 
 def test_a_rule_reviewed_by_hand_is_recorded():
     assert set(REVIEWED_BY_HAND) <= set(recorded_rules())
+
+
+class _MarkedTest:
+    """A collected test carrying ``quality_rule`` markers, as the hook sees it."""
+
+    def __init__(self, *rules: str) -> None:
+        self.nodeid = "test_marked"
+        self.rules = rules
+        self.added: list[pytest.MarkDecorator] = []
+
+    def iter_markers(self, name: str):
+        assert name == "quality_rule"
+        return [getattr(pytest.mark, name)(rule).mark for rule in self.rules]
+
+    def add_marker(self, marker: pytest.MarkDecorator) -> None:
+        self.added.append(marker)
+
+
+@pytest.fixture
+def statuses(monkeypatch):
+    """Record the rule statuses the collection hook reads."""
+    recorded: dict[str, str] = {}
+    monkeypatch.setattr(quality_scale, "rule_status", recorded.__getitem__)
+    return recorded
+
+
+def test_a_todo_rule_runs_its_test_as_strict_xfail(statuses):
+    statuses["brands"] = "todo"
+    item = _MarkedTest("brands")
+
+    pytest_collection_modifyitems(None, [item])
+
+    (marker,) = item.added
+    assert marker.name == "xfail"
+    assert marker.kwargs["strict"] is True
+
+
+def test_a_done_rule_runs_its_test_as_it_is(statuses):
+    statuses["brands"] = "done"
+    item = _MarkedTest("brands")
+
+    pytest_collection_modifyitems(None, [item])
+
+    assert item.added == []
+
+
+def test_a_test_may_not_hold_a_todo_and_a_done_rule(statuses):
+    statuses.update({"brands": "todo", "runtime-data": "done"})
+    item = _MarkedTest("brands", "runtime-data")
+
+    with pytest.raises(pytest.UsageError, match="brands"):
+        pytest_collection_modifyitems(None, [item])
+    assert item.added == []

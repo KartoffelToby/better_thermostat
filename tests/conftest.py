@@ -90,21 +90,30 @@ def pytest_collection_modifyitems(config, items):
     a todo rule whose test starts to pass fails the run until the file says
     ``done``, and a done rule whose test fails fails it as any test does.
     """
-    marked = [
-        (item, marker.args[0])
+    marked = {
+        item: [marker.args[0] for marker in item.iter_markers("quality_rule")]
         for item in items
-        for marker in item.iter_markers("quality_rule")
-    ]
+    }
+    marked = {item: rules for item, rules in marked.items() if rules}
     if not marked:
         return
     # Imported only when a marked test was collected: the suite's own gates
     # run this conftest from a copy outside the repository.
     from tests.quality_scale import rule_status
 
-    for item, rule in marked:
-        if rule_status(rule) == "todo":
-            item.add_marker(
-                pytest.mark.xfail(
-                    strict=True, reason=f"quality scale rule {rule} is todo"
-                )
+    for item, rules in marked.items():
+        todo = [rule for rule in rules if rule_status(rule) == "todo"]
+        if not todo:
+            continue
+        # An xfail covers the whole test, so it would also swallow a failure
+        # of a rule the file already records as done.
+        if len(todo) < len(rules):
+            raise pytest.UsageError(
+                f"{item.nodeid} holds the todo rule {todo[0]} together with "
+                "rules that are not todo; give each status its own test"
             )
+        item.add_marker(
+            pytest.mark.xfail(
+                strict=True, reason=f"quality scale rule {todo[0]} is todo"
+            )
+        )

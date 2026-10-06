@@ -6,6 +6,7 @@ says how the two work together.
 """
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_NAME
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import async_get_platforms
@@ -20,6 +21,7 @@ from custom_components.better_thermostat.utils.const import (
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RUN_VALVE_MAINTENANCE,
 )
+from custom_components.better_thermostat.utils.helpers import entry_settings
 
 from .conftest import (
     DOMAIN,
@@ -100,15 +102,22 @@ async def test_every_entity_has_its_own_unique_id(hass, fake_trv):
 
 
 @pytest.mark.quality_rule("entity-unique-id")
-async def test_the_unique_ids_do_not_follow_the_entry_title(hass, fake_trv):
+@pytest.mark.parametrize("rename", ["title", "configured name"])
+async def test_the_unique_ids_do_not_follow_the_thermostat_name(hass, fake_trv, rename):
     """Renaming the thermostat keeps the identity of every entity."""
     entry = await _started_entry(hass, fake_trv)
     before = {e.unique_id for e in _entities(hass)}
 
-    hass.config_entries.async_update_entry(entry, title="Renamed")
+    if rename == "title":
+        hass.config_entries.async_update_entry(entry, title="Renamed")
+    else:
+        settings = {**entry_settings(entry), CONF_NAME: "Renamed"}
+        hass.config_entries.async_update_entry(entry, options=settings)
     assert await hass.config_entries.async_reload(entry.entry_id)
     await wait_for_startup(hass, entry)
 
+    renamed = entry.title if rename == "title" else entry_settings(entry)[CONF_NAME]
+    assert renamed == "Renamed"
     assert {e.unique_id for e in _entities(hass)} == before
 
 
