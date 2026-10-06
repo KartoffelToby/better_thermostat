@@ -662,8 +662,8 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     """A step picked from a dropdown labelled in Celsius is a step in Celsius.
 
     The step and the range sit in the same form and carry the same unit in
-    their labels, so both are read in it. The configured step overrides the
-    device's own grid, so it is the grid every setpoint write is rounded to.
+    their labels, so both are read in it. The device's own grid of a whole
+    degree Fahrenheit is coarser, so the device keeps writing on that.
     """
     (fake_trv,) = await build_devices(hass, FAHRENHEIT_TRV)
     _publish_room_at_device_reading(hass, fake_trv.profile)
@@ -682,7 +682,8 @@ async def test_a_configured_step_is_read_in_the_unit_its_label_names(hass):
     )
     bt = await wait_for_startup(hass, entry)
 
-    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(float(labelled_value))
+    assert bt._configured_target_temp_step == pytest.approx(float(labelled_value))
+    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(5 / 9, abs=1e-3)
 
 
 @pytest.mark.parametrize(
