@@ -287,8 +287,6 @@ class BetterThermostatChildLockSwitch(
         )
         if restored is None:
             return
-        if trv.advanced is None:
-            trv.advanced = {}
         held = bool(trv.advanced.get(CONF_CHILD_LOCK))
         trv.advanced[CONF_CHILD_LOCK] = restored
         if restored != held:
@@ -324,8 +322,6 @@ class BetterThermostatChildLockSwitch(
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
         if trv is None:
             return
-        if trv.advanced is None:
-            trv.advanced = {}
         trv.advanced["child_lock"] = state
         self.async_write_ha_state()
 

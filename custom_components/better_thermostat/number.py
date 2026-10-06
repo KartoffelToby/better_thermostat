@@ -424,9 +424,10 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         if self._bt_climate.preset_mode == self._preset_mode:
             self._bt_climate.bt_target_cooltemp = cool_value
             self._bt_climate._enforce_cool_above_heat()
-            self._bt_climate._preset_cool_temperatures[self._preset_mode] = (
-                self._bt_climate.bt_target_cooltemp
-            )
+            # The ordering only moves a cooling target that is set, so it stays set.
+            enforced = self._bt_climate.bt_target_cooltemp
+            assert enforced is not None
+            self._bt_climate._preset_cool_temperatures[self._preset_mode] = enforced
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 request_control_cycle(self._bt_climate)
 
