@@ -108,20 +108,18 @@ def async_condition_from_config(
 
         return test_is_hvac_mode
 
-    if config[CONF_TYPE] == "is_hvac_action":
-        hvac_action = config[ATTR_HVAC_ACTION]
+    # config[CONF_TYPE] == "is_hvac_action": the schema admits no other type.
+    hvac_action = config[ATTR_HVAC_ACTION]
 
-        def test_is_hvac_action(
-            hass: HomeAssistant, variables: Mapping[str, object] | None
-        ) -> bool:
-            """Test if an HVAC action condition is met."""
-            if entity_id is None or (state := hass.states.get(entity_id)) is None:
-                return False
-            return state.attributes.get(ATTR_HVAC_ACTION) == hvac_action
+    def test_is_hvac_action(
+        hass: HomeAssistant, variables: Mapping[str, object] | None
+    ) -> bool:
+        """Test if an HVAC action condition is met."""
+        if entity_id is None or (state := hass.states.get(entity_id)) is None:
+            return False
+        return state.attributes.get(ATTR_HVAC_ACTION) == hvac_action
 
-        return test_is_hvac_action
-
-    return lambda *_: False
+    return test_is_hvac_action
 
 
 async def async_get_condition_capabilities(

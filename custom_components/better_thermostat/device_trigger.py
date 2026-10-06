@@ -263,19 +263,15 @@ async def async_attach_trigger(
 
     # Helpers
     def _build_state(
-        attribute: str,
-        to: _AttributeMatch | None = None,
-        from_: _AttributeMatch | None = None,
+        attribute: str, to: _AttributeMatch, from_: _AttributeMatch
     ) -> dict:
         trigger_config: dict = {
             state_trigger.CONF_PLATFORM: "state",
             state_trigger.CONF_ENTITY_ID: entity_id,
             CONF_ATTRIBUTE: attribute,
+            CONF_TO: to,
+            CONF_FROM: from_,
         }
-        if to is not None:
-            trigger_config[CONF_TO] = to
-        if from_ is not None:
-            trigger_config[CONF_FROM] = from_
         if CONF_FOR in config:
             trigger_config[CONF_FOR] = config[CONF_FOR]
         return trigger_config
