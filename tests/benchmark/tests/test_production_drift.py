@@ -43,7 +43,9 @@ def _production_valve_pct(temp_diff_K: float, heating_power: float) -> float:
         heating_power=heating_power,
         device_name="drift-guard",
     )
-    valve_fraction = heating_power_valve_position(fake_entity, "drift_guard_trv")
+    valve_fraction = heating_power_valve_position(
+        fake_entity, "drift_guard_trv", fake_entity.room_temperature
+    )
     return valve_fraction * 100.0
 
 
@@ -89,4 +91,7 @@ def test_non_heating_returns_zero_in_both() -> None:
         heating_power=0.02,
         device_name="drift",
     )
-    assert heating_power_valve_position(fake_entity, "trv") == 0.0
+    assert (
+        heating_power_valve_position(fake_entity, "trv", fake_entity.room_temperature)
+        == 0.0
+    )
