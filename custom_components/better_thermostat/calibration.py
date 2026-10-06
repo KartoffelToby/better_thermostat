@@ -290,7 +290,8 @@ def _heating_power_adjustment(
     (closed while not heating, the heating-power position otherwise) and
     hold the channel value so the calibration does not counteract the
     valve command. Without valve support, fall back to the channel's
-    legacy valve-position math.
+    legacy valve-position math. Without a room temperature or a target
+    the valve cannot be sized, and the channel keeps ``current_value``.
 
     Returns ``(value, skip_post_adjustments)``.
     """
@@ -308,7 +309,14 @@ def _heating_power_adjustment(
         return current_value, False
 
     # The position is bounded to 0..1, so the percentage is always finite.
-    _valve_position = heating_power_valve_position(self, entity_id)
+    _valve_position = heating_power_valve_position(
+        self, entity_id, effective_room_temp(self)
+    )
+    if _valve_position is None:
+        # Without a room temperature or a target there is no demand to size
+        # the valve from, so the channel keeps its base calibration.
+        trv.calibration_balance = None
+        return current_value, False
     if _supports_direct_valve_control(self, entity_id):
         trv.calibration_balance = {
             "valve_percent": clamp_valve_percent(_valve_position * 100.0),

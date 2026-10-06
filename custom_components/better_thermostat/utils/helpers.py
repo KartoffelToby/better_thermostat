@@ -818,12 +818,20 @@ def group_all_members_off(self: BetterThermostat) -> bool:
     return saw_member
 
 
-def heating_power_valve_position(self, entity_id: str) -> float:
+def heating_power_valve_position(
+    self: BetterThermostat, entity_id: str, room_temperature: float | None
+) -> float | None:
     """Compute an expected valve position from the heating power.
 
-    Given the global `heating_power` estimate and the target/current
-    temperature, a heuristic mapping to valve opening percentage is
-    returned (between 0.0 and 1.0).
+    Given the global `heating_power` estimate, the heating target and the
+    room temperature the control law runs on, a heuristic mapping to a
+    valve opening fraction is returned (between 0.0 and 1.0). The caller
+    passes that room temperature, so a substitute reading (for example the
+    TRV mean under SENSOR_FALLBACK) sizes the valve the same way as the
+    room sensor does.
+
+    Returns ``None`` when the room temperature or the heating target is
+    missing: without both there is no demand to size the valve from.
 
     Examples (resulting valve_fraction for a given temp_diff and heating_power):
 
@@ -835,9 +843,18 @@ def heating_power_valve_position(self, entity_id: str) -> float:
     | 0.4       | 0.3232  | 0.6227  | 1.0000   |
     | 0.5       | 0.3992  | 0.7691  | 1.0000   |
     """
-    _temp_diff = float(
-        float(self.heat_target_temperature) - float(self.room_temperature)
-    )
+    target_temperature = self.heat_target_temperature
+    if room_temperature is None or target_temperature is None:
+        _LOGGER.debug(
+            "better_thermostat %s: %s / heating_power_valve_position - no room "
+            "temperature (%s) or heating target (%s) to size the valve from",
+            self.device_name,
+            entity_id,
+            room_temperature,
+            target_temperature,
+        )
+        return None
+    _temp_diff = float(target_temperature) - float(room_temperature)
 
     # Guard against negative temp_diff (room warmer than target)
     # This can occur in TRV override edge case when temperature rises
@@ -845,7 +862,7 @@ def heating_power_valve_position(self, entity_id: str) -> float:
     if _temp_diff <= 0:
         _LOGGER.debug(
             f"better_thermostat {self.device_name}: {entity_id} "
-            f"room temperature >= target ({self.room_temperature} >= {self.heat_target_temperature}), "
+            f"room temperature >= target ({room_temperature} >= {target_temperature}), "
             f"setting valve to 0%"
         )
         return 0.0
