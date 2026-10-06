@@ -261,7 +261,7 @@ class TestHeatingPowerTrackerFinalization:
         # heating_rate = 2.0/10 = 0.2
         # weight_factor with target=22, min=18, max=21 (updated to max(21,22)=22)
         # Actually min_target and max_target are defaults 18 and 21,
-        # but target_temp=22 updates max_target to 22
+        # but heat_target_temperature=22 updates max_target to 22
         # So at finalize time: min=18, max=22 (already updated by first update call)
         # Actually the update to max_target happens at the END of update(), after finalize
         # Let's just verify it moved in the right direction

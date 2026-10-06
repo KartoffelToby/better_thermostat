@@ -130,7 +130,7 @@ class TestControlCooler:
         mock_self.context = None
 
         snapshot = make_snapshot(
-            hvac_mode=CoreHvacMode.OFF, target_cooltemp=24.0, tolerance=0.5
+            hvac_mode=CoreHvacMode.OFF, cool_target_temperature=24.0, tolerance=0.5
         )
         with patch(
             "custom_components.better_thermostat.utils.controlling.build_snapshot"
@@ -144,7 +144,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_cooling_needed_above_target(self):
-        """Test cooling turns on when temp >= target_cooltemp + tolerance AND > heat_target_temperature."""
+        """Test cooling turns on when temp >= cool_target_temperature + tolerance AND > heat_target_temperature."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -185,7 +185,7 @@ class TestControlCooler:
     async def test_cooling_not_needed_when_temp_below_bt_target(self):
         """The heating target floors the decision at the switch-on edge.
 
-        The room sits exactly on target_cooltemp + tolerance, so the band asks
+        The room sits exactly on cool_target_temperature + tolerance, so the band asks
         for cooling, but it is below the heating target the TRVs are working
         towards. Cooling there would pull against the heating side, so the
         heating target wins and the cooler stays off.
@@ -204,7 +204,9 @@ class TestControlCooler:
         mock_self.bt_hvac_mode = HVACMode.COOL
         mock_self.cooler_entity_id = "climate.cooler"
         mock_self.context = None
-        mock_self.room_temperature = 24.5  # Exactly on target_cooltemp + tolerance
+        mock_self.room_temperature = (
+            24.5  # Exactly on cool_target_temperature + tolerance
+        )
         mock_self.cool_target_temperature = 24.0
         mock_self.heat_target_temperature = 25.0  # Above the room, so the floor decides
         mock_self.tolerance = 0.5
@@ -219,7 +221,7 @@ class TestControlCooler:
 
     @pytest.mark.asyncio
     async def test_stop_cooling_below_threshold(self):
-        """Test cooling stops when temp < target_cooltemp."""
+        """Test cooling stops when temp < cool_target_temperature."""
         mock_hass = Mock()
         mock_hass.services = Mock()
         mock_hass.services.async_call = AsyncMock()
@@ -254,7 +256,7 @@ class TestControlCooler:
     async def test_hysteresis_behavior(self):
         """Test hysteresis behavior between cooling thresholds.
 
-        Temperature inside the band [target_cooltemp, target_cooltemp+tolerance)
+        Temperature inside the band [cool_target_temperature, cool_target_temperature+tolerance)
         and above heat_target_temperature. The switch-on edge is the upper one, and
         neither an earlier decision nor the reported mode puts the cooler inside
         the band, so 24.2 < 24.5 keeps it off.
@@ -371,7 +373,7 @@ class TestControlCooler:
         mock_self.heat_target_temperature = 20.0
         mock_self.tolerance = 0.5
 
-        # Exactly at target_cooltemp + tolerance AND above heat_target_temperature
+        # Exactly at cool_target_temperature + tolerance AND above heat_target_temperature
         mock_self.room_temperature = 24.5
 
         await control_cooler(mock_self)
@@ -414,8 +416,8 @@ def _make_cooler_setup(
     cooler_temp_attr=24.0,
     system_unit=UnitOfTemperature.CELSIUS,
     room_temperature=25.0,
-    target_cooltemp=24.0,
-    target_temp=20.0,
+    cool_target_temperature=24.0,
+    heat_target_temperature=20.0,
     cooler_attributes=None,
 ):
     """Build a mock BT instance with a cooler in COOL demand conditions."""
@@ -443,8 +445,8 @@ def _make_cooler_setup(
     mock_self.cooler_entity_id = "climate.cooler"
     mock_self.context = None
     mock_self.room_temperature = room_temperature
-    mock_self.cool_target_temperature = target_cooltemp
-    mock_self.heat_target_temperature = target_temp
+    mock_self.cool_target_temperature = cool_target_temperature
+    mock_self.heat_target_temperature = heat_target_temperature
     mock_self.tolerance = 0.5
     mock_self._cooler_last_sent = None
     return mock_self, mock_hass, mock_cooler_state
@@ -485,7 +487,7 @@ class TestControlCoolerSendCache:
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_attributes={"temperature": 75.0, "target_temp_step": 1.0},
             system_unit=UnitOfTemperature.FAHRENHEIT,
-            target_cooltemp=24.0,
+            cool_target_temperature=24.0,
         )
 
         await control_cooler(mock_self)
@@ -502,7 +504,7 @@ class TestControlCoolerSendCache:
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_attributes={"temperature": 75.0, "target_temp_step": 1.0},
             system_unit=UnitOfTemperature.FAHRENHEIT,
-            target_cooltemp=22.0,
+            cool_target_temperature=22.0,
         )
 
         await control_cooler(mock_self)
@@ -555,7 +557,7 @@ class TestControlCoolerSendCache:
         cache alone decides: the desired value is the one already written.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=None, target_cooltemp=24.0
+            cooler_temp_attr=None, cool_target_temperature=24.0
         )
         mock_self._cooler_last_sent = {"temperature": (24.0, 0.0)}
 
@@ -571,7 +573,7 @@ class TestControlCoolerSendCache:
         reached the cooler and goes out despite the unreadable state.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=None, target_cooltemp=24.0
+            cooler_temp_attr=None, cool_target_temperature=24.0
         )
         mock_self._cooler_last_sent = {"temperature": (23.0, 0.0)}
 
@@ -591,7 +593,7 @@ class TestControlCoolerSendCache:
         expires.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=22.0, target_cooltemp=22.4
+            cooler_temp_attr=22.0, cool_target_temperature=22.4
         )
 
         await control_cooler(mock_self)
@@ -610,7 +612,7 @@ class TestControlCoolerSendCache:
     async def test_reported_drift_after_settling_triggers_resend(self):
         """A reported value that moves off its settled reading is corrected."""
         mock_self, mock_hass, mock_cooler_state = _make_cooler_setup(
-            cooler_temp_attr=22.0, target_cooltemp=22.4
+            cooler_temp_attr=22.0, cool_target_temperature=22.4
         )
 
         await control_cooler(mock_self)
@@ -631,7 +633,7 @@ class TestControlCoolerSendCache:
     async def test_changed_target_overrides_quantization_acceptance(self):
         """A new desired value sends immediately despite a settled reading."""
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=22.0, target_cooltemp=22.4
+            cooler_temp_attr=22.0, cool_target_temperature=22.4
         )
 
         await control_cooler(mock_self)
@@ -1012,8 +1014,8 @@ class TestControlCoolerSendCache:
             cooler_attributes=_range_attributes(
                 target_temp_high=20.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         mock_hass.services.async_call = AsyncMock(
@@ -1108,7 +1110,9 @@ class TestControlCoolerContactSuppression:
     async def test_open_contact_writes_no_setpoint(self):
         """A suppressed cooler receives no setpoint, so a dial turn survives."""
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+            cooler_state=HVACMode.COOL,
+            cooler_temp_attr=28.0,
+            cool_target_temperature=25.0,
         )
         mock_self.contact_open = True
         # A cooling period ran before the airing, one full resend interval
@@ -1129,7 +1133,9 @@ class TestControlCoolerContactSuppression:
     async def test_closed_contact_resumes_the_setpoint_write(self):
         """The temperature channel comes back on the cycle the contact shuts."""
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+            cooler_state=HVACMode.COOL,
+            cooler_temp_attr=28.0,
+            cool_target_temperature=25.0,
         )
         mock_self.contact_open = True
         await control_cooler(mock_self)
@@ -1150,7 +1156,9 @@ class TestControlCoolerContactSuppression:
         the throttle's.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.COOL, cooler_temp_attr=28.0, target_cooltemp=25.0
+            cooler_state=HVACMode.COOL,
+            cooler_temp_attr=28.0,
+            cool_target_temperature=25.0,
         )
         mock_self.contact_open = True
 
@@ -1168,7 +1176,7 @@ class TestControlCoolerContactSuppression:
 class TestControlCoolerModeHysteresis:
     """The COOL/OFF decision spans a band rather than a single threshold."""
 
-    # target_cooltemp + tolerance for the values _make_cooler_setup uses.
+    # cool_target_temperature + tolerance for the values _make_cooler_setup uses.
     SWITCH_ON_AT = 24.5
     # The satisfied side of the band is the cooling target itself, because the
     # tolerance _make_cooler_setup uses is wider than COOLER_MODE_HYSTERESIS_K.
@@ -1195,7 +1203,9 @@ class TestControlCoolerModeHysteresis:
         compliant device gets commanded at the whole control-cycle rate.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1233,7 +1243,9 @@ class TestControlCoolerModeHysteresis:
         band as Celsius, so 0.1 °F arrives as 0.0556 K and is narrower still.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         mock_self.tolerance = tolerance
         assert mock_self.tolerance < COOLER_MODE_HYSTERESIS_K
@@ -1241,9 +1253,9 @@ class TestControlCoolerModeHysteresis:
 
         elapsed = 0.0
         for _ in range(5):
-            for room_temp in (24.1, 24.0, 23.9, 24.0):
+            for room_temperature in (24.1, 24.0, 23.9, 24.0):
                 mock_self.clock.monotonic_value = elapsed
-                mock_self.room_temperature = room_temp
+                mock_self.room_temperature = room_temperature
                 await control_cooler(mock_self)
                 assert mock_self._cooler_last_sent["hvac_mode_decided"] == HVACMode.COOL
                 elapsed += 5.0
@@ -1256,7 +1268,9 @@ class TestControlCoolerModeHysteresis:
     async def test_cooling_stops_once_the_room_leaves_the_band(self):
         """The band delays the switch-off, it does not prevent it."""
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1283,14 +1297,16 @@ class TestControlCoolerModeHysteresis:
 
     @pytest.mark.asyncio
     async def test_cooling_starts_a_tolerance_above_the_cooling_target(self):
-        """The switch-on edge sits at target_cooltemp + tolerance.
+        """The switch-on edge sits at cool_target_temperature + tolerance.
 
         The tolerance delays the switch-on so the room settles at or above the
         cooling target; a band read off the other side of the target would
         command COOL while the room is already below what the user asked for.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1317,7 +1333,9 @@ class TestControlCoolerModeHysteresis:
         single threshold.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1351,7 +1369,9 @@ class TestControlCoolerModeHysteresis:
         switch-on edge stays on the cooling target.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         mock_self.tolerance = 0.0
         self._make_compliant(mock_hass, cooler_state)
@@ -1394,8 +1414,8 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=HVACMode.OFF,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
-            target_temp=23.9,
+            cool_target_temperature=24.0,
+            heat_target_temperature=23.9,
         )
         mock_self.tolerance = 0.0
         self._make_compliant(mock_hass, cooler_state)
@@ -1431,8 +1451,8 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=HVACMode.OFF,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
-            target_temp=23.9,
+            cool_target_temperature=24.0,
+            heat_target_temperature=23.9,
         )
         mock_self.tolerance = 0.0
         self._make_compliant(mock_hass, cooler_state)
@@ -1466,8 +1486,8 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=HVACMode.OFF,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
-            target_temp=23.9,
+            cool_target_temperature=24.0,
+            heat_target_temperature=23.9,
         )
         mock_self.tolerance = 0.05
         assert mock_self.tolerance < COOLER_MODE_HYSTERESIS_K
@@ -1520,12 +1540,12 @@ class TestControlCoolerModeHysteresis:
         23.9 while the switch-on edge stays at 24.1.
         """
 
-        async def _decide(room_temp, latched):
+        async def _decide(room_temperature, latched):
             mock_self, _, _ = _make_cooler_setup(
                 cooler_state=HVACMode.OFF,
                 cooler_temp_attr=24.0,
-                target_cooltemp=24.0,
-                room_temperature=room_temp,
+                cool_target_temperature=24.0,
+                room_temperature=room_temperature,
             )
             mock_self.tolerance = tolerance
             if latched is not None:
@@ -1575,7 +1595,7 @@ class TestControlCoolerModeHysteresis:
         rather than as a retry.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_state="dry", cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state="dry", cooler_temp_attr=24.0, cool_target_temperature=24.0
         )
         attempts: list[float] = []
 
@@ -1612,7 +1632,9 @@ class TestControlCoolerModeHysteresis:
         abandon cooling inside the band.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1639,7 +1661,7 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=HVACMode.COOL,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
+            cool_target_temperature=24.0,
             room_temperature=24.1,
         )
         self._make_compliant(mock_hass, cooler_state)
@@ -1655,7 +1677,7 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=HVACMode.COOL,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
+            cool_target_temperature=24.0,
             room_temperature=self.HOLD_UNTIL - 0.1,
         )
         self._make_compliant(mock_hass, cooler_state)
@@ -1692,7 +1714,7 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=reported_mode,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
+            cool_target_temperature=24.0,
             room_temperature=self.HOLD_UNTIL + 0.1,
         )
         self._make_compliant(mock_hass, cooler_state)
@@ -1718,7 +1740,7 @@ class TestControlCoolerModeHysteresis:
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
             cooler_state=HVACMode.COOL,
             cooler_temp_attr=24.0,
-            target_cooltemp=24.0,
+            cool_target_temperature=24.0,
             room_temperature=self.HOLD_UNTIL - 0.1,
         )
         self._make_compliant(mock_hass, cooler_state)
@@ -1759,7 +1781,9 @@ class TestControlCoolerModeHysteresis:
         band to IDLE and heating restarts only below ``target - tolerance``.
         """
         mock_self, mock_hass, cooler_state = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=24.0, target_cooltemp=24.0
+            cooler_state=HVACMode.OFF,
+            cooler_temp_attr=24.0,
+            cool_target_temperature=24.0,
         )
         self._make_compliant(mock_hass, cooler_state)
 
@@ -1915,8 +1939,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=28.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -1934,8 +1958,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=28.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=26.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=26.0,
         )
 
         await control_cooler(mock_self)
@@ -1958,7 +1982,7 @@ class TestControlCoolerTargetRange:
                 supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
                 | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
             ),
-            target_cooltemp=24.0,
+            cool_target_temperature=24.0,
         )
 
         await control_cooler(mock_self)
@@ -1984,8 +2008,8 @@ class TestControlCoolerTargetRange:
                 supported_features=ClimateEntityFeature.TARGET_TEMPERATURE
                 | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE,
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2000,7 +2024,7 @@ class TestControlCoolerTargetRange:
     async def test_cooler_without_feature_flags_keeps_single_setpoint(self):
         """Without advertised features the single-setpoint payload is used."""
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_temp_attr=28.0, target_cooltemp=24.0
+            cooler_temp_attr=28.0, cool_target_temperature=24.0
         )
 
         await control_cooler(mock_self)
@@ -2018,8 +2042,8 @@ class TestControlCoolerTargetRange:
                 target_temp_high=82.4, target_temp_low=66.2
             ),
             system_unit=UnitOfTemperature.FAHRENHEIT,
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2040,8 +2064,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=24.0, target_temp_low=20.0
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2059,8 +2083,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=24.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=21.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=21.0,
         )
 
         await control_cooler(mock_self)
@@ -2083,8 +2107,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=24.0, target_temp_low=20.04
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2103,8 +2127,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=24.0, target_temp_low=20.4, target_temp_step=1.0
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2124,8 +2148,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=28.0, target_temp_low=19.0
             ),
-            target_cooltemp=22.4,
-            target_temp=20.0,
+            cool_target_temperature=22.4,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2156,8 +2180,8 @@ class TestControlCoolerTargetRange:
         """A single-setpoint cooler has no lower bound to keep in sync."""
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_attributes={"temperature": 24.0, "target_temp_low": 15.0},
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2181,8 +2205,8 @@ class TestControlCoolerTargetRange:
         async def _writes(cooler_attributes):
             mock_self, mock_hass, _ = _make_cooler_setup(
                 cooler_attributes=cooler_attributes,
-                target_cooltemp=24.0,
-                target_temp=20.0,
+                cool_target_temperature=24.0,
+                heat_target_temperature=20.0,
             )
             for _ in range(resend_intervals):
                 await control_cooler(mock_self)
@@ -2212,8 +2236,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=23.7, target_temp_low=19.7
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2244,8 +2268,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=23.7, target_temp_low=19.7
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2283,8 +2307,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=28.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2321,8 +2345,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=24.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=21.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=21.0,
         )
         mock_self._cooler_last_sent = {"temperature": (24.0, 0.0)}
         mock_self.clock.monotonic_value = 1.0
@@ -2349,8 +2373,8 @@ class TestControlCoolerTargetRange:
             cooler_attributes=_range_attributes(
                 target_temp_high=28.0, target_temp_low=19.0
             ),
-            target_cooltemp=24.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2384,7 +2408,7 @@ class TestControlCoolerDeviceRange:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("target_cooltemp", "written"),
+        ("cool_target_temperature", "written"),
         [
             pytest.param(38.0, 35.0, id="above_the_maximum"),
             pytest.param(12.0, 16.0, id="below_the_minimum"),
@@ -2392,13 +2416,13 @@ class TestControlCoolerDeviceRange:
         ],
     )
     async def test_the_setpoint_is_held_to_the_cooler_range(
-        self, target_cooltemp, written
+        self, cool_target_temperature, written
     ):
         """A cooling target outside the cooler's range is written at its edge."""
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_attributes={"temperature": 24.0, "min_temp": 16.0, "max_temp": 35.0},
-            target_cooltemp=target_cooltemp,
-            target_temp=10.0,
+            cool_target_temperature=cool_target_temperature,
+            heat_target_temperature=10.0,
         )
 
         await control_cooler(mock_self)
@@ -2420,8 +2444,8 @@ class TestControlCoolerDeviceRange:
         mock_self, mock_hass, _ = _make_cooler_setup(
             cooler_attributes={"temperature": 75.2, "min_temp": 61.0, "max_temp": 95.0},
             system_unit=UnitOfTemperature.FAHRENHEIT,
-            target_cooltemp=36.0,
-            target_temp=20.0,
+            cool_target_temperature=36.0,
+            heat_target_temperature=20.0,
         )
 
         await control_cooler(mock_self)
@@ -2435,7 +2459,9 @@ class TestControlCoolerDeviceRange:
         attributes = _range_attributes(target_temp_high=28.0, target_temp_low=19.0)
         attributes |= {"min_temp": 16.0, "max_temp": 35.0}
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_attributes=attributes, target_cooltemp=26.0, target_temp=10.0
+            cooler_attributes=attributes,
+            cool_target_temperature=26.0,
+            heat_target_temperature=10.0,
         )
 
         await control_cooler(mock_self)
@@ -2461,13 +2487,13 @@ class TestControlCoolerUnknownTarget:
         air conditioner is switched off for as long as the target stays unknown.
         """
         mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_state=HVACMode.COOL, target_cooltemp=None
+            cooler_state=HVACMode.COOL, cool_target_temperature=None
         )
         snapshot = make_snapshot(
             hvac_mode=CoreHvacMode.HEAT_COOL,
-            target_cooltemp=None,
-            room_temp=26.0,
-            target_temp=20.0,
+            cool_target_temperature=None,
+            room_temperature=26.0,
+            heat_target_temperature=20.0,
             tolerance=0.5,
         )
 
@@ -2518,9 +2544,9 @@ class TestControlCoolerOnADualRoleEntity:
         """A cold room: the cooling decision is OFF and heating owns the device."""
         return make_snapshot(
             hvac_mode=CoreHvacMode.HEAT_COOL,
-            target_cooltemp=24.0,
-            room_temp=18.0,
-            target_temp=30.0,
+            cool_target_temperature=24.0,
+            room_temperature=18.0,
+            heat_target_temperature=30.0,
             tolerance=0.5,
         )
 
@@ -2529,9 +2555,9 @@ class TestControlCoolerOnADualRoleEntity:
         """A warm room above both targets: the cooling channel takes the device."""
         return make_snapshot(
             hvac_mode=CoreHvacMode.HEAT_COOL,
-            target_cooltemp=24.0,
-            room_temp=26.0,
-            target_temp=20.0,
+            cool_target_temperature=24.0,
+            room_temperature=26.0,
+            heat_target_temperature=20.0,
             tolerance=0.5,
         )
 

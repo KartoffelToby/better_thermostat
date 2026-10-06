@@ -136,7 +136,7 @@ class TestHeatingPowerValvePosition:
         assert result > 0.0
 
     def test_returns_zero_when_cooling_needed(self):
-        """Test that valve returns 0% when room_temperature > target_temp."""
+        """Test that valve returns 0% when room_temperature > heat_target_temperature."""
         mock_bt = MockThermostat(heat_target_temperature=20.0, room_temperature=22.0)
 
         result = heating_power_valve_position(mock_bt, "climate.test")

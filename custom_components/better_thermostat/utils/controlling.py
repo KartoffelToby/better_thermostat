@@ -1546,7 +1546,7 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     # the send cache work with the value the device is actually sent.
     if snapshot is None:
         snapshot = build_snapshot(self)
-    desired_temp = on_cooler_grid(self, cooler_state, snapshot.target_cooltemp)
+    desired_temp = on_cooler_grid(self, cooler_state, snapshot.cool_target_temperature)
     # Home Assistant refuses a setpoint outside the cooler's own range, and
     # the cooling target can leave it where a configured bound widens the
     # cooling range past the device's, so the write is held to the device.
@@ -1562,14 +1562,14 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
         if _cooler_max is not None and _cooler_max < desired_temp:
             desired_temp = _cooler_max
 
-    room_temp = snapshot.room_temp
-    target_cooltemp = snapshot.target_cooltemp
-    heat_target_temperature = snapshot.target_temp
+    room_temperature = snapshot.room_temperature
+    cool_target_temperature = snapshot.cool_target_temperature
+    heat_target_temperature = snapshot.heat_target_temperature
     tolerance = snapshot.tolerance
 
     if (
-        room_temp is None
-        or target_cooltemp is None
+        room_temperature is None
+        or cool_target_temperature is None
         or tolerance is None
         or heat_target_temperature is None
     ):
@@ -1579,8 +1579,8 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             "defaulting to OFF",
             self.device_name,
             self.cooler_entity_id,
-            room_temp,
-            target_cooltemp,
+            room_temperature,
+            cool_target_temperature,
             tolerance,
             heat_target_temperature,
         )
@@ -1623,13 +1623,13 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
             else current_hvac_mode == HVACMode.COOL
         )
         _cool_wanted = should_cool_with_tolerance(
-            room_temp,
-            target_cooltemp,
+            room_temperature,
+            cool_target_temperature,
             tolerance,
             _previously_cooling,
             min_band=COOLER_MODE_HYSTERESIS_K,
         )
-        if _cool_wanted and room_temp > heat_target_temperature:
+        if _cool_wanted and room_temperature > heat_target_temperature:
             desired_mode = HVACMode.COOL
         else:
             desired_mode = HVACMode.OFF

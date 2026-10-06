@@ -57,7 +57,9 @@ def _boost_snapshot():
     WorldSnapshot
         Snapshot with boost preset enabled and room temperature below target.
     """
-    return make_snapshot(preset_mode="boost", room_temp=19.0, target_temp=22.0)
+    return make_snapshot(
+        preset_mode="boost", room_temperature=19.0, heat_target_temperature=22.0
+    )
 
 
 # ---------------------------------------------------------------------------

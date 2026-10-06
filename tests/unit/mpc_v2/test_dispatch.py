@@ -107,7 +107,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
 def _trv_info(
     entity_id: str,
     *,
-    current_temp: float | None,
+    current_temperature: float | None,
     supports_valve: bool,
     max_temp: float = 30.0,
     valve_max_opening: float = 100.0,
@@ -115,7 +115,7 @@ def _trv_info(
     """Build a Trv configured for MPC v2 calibration."""
     return Trv(
         entity_id=entity_id,
-        current_temperature=current_temp,
+        current_temperature=current_temperature,
         valve_max_opening=valve_max_opening,
         advanced={
             "calibration": (
@@ -137,10 +137,10 @@ def test_multi_trv_distributes_group_valve() -> None:
     """Cold TRV gets more opening than warm TRV out of the same group %."""
     real_trvs = {
         "climate.living_cold": _trv_info(
-            "climate.living_cold", current_temp=19.0, supports_valve=True
+            "climate.living_cold", current_temperature=19.0, supports_valve=True
         ),
         "climate.living_warm": _trv_info(
-            "climate.living_warm", current_temp=21.0, supports_valve=True
+            "climate.living_warm", current_temperature=21.0, supports_valve=True
         ),
     }
     bt = _make_bt(real_trvs=real_trvs)
@@ -178,12 +178,12 @@ def test_multi_trv_clamps_to_per_trv_max_opening() -> None:
     real_trvs = {
         "climate.living_cold": _trv_info(
             "climate.living_cold",
-            current_temp=15.0,
+            current_temperature=15.0,
             supports_valve=True,
             valve_max_opening=40.0,
         ),
         "climate.living_warm": _trv_info(
-            "climate.living_warm", current_temp=22.0, supports_valve=True
+            "climate.living_warm", current_temperature=22.0, supports_valve=True
         ),
     }
     bt = _make_bt(real_trvs=real_trvs)
@@ -205,7 +205,7 @@ def test_single_trv_passes_through_without_distribution() -> None:
     """One TRV ⇒ no distribute_valve_percent splitting, group == per-TRV."""
     real_trvs = {
         "climate.solo": _trv_info(
-            "climate.solo", current_temp=19.0, supports_valve=True
+            "climate.solo", current_temperature=19.0, supports_valve=True
         )
     }
     bt = _make_bt(real_trvs=real_trvs)
@@ -222,7 +222,9 @@ def test_single_trv_passes_through_without_distribution() -> None:
 def test_hvac_off_returns_none() -> None:
     """HVAC OFF must short-circuit before constructing a controller."""
     real_trvs = {
-        "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+        "climate.x": _trv_info(
+            "climate.x", current_temperature=19.0, supports_valve=True
+        )
     }
     bt = _make_bt(real_trvs=real_trvs)
     bt.bt_hvac_mode = HVACMode.OFF
@@ -236,7 +238,9 @@ def test_hvac_off_returns_none() -> None:
 def test_missing_room_temperature_returns_none() -> None:
     """A missing BT room temperature short-circuits the dispatch."""
     real_trvs = {
-        "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+        "climate.x": _trv_info(
+            "climate.x", current_temperature=19.0, supports_valve=True
+        )
     }
     bt = _make_bt(real_trvs=real_trvs)
     bt.room_temperature = None
@@ -256,7 +260,9 @@ def test_daqp_absence_uses_portable_solver(monkeypatch) -> None:
     monkeypatch.setattr(qp_optimiser, "_daqp", None)
 
     real_trvs = {
-        "climate.x": _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+        "climate.x": _trv_info(
+            "climate.x", current_temperature=19.0, supports_valve=True
+        )
     }
     bt = _make_bt(real_trvs=real_trvs)
 
@@ -290,7 +296,7 @@ def test_setpoint_steered_trv_keeps_its_reported_opening_out_of_the_controller(
     reported opening the TRV chose itself would become BT's next command.
     """
     seen = _capture_controller_input(monkeypatch)
-    trv = _trv_info("climate.x", current_temp=19.0, supports_valve=False)
+    trv = _trv_info("climate.x", current_temperature=19.0, supports_valve=False)
     trv.valve_position = 80.0
     bt = _make_bt(real_trvs={"climate.x": trv})
 
@@ -305,7 +311,7 @@ def test_setpoint_steered_trv_reported_opening_still_feeds_re_identification(
 ) -> None:
     """The reported opening must stay a re-identification sample of the room's input."""
     _capture_controller_input(monkeypatch)
-    trv = _trv_info("climate.x", current_temp=19.0, supports_valve=False)
+    trv = _trv_info("climate.x", current_temperature=19.0, supports_valve=False)
     trv.valve_position = 80.0
     bt = _make_bt(real_trvs={"climate.x": trv})
 
@@ -322,7 +328,7 @@ def test_direct_valve_trv_feeds_its_reported_opening_to_the_controller(
 ) -> None:
     """A valve BT writes itself must reach the controller as the applied input."""
     seen = _capture_controller_input(monkeypatch)
-    trv = _trv_info("climate.x", current_temp=19.0, supports_valve=True)
+    trv = _trv_info("climate.x", current_temperature=19.0, supports_valve=True)
     trv.valve_position = 80.0
     bt = _make_bt(real_trvs={"climate.x": trv})
 

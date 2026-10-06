@@ -1141,14 +1141,14 @@ class TestForecastOutage:
         assert bt.call_for_heat is True
 
     @pytest.mark.parametrize(
-        ("outdoor_temp", "expected"),
+        ("outdoor_temperature", "expected"),
         [
             pytest.param(25.0, False, id="warm_outside"),
             pytest.param(2.0, True, id="cold_outside"),
         ],
     )
     async def test_the_outdoor_sensor_decides_during_a_forecast_outage(
-        self, caplog, outdoor_temp, expected
+        self, caplog, outdoor_temperature, expected
     ):
         """With an outdoor sensor configured its reading decides, silently.
 
@@ -1159,7 +1159,7 @@ class TestForecastOutage:
             make_hass(),
             weather_entity=WEATHER_ID,
             outdoor_sensor=OUTDOOR_ID,
-            last_avg_outdoor_temp=outdoor_temp,
+            last_avg_outdoor_temp=outdoor_temperature,
             off_temperature=10.0,
         )
         with caplog.at_level(logging.INFO, logger=WEATHER_MOD):

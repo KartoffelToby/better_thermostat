@@ -42,7 +42,7 @@ note = "Named for its channel because the cooling one exists alongside it in eve
 name = "cool_target_temperature"
 zone = "A"
 definition = "The target BT holds on the cooling channel."
-rejected = ["bt_target_cooltemp", "cool_target"]
+rejected = ["bt_target_cooltemp", "target_cooltemp", "cool_target"]
 
 [[term]]
 name = "room_temperature"
@@ -253,27 +253,3 @@ paths = [
 ]
 reason = "The HA property BT implements, and the `Trv` field it is read from."
 
-[[exception]]
-alias = "target_temp"
-paths = ["custom_components/better_thermostat/core/snapshot.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
-
-[[exception]]
-alias = "room_temp"
-paths = ["custom_components/better_thermostat/core/snapshot.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
-
-[[exception]]
-alias = "room_temp_filtered"
-paths = ["custom_components/better_thermostat/core/snapshot.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
-
-[[exception]]
-alias = "current_temp"
-paths = ["custom_components/better_thermostat/core/snapshot.py"]
-reason = "Field definition; it moves together with all its readers, not before them."
-
-[[exception]]
-alias = "outdoor_temp"
-paths = ["custom_components/better_thermostat/core/snapshot.py"]
-reason = "Field definition; it moves together with all its readers, not before them."

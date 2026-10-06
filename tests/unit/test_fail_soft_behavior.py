@@ -182,9 +182,9 @@ class TestBulkhead:
         snapshot = WorldSnapshot(
             now=datetime(2026, 1, 10, tzinfo=UTC),
             now_monotonic=1000.0,
-            target_temp=21.0,
+            heat_target_temperature=21.0,
             hvac_mode=HvacMode.HEAT,
-            room_temp=19.0,
+            room_temperature=19.0,
             call_for_heat=True,
             trvs={
                 "climate.ok": TrvReported(entity_id="climate.ok", available=True),

@@ -47,7 +47,7 @@ def _scenarios() -> dict[str, tuple]:
         Mapping of scenario name to its ``(snapshot, state)`` pair.
     """
     return {
-        "heating_cold_room": (make_snapshot(room_temp=18.0), make_state()),
+        "heating_cold_room": (make_snapshot(room_temperature=18.0), make_state()),
         "no_call_for_heat": (make_snapshot(call_for_heat=False), make_state()),
         "off_mode": (
             make_snapshot(hvac_mode=HvacMode.OFF),
@@ -88,7 +88,7 @@ def _scenarios() -> dict[str, tuple]:
             ),
         ),
         "hold_rung": (
-            make_snapshot(room_temp=None),
+            make_snapshot(room_temperature=None),
             make_state(
                 control_mode=ControlModeState(
                     mode=ControlMode.HOLD, degraded_since=700.0

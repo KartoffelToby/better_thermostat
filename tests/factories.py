@@ -72,9 +72,9 @@ def make_snapshot(**overrides) -> WorldSnapshot:
     defaults = {
         "now": datetime(2026, 1, 2, 8, 30, tzinfo=UTC),
         "now_monotonic": 1000.0,
-        "target_temp": 21.0,
+        "heat_target_temperature": 21.0,
         "hvac_mode": CoreHvacMode.HEAT,
-        "room_temp": 19.5,
+        "room_temperature": 19.5,
         "call_for_heat": True,
         "tolerance": 0.3,
         "trvs": {
