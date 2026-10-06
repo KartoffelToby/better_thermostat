@@ -112,8 +112,8 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> ThermostatStandIn
     bt.door_open = False
     bt.contact_open = False
     bt.bt_hvac_mode = "heat"
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.heating_power = None
     bt.heat_loss_rate = None
     bt.clock = FakeClock(monotonic_value=100.0)

@@ -36,10 +36,10 @@ def bt():
     mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID)}
     mock.sensor_entity_id = SENSOR_ID
     mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
-    mock.outdoor_sensor = None
-    mock.weather_entity = None
+    mock.window_sensor_entity_id = None
+    mock.door_sensor_entity_id = None
+    mock.outdoor_sensor_entity_id = None
+    mock.weather_entity_id = None
     mock.cooler_entity_id = None
     mock.unavailable_sensors = []
     mock._degraded_warning_emitted = False

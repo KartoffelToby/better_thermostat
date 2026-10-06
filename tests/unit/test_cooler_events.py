@@ -35,7 +35,7 @@ def mock_bt():
     bt.hvac_mode = HVACMode.HEAT_COOL
     bt.heat_target_temperature = 20.0
     bt.cool_target_temperature = 25.0
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
     bt.cool_min_temperature = None
@@ -646,7 +646,7 @@ class TestInboundCoolSetpointClamp:
         """A zero step falls back to 0.5 so the two targets stay apart."""
         mock_bt.heat_target_temperature = 25.0
         mock_bt.cool_target_temperature = 27.0
-        mock_bt.bt_target_temp_step = 0.0
+        mock_bt.bt_target_temperature_step = 0.0
         old_state = _make_state(attributes={"temperature": 27.0})
         new_state = _make_state(attributes={"temperature": 25.0})
         event = _make_event(mock_bt, new_state=new_state, old_state=old_state)

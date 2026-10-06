@@ -12,13 +12,13 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .utils.const import (
     CONF_COOLER,
-    CONF_HEATER,
-    CONF_HUMIDITY,
+    CONF_DOOR_SENSORS,
+    CONF_HUMIDITY_SENSOR,
     CONF_OUTDOOR_SENSOR,
-    CONF_SENSOR,
-    CONF_SENSOR_DOOR,
-    CONF_SENSOR_WINDOW,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     CONF_WEATHER,
+    CONF_WINDOW_SENSORS,
     VERSION,
 )
 from .utils.helpers import entry_settings
@@ -42,9 +42,9 @@ TO_REDACT = {
 # Configured entities besides the room sensor and the window sensor, which
 # keep their own top-level keys.
 _SENSOR_KEYS = (
-    CONF_HUMIDITY,
+    CONF_HUMIDITY_SENSOR,
     CONF_OUTDOOR_SENSOR,
-    CONF_SENSOR_DOOR,
+    CONF_DOOR_SENSORS,
     CONF_COOLER,
     CONF_WEATHER,
 )
@@ -95,7 +95,7 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     settings = entry_settings(config_entry)
     trvs = {}
-    for trv_config in settings[CONF_HEATER]:
+    for trv_config in settings[CONF_THERMOSTAT]:
         trv_state = hass.states.get(trv_config["trv"])
         if trv_state is None:
             continue
@@ -112,13 +112,15 @@ async def async_get_config_entry_diagnostics(
         }
 
     _cleaned_data = dict(settings)
-    del _cleaned_data[CONF_HEATER]
+    del _cleaned_data[CONF_THERMOSTAT]
     diagnostics_data: dict[str, Any] = {
         "versions": {"better_thermostat": VERSION, "home_assistant": ha_version},
         "info": _cleaned_data,
         "thermostat": trvs,
-        "external_temperature_sensor": _state(hass, settings.get(CONF_SENSOR)),
-        "window_sensor": _state(hass, settings.get(CONF_SENSOR_WINDOW)),
+        "external_temperature_sensor": _state(
+            hass, settings.get(CONF_TEMPERATURE_SENSOR)
+        ),
+        "window_sensor": _state(hass, settings.get(CONF_WINDOW_SENSORS)),
         "sensors": {
             key: _state(hass, settings[key])
             for key in _SENSOR_KEYS

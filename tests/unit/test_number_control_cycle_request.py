@@ -47,7 +47,7 @@ def _thermostat_with_a_pending_cycle():
     bt_climate.cool_min_temperature = None
     bt_climate.cool_max_temperature = None
     bt_climate.cooler_entity_id = "climate.cooler"
-    bt_climate.bt_target_temp_step = 0.5
+    bt_climate.bt_target_temperature_step = 0.5
     bt_climate.preset_mgr = PresetManager(mode=PRESET_HOME)
     bt_climate.preset_mode = bt_climate.preset_mgr.mode
     bt_climate.bt_hvac_mode = HVACMode.HEAT_COOL

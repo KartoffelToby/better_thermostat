@@ -46,6 +46,25 @@ definition = "The target BT holds on the cooling channel."
 rejected = ["bt_target_cooltemp", "target_cooltemp", "cool_target"]
 
 [[term]]
+name = "bt_target_temperature_step"
+zone = "A"
+definition = "The step BT offers for its targets, in °C: the configured one, or the one derived from the TRVs."
+rejected = ["bt_target_temp_step"]
+note = "Prefixed because the entity implements HA's `target_temperature_step`, which reports this step in the system unit."
+
+[[term]]
+name = "configured_min_temperature"
+zone = "A"
+definition = "The lower bound of the target range the user configured, in °C; None when the TRVs decide."
+rejected = ["bt_target_temp_min"]
+
+[[term]]
+name = "configured_max_temperature"
+zone = "A"
+definition = "The upper bound of the target range the user configured, in °C; None when the TRVs decide."
+rejected = ["bt_target_temp_max"]
+
+[[term]]
 name = "room_temperature"
 zone = "A"
 definition = "Room sensor reading as measured, unsmoothed."
@@ -117,6 +136,30 @@ definition = "Entity id of a TRV, alongside other kinds of entity id."
 rejected = []
 
 [[term]]
+name = "window_sensor_entity_id"
+zone = "A"
+definition = "Entity id of the window sensor, or of the group that stands for several."
+rejected = ["window_id"]
+
+[[term]]
+name = "door_sensor_entity_id"
+zone = "A"
+definition = "Entity id of the door sensor, or of the group that stands for several."
+rejected = ["door_id"]
+
+[[term]]
+name = "weather_entity_id"
+zone = "A"
+definition = "Entity id of the weather entity that supplies the outdoor forecast."
+rejected = ["weather_entity"]
+
+[[term]]
+name = "outdoor_sensor_entity_id"
+zone = "A"
+definition = "Entity id of the outdoor temperature sensor."
+rejected = ["outdoor_sensor"]
+
+[[term]]
 name = "trv"
 zone = "A"
 definition = "The `Trv` object."
@@ -125,7 +168,7 @@ rejected = ["trv_data", "trv_info", "_real_trv", "trv_entry"]
 [[term]]
 name = "trv_config"
 zone = "A"
-definition = "One entry of the `CONF_HEATER` list. A dict, not an id."
+definition = "One entry of the `CONF_THERMOSTAT` list. A dict, not an id."
 rejected = ["trv_conf", "trv_cfg"]
 note = "`trv_id` is rejected for this too; which sites become `entity_id` and which become `trv_config` has to be decided per site."
 

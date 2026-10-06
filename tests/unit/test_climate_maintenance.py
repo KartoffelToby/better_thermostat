@@ -246,10 +246,10 @@ def _startup_bt(advanced):
     mock.all_entities = []
     mock.sensor_entity_id = "sensor.room_temp"
     mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
+    mock.window_sensor_entity_id = None
+    mock.door_sensor_entity_id = None
     mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
+    mock.outdoor_sensor_entity_id = None
     mock._async_unsub_state_changed = None
     mock._trigger_time = AsyncMock()
     mock._trigger_check_weather = AsyncMock()

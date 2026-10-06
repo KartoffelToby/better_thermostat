@@ -1183,7 +1183,7 @@ def _locked_device_moved(
     reported = read_setpoint_celsius(
         self, state, TRV_SETPOINT_KEYS, "read_reports_held_during_cycle()"
     )
-    step = normalize_step(trv.target_temp_step or self.bt_target_temp_step)
+    step = normalize_step(trv.target_temp_step or self.bt_target_temperature_step)
     known = [
         trv.commanded_setpoint,
         trv.confirmed_setpoint,

@@ -28,7 +28,7 @@ def build_bt(
     *,
     room_temperature,
     trv_temp,
-    calibration_mode=CalibrationMode.AGGRESIVE_CALIBRATION,
+    calibration_mode=CalibrationMode.AGGRESSIVE_CALIBRATION,
     protect_overheating=True,
     heat_target_temperature=TARGET_TEMP,
     tolerance=0.3,
@@ -45,8 +45,8 @@ def build_bt(
     bt.room_temperature_filtered = None
     bt.heat_target_temperature = heat_target_temperature
     bt.bt_hvac_mode = HVACMode.HEAT
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.window_open = False
     bt.contact_open = False
     bt.temp_slope = None

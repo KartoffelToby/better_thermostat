@@ -41,19 +41,19 @@ except (FileNotFoundError, KeyError, json.JSONDecodeError) as e:
     _LOGGER.error("better_thermostat %s: could not read version from manifest file.", e)
 
 
-CONF_HEATER: Final = "thermostat"
+CONF_THERMOSTAT: Final = "thermostat"
 CONF_COOLER: Final = "cooler"
-CONF_SENSOR: Final = "temperature_sensor"
-CONF_HUMIDITY: Final = "humidity_sensor"
-CONF_SENSOR_WINDOW: Final = "window_sensors"
-CONF_SENSOR_DOOR: Final = "door_sensors"
+CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
+CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
+CONF_WINDOW_SENSORS: Final = "window_sensors"
+CONF_DOOR_SENSORS: Final = "door_sensors"
 CONF_TARGET_TEMP: Final = "target_temp"
 CONF_WEATHER: Final = "weather"
 CONF_OFF_TEMPERATURE: Final = "off_temperature"
-CONF_WINDOW_TIMEOUT: Final = "window_off_delay"
-CONF_WINDOW_TIMEOUT_AFTER: Final = "window_off_delay_after"
-CONF_DOOR_TIMEOUT: Final = "door_off_delay"
-CONF_DOOR_TIMEOUT_AFTER: Final = "door_off_delay_after"
+CONF_WINDOW_OFF_DELAY: Final = "window_off_delay"
+CONF_WINDOW_OFF_DELAY_AFTER: Final = "window_off_delay_after"
+CONF_DOOR_OFF_DELAY: Final = "door_off_delay"
+CONF_DOOR_OFF_DELAY_AFTER: Final = "door_off_delay_after"
 CONF_OUTDOOR_SENSOR: Final = "outdoor_sensor"
 CONF_VALVE_MAINTENANCE: Final = "valve_maintenance"
 CONF_MIN_TEMP: Final = "min_temp"
@@ -69,7 +69,7 @@ CONF_MODEL: Final = "model"
 CONF_HOMEMATICIP: Final = "homematicip"
 CONF_PRESETS: Final = "presets"
 CONF_INTEGRATION: Final = "integration"
-CONF_NO_SYSTEM_MODE_OFF: Final = "no_off_system_mode"
+CONF_NO_OFF_SYSTEM_MODE: Final = "no_off_system_mode"
 CONF_TOLERANCE: Final = "tolerance"
 CONF_TARGET_TEMP_MIN: Final = "target_temp_min"
 CONF_TARGET_TEMP_MAX: Final = "target_temp_max"
@@ -94,11 +94,14 @@ ATTR_STATE_DOOR_OPEN: Final = "door_open"
 ATTR_STATE_CALL_FOR_HEAT: Final = "call_for_heat"
 ATTR_STATE_LAST_CHANGE: Final = "last_change"
 ATTR_STATE_PRESET_TEMPERATURE: Final = "preset_temperature"
-ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "bt_preset_cool_temperature"
-ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "bt_preset_cool_temperatures"
-ATTR_STATE_PRESET_HEAT_TEMPERATURES: Final = "bt_preset_heat_temperatures"
+ATTR_STATE_PRESET_COOL_TEMPERATURE: Final = "preset_cool_temperature"
+ATTR_STATE_PRESET_COOL_TEMPERATURES: Final = "preset_cool_temperatures"
+ATTR_STATE_PRESET_HEAT_TEMPERATURES: Final = "preset_heat_temperatures"
+ATTR_STATE_ROOM_TEMPERATURE_FILTERED: Final = "room_temperature_filtered"
+ATTR_STATE_DEGRADED_FOR_SECONDS: Final = "degraded_for_seconds"
+ATTR_STATE_TEMPERATURE_SLOPE: Final = "temperature_slope_kelvin_per_min"
 ATTR_VALVE_POSITION: Final = "valve_position"
-ATTR_STATE_HUMIDIY: Final = "humidity"
+ATTR_STATE_HUMIDITY: Final = "humidity"
 ATTR_STATE_MAIN_MODE: Final = "main_mode"
 ATTR_STATE_HEATING_POWER: Final = "heating_power"
 ATTR_STATE_HEAT_LOSS: Final = "heat_loss"
@@ -107,6 +110,19 @@ ATTR_STATE_HEATING_STATS: Final = "heating_stats"
 ATTR_STATE_ERRORS: Final = "errors"
 ATTR_STATE_BATTERIES: Final = "batteries"
 ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
+
+# DEPRECATED, remove in 3.0: state attributes under the names 1.9 published,
+# keyed by the current name. The entity publishes each value under
+# both names, because templates read the old ones and 1.9 restores from them
+# after a rollback, and a restart reads the current name first and the old one
+# after it. Removing an entry here removes its old name everywhere.
+DEPRECATED_STATE_ATTRIBUTES: Final[dict[str, str]] = {
+    ATTR_STATE_PRESET_COOL_TEMPERATURE: "bt_preset_cool_temperature",
+    ATTR_STATE_PRESET_COOL_TEMPERATURES: "bt_preset_cool_temperatures",
+    ATTR_STATE_PRESET_HEAT_TEMPERATURES: "bt_preset_heat_temperatures",
+    ATTR_STATE_ROOM_TEMPERATURE_FILTERED: "external_temp_ema",
+    ATTR_STATE_TEMPERATURE_SLOPE: "temp_slope_K_min",
+}
 
 SERVICE_RESET_HEATING_POWER: Final = "reset_heating_power"
 SERVICE_RESET_PID_LEARNINGS: Final = "reset_pid_learnings"
@@ -149,7 +165,7 @@ class CalibrationMode(StrEnum):
     """The algorithm that computes the calibration."""
 
     DEFAULT = "default"
-    AGGRESIVE_CALIBRATION = "fix_calibration"
+    AGGRESSIVE_CALIBRATION = "fix_calibration"
     HEATING_POWER_CALIBRATION = "heating_power_calibration"
     NO_CALIBRATION = "no_calibration"
     MPC_CALIBRATION = "mpc_calibration"

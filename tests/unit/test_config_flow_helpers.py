@@ -27,13 +27,13 @@ from custom_components.better_thermostat.config_flow import (
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
-    CONF_HEATER,
     CONF_OFF_TEMPERATURE,
-    CONF_SENSOR,
     CONF_TARGET_TEMP_MAX,
     CONF_TARGET_TEMP_MIN,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     CONF_TOLERANCE,
-    CONF_WINDOW_TIMEOUT,
+    CONF_WINDOW_OFF_DELAY,
     DEFAULT_CALIBRATION_MODE,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
@@ -186,14 +186,14 @@ def test_a_delay_stored_as_a_duration_is_offered_unchanged():
     stored = {"hours": 0, "minutes": 1, "seconds": 0}
 
     fields = _build_user_fields(
-        mode="update", current={CONF_WINDOW_TIMEOUT: stored}, system_unit="°C"
+        mode="update", current={CONF_WINDOW_OFF_DELAY: stored}, system_unit="°C"
     )
 
-    assert _default_of(fields, CONF_WINDOW_TIMEOUT) == stored
+    assert _default_of(fields, CONF_WINDOW_OFF_DELAY) == stored
 
 
 def _submission(**overrides):
-    return {CONF_NAME: "Room", CONF_SENSOR: "sensor.temp"} | overrides
+    return {CONF_NAME: "Room", CONF_TEMPERATURE_SENSOR: "sensor.temp"} | overrides
 
 
 @pytest.mark.parametrize(
@@ -209,10 +209,10 @@ def _submission(**overrides):
 )
 def test_the_thermostats_come_out_as_a_list_of_entity_ids(heaters, expected):
     normalized = _normalize_user_submission(
-        _submission(**{CONF_HEATER: heaters}), mode="create", base=None
+        _submission(**{CONF_THERMOSTAT: heaters}), mode="create", base=None
     )
 
-    assert normalized[CONF_HEATER] == expected
+    assert normalized[CONF_THERMOSTAT] == expected
 
 
 @pytest.mark.parametrize("value", [None, "warm"])
@@ -244,11 +244,11 @@ def test_a_missing_range_bound_is_stored_as_auto(bound):
     ("config", "expected"),
     [
         ({}, set()),
-        ({CONF_HEATER: [{"advanced": {}}]}, set()),
-        ({CONF_HEATER: [{"advanced": {CONF_CALIBRATION_MODE: "retired"}}]}, set()),
+        ({CONF_THERMOSTAT: [{"advanced": {}}]}, set()),
+        ({CONF_THERMOSTAT: [{"advanced": {CONF_CALIBRATION_MODE: "retired"}}]}, set()),
         (
             {
-                CONF_HEATER: [
+                CONF_THERMOSTAT: [
                     {
                         "advanced": {
                             CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION
@@ -259,7 +259,11 @@ def test_a_missing_range_bound_is_stored_as_auto(bound):
             {CalibrationMode.PID_CALIBRATION},
         ),
         (
-            {CONF_HEATER: [{"advanced": {CONF_CALIBRATION_MODE: "tpi_calibration"}}]},
+            {
+                CONF_THERMOSTAT: [
+                    {"advanced": {CONF_CALIBRATION_MODE: "tpi_calibration"}}
+                ]
+            },
             {CalibrationMode.TPI_CALIBRATION},
         ),
     ],

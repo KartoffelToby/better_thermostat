@@ -89,7 +89,7 @@ class TestCollectBalanceAttrs:
         bt.temp_slope = 0.001234567
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
-        assert out["temp_slope_K_min"] == 0.0012
+        assert out["temperature_slope_kelvin_per_min"] == 0.0012
 
     def test_balance_aggregated_across_trvs(self):
         """Per-TRV calibration balance is collected into one JSON map."""

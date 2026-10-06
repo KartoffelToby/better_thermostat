@@ -64,7 +64,7 @@ def _thermostat(adapter, quirks=None):
     """A thermostat with one TRV whose four write channels are ready."""
     thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
-    thermostat.bt_target_temp_step = 0.5
+    thermostat.bt_target_temperature_step = 0.5
     trv = Trv(entity_id=ENTITY_ID)
     trv.valve_position_entity = VALVE_ENTITY
     trv.valve_position_writable = True

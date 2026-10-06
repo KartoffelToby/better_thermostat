@@ -122,6 +122,7 @@ from .utils.clock import SystemClock
 from .utils.const import (
     ATTR_STATE_BATTERIES,
     ATTR_STATE_CALL_FOR_HEAT,
+    ATTR_STATE_DEGRADED_FOR_SECONDS,
     ATTR_STATE_DOOR_OPEN,
     ATTR_STATE_ERRORS,
     ATTR_STATE_HEAT_LOSS,
@@ -133,30 +134,33 @@ from .utils.const import (
     ATTR_STATE_PRESET_COOL_TEMPERATURES,
     ATTR_STATE_PRESET_HEAT_TEMPERATURES,
     ATTR_STATE_PRESET_TEMPERATURE,
+    ATTR_STATE_ROOM_TEMPERATURE_FILTERED,
+    ATTR_STATE_TEMPERATURE_SLOPE,
     ATTR_STATE_WINDOW_OPEN,
     CONF_CHILD_LOCK,
     CONF_COOLER,
-    CONF_DOOR_TIMEOUT,
-    CONF_DOOR_TIMEOUT_AFTER,
-    CONF_HEATER,
-    CONF_HUMIDITY,
+    CONF_DOOR_OFF_DELAY,
+    CONF_DOOR_OFF_DELAY_AFTER,
+    CONF_DOOR_SENSORS,
+    CONF_HUMIDITY_SENSOR,
     CONF_MODEL,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
     CONF_PRESETS,
-    CONF_SENSOR,
-    CONF_SENSOR_DOOR,
-    CONF_SENSOR_WINDOW,
     CONF_TARGET_TEMP_MAX,
     CONF_TARGET_TEMP_MIN,
     CONF_TARGET_TEMP_STEP,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     CONF_TOLERANCE,
     CONF_WEATHER,
-    CONF_WINDOW_TIMEOUT,
-    CONF_WINDOW_TIMEOUT_AFTER,
+    CONF_WINDOW_OFF_DELAY,
+    CONF_WINDOW_OFF_DELAY_AFTER,
+    CONF_WINDOW_SENSORS,
     DEFAULT_MAX_TEMP,
     DEFAULT_MIN_TEMP,
     DEFAULT_TARGET_TEMP,
+    DEPRECATED_STATE_ATTRIBUTES,
     DOMAIN,
     SUPPORT_FLAGS,
     TARGET_TEMP_BOUND_AUTO,
@@ -310,15 +314,15 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     bt_entity = BetterThermostat(
         settings.get(CONF_NAME),
-        settings.get(CONF_HEATER),
-        settings.get(CONF_SENSOR),
-        settings.get(CONF_HUMIDITY, None),
-        settings.get(CONF_SENSOR_WINDOW, None),
-        settings.get(CONF_WINDOW_TIMEOUT, None),
-        settings.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-        settings.get(CONF_SENSOR_DOOR, None),
-        settings.get(CONF_DOOR_TIMEOUT, None),
-        settings.get(CONF_DOOR_TIMEOUT_AFTER, None),
+        settings.get(CONF_THERMOSTAT),
+        settings.get(CONF_TEMPERATURE_SENSOR),
+        settings.get(CONF_HUMIDITY_SENSOR, None),
+        settings.get(CONF_WINDOW_SENSORS, None),
+        settings.get(CONF_WINDOW_OFF_DELAY, None),
+        settings.get(CONF_WINDOW_OFF_DELAY_AFTER, None),
+        settings.get(CONF_DOOR_SENSORS, None),
+        settings.get(CONF_DOOR_OFF_DELAY, None),
+        settings.get(CONF_DOOR_OFF_DELAY_AFTER, None),
         settings.get(CONF_WEATHER, None),
         settings.get(CONF_OUTDOOR_SENSOR, None),
         settings.get(CONF_OFF_TEMPERATURE, None),
@@ -384,6 +388,17 @@ def _room_sensor_missing(sensor_state: State | None) -> bool:
         STATE_UNKNOWN,
         None,
     )
+
+
+def _restored_attribute(old_state: State, name: str) -> Any:
+    """Return an attribute of a restored state under its current or deprecated name.
+
+    A state 1.9 wrote carries only the name in `DEPRECATED_STATE_ATTRIBUTES`.
+    """
+    value = old_state.attributes.get(name)
+    if value is None:
+        value = old_state.attributes.get(DEPRECATED_STATE_ATTRIBUTES[name])
+    return value
 
 
 def _arm_degraded_grace(self) -> None:
@@ -483,9 +498,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
     _attr_has_entity_name = True
     _attr_name = None
-    # ``degraded_for_s`` counts up on every write while degraded; the recorded
-    # ``control_mode`` already says when the degradation began.
-    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {"degraded_for_s"}
+    # ``degraded_for_seconds`` counts up on every write while degraded; the
+    # recorded ``control_mode`` already says when the degradation began.
+    _unrecorded_attributes = TELEMETRY_ATTRIBUTES | {
+        ATTR_STATE_DEGRADED_FOR_SECONDS,
+        DEPRECATED_STATE_ATTRIBUTES[ATTR_STATE_TEMPERATURE_SLOPE],
+    }
 
     # Per-channel cooler send bookkeeping: the last successfully sent command,
     # the settled reading of each written channel, the mode the last cycle
@@ -543,9 +561,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.config.cooler_entity_id
 
     @property
-    def window_id(self) -> str | None:
+    def window_sensor_entity_id(self) -> str | None:
         """Return the window sensor entity id."""
-        return self.config.window_id
+        return self.config.window_sensor_entity_id
 
     @property
     def window_open_delay_seconds(self) -> float:
@@ -558,9 +576,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.config.window_close_delay_seconds
 
     @property
-    def door_id(self) -> str | None:
+    def door_sensor_entity_id(self) -> str | None:
         """Return the door sensor entity id."""
-        return self.config.door_id
+        return self.config.door_sensor_entity_id
 
     @property
     def door_open_delay_seconds(self) -> float:
@@ -573,14 +591,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.config.door_close_delay_seconds
 
     @property
-    def weather_entity(self) -> str | None:
+    def weather_entity_id(self) -> str | None:
         """Return the weather entity id."""
-        return self.config.weather_entity
+        return self.config.weather_entity_id
 
     @property
-    def outdoor_sensor(self) -> str | None:
+    def outdoor_sensor_entity_id(self) -> str | None:
         """Return the outdoor sensor entity id."""
-        return self.config.outdoor_sensor
+        return self.config.outdoor_sensor_entity_id
 
     @property
     def off_temperature(self) -> float | None:
@@ -793,14 +811,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         trv_configs,
         sensor_entity_id,
         humidity_sensor_entity_id,
-        window_id,
+        window_sensor_entity_id,
         window_open_delay_seconds,
         window_close_delay_seconds,
-        door_id,
+        door_sensor_entity_id,
         door_open_delay_seconds,
         door_close_delay_seconds,
-        weather_entity,
-        outdoor_sensor,
+        weather_entity_id,
+        outdoor_sensor_entity_id,
         off_temperature,
         tolerance,
         target_temp_min,
@@ -830,21 +848,21 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
             External humidity sensor entity id.
-        window_id : str | None
+        window_sensor_entity_id : str | None
             Window contact sensor entity id for open-window detection.
         window_open_delay_seconds : int
             Delay in seconds before reacting to a window opening.
         window_close_delay_seconds : int
             Delay in seconds before reacting to a window closing.
-        door_id : str | None
+        door_sensor_entity_id : str | None
             Door contact sensor entity id for open-door detection.
         door_open_delay_seconds : int
             Delay in seconds before reacting to a door opening.
         door_close_delay_seconds : int
             Delay in seconds before reacting to a door closing.
-        weather_entity : str | None
+        weather_entity_id : str | None
             Weather entity used as outdoor temperature source.
-        outdoor_sensor : str | None
+        outdoor_sensor_entity_id : str | None
             Outdoor temperature sensor entity id.
         off_temperature : float | None
             Outdoor temperature above which heating is switched off.
@@ -939,14 +957,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             sensor_entity_id=sensor_entity_id,
             humidity_sensor_entity_id=humidity_sensor_entity_id,
             cooler_entity_id=cooler_entity_id,
-            window_id=window_id or None,
+            window_sensor_entity_id=window_sensor_entity_id or None,
             window_open_delay_seconds=window_open_delay_seconds or 0,
             window_close_delay_seconds=window_close_delay_seconds or 0,
-            door_id=door_id or None,
+            door_sensor_entity_id=door_sensor_entity_id or None,
             door_open_delay_seconds=door_open_delay_seconds or 0,
             door_close_delay_seconds=door_close_delay_seconds or 0,
-            weather_entity=weather_entity or None,
-            outdoor_sensor=outdoor_sensor or None,
+            weather_entity_id=weather_entity_id or None,
+            outdoor_sensor_entity_id=outdoor_sensor_entity_id or None,
             off_temperature=_off_temperature,
             tolerance=_tolerance,
         )
@@ -967,26 +985,26 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._current_humidity: float | None = None
         # A configured bound overrides what the controlled entities report, so
         # it is kept apart from the resolved ``bt_min_temp`` / ``bt_max_temp``.
-        self.bt_target_temp_min: float | None = _configured_temperature_bound(
+        self.configured_min_temperature: float | None = _configured_temperature_bound(
             target_temp_min, name, CONF_TARGET_TEMP_MIN
         )
-        self.bt_target_temp_max: float | None = _configured_temperature_bound(
+        self.configured_max_temperature: float | None = _configured_temperature_bound(
             target_temp_max, name, CONF_TARGET_TEMP_MAX
         )
         # The configured step is picked from options labelled in Celsius, the
         # unit the configured range is picked in, so it is read as Celsius on
         # every system.
-        self.bt_target_temp_step = (
+        self.bt_target_temperature_step = (
             float(target_temp_step)
             if target_temp_step and target_temp_step != "0.0"
             else None
         )
-        # ``bt_target_temp_step`` also absorbs the step derived from the child
+        # ``bt_target_temperature_step`` also absorbs the step derived from the child
         # entities, so the explicitly configured value is kept apart: it is the
         # only step that may coarsen a device's own grid.
-        self._configured_target_temp_step: float | None = (
-            self.bt_target_temp_step
-            if self.bt_target_temp_step and self.bt_target_temp_step > 0.0
+        self._configured_temperature_step: float | None = (
+            self.bt_target_temperature_step
+            if self.bt_target_temperature_step and self.bt_target_temperature_step > 0.0
             else None
         )
         # ``bt_min_temp`` / ``bt_max_temp`` bound the heating channel, and the
@@ -1081,11 +1099,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
             maxsize=1
         )
-        if self.window_id is not None:
+        if self.window_sensor_entity_id is not None:
             self.window_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(
                 maxsize=1
             )
-        if self.door_id is not None:
+        if self.door_sensor_entity_id is not None:
             self.door_queue_task: asyncio.Queue[bool | None] = asyncio.Queue(maxsize=1)
         self._control_task = None
         self._window_task = None
@@ -1212,11 +1230,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._control_task = self.hass.async_create_background_task(
             control_queue(self), name=f"bt_control_queue_{self.device_name}"
         )
-        if self.window_id is not None:
+        if self.window_sensor_entity_id is not None:
             self._window_task = self.hass.async_create_background_task(
                 window_queue(self), name=f"bt_window_queue_{self.device_name}"
             )
-        if self.door_id is not None:
+        if self.door_sensor_entity_id is not None:
             self._door_task = self.hass.async_create_background_task(
                 door_queue(self), name=f"bt_door_queue_{self.device_name}"
             )
@@ -1972,26 +1990,26 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 steps.append(_sf)
         if not heat_mins and not heat_maxes:
             heat_mins, heat_maxes = cool_mins, cool_maxes
-        if self.bt_target_temp_min is None:
+        if self.configured_min_temperature is None:
             self.bt_min_temp = max(heat_mins) if heat_mins else None
         else:
-            self.bt_min_temp = self.bt_target_temp_min
-        if self.bt_target_temp_max is None:
+            self.bt_min_temp = self.configured_min_temperature
+        if self.configured_max_temperature is None:
             self.bt_max_temp = min(heat_maxes) if heat_maxes else None
         else:
-            self.bt_max_temp = self.bt_target_temp_max
+            self.bt_max_temp = self.configured_max_temperature
         if self.cooler_entity_id is None:
             self.cool_min_temperature = None
             self.cool_max_temperature = None
         else:
             self.cool_min_temperature = (
-                self.bt_target_temp_min
-                if self.bt_target_temp_min is not None
+                self.configured_min_temperature
+                if self.configured_min_temperature is not None
                 else (max(cool_mins) if cool_mins else None)
             )
             self.cool_max_temperature = (
-                self.bt_target_temp_max
-                if self.bt_target_temp_max is not None
+                self.configured_max_temperature
+                if self.configured_max_temperature is not None
                 else (min(cool_maxes) if cool_maxes else None)
             )
 
@@ -2012,8 +2030,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                     upper,
                 )
 
-        if self.bt_target_temp_step is None:
-            self.bt_target_temp_step = max(steps) if steps else None
+        if self.bt_target_temperature_step is None:
+            self.bt_target_temperature_step = max(steps) if steps else None
 
     def _initialize_sensors(self, sensor_state: State | None) -> None:
         """Set up room temperature, humidity, window and door sensors."""
@@ -2100,8 +2118,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # events/window.py and events/door.py).
         self.kernel_state = replace(
             self.kernel_state,
-            window=_seed_contact_region_at_startup(self, self.window_id, "window"),
-            door=_seed_contact_region_at_startup(self, self.door_id, "door"),
+            window=_seed_contact_region_at_startup(
+                self, self.window_sensor_entity_id, "window"
+            ),
+            door=_seed_contact_region_at_startup(
+                self, self.door_sensor_entity_id, "door"
+            ),
         )
 
     async def _restore_state(self, states: list[State]) -> None:
@@ -2128,9 +2150,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             _store_filters = self.state_mgr.filters if self.state_mgr else None
             if (
                 _store_filters is None or _store_filters.external_temp_ema is None
-            ) and "external_temp_ema" in old_state.attributes:
+            ) and (
+                stored_ema := _restored_attribute(
+                    old_state, ATTR_STATE_ROOM_TEMPERATURE_FILTERED
+                )
+            ) is not None:
                 try:
-                    _restored_ema = float(old_state.attributes["external_temp_ema"])
+                    _restored_ema = float(stored_ema)
                     self.external_temp_ema = _restored_ema
                     self.room_temperature_filtered = round(_restored_ema, 2)
                     # Reset timestamp to now so the next delta is calculated from restart time
@@ -2143,11 +2169,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 except ValueError, TypeError:
                     pass
 
-            if (
-                _store_filters is None or _store_filters.temp_slope is None
-            ) and "temp_slope_K_min" in old_state.attributes:
+            if (_store_filters is None or _store_filters.temp_slope is None) and (
+                stored_slope := _restored_attribute(
+                    old_state, ATTR_STATE_TEMPERATURE_SLOPE
+                )
+            ) is not None:
                 try:
-                    _restored_slope = float(old_state.attributes["temp_slope_K_min"])
+                    _restored_slope = float(stored_slope)
                     self.temp_slope = _restored_slope
                     _LOGGER.debug(
                         "better_thermostat %s: restored temp_slope from state: %.4f",
@@ -2218,30 +2246,20 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
             # Restore the persisted per-preset cooling map before applying it below,
             # so a restored preset uses its saved cooling target instead of the default.
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURE, None)
-                is not None
-            ):
+            stored_cool_temperature = _restored_attribute(
+                old_state, ATTR_STATE_PRESET_COOL_TEMPERATURE
+            )
+            if stored_cool_temperature is not None:
                 self._preset_cool_temperature = convert_to_float(
-                    str(
-                        old_state.attributes.get(
-                            ATTR_STATE_PRESET_COOL_TEMPERATURE, None
-                        )
-                    ),
-                    self.device_name,
-                    "startup()",
+                    str(stored_cool_temperature), self.device_name, "startup()"
                 )
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_COOL_TEMPERATURES, None)
-                is not None
-            ):
+            stored_cool_temperatures = _restored_attribute(
+                old_state, ATTR_STATE_PRESET_COOL_TEMPERATURES
+            )
+            if stored_cool_temperatures is not None:
                 try:
                     restored_cool_temperatures = json.loads(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_PRESET_COOL_TEMPERATURES, "{}"
-                            )
-                        )
+                        str(stored_cool_temperatures)
                     )
                 except TypeError, json.JSONDecodeError:
                     _LOGGER.debug(
@@ -2262,17 +2280,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             # entities, whose platform is set up after climate, so it comes
             # back from the thermostat's own state here. The block below reads
             # it to pick the target for a restored preset.
-            if (
-                old_state.attributes.get(ATTR_STATE_PRESET_HEAT_TEMPERATURES, None)
-                is not None
-            ):
+            stored_heat_temperatures = _restored_attribute(
+                old_state, ATTR_STATE_PRESET_HEAT_TEMPERATURES
+            )
+            if stored_heat_temperatures is not None:
                 try:
                     restored_heat_temperatures = json.loads(
-                        str(
-                            old_state.attributes.get(
-                                ATTR_STATE_PRESET_HEAT_TEMPERATURES, "{}"
-                            )
-                        )
+                        str(stored_heat_temperatures)
                     )
                 except TypeError, json.JSONDecodeError:
                     _LOGGER.debug(
@@ -2611,7 +2625,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             # This step is the grid the device rounds to: it sizes the echo
             # window for inbound setpoints and the rounding of outbound ones,
             # so it must be this device's own step and not the coarsest step
-            # across all children in ``bt_target_temp_step``. An explicitly
+            # across all children in ``bt_target_temperature_step``. An explicitly
             # configured step coarser than the device's own replaces it. A
             # finer one does not: the device would hold every write on its own
             # grid and never report the value it was sent. The aggregate only
@@ -2619,13 +2633,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             _device_step = _target_temp_step_celsius(
                 _s, self.device_name, self.hass.config.units.temperature_unit
             )
-            _configured_step = self._configured_target_temp_step
+            _configured_step = self._configured_temperature_step
             if _device_step is not None and _device_step > 0.0:
                 trv.target_temp_step = max(_device_step, _configured_step or 0.0)
             elif _configured_step is not None:
                 trv.target_temp_step = _configured_step
-            elif self.bt_target_temp_step and self.bt_target_temp_step > 0.0:
-                trv.target_temp_step = self.bt_target_temp_step
+            elif (
+                self.bt_target_temperature_step
+                and self.bt_target_temperature_step > 0.0
+            ):
+                trv.target_temp_step = self.bt_target_temperature_step
             else:
                 trv.target_temp_step = 0.5
             trv.hvac_modes = _attrs.get("hvac_modes", None)
@@ -2934,8 +2951,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # outdoor sensor are the two that no earlier init step registers.
         if self.cooler_entity_id is not None:
             self.all_entities.append(self.cooler_entity_id)
-        if self.outdoor_sensor is not None:
-            self.all_entities.append(self.outdoor_sensor)
+        if self.outdoor_sensor_entity_id is not None:
+            self.all_entities.append(self.outdoor_sensor_entity_id)
 
         # try to find battery entities for all related entities
         for entity in self.all_entities:
@@ -2951,7 +2968,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             return
 
         # Add listener
-        if self.outdoor_sensor is not None:
+        if self.outdoor_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_time_change(
                     self.hass,
@@ -3158,16 +3175,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # listener above existed, and a TRV that has come back does not
         # necessarily report again soon.
         await self._initialize_arrived_trvs()
-        if self.window_id is not None:
+        if self.window_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self.window_id], self._trigger_window_change
+                    self.hass,
+                    [self.window_sensor_entity_id],
+                    self._trigger_window_change,
                 )
             )
-        if self.door_id is not None:
+        if self.door_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self.door_id], self._trigger_door_change
+                    self.hass, [self.door_sensor_entity_id], self._trigger_door_change
                 )
             )
         if self.cooler_entity_id is not None:
@@ -3211,10 +3230,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 # stored for the first cycle after it is switched on, and that
                 # switch requests a cycle of its own.
                 request_control_cycle(self)
-        if self.outdoor_sensor is not None:
+        if self.outdoor_sensor_entity_id is not None:
             self.async_on_remove(
                 async_track_state_change_event(
-                    self.hass, [self.outdoor_sensor], self._trigger_outdoor_change
+                    self.hass,
+                    [self.outdoor_sensor_entity_id],
+                    self._trigger_outdoor_change,
                 )
             )
         # One keepalive right away, so a TRV that mirrors the room temperature
@@ -3624,10 +3645,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
     def _get_outdoor_temp(self) -> float | None:
         """Resolve outdoor temperature from sensor entity, if configured."""
-        if self.outdoor_sensor is None:
+        if self.outdoor_sensor_entity_id is None:
             return None
         try:
-            outdoor_state = self.hass.states.get(self.outdoor_sensor)
+            outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             if outdoor_state is not None:
                 return convert_to_float_celsius(
                     str(outdoor_state.state),
@@ -3641,7 +3662,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             _LOGGER.debug(
                 "better_thermostat %s: outdoor sensor %s could not be read",
                 self.device_name,
-                self.outdoor_sensor,
+                self.outdoor_sensor_entity_id,
                 exc_info=True,
             )
         return None
@@ -3680,7 +3701,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             ATTR_STATE_HEAT_LOSS: round(self.heat_loss_rate, 5),
             ATTR_STATE_ERRORS: json.dumps(self.devices_errors),
             ATTR_STATE_BATTERIES: json.dumps(self.devices_states),
-            "external_temp_ema": self.room_temperature_filtered,
+            ATTR_STATE_ROOM_TEMPERATURE_FILTERED: self.room_temperature_filtered,
             # Degraded mode: thermostat running with some sensors unavailable
             "degraded_mode": self.degraded_mode,
             "unavailable_sensors": self.unavailable_sensors,
@@ -3691,7 +3712,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 entity_id: str(trv.calibrator_health)
                 for entity_id, trv in self.real_trvs.items()
             },
-            "degraded_for_s": (
+            ATTR_STATE_DEGRADED_FOR_SECONDS: (
                 round(
                     self.clock.monotonic()
                     - self.kernel_state.control_mode.degraded_since
@@ -3706,7 +3727,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 self.preset_mgr.temperatures
             ),
         }
-
         # Optional: next scheduled valve maintenance (ISO8601)
         if self.next_valve_maintenance is not None:
             dev_specific["next_valve_maintenance"] = (
@@ -3726,6 +3746,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         dev_specific.update(collect_balance_attrs(self))
         dev_specific.update(collect_pid_debug_attrs(self))
         dev_specific.update(collect_mpc_v2_debug_attrs(self))
+        for name, deprecated_name in DEPRECATED_STATE_ATTRIBUTES.items():
+            if name in dev_specific:
+                dev_specific[deprecated_name] = dev_specific[name]
 
         return dev_specific
 
@@ -3793,7 +3816,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
         Home Assistant converts every temperature this entity publishes into
         the system unit but publishes the step as given, and the frontend
-        steps the converted target by it. ``bt_target_temp_step`` is a
+        steps the converted target by it. ``bt_target_temperature_step`` is a
         Celsius difference, so on a Fahrenheit system it is scaled into
         Fahrenheit. Without one the step is Home Assistant's default
         precision for the system unit, whole degrees on a Fahrenheit system
@@ -3808,10 +3831,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         float
                 Step size of target temperature.
         """
-        if self.bt_target_temp_step is not None:
+        if self.bt_target_temperature_step is not None:
             if self._unit == UnitOfTemperature.FAHRENHEIT:
-                return round(self.bt_target_temp_step * 9.0 / 5.0, 2)
-            return self.bt_target_temp_step
+                return round(self.bt_target_temperature_step * 9.0 / 5.0, 2)
+            return self.bt_target_temperature_step
 
         if self._unit == UnitOfTemperature.FAHRENHEIT:
             return PRECISION_WHOLE
@@ -4210,7 +4233,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             or self.cool_target_temperature > self.heat_target_temperature
         ):
             return
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         adjusted = self.heat_target_temperature + step
         maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None and maximum >= self.heat_target_temperature:
@@ -4270,7 +4293,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             or self.heat_target_temperature < self.cool_target_temperature
         ):
             return
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         adjusted = self.cool_target_temperature - step
         if self.bt_min_temp is not None:
             adjusted = max(adjusted, self.bt_min_temp)
@@ -4373,7 +4396,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         happens to be in.
 
         The one step of separation comes from :func:`normalize_step`, because
-        ``bt_target_temp_step`` can carry whatever a child entity reports: a
+        ``bt_target_temperature_step`` can carry whatever a child entity reports: a
         negative step would put the floor below the heating target and invert
         the pair this bound exists to order, and a NaN one would make the
         comparison against it false and drop the bound altogether.
@@ -4393,7 +4416,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         if self.cooler_entity_id is None or self.heat_target_temperature is None:
             return value
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         floor = self.heat_target_temperature + step
         maximum = get_cool_temperature_bounds(self)[1]
         if maximum is not None:
@@ -4436,7 +4459,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         if self.cooler_entity_id is None or self.cool_target_temperature is None:
             return value
-        step = normalize_step(self.bt_target_temp_step)
+        step = normalize_step(self.bt_target_temperature_step)
         ceiling = self.cool_target_temperature - step
         if self.bt_min_temp is not None:
             ceiling = max(ceiling, self.bt_min_temp)
@@ -4450,7 +4473,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         grid. A value already on the grid, and every value when no step is
         configured, comes back unchanged.
         """
-        step = self._configured_target_temp_step
+        step = self._configured_temperature_step
         if value is None or not isinstance(step, float) or step <= 0:
             return value
         rounded = round_by_step(value, step)

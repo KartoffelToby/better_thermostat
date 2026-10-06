@@ -597,7 +597,7 @@ class TestRunValveMaintenance:
         """
         bt = ThermostatStandIn()
         bt.device_name = "Test"
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         trv = Trv(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
         trv.adapter = MagicMock()
         trv.adapter.set_temperature = AsyncMock(return_value=True)

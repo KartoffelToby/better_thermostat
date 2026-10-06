@@ -304,16 +304,16 @@ def get_optional_sensors(self) -> list:
         List of optional sensor entity IDs
     """
     optional = []
-    if getattr(self, "window_id", None):
-        optional.append(self.window_id)
-    if getattr(self, "door_id", None):
-        optional.append(self.door_id)
+    if self.window_sensor_entity_id:
+        optional.append(self.window_sensor_entity_id)
+    if self.door_sensor_entity_id:
+        optional.append(self.door_sensor_entity_id)
     if getattr(self, "humidity_sensor_entity_id", None):
         optional.append(self.humidity_sensor_entity_id)
-    if getattr(self, "outdoor_sensor", None):
-        optional.append(self.outdoor_sensor)
-    if getattr(self, "weather_entity", None):
-        optional.append(self.weather_entity)
+    if self.outdoor_sensor_entity_id:
+        optional.append(self.outdoor_sensor_entity_id)
+    if self.weather_entity_id:
+        optional.append(self.weather_entity_id)
     # An actuator rather than a sensor, watched on the same terms because
     # its loss leaves the thermostat running.
     if getattr(self, "cooler_entity_id", None):

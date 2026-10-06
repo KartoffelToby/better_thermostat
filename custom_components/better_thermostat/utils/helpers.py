@@ -1298,7 +1298,7 @@ def device_setpoint_step(
         state, self.device_name, self.hass.config.units.temperature_unit, log_source
     )
     if step is None or step <= 0:
-        return normalize_step(self.bt_target_temp_step)
+        return normalize_step(self.bt_target_temperature_step)
     return step
 
 

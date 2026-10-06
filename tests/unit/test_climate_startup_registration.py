@@ -48,10 +48,10 @@ _BARE = {
     "advanced": {},
     "sensor_entity_id": SENSOR_ID,
     "humidity_sensor_entity_id": None,
-    "window_id": None,
-    "door_id": None,
+    "window_sensor_entity_id": None,
+    "door_sensor_entity_id": None,
     "cooler_entity_id": None,
-    "outdoor_sensor": None,
+    "outdoor_sensor_entity_id": None,
 }
 
 
@@ -265,7 +265,7 @@ async def test_the_daily_outdoor_trigger_is_registered_only_with_an_outdoor_sens
     without = await _run_finalize_startup(_startup_bt())
     assert without.time_changes == Counter()
 
-    bt = _startup_bt(outdoor_sensor=OUTDOOR_ID)
+    bt = _startup_bt(outdoor_sensor_entity_id=OUTDOOR_ID)
     with_sensor = await _run_finalize_startup(bt)
     assert with_sensor.time_changes == Counter({(bt._trigger_time, (5, 0, 0)): 1})
 
@@ -305,10 +305,10 @@ async def test_every_optional_entity_brings_exactly_one_subscription():
     """All optional entities configured at once: seven subscriptions."""
     bt = _startup_bt(
         humidity_sensor_entity_id=HUMIDITY_ID,
-        window_id=WINDOW_ID,
-        door_id=DOOR_ID,
+        window_sensor_entity_id=WINDOW_ID,
+        door_sensor_entity_id=DOOR_ID,
         cooler_entity_id=COOLER_ID,
-        outdoor_sensor=OUTDOOR_ID,
+        outdoor_sensor_entity_id=OUTDOOR_ID,
     )
 
     registered = await _run_finalize_startup(bt)
@@ -330,10 +330,10 @@ async def test_every_optional_entity_brings_exactly_one_subscription():
     ("option", "entity_id", "handler_name"),
     [
         ("humidity_sensor_entity_id", HUMIDITY_ID, "_trigger_humidity_change"),
-        ("window_id", WINDOW_ID, "_trigger_window_change"),
-        ("door_id", DOOR_ID, "_trigger_door_change"),
+        ("window_sensor_entity_id", WINDOW_ID, "_trigger_window_change"),
+        ("door_sensor_entity_id", DOOR_ID, "_trigger_door_change"),
         ("cooler_entity_id", COOLER_ID, "_trigger_cooler_change"),
-        ("outdoor_sensor", OUTDOOR_ID, "_trigger_outdoor_change"),
+        ("outdoor_sensor_entity_id", OUTDOOR_ID, "_trigger_outdoor_change"),
     ],
 )
 async def test_an_optional_entity_adds_its_own_handler_and_no_other(

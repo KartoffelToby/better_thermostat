@@ -34,6 +34,7 @@ _CTRL = "custom_components.better_thermostat.utils.controlling"
 
 def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt = ThermostatStandIn()
+    bt.window_sensor_entity_id = None
     bt.attr_hvac_action = None
     bt.device_name = "Test BT"
     bt.cooler_entity_id = None
@@ -56,8 +57,8 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.bt_min_temp = 5.0
     bt.bt_max_temp = 30.0
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.flight_recorder = FlightRecorder()
     trv = Trv.from_legacy_dict(
         "climate.trv",

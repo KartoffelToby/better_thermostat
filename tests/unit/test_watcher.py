@@ -48,15 +48,15 @@ def mock_bt_instance(mock_hass):
     bt.hass = mock_hass
     bt.device_name = "Test Thermostat"
     bt.sensor_entity_id = "sensor.room_temp"
-    bt.window_id = "binary_sensor.window"
+    bt.window_sensor_entity_id = "binary_sensor.window"
     # MagicMock would auto-create a truthy attribute; the default fixture has
     # no door sensor configured.
-    bt.door_id = None
-    # Same reason as door_id: the default fixture has no cooler configured.
+    bt.door_sensor_entity_id = None
+    # Same reason as door_sensor_entity_id: the default fixture has no cooler configured.
     bt.cooler_entity_id = None
     bt.humidity_sensor_entity_id = "sensor.humidity"
-    bt.outdoor_sensor = "sensor.outdoor_temp"
-    bt.weather_entity = "weather.home"
+    bt.outdoor_sensor_entity_id = "sensor.outdoor_temp"
+    bt.weather_entity_id = "weather.home"
     bt.real_trvs = {
         "climate.trv_1": Trv(entity_id="climate.trv_1"),
         "climate.trv_2": Trv(entity_id="climate.trv_2"),
@@ -169,7 +169,7 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
 
         result = get_optional_sensors(mock_bt_instance)
@@ -184,10 +184,10 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.outdoor_sensor = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.outdoor_sensor_entity_id = None
+        mock_bt_instance.weather_entity_id = None
 
         result = get_optional_sensors(mock_bt_instance)
 
@@ -204,7 +204,7 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.door_sensor_entity_id = "binary_sensor.door"
 
         result = get_optional_sensors(mock_bt_instance)
 
@@ -251,7 +251,7 @@ class TestGetOptionalSensors:
             get_optional_sensors,
         )
 
-        mock_bt_instance.door_id = None
+        mock_bt_instance.door_sensor_entity_id = None
 
         result = get_optional_sensors(mock_bt_instance)
 
@@ -884,7 +884,7 @@ class TestCheckAndUpdateDegradedMode:
             check_and_update_degraded_mode,
         )
 
-        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.door_sensor_entity_id = "binary_sensor.door"
 
         def mock_get(entity_id):
             if entity_id == "binary_sensor.door":
@@ -1696,10 +1696,10 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.outdoor_sensor = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.outdoor_sensor_entity_id = None
+        mock_bt_instance.weather_entity_id = None
 
         sleep_calls = []
 
@@ -1720,11 +1720,11 @@ class TestAwaitOptionalSensors:
         )
 
         # Only the door sensor is configured, and it stays unavailable.
-        mock_bt_instance.window_id = None
-        mock_bt_instance.door_id = "binary_sensor.door"
+        mock_bt_instance.window_sensor_entity_id = None
+        mock_bt_instance.door_sensor_entity_id = "binary_sensor.door"
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.outdoor_sensor = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.outdoor_sensor_entity_id = None
+        mock_bt_instance.weather_entity_id = None
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
@@ -1747,9 +1747,9 @@ class TestAwaitOptionalSensors:
         )
 
         # Only outdoor sensor configured
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
         call_count = 0
 
@@ -1784,9 +1784,9 @@ class TestAwaitOptionalSensors:
         )
 
         # Only outdoor sensor configured, permanently unavailable
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with("unavailable")
 
@@ -1865,7 +1865,7 @@ class TestAwaitOptionalSensors:
         )
 
         # Only outdoor + weather configured
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
 
         outdoor_calls = 0
@@ -1906,9 +1906,9 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
         get_count = 0
 
@@ -1970,9 +1970,9 @@ class TestAwaitOptionalSensors:
             await_optional_sensors,
         )
 
-        mock_bt_instance.window_id = None
+        mock_bt_instance.window_sensor_entity_id = None
         mock_bt_instance.humidity_sensor_entity_id = None
-        mock_bt_instance.weather_entity = None
+        mock_bt_instance.weather_entity_id = None
 
         mock_bt_instance.hass.states.get.side_effect = _answers_with(
             "unavailable"

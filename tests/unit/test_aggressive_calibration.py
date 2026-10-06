@@ -63,8 +63,8 @@ def _make_bt(
     bt.room_temperature = room_temperature
     bt.room_temperature_filtered = None
     bt.heat_target_temperature = heat_target_temperature
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.contact_open = False
     # Short-circuit MPC/TPI/PID internal compute
     bt.bt_hvac_mode = HVACMode.OFF
@@ -124,7 +124,7 @@ class TestToleranceDelayBehavior:
 
     def test_aggressive_mode_skips_tolerance_delay_when_idle(self):
         """AGGRESSIVE is excluded by an explicit ``!=`` check → no delay."""
-        bt = _make_bt(CalibrationMode.AGGRESIVE_CALIBRATION, HVACAction.IDLE)
+        bt = _make_bt(CalibrationMode.AGGRESSIVE_CALIBRATION, HVACAction.IDLE)
         result = calculate_calibration_local(bt, ENTITY_ID)
         assert result == pytest.approx(-1.0)
 
@@ -161,7 +161,7 @@ class TestAggressiveCalibrationOffset:
     def test_aggressive_offset_applies_when_heating(self):
         """HEATING + cal > -2.5 → cal becomes -0.5 − 2.5 = -3.0."""
         bt = _make_bt(
-            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
             HVACAction.HEATING,
             room_temperature=20.5,
             heat_target_temperature=22.0,
@@ -172,7 +172,7 @@ class TestAggressiveCalibrationOffset:
     def test_aggressive_offset_not_applied_when_idle(self):
         """IDLE → no -2.5 offset; calibration stays at base (-0.5)."""
         bt = _make_bt(
-            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
             HVACAction.IDLE,
             room_temperature=20.5,
             heat_target_temperature=22.0,
@@ -186,7 +186,7 @@ class TestAggressiveCalibrationOffset:
         room_temperature=18.0 → base = (18.0 − 21.0) + 0.0 = -3.0.
         """
         bt = _make_bt(
-            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
             HVACAction.HEATING,
             room_temperature=18.0,
             heat_target_temperature=22.0,
@@ -203,7 +203,7 @@ class TestCombinedBehavior:
 
     def test_aggressive_idle_no_delay_no_offset(self):
         """AGGRESSIVE + IDLE → neither tolerance delay nor -2.5 offset."""
-        bt = _make_bt(CalibrationMode.AGGRESIVE_CALIBRATION, HVACAction.IDLE)
+        bt = _make_bt(CalibrationMode.AGGRESSIVE_CALIBRATION, HVACAction.IDLE)
         result = calculate_calibration_local(bt, ENTITY_ID)
         # base: (20.0 - 21.0) + 0.0 = -1.0, unchanged
         assert result == pytest.approx(-1.0)
@@ -217,7 +217,7 @@ class TestCombinedBehavior:
     def test_aggressive_heating_has_offset_no_delay(self):
         """AGGRESSIVE + HEATING → -2.5 offset applied, no tolerance delay."""
         bt = _make_bt(
-            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
             HVACAction.HEATING,
             room_temperature=20.5,
             heat_target_temperature=22.0,
@@ -240,7 +240,7 @@ class TestSetpointCalibration:
     def test_setpoint_aggressive_skips_tolerance_delay(self):
         """AGGRESSIVE setpoint is not reduced by tolerance delay."""
         bt = _make_bt(
-            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
             HVACAction.IDLE,
             heat_target_temperature=21.3,
             room_temperature=20.0,
@@ -264,7 +264,7 @@ class TestSetpointCalibration:
     def test_setpoint_aggressive_offset_when_heating(self):
         """AGGRESSIVE + HEATING → +2.5 added when gap < 2.5."""
         bt = _make_bt(
-            CalibrationMode.AGGRESIVE_CALIBRATION,
+            CalibrationMode.AGGRESSIVE_CALIBRATION,
             HVACAction.HEATING,
             heat_target_temperature=22.0,
             room_temperature=20.0,
@@ -317,7 +317,7 @@ class TestHysteresisScenario:
             _make_bt(CalibrationMode.DEFAULT, HVACAction.IDLE, **common), ENTITY_ID
         )
         aggressive_result = calculate_calibration_local(
-            _make_bt(CalibrationMode.AGGRESIVE_CALIBRATION, HVACAction.IDLE, **common),
+            _make_bt(CalibrationMode.AGGRESSIVE_CALIBRATION, HVACAction.IDLE, **common),
             ENTITY_ID,
         )
 

@@ -29,6 +29,7 @@ from tests.factories import ThermostatStandIn
 def _make_bt() -> MagicMock:
     """Return a fully populated BetterThermostat stand-in."""
     bt = ThermostatStandIn()
+    bt.window_sensor_entity_id = None
     bt.device_name = "Test BT"
     bt.clock = FakeClock(
         monotonic_value=1234.5, now_value=datetime(2026, 1, 2, 8, 30, tzinfo=UTC)
@@ -43,8 +44,8 @@ def _make_bt() -> MagicMock:
     bt.call_for_heat = True
     bt.preset_mode = "eco"
     bt.tolerance = 0.3
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.startup_running = False
     bt.in_maintenance = False
     bt.ignore_states = False
@@ -146,7 +147,7 @@ class TestRawWindowState:
 
     def _snapshot_with_window(self, window_state: State | None):
         bt = _make_bt()
-        bt.window_id = self.WINDOW_ID
+        bt.window_sensor_entity_id = self.WINDOW_ID
         trv_state = State("climate.trv", "heat")
         bt.hass.states.get.side_effect = lambda entity_id: (
             window_state if entity_id == self.WINDOW_ID else trv_state
@@ -156,7 +157,7 @@ class TestRawWindowState:
     def test_no_window_sensor_reads_as_unknown(self):
         """Without a configured sensor the snapshot carries no window reading."""
         bt = _make_bt()
-        bt.window_id = None
+        bt.window_sensor_entity_id = None
         assert build_snapshot(bt).window_open is None
 
     @pytest.mark.parametrize(

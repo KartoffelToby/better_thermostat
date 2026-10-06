@@ -181,7 +181,7 @@ class TestDeviceSetpointStep:
     def _self(self, unit=UnitOfTemperature.CELSIUS, bt_step=0.5):
         """Build a BetterThermostat mock with a known configured step."""
         mock_self = _fake_self(unit)
-        mock_self.bt_target_temp_step = bt_step
+        mock_self.bt_target_temperature_step = bt_step
         return mock_self
 
     def test_celsius_step_is_taken_as_reported(self):

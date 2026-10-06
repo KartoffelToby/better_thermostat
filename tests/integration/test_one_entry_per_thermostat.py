@@ -20,8 +20,8 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
-    CONF_HEATER,
-    CONF_SENSOR,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     CalibrationMode,
 )
 
@@ -52,13 +52,15 @@ CATALOGS = sorted(
 def _entry(name: str, *trv_entity_ids: str) -> MockConfigEntry:
     """Return an entry named ``name`` that controls ``trv_entity_ids``."""
     bundles = {
-        TRV_ID: make_entry(GENERIC_HEAT_TRV).data[CONF_HEATER][0],
-        SPARE_ID: make_entry(SPARE_HEAT_TRV).data[CONF_HEATER][0],
+        TRV_ID: make_entry(GENERIC_HEAT_TRV).data[CONF_THERMOSTAT][0],
+        SPARE_ID: make_entry(SPARE_HEAT_TRV).data[CONF_THERMOSTAT][0],
     }
     data = {
         **make_entry(GENERIC_HEAT_TRV).data,
         "name": name,
-        CONF_HEATER: [dict(bundles[trv_entity_id]) for trv_entity_id in trv_entity_ids],
+        CONF_THERMOSTAT: [
+            dict(bundles[trv_entity_id]) for trv_entity_id in trv_entity_ids
+        ],
     }
     return MockConfigEntry(domain=DOMAIN, version=18, data=data, title=name)
 
@@ -76,7 +78,11 @@ async def _set_up(hass, *entries: MockConfigEntry) -> None:
 
 
 def _user_step(name: str, *trv_entity_ids: str) -> dict:
-    return {"name": name, CONF_HEATER: list(trv_entity_ids), CONF_SENSOR: SENSOR_ID}
+    return {
+        "name": name,
+        CONF_THERMOSTAT: list(trv_entity_ids),
+        CONF_TEMPERATURE_SENSOR: SENSOR_ID,
+    }
 
 
 def _shared_issues(hass) -> dict[str, ir.IssueEntry]:
@@ -141,10 +147,10 @@ async def test_the_settings_cannot_add_a_thermostat_another_entry_controls(
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
-    assert result["errors"] == {CONF_HEATER: "trv_in_use"}
+    assert result["errors"] == {CONF_THERMOSTAT: "trv_in_use"}
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room A"
-    assert [bundle["trv"] for bundle in room_b.options[CONF_HEATER]] == [SPARE_ID]
+    assert [bundle["trv"] for bundle in room_b.options[CONF_THERMOSTAT]] == [SPARE_ID]
 
 
 async def test_the_settings_of_an_entry_that_already_shares_still_save(hass, devices):
@@ -315,10 +321,10 @@ async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
-    assert result["errors"] == {CONF_HEATER: "trv_in_use"}
+    assert result["errors"] == {CONF_THERMOSTAT: "trv_in_use"}
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room C"
-    assert [bundle["trv"] for bundle in room_b.options[CONF_HEATER]] == [SPARE_ID]
+    assert [bundle["trv"] for bundle in room_b.options[CONF_THERMOSTAT]] == [SPARE_ID]
     assert config_changes == []
 
 
@@ -342,6 +348,6 @@ async def test_saved_settings_that_change_the_calibration_signal_the_change(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert [
         bundle["advanced"][CONF_CALIBRATION_MODE]
-        for bundle in room_b.options[CONF_HEATER]
+        for bundle in room_b.options[CONF_THERMOSTAT]
     ] == [CalibrationMode.PID_CALIBRATION]
     assert config_changes == [{"entry_id": room_b.entry_id}]

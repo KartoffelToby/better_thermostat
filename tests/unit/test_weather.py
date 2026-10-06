@@ -69,8 +69,8 @@ def make_bt(hass, **kw):
     bt = SimpleNamespace(
         hass=hass,
         device_name="Test BT",
-        weather_entity=None,
-        outdoor_sensor=None,
+        weather_entity_id=None,
+        outdoor_sensor_entity_id=None,
         off_temperature=10.0,
         last_avg_outdoor_temp=None,
         call_for_heat=True,
@@ -224,7 +224,7 @@ class TestCheckWeatherPrediction:
 
     async def test_no_weather_entity_returns_false(self):
         """Without a weather entity the prediction is False."""
-        bt = make_bt(make_hass(), weather_entity=None)
+        bt = make_bt(make_hass(), weather_entity_id=None)
         assert await check_weather_prediction(bt) is False
 
     async def test_missing_off_temperature_gives_no_opinion(self):
@@ -233,13 +233,13 @@ class TestCheckWeatherPrediction:
         A missing threshold is a configuration gap, not a weather verdict, so
         the prediction answers None like every other case it cannot decide.
         """
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID, off_temperature=None)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID, off_temperature=None)
         assert await check_weather_prediction(bt) is None
 
     async def test_no_forecast_support_returns_none(self):
         """An entity without any forecast feature yields None (no opinion)."""
         states = {WEATHER_ID: weather_state(features=0)}
-        bt = make_bt(make_hass(states=states), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(states=states), weather_entity_id=WEATHER_ID)
         assert await check_weather_prediction(bt) is None
 
     async def test_cold_forecast_calls_for_heat(self):
@@ -249,7 +249,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [1.0, 1.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
     async def test_warm_forecast_and_warm_now_no_heat(self):
@@ -259,7 +259,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [17.0, 16.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is False
 
     async def test_current_temp_below_off_drives_heat_even_if_forecast_warm(self):
@@ -269,7 +269,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [20.0, 20.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
     async def test_fahrenheit_forecast_is_converted(self):
@@ -282,7 +282,7 @@ class TestCheckWeatherPrediction:
                 WEATHER_ID, [32.0, 32.0], unit=UnitOfTemperature.FAHRENHEIT
             )
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
     async def test_empty_forecast_returns_none(self):
@@ -292,7 +292,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value={WEATHER_ID: {"forecast": []}}
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
         assert await check_weather_prediction(bt) is None
 
     async def test_service_error_returns_none(self):
@@ -300,7 +300,7 @@ class TestCheckWeatherPrediction:
         states = {WEATHER_ID: weather_state()}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(side_effect=HomeAssistantError("boom"))
-        bt = make_bt(hass, weather_entity=WEATHER_ID)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
         assert await check_weather_prediction(bt) is None
 
     async def test_a_hanging_service_gives_no_opinion_after_the_timeout(self, caplog):
@@ -313,7 +313,7 @@ class TestCheckWeatherPrediction:
         states = {WEATHER_ID: weather_state()}
         hass = make_hass(states=states)
         hass.services.async_call = AsyncMock(side_effect=hanging_service_call)
-        bt = make_bt(hass, weather_entity=WEATHER_ID)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
         with (
             patch(f"{WEATHER_MOD}.FORECAST_CALL_TIMEOUT", timedelta(seconds=0.01)),
             caplog.at_level(logging.WARNING, logger=WEATHER_MOD),
@@ -333,7 +333,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             side_effect=ServiceNotSupported("weather", "get_forecasts", WEATHER_ID)
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID)
         assert await check_weather_prediction(bt) is None
 
     async def test_forecast_temps_are_averaged(self):
@@ -347,7 +347,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [15.0, 1.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
     async def test_daily_forecast_samples_two_entries(self):
@@ -358,7 +358,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [15.0, 15.0, -30.0, -30.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is False
 
     async def test_hourly_forecast_samples_beyond_two_entries(self):
@@ -376,7 +376,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [15.0, 15.0, -30.0, -30.0, -30.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
     async def test_forecast_entry_missing_temperature_is_filtered(self):
@@ -387,7 +387,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value={WEATHER_ID: {"forecast": [{"foo": 1}, {"temperature": 1.0}]}}
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
     async def test_a_forecast_without_any_usable_temperature_gives_no_opinion(self):
@@ -404,7 +404,7 @@ class TestCheckWeatherPrediction:
                 WEATHER_ID: {"forecast": [{"foo": 1}, {"condition": "sunny"}]}
             }
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is None
 
     async def test_a_warm_current_reading_decides_when_the_forecast_has_none(self):
@@ -416,7 +416,7 @@ class TestCheckWeatherPrediction:
                 WEATHER_ID: {"forecast": [{"foo": 1}, {"condition": "sunny"}]}
             }
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is False
 
     async def test_twice_daily_forecast_is_used(self):
@@ -430,7 +430,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [1.0, 1.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
         assert hass.services.async_call.call_args[0][2]["type"] == "twice_daily"
 
@@ -444,7 +444,7 @@ class TestCheckWeatherPrediction:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [1.0, 1.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=10.0)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         await check_weather_prediction(bt)
         # The service was asked for the daily forecast type.
         called_with = hass.services.async_call.call_args[0]
@@ -461,12 +461,14 @@ class TestCheckAmbientAirTemperature:
 
     async def test_no_outdoor_sensor_returns_none(self):
         """Without an outdoor sensor the check is a no-op."""
-        bt = make_bt(make_hass(), outdoor_sensor=None)
+        bt = make_bt(make_hass(), outdoor_sensor_entity_id=None)
         assert await check_ambient_air_temperature(bt) is None
 
     async def test_off_temperature_not_float_returns_none(self):
         """A missing off_temperature short-circuits to None."""
-        bt = make_bt(make_hass(), outdoor_sensor=OUTDOOR_ID, off_temperature=None)
+        bt = make_bt(
+            make_hass(), outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=None
+        )
         assert await check_ambient_air_temperature(bt) is None
 
     async def test_unavailable_sensor_without_cache_forces_heat(self):
@@ -474,7 +476,7 @@ class TestCheckAmbientAirTemperature:
         states = {OUTDOOR_ID: make_state(state="unavailable")}
         bt = make_bt(
             make_hass(states=states),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=None,
             call_for_heat=False,
         )
@@ -486,7 +488,7 @@ class TestCheckAmbientAirTemperature:
         states = {OUTDOOR_ID: make_state(state="unknown")}
         bt = make_bt(
             make_hass(states=states),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=8.0,
             call_for_heat=False,
         )
@@ -499,7 +501,7 @@ class TestCheckAmbientAirTemperature:
         # states.get returns None for the sensor.
         bt = make_bt(
             make_hass(states={}),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=None,
             call_for_heat=False,
         )
@@ -513,7 +515,7 @@ class TestCheckAmbientAirTemperature:
         }
         bt = make_bt(
             make_hass(states=states, components=set()),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             off_temperature=10.0,
         )
         await check_ambient_air_temperature(bt)
@@ -527,7 +529,7 @@ class TestCheckAmbientAirTemperature:
         }
         bt = make_bt(
             make_hass(states=states, components=set()),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             off_temperature=10.0,
         )
         await check_ambient_air_temperature(bt)
@@ -544,7 +546,7 @@ class TestCheckAmbientAirTemperature:
         }
         bt = make_bt(
             make_hass(states=states, components=set()),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             off_temperature=5.0,
         )
         await check_ambient_air_temperature(bt)
@@ -572,7 +574,7 @@ class TestCheckAmbientAirTemperature:
             self._hist_item("20.0", day1),  # day1 mean = 15
             self._hist_item("30.0", day2),  # day2 mean = 30
         ]
-        bt = make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=10.0)
+        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = AsyncMock(
                 return_value={OUTDOOR_ID: items}
@@ -595,7 +597,7 @@ class TestCheckAmbientAirTemperature:
             self._hist_item("not-a-number", day1),
             self._hist_item("4.0", day1),  # the only usable reading
         ]
-        bt = make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=10.0)
+        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = AsyncMock(
                 return_value={OUTDOOR_ID: items}
@@ -614,7 +616,7 @@ class TestCheckAmbientAirTemperature:
             OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
         }
         hass = make_hass(states=states, components={"recorder"})
-        bt = make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=10.0)
+        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = AsyncMock(
                 return_value=["not", "a", "dict"]
@@ -632,7 +634,7 @@ class TestCheckAmbientAirTemperature:
             OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
         }
         hass = make_hass(states=states, components={"recorder"})
-        bt = make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=10.0)
+        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = AsyncMock(
                 return_value={OUTDOOR_ID: []}
@@ -650,7 +652,7 @@ class TestCheckAmbientAirTemperature:
             OUTDOOR_ID: make_state(state="21.0", attrs={"unit_of_measurement": "°C"})
         }
         hass = make_hass(states=states, components={"recorder"})
-        bt = make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=14.0)
+        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=14.0)
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = AsyncMock(
                 return_value={OUTDOOR_ID: []}
@@ -665,7 +667,9 @@ class TestCheckAmbientAirTemperature:
             OUTDOOR_ID: make_state(state=reading, attrs={"unit_of_measurement": "°C"})
         }
         hass = make_hass(states=states, components={"recorder"})
-        return make_bt(hass, outdoor_sensor=OUTDOOR_ID, off_temperature=off_temperature)
+        return make_bt(
+            hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=off_temperature
+        )
 
     async def test_update_within_refresh_interval_reuses_history(self):
         """A second update inside the refresh interval does not read the recorder.
@@ -812,14 +816,14 @@ class TestCheckWeather:
 
     async def test_no_entities_forces_heat_and_reports_change(self):
         """With neither source configured, heating is forced on."""
-        bt = make_bt(make_hass(), weather_entity=None, outdoor_sensor=None)
+        bt = make_bt(make_hass(), weather_entity_id=None, outdoor_sensor_entity_id=None)
         bt.call_for_heat = False
         assert await check_weather(bt) is True
         assert bt.call_for_heat is True
 
     async def test_weather_only_applies_prediction(self):
         """A weather-only setup applies the prediction result."""
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         bt.call_for_heat = False  # old value
         with patch(
             f"{WEATHER_MOD}.check_weather_prediction", AsyncMock(return_value=True)
@@ -830,7 +834,7 @@ class TestCheckWeather:
 
     async def test_weather_only_no_change_returns_false(self):
         """An unchanged call_for_heat reports no change."""
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         bt.call_for_heat = True
         with patch(
             f"{WEATHER_MOD}.check_weather_prediction", AsyncMock(return_value=True)
@@ -849,7 +853,7 @@ class TestCheckWeather:
         No temperature is known in that case, so neither the decision nor the
         logbook may change.
         """
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         bt.call_for_heat = previous
         logbook = AsyncMock()
         with (
@@ -868,7 +872,7 @@ class TestCheckWeather:
         states = {OUTDOOR_ID: make_state(state="5.0")}
         bt = make_bt(
             make_hass(states=states),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=None,
             off_temperature=10.0,
         )
@@ -880,7 +884,7 @@ class TestCheckWeather:
         """A cold cached outdoor temperature calls for heat."""
         bt = make_bt(
             make_hass(),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=2.0,
             off_temperature=10.0,
         )
@@ -891,7 +895,7 @@ class TestCheckWeather:
         """A warm cached outdoor temperature stops heating."""
         bt = make_bt(
             make_hass(),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=18.0,
             off_temperature=10.0,
         )
@@ -903,7 +907,7 @@ class TestCheckWeather:
         states = {OUTDOOR_ID: make_state(state="unavailable")}
         bt = make_bt(
             make_hass(states=states),
-            outdoor_sensor=OUTDOOR_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=None,
             off_temperature=10.0,
         )
@@ -914,8 +918,8 @@ class TestCheckWeather:
         """With both sources, the outdoor sensor's verdict wins outright."""
         bt = make_bt(
             make_hass(),
-            weather_entity=WEATHER_ID,
-            outdoor_sensor=OUTDOOR_ID,
+            weather_entity_id=WEATHER_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=2.0,  # cold -> heat
             off_temperature=10.0,
         )
@@ -930,8 +934,8 @@ class TestCheckWeather:
         """The outdoor sensor can override the weather prediction to stop heat."""
         bt = make_bt(
             make_hass(),
-            weather_entity=WEATHER_ID,
-            outdoor_sensor=OUTDOOR_ID,
+            weather_entity_id=WEATHER_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=18.0,  # warm -> no heat
             off_temperature=10.0,
         )
@@ -985,7 +989,7 @@ class TestCheckWeather:
             hass.services.async_call = AsyncMock(return_value=None)
         elif transient == "hanging_service":
             hass.services.async_call = AsyncMock(side_effect=hanging_service_call)
-        bt = make_bt(hass, weather_entity=WEATHER_ID, outdoor_sensor=None)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, outdoor_sensor_entity_id=None)
         bt.call_for_heat = previous
         logbook = AsyncMock()
         with (
@@ -1012,7 +1016,7 @@ class TestCheckWeather:
         hass.services.async_call = AsyncMock(
             return_value=forecast_resp(WEATHER_ID, [25.0, 25.0])
         )
-        bt = make_bt(hass, weather_entity=WEATHER_ID, off_temperature=None)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=None)
         bt.call_for_heat = previous
         logbook = AsyncMock()
         with patch(f"{WEATHER_MOD}.async_fire_logbook_entry", logbook):
@@ -1060,7 +1064,7 @@ class TestForecastOutage:
         verdict for longer than the hold, the room heats again, and the
         fallback is announced once, naming the weather entity.
         """
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         with caplog.at_level(logging.WARNING, logger=WEATHER_MOD):
             await _hourly_checks(bt, [False] + [None] * 720)
 
@@ -1073,7 +1077,7 @@ class TestForecastOutage:
         No outdoor temperature was read on this path, so the logbook entry
         names the missing forecast instead.
         """
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         prediction = AsyncMock(side_effect=[False] + [None] * 5)
         logbook = AsyncMock()
         with (
@@ -1091,7 +1095,7 @@ class TestForecastOutage:
 
     async def test_a_short_outage_keeps_summer_mode(self):
         """An outage within the hold leaves the room resting."""
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
 
         await _hourly_checks(bt, [False, None, None, None])
 
@@ -1099,7 +1103,7 @@ class TestForecastOutage:
 
     async def test_a_returning_verdict_rearms_the_hold(self):
         """A verdict ends the outage, so the next outage gets the full hold again."""
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
 
         await _hourly_checks(bt, [False, None, None, False, None, None, None])
 
@@ -1107,7 +1111,7 @@ class TestForecastOutage:
 
     async def test_a_flapping_entity_stays_quiet(self, caplog):
         """An entity missing every other check neither falls back nor logs."""
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         with caplog.at_level(logging.INFO, logger=WEATHER_MOD):
             await _hourly_checks(bt, [False, None] * 24)
 
@@ -1117,7 +1121,7 @@ class TestForecastOutage:
 
     async def test_a_verdict_after_the_fallback_is_applied_and_announced(self, caplog):
         """A warm verdict after the fallback restores summer mode, logged once."""
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
         with caplog.at_level(logging.INFO, logger=WEATHER_MOD):
             await _hourly_checks(bt, [False] + [None] * 5 + [False, False])
 
@@ -1131,7 +1135,7 @@ class TestForecastOutage:
         Three hours after the forecast went silent the room heats, even when
         the local clock was turned back in between.
         """
-        bt = make_bt(make_hass(), weather_entity=WEATHER_ID)
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID)
 
         def _clock_set_back(clock):
             clock.now_value -= timedelta(hours=1)
@@ -1157,8 +1161,8 @@ class TestForecastOutage:
         """
         bt = make_bt(
             make_hass(),
-            weather_entity=WEATHER_ID,
-            outdoor_sensor=OUTDOOR_ID,
+            weather_entity_id=WEATHER_ID,
+            outdoor_sensor_entity_id=OUTDOOR_ID,
             last_avg_outdoor_temp=outdoor_temperature,
             off_temperature=10.0,
         )

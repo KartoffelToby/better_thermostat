@@ -24,8 +24,8 @@ def _bt(*states: State, weather: str | None = WEATHER, outdoor: str | None = Non
     """Return a thermostat that reads ``states`` from Home Assistant."""
     bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.weather_entity = weather
-    bt.outdoor_sensor = outdoor
+    bt.weather_entity_id = weather
+    bt.outdoor_sensor_entity_id = outdoor
     published = {state.entity_id: state for state in states}
     bt.hass.states.get.side_effect = published.get
     return bt

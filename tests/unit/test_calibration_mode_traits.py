@@ -41,7 +41,7 @@ def test_controller_modes_carry_their_balance_strategy():
 
 def test_aggressive_boosts_but_skips_the_tolerance_delay():
     """AGGRESIVE: adjustment hook, post adjustments without the delay."""
-    traits = MODE_TRAITS[CalibrationMode.AGGRESIVE_CALIBRATION]
+    traits = MODE_TRAITS[CalibrationMode.AGGRESSIVE_CALIBRATION]
     assert traits.balance is None
     assert traits.skip_post_adjustments is False
     assert traits.tolerance_delay is False

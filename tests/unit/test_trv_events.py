@@ -79,7 +79,7 @@ def mock_bt():
     bt.cool_min_temperature = None
     bt.cool_max_temperature = None
     bt.cool_target_temperature = 25.0
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt.room_temperature = 18.0
     bt.window_open = False
     bt.door_open = False
@@ -2392,7 +2392,7 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.cool_target_temperature = 25.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2429,7 +2429,7 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.cool_target_temperature = 22.0  # equal to the reported target
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2466,7 +2466,7 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.cool_target_temperature = 22.5
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2517,7 +2517,7 @@ class TestTargetTempAdoption:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.cool_target_temperature = 5.0
         mock_bt.bt_min_temp = 5.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2559,7 +2559,7 @@ class TestTargetTempAdoption:
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.cool_target_temperature = 10.0
         mock_bt.bt_min_temp = 20.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2597,7 +2597,7 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.hvac_mode = HVACMode.HEAT_COOL
         mock_bt.cool_target_temperature = None
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 19.0, "current_temperature": 18.0}
@@ -2733,7 +2733,7 @@ class TestTargetTempAdoption:
         mock_bt.hvac_mode = HVACMode.OFF
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.cool_target_temperature = 22.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
 
         old_state = _make_state(
             attributes={"temperature": 5.0, "current_temperature": 18.0}
@@ -2782,7 +2782,7 @@ class TestTargetTempAdoption:
         mock_bt.cooler_entity_id = "climate.cooler"
         mock_bt.cool_target_temperature = 5.0
         mock_bt.bt_min_temp = 5.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
         _bind_cooler_hvac_mode(mock_bt)
 
         old_state = _make_state(
@@ -2871,7 +2871,7 @@ class TestTargetTempBasedSync:
         """Device echoes 21.3 after BT wrote 21.0 (step=0.5) — treated as echo."""
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
         mock_bt.real_trvs[ENTITY_ID].target_temp_step = 0.5
 
@@ -2902,7 +2902,7 @@ class TestTargetTempBasedSync:
         """Change equal to one full step is a user change, not an echo."""
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
         mock_bt.real_trvs[ENTITY_ID].target_temp_step = 0.5
 
@@ -2939,7 +2939,7 @@ class TestTargetTempBasedSync:
         """
         self._set_target_temp_based(mock_bt)
         mock_bt.heat_target_temperature = 21.0
-        mock_bt.bt_target_temp_step = 0.5
+        mock_bt.bt_target_temperature_step = 0.5
         mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 21.0
         mock_bt.real_trvs[ENTITY_ID].target_temp_step = 0.5
 
@@ -3512,7 +3512,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.cool_min_temperature = None
     bt.cool_max_temperature = None
     bt.cool_target_temperature = 25.0
-    bt.bt_target_temp_step = 0.5
+    bt.bt_target_temperature_step = 0.5
     bt.room_temperature = 18.0
     bt.window_open = False
     bt.door_open = False
@@ -3699,7 +3699,7 @@ class TestGroupedModeAdoption:
         bt.hvac_mode = HVACMode.HEAT_COOL
         bt.cool_target_temperature = 5.0
         bt.bt_min_temp = 5.0
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(
             bt,
             {

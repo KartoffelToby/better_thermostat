@@ -1387,12 +1387,12 @@ class TestArrivalOrder:
         those with a new mock and the checks cannot run against it.
         """
         mock_bt.hass.states.get = lambda entity_id: State(entity_id, "21.0")
-        mock_bt.window_id = None
-        mock_bt.door_id = None
+        mock_bt.window_sensor_entity_id = None
+        mock_bt.door_sensor_entity_id = None
         mock_bt.cooler_entity_id = None
         mock_bt.humidity_sensor_entity_id = None
-        mock_bt.outdoor_sensor = None
-        mock_bt.weather_entity = None
+        mock_bt.outdoor_sensor_entity_id = None
+        mock_bt.weather_entity_id = None
         mock_bt.devices_errors = []
         mock_bt.devices_states = {}
         mock_bt.unavailable_sensors = []

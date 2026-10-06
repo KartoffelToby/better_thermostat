@@ -176,13 +176,13 @@ def test_contact_open_combines_window_and_door(bt, window_open, door_open, expec
 
 def test_outdoor_temp_none_without_sensor(bt):
     """Without a configured outdoor sensor there is nothing to read."""
-    bt.outdoor_sensor = None
+    bt.outdoor_sensor_entity_id = None
     assert BetterThermostat._get_outdoor_temp(bt) is None
 
 
 def test_outdoor_temp_read_from_sensor_state(bt):
     """A numeric sensor state is returned in Celsius."""
-    bt.outdoor_sensor = "sensor.outdoor"
+    bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = MagicMock()
     bt.hass.states.get.return_value = State(
         "sensor.outdoor", "7.5", attributes={"unit_of_measurement": "°C"}
@@ -192,7 +192,7 @@ def test_outdoor_temp_read_from_sensor_state(bt):
 
 def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
     """An outdoor read that hits a missing attribute yields None and a trace."""
-    bt.outdoor_sensor = "sensor.outdoor"
+    bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = None
     with caplog.at_level(logging.DEBUG, logger=_CLIMATE_LOGGER):
         assert BetterThermostat._get_outdoor_temp(bt) is None
@@ -201,7 +201,7 @@ def test_outdoor_temp_missing_attribute_is_logged(bt, caplog):
 
 def test_outdoor_temp_other_failure_propagates(bt):
     """A failure that is not a missing attribute reaches the caller."""
-    bt.outdoor_sensor = "sensor.outdoor"
+    bt.outdoor_sensor_entity_id = "sensor.outdoor"
     bt.hass = MagicMock()
     bt.hass.states.get.side_effect = RuntimeError("boom")
     with pytest.raises(RuntimeError):

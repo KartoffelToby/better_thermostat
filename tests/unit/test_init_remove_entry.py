@@ -16,12 +16,12 @@ from custom_components.better_thermostat import DOMAIN, RELOAD_LOCKS, async_remo
 from custom_components.better_thermostat.events.contact import DOOR, WINDOW
 from custom_components.better_thermostat.utils.const import (
     CONF_COOLER,
-    CONF_HEATER,
-    CONF_HUMIDITY,
+    CONF_DOOR_SENSORS,
+    CONF_HUMIDITY_SENSOR,
     CONF_OUTDOOR_SENSOR,
-    CONF_SENSOR,
-    CONF_SENSOR_DOOR,
-    CONF_SENSOR_WINDOW,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
+    CONF_WINDOW_SENSORS,
 )
 
 
@@ -31,8 +31,8 @@ def _make_entry(**overrides):
     entry.title = "Kinderzimmer"
     data = {
         CONF_NAME: "Kinderzimmer",
-        CONF_HEATER: [{"trv": "climate.fritz_kinderzimmer", "advanced": {}}],
-        CONF_SENSOR: "sensor.kinderzimmer_temperature",
+        CONF_THERMOSTAT: [{"trv": "climate.fritz_kinderzimmer", "advanced": {}}],
+        CONF_TEMPERATURE_SENSOR: "sensor.kinderzimmer_temperature",
     }
     data.update(overrides)
     entry.data = data
@@ -102,7 +102,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         hass = _make_hass()
         entry = _make_entry(
             **{
-                CONF_HEATER: [
+                CONF_THERMOSTAT: [
                     {"trv": "climate.trv_one", "advanced": {}},
                     {"trv": "climate.trv_two", "advanced": {}},
                 ]
@@ -125,7 +125,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         the string is the one entity id, not a sequence of characters.
         """
         hass = _make_hass()
-        entry = _make_entry(**{CONF_HEATER: "climate.trv_one"})
+        entry = _make_entry(**{CONF_THERMOSTAT: "climate.trv_one"})
 
         await async_remove_entry(hass, entry)
 
@@ -140,8 +140,8 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         hass = _make_hass()
         entry = _make_entry(
             **{
-                CONF_HUMIDITY: "sensor.humidity",
-                CONF_SENSOR_WINDOW: "binary_sensor.window",
+                CONF_HUMIDITY_SENSOR: "sensor.humidity",
+                CONF_WINDOW_SENSORS: "binary_sensor.window",
                 CONF_OUTDOOR_SENSOR: "sensor.outdoor",
             }
         )
@@ -167,9 +167,9 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         hass = _make_hass()
         entry = _make_entry(
             **{
-                CONF_HUMIDITY: "sensor.humidity",
-                CONF_SENSOR_WINDOW: "binary_sensor.window",
-                CONF_SENSOR_DOOR: "binary_sensor.door",
+                CONF_HUMIDITY_SENSOR: "sensor.humidity",
+                CONF_WINDOW_SENSORS: "binary_sensor.window",
+                CONF_DOOR_SENSORS: "binary_sensor.door",
                 CONF_OUTDOOR_SENSOR: "sensor.outdoor",
                 CONF_COOLER: "climate.ac",
             }

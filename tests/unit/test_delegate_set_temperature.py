@@ -23,7 +23,7 @@ def bt():
     mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
-    mock.bt_target_temp_step = None
+    mock.bt_target_temperature_step = None
     trv = Trv(entity_id=ENTITY_ID, min_temp=5.0, max_temp=30.0)
     trv.adapter = MagicMock()
     trv.adapter.set_temperature = AsyncMock(return_value=True)

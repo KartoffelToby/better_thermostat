@@ -15,8 +15,8 @@ import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
 from custom_components.better_thermostat.utils.const import (
-    CONF_HEATER,
-    CONF_SENSOR,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     SERVICE_RESET_HEATING_POWER,
     SERVICE_RESET_PID_LEARNINGS,
     SERVICE_RUN_VALVE_MAINTENANCE,
@@ -157,11 +157,15 @@ async def test_the_flow_refuses_a_thermostat_home_assistant_does_not_know(hass):
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {"name": "Nowhere", CONF_HEATER: ["climate.not_there"], CONF_SENSOR: SENSOR_ID},
+        {
+            "name": "Nowhere",
+            CONF_THERMOSTAT: ["climate.not_there"],
+            CONF_TEMPERATURE_SENSOR: SENSOR_ID,
+        },
     )
 
     assert result["type"] is FlowResultType.FORM, result
     assert result["step_id"] == "user", result
-    assert result["errors"] == {CONF_HEATER: "trv_not_found"}
+    assert result["errors"] == {CONF_THERMOSTAT: "trv_not_found"}
     assert result["description_placeholders"]["trv"] == "climate.not_there"
     assert not hass.config_entries.async_entries(DOMAIN)

@@ -340,6 +340,7 @@ only where a Home Assistant property of the same name lives on the entity class:
 | `bt_hvac_mode` | `hvac_mode` | **yes** |
 | `bt_min_temp` | `min_temp` | **yes** |
 | `bt_max_temp` | `max_temp` | **yes** |
+| `bt_target_temperature_step` | `target_temperature_step` | **yes** |
 
 Where a BT quantity sits next to the same-named TRV quantity, the owner prefix
 `trv.` separates them: `heat_target_temperature` versus `trv.commanded_setpoint`.
@@ -360,10 +361,10 @@ because the persisted configuration mixes seconds and minutes. Of those
 spellings, only `delta_T`, `delta_t` and `dT` are in `glossary.toml`, so only
 they are checked; the suffixes rest on review.
 
-**A `CONF_*` constant and its string agree.** `CONF_HEATER = "thermostat"` and
-`CONF_WINDOW_TIMEOUT = "window_off_delay"` are the shape to avoid. The constant
-follows the string, not the other way round: the string is zone B, the constant is
-zone A, so only one of the two is free to move.
+**A `CONF_*` constant and its string agree.** `CONF_WINDOW_OFF_DELAY =
+"window_off_delay"`, never `CONF_WINDOW_TIMEOUT` for that key; a gate test holds
+it. The constant follows the string, not the other way round: the string is zone
+B, the constant is zone A, so only one of the two is free to move.
 
 **Verb prefixes have fixed meanings.** `get_` is a pure read that does no IO and
 cannot fail; `read_` and `fetch_` perform IO; `compute_` is calculation without

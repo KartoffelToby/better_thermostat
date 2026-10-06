@@ -21,17 +21,17 @@ from .utils.const import (
     BETTERTHERMOSTAT_RESET_PID_SCHEMA,
     CONF_CALIBRATION_MODE,
     CONF_COOLER,
-    CONF_HEATER,
-    CONF_HUMIDITY,
-    CONF_NO_SYSTEM_MODE_OFF,
+    CONF_DOOR_SENSORS,
+    CONF_HUMIDITY_SENSOR,
+    CONF_NO_OFF_SYSTEM_MODE,
     CONF_OFF_TEMPERATURE,
     CONF_OUTDOOR_SENSOR,
-    CONF_SENSOR,
-    CONF_SENSOR_DOOR,
-    CONF_SENSOR_WINDOW,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
     CONF_WEATHER,
-    CONF_WINDOW_TIMEOUT,
-    CONF_WINDOW_TIMEOUT_AFTER,
+    CONF_WINDOW_OFF_DELAY,
+    CONF_WINDOW_OFF_DELAY_AFTER,
+    CONF_WINDOW_SENSORS,
     DOMAIN,
     GENERIC_MODEL,
     NORMALIZED_ID_NAMES,
@@ -97,7 +97,7 @@ SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
 
 def trv_entity_ids(entry: ConfigEntry) -> list[str]:
     """Return the entity ids of the thermostats ``entry`` controls."""
-    heaters = entry_settings(entry).get(CONF_HEATER)
+    heaters = entry_settings(entry).get(CONF_THERMOSTAT)
     if isinstance(heaters, str):
         return [heaters]
     return [
@@ -347,10 +347,10 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     entity_ids: list[str] = trv_entity_ids(entry)
     for conf_key in (
-        CONF_SENSOR,
-        CONF_HUMIDITY,
-        CONF_SENSOR_WINDOW,
-        CONF_SENSOR_DOOR,
+        CONF_TEMPERATURE_SENSOR,
+        CONF_HUMIDITY_SENSOR,
+        CONF_WINDOW_SENSORS,
+        CONF_DOOR_SENSORS,
         CONF_OUTDOOR_SENSOR,
         CONF_COOLER,
     ):
@@ -377,7 +377,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
-    if isinstance(config_entry.data.get(CONF_HEATER), str):
+    if isinstance(config_entry.data.get(CONF_THERMOSTAT), str):
         _LOGGER.error(
             "better_thermostat %s: this entry was created before version "
             "1.0.0-Beta36 of the Better Thermostat integration; remove the BT "
@@ -392,20 +392,20 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
     # Each step lifts the entry by one version, so an old entry passes every
     # step written after the one it was stored at.
     if version <= 1:
-        for trv in new[CONF_HEATER]:
-            trv["advanced"].update({CalibrationMode.AGGRESIVE_CALIBRATION: False})
+        for trv in new[CONF_THERMOSTAT]:
+            trv["advanced"].update({CalibrationMode.AGGRESSIVE_CALIBRATION: False})
 
     if version <= 2:
-        new[CONF_WINDOW_TIMEOUT] = 0
+        new[CONF_WINDOW_OFF_DELAY] = 0
 
     if version <= 3:
-        for trv in new[CONF_HEATER]:
+        for trv in new[CONF_THERMOSTAT]:
             if (
-                CalibrationMode.AGGRESIVE_CALIBRATION in trv["advanced"]
-                and trv["advanced"][CalibrationMode.AGGRESIVE_CALIBRATION]
+                CalibrationMode.AGGRESSIVE_CALIBRATION in trv["advanced"]
+                and trv["advanced"][CalibrationMode.AGGRESSIVE_CALIBRATION]
             ):
                 trv["advanced"].update(
-                    {CONF_CALIBRATION_MODE: CalibrationMode.AGGRESIVE_CALIBRATION}
+                    {CONF_CALIBRATION_MODE: CalibrationMode.AGGRESSIVE_CALIBRATION}
                 )
             else:
                 trv["advanced"].update(
@@ -413,11 +413,11 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                 )
 
     if version <= 4:
-        for trv in new[CONF_HEATER]:
-            trv["advanced"].update({CONF_NO_SYSTEM_MODE_OFF: False})
+        for trv in new[CONF_THERMOSTAT]:
+            trv["advanced"].update({CONF_NO_OFF_SYSTEM_MODE: False})
 
     if version <= 5:
-        new[CONF_WINDOW_TIMEOUT_AFTER] = new[CONF_WINDOW_TIMEOUT]
+        new[CONF_WINDOW_OFF_DELAY_AFTER] = new[CONF_WINDOW_OFF_DELAY]
 
     if config_entry.version < 18:
         # Make sure all TRVs fetch the get_device_model method to update their model info, which is used for device-specific quirks again.
@@ -426,7 +426,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
             (),
             {"hass": hass, "device_name": config_entry.title, "model": None},
         )()
-        heaters = new.get(CONF_HEATER, [])
+        heaters = new.get(CONF_THERMOSTAT, [])
         for trv in heaters:
             entity_id = trv.get("trv")
             if entity_id:
@@ -447,7 +447,7 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
                     entity_id,
                     trv["model"],
                 )
-        new[CONF_HEATER] = heaters
+        new[CONF_THERMOSTAT] = heaters
 
         _LOGGER.debug(
             "Migration to version 1.8: Updated TRV model information for all TRVs in config entry %s",

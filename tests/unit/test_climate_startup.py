@@ -118,10 +118,10 @@ def bt():
         )
     }
     mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
+    mock.outdoor_sensor_entity_id = None
     mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
+    mock.window_sensor_entity_id = None
+    mock.door_sensor_entity_id = None
     mock.all_entities = []
     mock.unavailable_sensors = []
     mock.degraded_mode = False
@@ -130,10 +130,10 @@ def bt():
     mock.cool_min_temperature = None
     mock.cool_max_temperature = None
     mock.heat_target_temperature = 21.0
-    mock.bt_target_temp_min = None
-    mock.bt_target_temp_max = None
-    mock.bt_target_temp_step = None
-    mock._configured_target_temp_step = None
+    mock.configured_min_temperature = None
+    mock.configured_max_temperature = None
+    mock.bt_target_temperature_step = None
+    mock._configured_temperature_step = None
     mock.cool_target_temperature = None
     mock.bt_hvac_mode = None
     mock.room_temperature = None
@@ -1129,17 +1129,17 @@ class TestResolveTemperatureRange:
 
     def test_step_already_set_not_overwritten(self, bt):
         """Test Step already set not overwritten."""
-        bt.bt_target_temp_step = 1.0
+        bt.bt_target_temperature_step = 1.0
         states = [_make_trv_state(attrs={"target_temp_step": 0.5})]
         BetterThermostat._resolve_temperature_range(bt, states)
-        assert bt.bt_target_temp_step == 1.0
+        assert bt.bt_target_temperature_step == 1.0
 
     def test_step_none_gets_resolved(self, bt):
         """Test Step none gets resolved."""
-        bt.bt_target_temp_step = None
+        bt.bt_target_temperature_step = None
         states = [_make_trv_state(attrs={"target_temp_step": 0.5})]
         BetterThermostat._resolve_temperature_range(bt, states)
-        assert bt.bt_target_temp_step == 0.5
+        assert bt.bt_target_temperature_step == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -1200,7 +1200,7 @@ class TestInitializeSensors:
 
     def test_window_open_detected(self, bt):
         """Test Window open detected."""
-        bt.window_id = WINDOW_ID
+        bt.window_sensor_entity_id = WINDOW_ID
         sensor = _make_sensor_state("20.0")
 
         def side_effect(entity_id):
@@ -1215,14 +1215,14 @@ class TestInitializeSensors:
 
     def test_window_none_defaults_closed(self, bt):
         """Test Window none defaults closed."""
-        bt.window_id = None
+        bt.window_sensor_entity_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.kernel_state.window.effective_open is False
 
     def test_door_open_detected(self, bt):
         """Test Door open detected."""
-        bt.door_id = DOOR_ID
+        bt.door_sensor_entity_id = DOOR_ID
         sensor = _make_sensor_state("20.0")
 
         def side_effect(entity_id):
@@ -1237,14 +1237,14 @@ class TestInitializeSensors:
 
     def test_door_none_defaults_closed(self, bt):
         """Test Door none defaults closed."""
-        bt.door_id = None
+        bt.door_sensor_entity_id = None
         sensor = _make_sensor_state("20.0")
         BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.kernel_state.door.effective_open is False
 
     def test_door_unavailable_assumes_closed(self, bt):
         """Test Door sensor unavailable at startup counts as closed."""
-        bt.door_id = DOOR_ID
+        bt.door_sensor_entity_id = DOOR_ID
         sensor = _make_sensor_state("20.0")
 
         def side_effect(entity_id):
@@ -1430,7 +1430,7 @@ class TestStartupCoolTargetSeed:
         annunciated.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         caplog.set_level(logging.WARNING)
@@ -1452,7 +1452,7 @@ class TestStartupCoolTargetSeed:
         """
         bt.cooler_entity_id = COOLER_ID
         bt.bt_min_temp = 18.0
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 16.0})})
 
         caplog.set_level(logging.WARNING)
@@ -1474,7 +1474,7 @@ class TestStartupCoolTargetSeed:
         """
         bt.cooler_entity_id = COOLER_ID
         bt.heat_target_temperature = DEFAULT_TARGET_TEMP
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 20.0})})
 
         await _run_startup(bt, restored_target=21.0)
@@ -1490,7 +1490,7 @@ class TestStartupCoolTargetSeed:
         restored preset supplies one.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: 24.0})})
 
         await _run_startup(bt, restored_target=21.0, restored_cool_target=26.0)
@@ -1523,7 +1523,7 @@ class TestStartupCoolTargetSeed:
         attributable to one of them.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(
             bt,
             {
@@ -1549,7 +1549,7 @@ class TestStartupCoolTargetSeed:
         read that asked for it.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
 
         caplog.set_level(logging.DEBUG)
@@ -1897,13 +1897,24 @@ class TestRestoreState:
     """Tests for _restore_state."""
 
     @pytest.mark.asyncio
-    async def test_restores_ema_and_slope(self, bt):
-        """Test Restores ema and slope."""
+    @pytest.mark.parametrize(
+        ("ema_name", "slope_name"),
+        [
+            pytest.param(
+                "room_temperature_filtered",
+                "temperature_slope_kelvin_per_min",
+                id="current",
+            ),
+            pytest.param("external_temp_ema", "temp_slope_K_min", id="written_by_1_9"),
+        ],
+    )
+    async def test_restores_ema_and_slope(self, bt, ema_name, slope_name):
+        """The filtered room reading and slope come back under either name."""
         old = MagicMock()
         old.state = "heat"
         old.attributes = {
-            "external_temp_ema": "20.5",
-            "temp_slope_K_min": "0.0012",
+            ema_name: "20.5",
+            slope_name: "0.0012",
             ATTR_TEMPERATURE: 21.0,
         }
         bt._saved_state = old
@@ -2017,6 +2028,44 @@ class TestRestoreState:
         assert bt._preset_cool_temperatures == {"comfort": 25.5, "eco": 26.0}
 
     @pytest.mark.asyncio
+    async def test_a_state_written_by_1_9_restores_the_presets(self, bt):
+        """Only the deprecated bt_-prefixed names present: the presets come back."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 22.0,
+            "bt_preset_cool_temperature": 24.5,
+            "bt_preset_cool_temperatures": json.dumps({"comfort": 25.5}),
+            "bt_preset_heat_temperatures": json.dumps({"comfort": 21.5}),
+        }
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+        bt._preset_cool_temperatures = {"comfort": 24.0, "eco": 27.0}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt._preset_cool_temperature == 24.5
+        assert bt._preset_cool_temperatures["comfort"] == 25.5
+        assert bt.preset_mgr.temperatures["comfort"] == 21.5
+
+    @pytest.mark.asyncio
+    async def test_the_current_preset_name_wins_over_the_deprecated_one(self, bt):
+        """Both names present: the value under the current name is restored."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 22.0,
+            ATTR_STATE_PRESET_HEAT_TEMPERATURES: json.dumps({"comfort": 21.5}),
+            "bt_preset_heat_temperatures": json.dumps({"comfort": 19.0}),
+        }
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {"comfort": 22.0, "eco": 18.0}
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.preset_mgr.temperatures["comfort"] == 21.5
+
+    @pytest.mark.asyncio
     async def test_restored_preset_applies_persisted_cool_target(self, bt):
         """A restored preset applies its persisted cool target, not the default."""
         bt.cooler_entity_id = COOLER_ID
@@ -2049,7 +2098,7 @@ class TestRestoreState:
         those same two targets, not the stored values beneath them.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt._configured_target_temp_step = 0.5
+        bt._configured_temperature_step = 0.5
         bt._preset_cool_temperatures = {"none": 24.0, "comfort": 25.28, "eco": 27.0}
         bt._preset_cool_temperature = None
         bt.preset_mgr.temperatures = {"none": 20.0, "comfort": 22.222, "eco": 18.0}
@@ -2122,7 +2171,7 @@ class TestRestoreState:
         nearest the bound inside the range, and Eco stays active throughout.
         """
         bt.bt_min_temp = 20.28
-        bt._configured_target_temp_step = 0.5
+        bt._configured_temperature_step = 0.5
         bt.bt_hvac_mode = HVACMode.HEAT
         bt.hvac_mode = HVACMode.HEAT
         bt.control_queue_task = asyncio.Queue()
@@ -2160,7 +2209,7 @@ class TestRestoreState:
         bt.cooler_entity_id = COOLER_ID
         bt.bt_min_temp = minimum
         bt.bt_max_temp = maximum
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         bt.hvac_mode = HVACMode.OFF
         bt._preset_cool_temperature = None
         bt._enforce_cool_above_heat = lambda **kwargs: (
@@ -2522,7 +2571,7 @@ def _trv_refusing_every_write(attempts: list[str]):
 
     thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
-    thermostat.bt_target_temp_step = None
+    thermostat.bt_target_temperature_step = None
     thermostat.real_trvs = {TRV_ID: trv}
     return thermostat
 
@@ -2934,7 +2983,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         along with it.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         bt.hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         _install_states(
             bt,
@@ -2962,7 +3011,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         names the method it runs in rather than the startup around it.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(
             bt,
             {
@@ -2991,7 +3040,7 @@ class TestCoolerTargetReadAtListenerRegistration:
         that stumbles over the same attribute.
         """
         bt.cooler_entity_id = COOLER_ID
-        bt.bt_target_temp_step = 0.5
+        bt.bt_target_temperature_step = 0.5
         _install_states(bt, {COOLER_ID: _make_cooler_state({ATTR_TEMPERATURE: "n/a"})})
 
         caplog.set_level(logging.DEBUG)
@@ -3037,7 +3086,7 @@ class TestFinalizeStartupBatteryScan:
     async def test_scan_reaches_the_outdoor_sensor(self, bt):
         """A configured outdoor sensor is asked for its battery entity."""
         bt.cooler_entity_id = None
-        bt.outdoor_sensor = OUTDOOR_ID
+        bt.outdoor_sensor_entity_id = OUTDOOR_ID
         bt.devices_states = {}
 
         scanned = await self._scan(bt)
@@ -3051,7 +3100,7 @@ class TestFinalizeStartupBatteryScan:
     async def test_unconfigured_devices_are_not_scanned(self, bt):
         """Nothing is registered for a cooler or outdoor sensor that is absent."""
         bt.cooler_entity_id = None
-        bt.outdoor_sensor = None
+        bt.outdoor_sensor_entity_id = None
         bt.devices_states = {}
 
         scanned = await self._scan(bt)
@@ -3263,7 +3312,7 @@ class TestFinalizeStartupOnADualRoleEntity:
         bt.is_removed = False
         bt.all_trvs = None
         bt.entity_ids = [TRV_ID]
-        bt.outdoor_sensor = None
+        bt.outdoor_sensor_entity_id = None
         bt._async_unsub_state_changed = None
         bt._post_grace_recheck = MagicMock()
         bt._external_temperature_keepalive = MagicMock()

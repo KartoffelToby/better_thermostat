@@ -127,8 +127,8 @@ def _room() -> ThermostatStandIn:
     bt.call_for_heat = True
     bt.preset_mode = None
     bt.tolerance = 0.3
-    bt.outdoor_sensor = None
-    bt.weather_entity = None
+    bt.outdoor_sensor_entity_id = None
+    bt.weather_entity_id = None
     bt.calculate_heat_loss = AsyncMock()
     bt.device_name = "test_thermostat"
     bt.in_maintenance = False
@@ -214,8 +214,8 @@ async def test_a_tweak_the_library_cancelled_fails_that_trv_not_the_startup():
     )
     bt.all_entities = []
     bt.cooler_entity_id = None
-    bt.bt_target_temp_step = None
-    bt._configured_target_temp_step = None
+    bt.bt_target_temperature_step = None
+    bt._configured_temperature_step = None
     bt.heat_target_temperature = 21.0
     bt.bt_hvac_mode = HVACMode.HEAT
     bt.context = MagicMock()
