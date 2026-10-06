@@ -285,6 +285,16 @@ def test_a_glossary_that_contradicts_itself_is_refused(checker):
         checker._load_glossary()
 
 
+def test_an_exception_for_a_spelling_no_term_rejects_is_refused(checker):
+    """An exception that excuses nothing reads as if the checker relied on it."""
+    checker.GLOSSARY_FILE.write_text(
+        GLOSSARY.replace('rejected = ["current_temperature"]', "rejected = []"),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="no term rejects current_temperature"):
+        checker._load_glossary()
+
+
 def test_an_exception_without_a_reason_is_refused(checker):
     """An unexplained exception makes every other finding less trustworthy."""
     checker.GLOSSARY_FILE.write_text(

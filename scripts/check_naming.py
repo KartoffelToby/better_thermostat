@@ -116,6 +116,13 @@ def _load_glossary() -> Glossary:
             )
         exceptions.setdefault(entry["alias"], []).extend(entry["paths"])
 
+    inert = sorted(set(exceptions) - set(aliases))
+    if inert:
+        sys.exit(
+            f"{GLOSSARY_FILE.name}: no term rejects {', '.join(inert)}, "
+            "so its exception excuses nothing"
+        )
+
     return Glossary(
         aliases={alias: tuple(names) for alias, names in aliases.items()},
         exceptions={alias: tuple(paths) for alias, paths in exceptions.items()},

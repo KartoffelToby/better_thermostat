@@ -266,11 +266,3 @@ definition = "An HA entity id. Never `_id`, `_entity`, or a bare noun."
 # needs a reason. Without it the checker's findings stop being trustworthy.
 # ---------------------------------------------------------------------------
 
-[[exception]]
-alias = "current_temperature"
-paths = [
-  "custom_components/better_thermostat/climate.py",
-  "custom_components/better_thermostat/trv.py",
-]
-reason = "The HA property BT implements, and the `Trv` field it is read from."
-

@@ -378,9 +378,11 @@ request when a concept has none. Two names for one thing is a defect. The codeba
 has carried a duplicated field name long enough that a unit test reimplemented a
 production predicate from the wrong half of it, and the test still passes.
 
-Sometimes a rejected spelling is the correct name anyway: `current_temperature` is
-the Home Assistant property this integration implements. `glossary.toml` records
-each such exception together with its reason.
+Sometimes a rejected spelling is the correct name in one place, such as a Home
+Assistant property the integration has to implement under that name.
+`glossary.toml` then records an exception with its paths and its reason. The
+checker refuses an exception without a reason, and one for a spelling no term
+rejects.
 
 Under `tests/` a rejected spelling is charged only once production has stopped
 using it. A test has to name the attribute it asserts on, so that spelling is
