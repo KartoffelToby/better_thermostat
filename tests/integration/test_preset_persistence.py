@@ -232,7 +232,7 @@ async def test_a_preset_value_outside_the_range_keeps_the_preset_active(hass, fa
 async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
     """An entry whose options were written by an earlier version reloads once.
 
-    Every update of the entry reloads it, so clearing stale options in a second
+    Every update of the entry reloads it, so emptying the data in a second
     update costs a second reload — and the second one lands in the first one's
     startup, before it has restored what the thermostat was running on.
     """
@@ -250,7 +250,7 @@ async def test_an_entry_carrying_legacy_options_reloads_once(hass, fake_trv):
     await wait_for_startup(hass, entry)
 
     assert reloads == [entry.entry_id]
-    assert entry.options == {}
+    assert entry.data == {}
     assert hass.states.get(BT_ENTITY).attributes["preset_mode"] == "comfort"
     assert _target(hass) == COMFORT_CONFIGURED
 

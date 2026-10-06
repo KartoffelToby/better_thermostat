@@ -103,6 +103,7 @@ async def devices(hass):
     await build_devices(hass, GENERIC_HEAT_TRV, SPARE_HEAT_TRV)
 
 
+@pytest.mark.quality_rule("unique-config-entry")
 @pytest.mark.parametrize("name", ["Room A", "Room B"])
 async def test_a_new_entry_cannot_take_a_thermostat_another_entry_controls(
     hass, devices, name
@@ -143,7 +144,7 @@ async def test_the_settings_cannot_add_a_thermostat_another_entry_controls(
     assert result["errors"] == {CONF_HEATER: "trv_in_use"}
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room A"
-    assert [bundle["trv"] for bundle in room_b.data[CONF_HEATER]] == [SPARE_ID]
+    assert [bundle["trv"] for bundle in room_b.options[CONF_HEATER]] == [SPARE_ID]
 
 
 async def test_the_settings_of_an_entry_that_already_shares_still_save(hass, devices):
@@ -263,6 +264,7 @@ def _record_config_changes(hass, entry: MockConfigEntry) -> list[dict]:
     return received
 
 
+@pytest.mark.quality_rule("unique-config-entry")
 async def test_two_create_flows_cannot_both_take_one_thermostat(hass, devices):
     """The flow that finishes second is refused, although both passed the check."""
     flows = hass.config_entries.flow
@@ -316,7 +318,7 @@ async def test_the_settings_cannot_save_a_thermostat_taken_while_they_were_open(
     assert result["errors"] == {CONF_HEATER: "trv_in_use"}
     assert result["description_placeholders"]["trv"] == TRV_ID
     assert result["description_placeholders"]["entry"] == "Room C"
-    assert [bundle["trv"] for bundle in room_b.data[CONF_HEATER]] == [SPARE_ID]
+    assert [bundle["trv"] for bundle in room_b.options[CONF_HEATER]] == [SPARE_ID]
     assert config_changes == []
 
 
@@ -339,6 +341,7 @@ async def test_saved_settings_that_change_the_calibration_signal_the_change(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert [
-        bundle["advanced"][CONF_CALIBRATION_MODE] for bundle in room_b.data[CONF_HEATER]
+        bundle["advanced"][CONF_CALIBRATION_MODE]
+        for bundle in room_b.options[CONF_HEATER]
     ] == [CalibrationMode.PID_CALIBRATION]
     assert config_changes == [{"entry_id": room_b.entry_id}]

@@ -78,7 +78,7 @@ async def test_a_switch_change_does_not_touch_the_config_entry(hass, fake_trv):
         "switch", "turn_on", {"entity_id": SWITCH}, blocking=True
     )
 
-    assert entry.data["thermostat"][0]["advanced"]["child_lock"] is False
+    assert entry.options["thermostat"][0]["advanced"]["child_lock"] is False
 
 
 @pytest.mark.parametrize("wanted", [True, False])

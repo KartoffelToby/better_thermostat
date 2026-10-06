@@ -24,9 +24,15 @@ from tests.factories import ThermostatStandIn
 @pytest.fixture(autouse=True)
 def _detached_state_tracking():
     """Let the entities subscribe to the thermostat's state without a hass."""
-    with patch(
-        "custom_components.better_thermostat.number.async_track_state_change_event",
-        MagicMock(),
+    with (
+        patch(
+            "custom_components.better_thermostat.entity.async_track_state_change_event",
+            MagicMock(),
+        ),
+        patch(
+            "custom_components.better_thermostat.entity.async_dispatcher_connect",
+            MagicMock(),
+        ),
     ):
         yield
 

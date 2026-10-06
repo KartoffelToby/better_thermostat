@@ -1,0 +1,29 @@
+rules:
+  # Bronze
+  action-setup: done
+  appropriate-polling: done
+  brands: done
+  common-modules: done
+  config-flow: done
+  config-flow-test-coverage: done
+  dependency-transparency: done
+  docs-actions: done
+  docs-conditions: done
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  docs-triggers: done
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup:
+    status: exempt
+    comment: |
+      Better Thermostat connects to no device or service of its own; it drives
+      other integrations' entities, which may come up after it on a boot. A
+      thermostat that is late is waited for without a message and one that
+      stays away is named in a repair issue, so the entry is set up either
+      way instead of failing with ConfigEntryNotReady.
+  unique-config-entry: done

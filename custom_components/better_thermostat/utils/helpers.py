@@ -100,6 +100,16 @@ class _DeviceModelHost(_RegistryHost, Protocol):
         ...
 
 
+def entry_settings(entry: ConfigEntry) -> dict[str, Any]:
+    """Return the configuration of ``entry``, wherever it is stored.
+
+    Better Thermostat 2.0 keeps the settings in the entry's options and leaves
+    its data empty; 1.9 keeps them in the data. Reading both, the options over
+    the data, lets an entry last saved by either version run here.
+    """
+    return {**entry.data, **entry.options}
+
+
 def _shares_device(entry: er.RegistryEntry, device_id: str | None) -> bool:
     """Whether ``entry`` belongs to the device ``device_id``.
 
@@ -254,7 +264,7 @@ def async_normalize_bt_entity_ids(
         The entity platform being set up; only its registry entries are
         considered, and each platform carries its own recorded name.
     """
-    name = entry.data.get(CONF_NAME)
+    name = entry_settings(entry).get(CONF_NAME)
     normalized = hass.data.setdefault(NORMALIZED_ID_NAMES, {}).setdefault(
         entry.entry_id, {}
     )
@@ -276,7 +286,7 @@ def async_normalize_bt_entity_ids(
         if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
             continue
         if domain == Platform.CLIMATE:
-            object_id = slugify(entry.data.get(CONF_NAME) or "better_thermostat")
+            object_id = slugify(name or "better_thermostat")
             desired = registry.async_get_available_entity_id(
                 domain, object_id, current_entity_id=reg_entry.entity_id
             )

@@ -40,7 +40,7 @@ from .utils.const import (
     SERVICE_RUN_VALVE_MAINTENANCE,
     CalibrationMode,
 )
-from .utils.helpers import get_device_model
+from .utils.helpers import entry_settings, get_device_model
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
@@ -97,7 +97,7 @@ SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
 
 def trv_entity_ids(entry: ConfigEntry) -> list[str]:
     """Return the entity ids of the thermostats ``entry`` controls."""
-    heaters = entry.data.get(CONF_HEATER)
+    heaters = entry_settings(entry).get(CONF_HEATER)
     if isinstance(heaters, str):
         return [heaters]
     return [
@@ -119,7 +119,7 @@ def other_entries_controlling(
 
 
 def _entry_name(entry: ConfigEntry) -> str:
-    return str(entry.data.get(CONF_NAME, entry.title))
+    return str(entry_settings(entry).get(CONF_NAME, entry.title))
 
 
 def _raise_shared_trv_issue(
@@ -203,10 +203,11 @@ def _warn_about_an_off_temperature_below_freezing(
     """
     if hass.config.units.temperature_unit != UnitOfTemperature.FAHRENHEIT:
         return
-    if not (entry.data.get(CONF_OUTDOOR_SENSOR) or entry.data.get(CONF_WEATHER)):
+    settings = entry_settings(entry)
+    if not (settings.get(CONF_OUTDOOR_SENSOR) or settings.get(CONF_WEATHER)):
         return
     try:
-        stored = float(entry.data[CONF_OFF_TEMPERATURE])
+        stored = float(settings[CONF_OFF_TEMPERATURE])
     except KeyError, TypeError, ValueError:
         return
     celsius = TemperatureConverter.convert(
@@ -218,9 +219,23 @@ def _warn_about_an_off_temperature_below_freezing(
             "%s °F (%.1f °C), so heating stops whenever it is warmer than that "
             "outside; change it in the thermostat's settings if it was meant "
             "in °C",
-            entry.data.get(CONF_NAME, entry.title),
-            entry.data[CONF_OFF_TEMPERATURE],
+            settings.get(CONF_NAME, entry.title),
+            settings[CONF_OFF_TEMPERATURE],
             celsius,
+        )
+
+
+def _keep_settings_in_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Move settings found in the entry's data into its options.
+
+    The migration to minor version 2 moves them once. 1.9.3 loads an entry of
+    that version too and, when its settings are saved there, writes them to
+    the data and empties the options without changing the version, so the
+    move is repeated whenever the data holds anything.
+    """
+    if entry.data:
+        hass.config_entries.async_update_entry(
+            entry, data={}, options=entry_settings(entry)
         )
 
 
@@ -228,6 +243,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> bool:
     """Set up entry."""
+    _keep_settings_in_options(hass, entry)
     _warn_about_an_off_temperature_below_freezing(hass, entry)
     _sync_shared_trv_issues(hass, entry)
     entry.runtime_data = BetterThermostatData()
@@ -319,7 +335,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             entry.entry_id,
         )
 
-    device_name = entry.data.get(CONF_NAME, entry.title)
+    settings = entry_settings(entry)
+    device_name = settings.get(CONF_NAME, entry.title)
 
     for issue_id in (
         f"invalid_external_temperature_{device_name}",
@@ -337,7 +354,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         CONF_OUTDOOR_SENSOR,
         CONF_COOLER,
     ):
-        eid = entry.data.get(conf_key)
+        eid = settings.get(conf_key)
         if eid:
             entity_ids.append(eid)
 
@@ -438,7 +455,14 @@ async def async_migrate_entry(hass, config_entry: ConfigEntry):
         )
         # update the new config entry with the updated TRV model information
 
-    hass.config_entries.async_update_entry(config_entry, data=new, version=18)
+    # Minor version 2 keeps the settings in the options and the data empty.
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={},
+        options={**new, **config_entry.options},
+        version=18,
+        minor_version=2,
+    )
 
     _LOGGER.info("Migration to version %s successful", config_entry.version)
 

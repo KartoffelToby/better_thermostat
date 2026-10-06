@@ -188,7 +188,7 @@ async def test_the_role_scenario_decides_what_the_entry_controls(hass, device_ro
     bt = await wait_for_startup(hass, entry)
 
     assert len(device_role.entities) == (1 if scenario.cooler is None else 2)
-    assert entry.data.get("cooler") == scenario.cooler_entity_id
+    assert entry.options.get("cooler") == scenario.cooler_entity_id
     assert bt.cooler_entity_id == scenario.cooler_entity_id
     assert list(bt.real_trvs) == [scenario.trv.entity_id]
     assert (bt.cooler_entity_id in bt.real_trvs) is (scenario is DUAL_ROLE)
@@ -230,7 +230,7 @@ async def test_climate_entity_id_follows_device_name_after_rename(hass, device_r
 
     # The device is renamed; the entity_id must follow to climate.bt_livingroom.
     hass.config_entries.async_update_entry(
-        entry, data={**entry.data, "name": "BT Livingroom"}
+        entry, options={**entry.options, "name": "BT Livingroom"}
     )
     await hass.async_block_till_done()
     await wait_for_startup(hass, entry)

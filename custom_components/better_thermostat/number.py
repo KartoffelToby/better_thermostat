@@ -18,14 +18,18 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
-from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import BetterThermostatConfigEntry
-from .entity import TrvNamedEntity, current_trv_name, remove_unclaimed_registry_entries
+from .entity import (
+    FollowsThermostat,
+    TrvNamedEntity,
+    current_trv_name,
+    remove_unclaimed_registry_entries,
+)
 from .sensor import _ACTIVE_PID_NUMBERS, _ACTIVE_PRESET_NUMBERS
 from .utils.calibration.pid import (
     DEFAULT_PID_KD,
@@ -190,7 +194,7 @@ async def async_setup_entry(
     async_add_entities(numbers)
 
 
-class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
+class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntity):
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
@@ -236,20 +240,6 @@ class BetterThermostatPresetNumber(NumberEntity, RestoreEntity):
         system unit, as the climate entity publishes it.
         """
         return self._bt_climate.target_temperature_step or 0.1
-
-    def _follow_thermostat(self) -> None:
-        """Republish this entity whenever the thermostat's state changes."""
-        if self._bt_climate.entity_id:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [self._bt_climate.entity_id], self._on_thermostat_state
-                )
-            )
-
-    @callback
-    def _on_thermostat_state(self, event: Event[EventStateChangedData]) -> None:
-        """Publish the thermostat's current range and step."""
-        self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -434,9 +424,10 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         if self._bt_climate.preset_mode == self._preset_mode:
             self._bt_climate.cool_target_temperature = cool_value
             self._bt_climate._enforce_cool_above_heat()
-            self._bt_climate._preset_cool_temperatures[self._preset_mode] = (
-                self._bt_climate.cool_target_temperature
-            )
+            # The ordering only moves a cooling target that is set, so it stays set.
+            enforced = self._bt_climate.cool_target_temperature
+            assert enforced is not None
+            self._bt_climate._preset_cool_temperatures[self._preset_mode] = enforced
             if self._bt_climate.bt_hvac_mode != HVACMode.OFF:
                 request_control_cycle(self._bt_climate)
 
@@ -444,7 +435,9 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         self._bt_climate.async_write_ha_state()
 
 
-class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
+class BetterThermostatPIDNumber(
+    FollowsThermostat, TrvNamedEntity, NumberEntity, RestoreEntity
+):
     """Representation of a Better Thermostat PID Parameter Number."""
 
     _attr_has_entity_name = True
@@ -483,6 +476,7 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        self._follow_thermostat()
 
     @property
     def device_info(self):
@@ -544,7 +538,7 @@ class BetterThermostatPIDNumber(TrvNamedEntity, NumberEntity, RestoreEntity):
 
 
 class BetterThermostatValveMaxOpeningNumber(
-    TrvNamedEntity, NumberEntity, RestoreEntity
+    FollowsThermostat, TrvNamedEntity, NumberEntity, RestoreEntity
 ):
     """Representation of a Better Thermostat Valve Max Opening Number."""
 
@@ -577,6 +571,7 @@ class BetterThermostatValveMaxOpeningNumber(
         """Run when entity about to be added."""
         await super().async_added_to_hass()
         self._follow_trv_name()
+        self._follow_thermostat()
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state not in (
             None,

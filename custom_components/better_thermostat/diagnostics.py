@@ -21,6 +21,7 @@ from .utils.const import (
     CONF_WEATHER,
     VERSION,
 )
+from .utils.helpers import entry_settings
 
 # Attributes an integration may publish on its climate or sensor entities
 # that identify hardware or a place. The download is attached to public
@@ -92,8 +93,9 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, config_entry: ConfigEntry
 ) -> dict:
     """Return diagnostics for a config entry."""
+    settings = entry_settings(config_entry)
     trvs = {}
-    for trv_config in config_entry.data[CONF_HEATER]:
+    for trv_config in settings[CONF_HEATER]:
         trv_state = hass.states.get(trv_config["trv"])
         if trv_state is None:
             continue
@@ -109,18 +111,18 @@ async def async_get_config_entry_diagnostics(
             "device": _device(hass, trv_config["trv"]),
         }
 
-    _cleaned_data = dict(config_entry.data.copy())
+    _cleaned_data = dict(settings)
     del _cleaned_data[CONF_HEATER]
     diagnostics_data: dict[str, Any] = {
         "versions": {"better_thermostat": VERSION, "home_assistant": ha_version},
         "info": _cleaned_data,
         "thermostat": trvs,
-        "external_temperature_sensor": _state(hass, config_entry.data.get(CONF_SENSOR)),
-        "window_sensor": _state(hass, config_entry.data.get(CONF_SENSOR_WINDOW)),
+        "external_temperature_sensor": _state(hass, settings.get(CONF_SENSOR)),
+        "window_sensor": _state(hass, settings.get(CONF_SENSOR_WINDOW)),
         "sensors": {
-            key: _state(hass, config_entry.data[key])
+            key: _state(hass, settings[key])
             for key in _SENSOR_KEYS
-            if config_entry.data.get(key)
+            if settings.get(key)
         },
     }
 

@@ -55,7 +55,7 @@ import voluptuous as vol
 
 from . import DOMAIN
 from .utils.const import CONF_HUMIDITY
-from .utils.helpers import is_bt_climate_entity
+from .utils.helpers import entry_settings, is_bt_climate_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,15 +150,15 @@ async def async_get_triggers(
 
         # A thermostat configured without a humidity sensor publishes no
         # humidity, so the two triggers that watch it would attach to an
-        # automation and never fire. `entry.data` is the same place the
-        # climate entity reads the sensor from.
+        # automation and never fire. The entry's settings are the same place
+        # the climate entity reads the sensor from.
         config_entry = (
             hass.config_entries.async_get_entry(entry.config_entry_id)
             if entry.config_entry_id
             else None
         )
         watches_humidity = bool(
-            (config_entry.data if config_entry else {}).get(CONF_HUMIDITY)
+            (entry_settings(config_entry) if config_entry else {}).get(CONF_HUMIDITY)
         )
 
         # Purpose-specific triggers (primary – shown first in the UI)

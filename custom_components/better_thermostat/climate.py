@@ -95,6 +95,7 @@ from .core.fsm.window import WindowPhase, WindowState
 from .core.recorder import FlightRecorder
 from .core.watchdog import CONTROL_TICK_S
 from .device_binding import async_bind_trv_device, async_unbind_trv_device
+from .entity import announce_learned_state
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -178,6 +179,7 @@ from .utils.helpers import (
     convert_to_float_celsius,
     device_setpoint_step,
     dual_role_entity_id,
+    entry_settings,
     find_battery_entity,
     get_cool_temperature_bounds,
     get_cool_temperature_range,
@@ -293,33 +295,34 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Better Thermostat climate entity for a config entry."""
+    settings = entry_settings(entry)
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
-        entry.data.get(CONF_NAME),
+        settings.get(CONF_NAME),
         entry.entry_id,
     )
 
     bt_entity = BetterThermostat(
-        entry.data.get(CONF_NAME),
-        entry.data.get(CONF_HEATER),
-        entry.data.get(CONF_SENSOR),
-        entry.data.get(CONF_HUMIDITY, None),
-        entry.data.get(CONF_SENSOR_WINDOW, None),
-        entry.data.get(CONF_WINDOW_TIMEOUT, None),
-        entry.data.get(CONF_WINDOW_TIMEOUT_AFTER, None),
-        entry.data.get(CONF_SENSOR_DOOR, None),
-        entry.data.get(CONF_DOOR_TIMEOUT, None),
-        entry.data.get(CONF_DOOR_TIMEOUT_AFTER, None),
-        entry.data.get(CONF_WEATHER, None),
-        entry.data.get(CONF_OUTDOOR_SENSOR, None),
-        entry.data.get(CONF_OFF_TEMPERATURE, None),
-        entry.data.get(CONF_TOLERANCE, 0.0),
-        entry.data.get(CONF_TARGET_TEMP_MIN, None),
-        entry.data.get(CONF_TARGET_TEMP_MAX, None),
-        entry.data.get(CONF_TARGET_TEMP_STEP, "0.0"),
-        entry.data.get(CONF_MODEL, None),
-        entry.data.get(CONF_COOLER, None),
-        entry.data.get(CONF_PRESETS, None),
+        settings.get(CONF_NAME),
+        settings.get(CONF_HEATER),
+        settings.get(CONF_SENSOR),
+        settings.get(CONF_HUMIDITY, None),
+        settings.get(CONF_SENSOR_WINDOW, None),
+        settings.get(CONF_WINDOW_TIMEOUT, None),
+        settings.get(CONF_WINDOW_TIMEOUT_AFTER, None),
+        settings.get(CONF_SENSOR_DOOR, None),
+        settings.get(CONF_DOOR_TIMEOUT, None),
+        settings.get(CONF_DOOR_TIMEOUT_AFTER, None),
+        settings.get(CONF_WEATHER, None),
+        settings.get(CONF_OUTDOOR_SENSOR, None),
+        settings.get(CONF_OFF_TEMPERATURE, None),
+        settings.get(CONF_TOLERANCE, 0.0),
+        settings.get(CONF_TARGET_TEMP_MIN, None),
+        settings.get(CONF_TARGET_TEMP_MAX, None),
+        settings.get(CONF_TARGET_TEMP_STEP, "0.0"),
+        settings.get(CONF_MODEL, None),
+        settings.get(CONF_COOLER, None),
+        settings.get(CONF_PRESETS, None),
         hass.config.units.temperature_unit,
         entry.entry_id,
         device_class="better_thermostat",
@@ -330,7 +333,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities([bt_entity])
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry finished creating entity",
-        entry.data.get(CONF_NAME),
+        settings.get(CONF_NAME),
     )
 
 
@@ -4952,6 +4955,7 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     len(self.real_trvs),
                 )
             self.schedule_save_state()
+            announce_learned_state(self.hass, self._unique_id)
             if seeded:
                 # Kick the control loop so the new gains are used promptly
                 request_control_cycle(self)
