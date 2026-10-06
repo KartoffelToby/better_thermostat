@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Every entity is pushed and none polls; actions are not limited per platform.
+PARALLEL_UPDATES = 0
+
 # Global tracking variables for active algorithm-specific entities
 _ACTIVE_ALGORITHM_ENTITIES: dict[str, dict[CalibrationMode, list[str]]] = {}
 _ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[..., None]] = {}
