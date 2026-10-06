@@ -1481,11 +1481,15 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
         _calibration_mode = DEFAULT_CALIBRATION_MODE
     traits = _traits_for(_calibration_mode)
 
+    # Without a target or a room reading there is no demand, so no valve
+    # intent from an earlier cycle may outlive it.
     if self.heat_target_temperature is None:
+        self.real_trvs[entity_id].calibration_balance = None
         return None
 
     _effective_room_temp = effective_room_temp(self)
     if _effective_room_temp is None:
+        self.real_trvs[entity_id].calibration_balance = None
         return None
     _cur_external_temp = float(_effective_room_temp)
     _cur_target_temp = float(self.heat_target_temperature)

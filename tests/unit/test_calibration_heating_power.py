@@ -256,3 +256,17 @@ class TestUnderSensorFallback:
             )
         assert result == (1.5, False)
         assert bt.real_trvs[ENTITY_ID].calibration_balance is None
+
+    @pytest.mark.parametrize("missing", ["room_temperature", "heat_target_temperature"])
+    def test_setpoint_without_demand_drops_the_valve_intent(self, missing):
+        """No target or no room reading leaves no valve intent to replay."""
+        bt = _make_bt(HVACAction.HEATING, room_temperature=None)
+        if missing == "heat_target_temperature":
+            bt = _make_bt(HVACAction.HEATING)
+            bt.heat_target_temperature = None
+        bt.real_trvs[ENTITY_ID].calibration_balance = {
+            "valve_percent": 40,
+            "apply_valve": True,
+        }
+        assert calculate_calibration_setpoint(bt, ENTITY_ID) is None
+        assert bt.real_trvs[ENTITY_ID].calibration_balance is None
