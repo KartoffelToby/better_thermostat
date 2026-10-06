@@ -9,7 +9,7 @@ import logging
 import math
 import random
 from time import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -108,7 +108,7 @@ class MpcOutput:
     """Output result from MPC calibration calculation."""
 
     valve_percent: int
-    debug: dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -200,7 +200,7 @@ def _update_perf_curve(
     inp: MpcInput,
     params: MpcParams,
     now: float,
-    extra_debug: dict[str, Any],
+    extra_debug: dict[str, object],
 ) -> None:
     if inp.current_temp_C is None:
         return
@@ -538,13 +538,10 @@ def _detect_regime_change(recent_errors: deque[float] | list[float]) -> bool:
     return t_stat > 2.0
 
 
-def _round_for_debug(value: float | int | None, digits: int = 3) -> float | int | None:
-    if value is None:
-        return None
-    try:
-        return round(float(value), digits)
-    except TypeError, ValueError:
+def _round_for_debug(value: object, digits: int = 3) -> object:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return value
+    return round(float(value), digits)
 
 
 def _forget_stamps_ahead_of_the_clock(state: _MpcState, now: float) -> None:
@@ -646,7 +643,7 @@ def compute_mpc(
             state.time_integral += dt_int
     state.last_integration_ts = now
 
-    extra_debug: dict[str, Any] = {}
+    extra_debug: dict[str, object] = {}
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
     percent: float = 0.0
@@ -953,7 +950,7 @@ def compute_mpc(
 
 def _compute_predictive_percent(
     inp: MpcInput, params: MpcParams, state: _MpcState, now: float, delta_kelvin: float
-) -> tuple[float, dict[str, Any]]:
+) -> tuple[float, dict[str, object]]:
     """Core MPC minimisation routine.
 
     The plant model is temperature-forward and carries physical units:
@@ -1041,7 +1038,7 @@ def _compute_predictive_percent(
 
     # ---- ADAPTATION (rate-based identification) ----
     # Model: dT/dt ~= gain * u - loss, where gain/loss are in °C/min and u in [0..1]
-    adapt_debug: dict[str, Any] = {}
+    adapt_debug: dict[str, object] = {}
     if params.mpc_adapt and state.last_learn_temp is not None and dt_last >= 180.0:
         try:
             if state.last_residual_time is None:
@@ -1639,7 +1636,7 @@ def _compute_predictive_percent(
     state.last_time = now
 
     # build debug
-    mpc_debug = {
+    mpc_debug: dict[str, object] = {
         "mpc_gain": _round_for_debug(gain, 4),
         "mpc_loss": _round_for_debug(loss, 4),
         "mpc_ka": _round_for_debug(state.ka_est, 5)
@@ -1822,7 +1819,7 @@ def _post_process_percent(
     now: float,
     raw_percent: float,
     delta_kelvin: float | None,
-) -> tuple[int, dict[str, Any], float | None]:
+) -> tuple[int, dict[str, object], float | None]:
     """Apply smoothing, hysteresis, min-effective, du_max, dead-zone detection and produce debug info."""
 
     name = inp.bt_name or "BT"
@@ -2037,7 +2034,7 @@ def _post_process_percent(
         state.last_trv_temp = inp.trv_temp_C
         state.last_trv_temp_ts = now
     # 7) DEBUG INFO
-    debug: dict[str, Any] = {
+    debug: dict[str, object] = {
         "raw_percent": _round_for_debug(raw_percent, 2),
         "smooth_percent": _round_for_debug(smooth, 2),
         "too_soon": too_soon,

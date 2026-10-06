@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, fields
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
@@ -55,7 +55,7 @@ class TpiOutput:
     """Output result from TPI calibration calculation."""
 
     duty_cycle_pct: float
-    debug: dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -137,7 +137,7 @@ def compute_tpi(
 
     if not inp.heating_allowed or inp.window_open:
         duty_pct = 0.0
-        debug: dict[str, Any] = {"reason": "blocked"}
+        debug: dict[str, object] = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_pct, None, debug)
 
     if inp.current_temp_C is None or inp.target_temp_C is None:
@@ -183,7 +183,7 @@ def _finalize_output(
     now: float,
     duty_pct_raw: float,
     error_K: float | None,
-    debug: dict[str, Any],
+    debug: dict[str, object],
 ) -> tuple[TpiOutput, _TpiState]:
     # Clamp
     duty_pct = max(params.clamp_min_pct, min(params.clamp_max_pct, duty_pct_raw))
