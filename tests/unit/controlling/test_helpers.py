@@ -898,7 +898,7 @@ class TestCheckTargetTemperature:
 # ---------------------------------------------------------------------------
 
 
-class TestGetValveControlBoostCalibrationType:
+class TestGetValveControlBoostCalibrationOutput:
     """Boost mode controls the valve only on TRVs with direct valve control."""
 
     def _mock_in_boost(self):
