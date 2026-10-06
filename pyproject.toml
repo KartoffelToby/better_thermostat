@@ -11,12 +11,12 @@ dev = [
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.0.0",  # the per-module coverage floors in CI depend on it
-    "pytest-homeassistant-custom-component>=0.13.363",
-    "pre-commit>=4.6.0",
-    "pyrefly>=1.1.1",
-    "ruff>=0.15.22",
+    "pytest-homeassistant-custom-component>=0.13.367",
+    "pre-commit>=4.6.2",
+    "pyrefly>=1.3.2",
+    "ruff>=0.16.10",
     "yamllint>=1.38.0",
-    "hypothesis>=6",
+    "hypothesis>=6.168.4",
 ]
 
 [tool.uv]
@@ -64,6 +64,7 @@ ignore = [
     "PLR0915", # Too many statements
     "PLR0912", # Too many branches
     "PLR0913", # Too many arguments
+    "PLR0917", # Too many positional arguments
     "PLR0911", # Too many return statements
 ]
 
@@ -97,12 +98,9 @@ convention = "numpy"
 "custom_components/better_thermostat/sensor.py" = ["BLE001"]
 "custom_components/better_thermostat/switch.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/calibration/mpc.py" = ["BLE001"]
-"custom_components/better_thermostat/utils/calibration/mpc_v2/state.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/calibration/pid.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/controlling.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/helpers.py" = ["BLE001"]
-"custom_components/better_thermostat/utils/migrate_v0_stores.py" = ["BLE001"]
-"custom_components/better_thermostat/utils/state_manager.py" = ["BLE001"]
 "custom_components/better_thermostat/utils/valve_maintenance.py" = ["BLE001"]
 
 # Control-theory notation. The state-space matrices `A` and `B`, the Kalman
