@@ -14,6 +14,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -223,5 +224,5 @@ def build_tpi_key(bt: BetterThermostat, entity_id: str) -> str:
     except TypeError, ValueError:
         bucket = "tunknown"
 
-    uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
+    uid = resolve_unique_id(bt)
     return f"{uid}:{entity_id}:{bucket}"

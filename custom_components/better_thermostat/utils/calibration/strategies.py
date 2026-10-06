@@ -272,15 +272,15 @@ class BalanceCalibrator:
 
 
 def _percent_of_mpc(result: BalanceResult) -> float | None:
-    return getattr(result, "valve_percent", None)
+    return result.valve_percent if isinstance(result, MpcOutput) else None
 
 
 def _percent_of_mpc_v2(result: BalanceResult) -> float | None:
-    return getattr(result, "valve_percent", None)
+    return result.valve_percent if isinstance(result, MpcV2Output) else None
 
 
 def _percent_of_tpi(result: BalanceResult) -> float | None:
-    return getattr(result, "duty_cycle_pct", None)
+    return result.duty_cycle_pct if isinstance(result, TpiOutput) else None
 
 
 def _percent_of_pid(result: BalanceResult) -> float | None:

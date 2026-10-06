@@ -12,6 +12,7 @@ from time import time
 from typing import TYPE_CHECKING, Any
 
 from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 
 if TYPE_CHECKING:
     from ...climate import BetterThermostat
@@ -214,7 +215,7 @@ def _update_perf_curve(
         return
 
     dt_s = now - state.last_room_temp_ts
-    min_window = float(getattr(params, "perf_curve_min_window_s", 300.0))
+    min_window = params.perf_curve_min_window_s
     if dt_s < min_window:
         return
 
@@ -230,7 +231,7 @@ def _update_perf_curve(
     else:
         u_avg_pct = float(state.last_percent) if state.last_percent is not None else 0.0
 
-    bin_pct = float(getattr(params, "perf_curve_bin_pct", 5.0))
+    bin_pct = params.perf_curve_bin_pct
     label = _curve_bin_label(u_avg_pct, bin_pct)
 
     trv_rate = None
@@ -345,9 +346,7 @@ def _seed_state_from_siblings(
     siblings.sort(key=lambda item: item[0])
 
     # --- min_effective_percent (gated by feature flag) ---
-    if state.min_effective_percent is None and bool(
-        getattr(params, "enable_min_effective_percent", True)
-    ):
+    if state.min_effective_percent is None and params.enable_min_effective_percent:
         for _, sib in siblings:
             if sib.min_effective_percent is not None and _all_finite(
                 sib.min_effective_percent
@@ -402,7 +401,7 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
     except TypeError, ValueError:
         bucket = "tunknown"
 
-    uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
+    uid = resolve_unique_id(bt)
     return f"{uid}:{entity_id}:{bucket}"
 
 
@@ -423,7 +422,7 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
     except TypeError, ValueError:
         bucket = "tunknown"
 
-    uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
+    uid = resolve_unique_id(bt)
     return f"{uid}:group:{bucket}"
 
 
@@ -708,7 +707,7 @@ def compute_mpc(
             _round_for_debug(percent, 2),
         )
     else:
-        use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
+        use_virtual_temp = params.use_virtual_temp
 
         tolerance = max(0.0, float(inp.tolerance_K or 0.0))
         tolerance_hold_block = False
@@ -991,7 +990,7 @@ def _compute_predictive_percent(
             current_temp_cost_C = current_temp_C
             inp.filtered_temp_C = None
 
-    use_virtual_temp = bool(getattr(params, "use_virtual_temp", True))
+    use_virtual_temp = params.use_virtual_temp
 
     # delta_kelvin is part of the call signature but not an input to this solver.
     _ = delta_kelvin
@@ -1012,7 +1011,7 @@ def _compute_predictive_percent(
         if state.loss_est is None:
             state.loss_est = params.mpc_loss_coeff
         if state.solar_gain_est is None:
-            state.solar_gain_est = getattr(params, "mpc_solar_gain_initial", 0.01)
+            state.solar_gain_est = params.mpc_solar_gain_initial
 
     # Detect stale state (bucket switching): if this bucket wasn't updated for >15min,
     # reset learning anchors to avoid connecting old history with current state.
@@ -1026,7 +1025,7 @@ def _compute_predictive_percent(
     dt_last = now - state.last_learn_time
 
     # Block adaptation shortly after a window-open event to avoid skewing gain/loss.
-    window_block_s = float(getattr(params, "mpc_adapt_window_block_s", 0.0))
+    window_block_s = params.mpc_adapt_window_block_s
     if window_block_s > 0 and state.last_window_open_ts > 0:
         if now - state.last_window_open_ts < window_block_s:
             state.last_learn_time = now
@@ -1130,7 +1129,7 @@ def _compute_predictive_percent(
                 max_abs_rate = 0.35
             rate_ok = abs(observed_rate) <= max_abs_rate
 
-            if bool(getattr(params, "enable_min_effective_percent", True)):
+            if params.enable_min_effective_percent:
                 min_open = (state.min_effective_percent or 5.0) / 100.0
             else:
                 min_open = 0.0
@@ -1536,7 +1535,7 @@ def _compute_predictive_percent(
         u0_frac = 0.0
     u0_frac = max(0.0, min(1.0, u0_frac))
     # Only clamp baseline by learned min_effective_percent once we actually have evidence.
-    if bool(getattr(params, "enable_min_effective_percent", True)):
+    if params.enable_min_effective_percent:
         if (
             state.min_effective_percent is not None
             and state.min_effective_percent > 0.0
@@ -1546,8 +1545,8 @@ def _compute_predictive_percent(
 
     # Cost terms
     control_pen = max(0.0, float(params.mpc_control_penalty))
-    change_pen = max(0.0, float(getattr(params, "mpc_change_penalty", 0.0)))
-    overshoot_pen = max(0.0, float(getattr(params, "mpc_overshoot_penalty", 0.0)))
+    change_pen = max(0.0, params.mpc_change_penalty)
+    overshoot_pen = max(0.0, params.mpc_overshoot_penalty)
     last_percent = state.last_percent if state.last_percent is not None else None
     if last_percent is None:
         u_last_frac = u0_frac
@@ -1859,7 +1858,7 @@ def _post_process_percent(
             delta_kelvin = None
 
     # 2) MIN EFFECTIVE OPENING (FIRST!)
-    if bool(getattr(params, "enable_min_effective_percent", True)):
+    if params.enable_min_effective_percent:
         min_eff = state.min_effective_percent
         if min_eff is not None and min_eff > 0.0 and smooth > 0.0 and smooth < min_eff:
             _LOGGER.debug(
@@ -1872,7 +1871,7 @@ def _post_process_percent(
 
     # 3) DU_MAX LIMIT (MAX STEPPING)
     last_percent = state.last_percent
-    du_max = getattr(params, "mpc_du_max_pct", None)
+    du_max = params.mpc_du_max_pct
 
     if last_percent is not None and du_max is not None and du_max > 0:
         delta = smooth - last_percent
@@ -1903,7 +1902,7 @@ def _post_process_percent(
         percent_out = int(round(smooth))
 
     # 5) FINAL MIN EFFECTIVE CHECK ON INTEGER OUTPUT
-    if bool(getattr(params, "enable_min_effective_percent", True)):
+    if params.enable_min_effective_percent:
         min_eff = state.min_effective_percent
         if (
             min_eff is not None
@@ -1954,7 +1953,7 @@ def _post_process_percent(
                 state, percent_out, temp_delta, time_delta, expected_temp_rise, params
             )
 
-            if bool(getattr(params, "enable_min_effective_percent", True)):
+            if params.enable_min_effective_percent:
                 room_temp_delta = _room_rise_over(state, inp, now, time_delta)
 
                 measured_ok = (
@@ -2029,9 +2028,7 @@ def _post_process_percent(
             else:
                 state.dead_zone_hits = 0
 
-        elif time_delta >= eval_after and bool(
-            getattr(params, "enable_min_effective_percent", True)
-        ):
+        elif time_delta >= eval_after and params.enable_min_effective_percent:
             # A linear or exponential TRV counts no dead-zone hits, but a
             # minimum opening learned before it was classified still decays
             # while the TRV responds to it.
@@ -2102,7 +2099,7 @@ def _post_process_percent(
                 )
 
     # 7b) MAX VALVE OPENING (USER CAP)
-    max_opening = getattr(inp, "max_opening_pct", None)
+    max_opening = inp.max_opening_pct
     if isinstance(max_opening, (int, float)):
         max_opening = max(0.0, min(100.0, float(max_opening)))
         if percent_out > max_opening:

@@ -47,6 +47,7 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     build_pid_key,
     compute_pid,
     observe_standby as pid_observe_standby,
+    resolve_unique_id,
     sanitize_pid_state,
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
@@ -403,7 +404,7 @@ def _compute_mpc_balance(
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
-    state_mgr = getattr(self, "state_mgr", None)
+    state_mgr = self.state_mgr
     if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
@@ -486,7 +487,7 @@ def _compute_mpc_balance(
         "valve_percent": clamp_valve_percent(this_trv_pct),
         "apply_valve": supports_valve,
         "debug": {
-            **(getattr(mpc_output, "debug", None) or {}),
+            **mpc_output.debug,
             "group_valve_pct": group_valve_pct,
             "distributed_valve_pct": this_trv_pct,
         },
@@ -507,7 +508,7 @@ def _build_mpc_v2_reid_key(self: BetterThermostat) -> str:
     re-ID buffer, its fit cadence, and the adopted result are shared
     across all target-temperature buckets and all TRVs of a group.
     """
-    uid = getattr(self, "unique_id", None) or getattr(self, "_unique_id", "bt")
+    uid = resolve_unique_id(self)
     return f"{uid}:reid"
 
 
@@ -593,8 +594,8 @@ def _confirmed_valve_pct(trv_state: Trv | None) -> float | None:
     routine returned success.  No value means "unknown", not "closed".
     """
     for value in (
-        getattr(trv_state, "valve_position", None),
-        getattr(trv_state, "last_valve_percent", None),
+        trv_state.valve_position if trv_state is not None else None,
+        trv_state.last_valve_percent if trv_state is not None else None,
     ):
         if value is None:
             continue
@@ -618,7 +619,7 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
     transfers every cached live controller; the result itself is stored
     under ``reid_key``.
     """
-    hass = getattr(self, "hass", None)
+    hass = self.hass
     if hass is None:
         return
     state_mgr = self.state_mgr
@@ -777,8 +778,8 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         )
     else:
         plant_prior = make_plant_prior(
-            heating_power=getattr(self, "heating_power", None),
-            heat_loss_rate=getattr(self, "heat_loss_rate", None),
+            heating_power=self.heating_power,
+            heat_loss_rate=self.heat_loss_rate,
             preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
         )
     v2_params = MpcV2Params(plant=plant_prior)
@@ -906,7 +907,7 @@ def _compute_tpi_balance(
     params = TpiParams()
 
     key = build_tpi_key(self, entity_id)
-    state_mgr = getattr(self, "state_mgr", None)
+    state_mgr = self.state_mgr
     if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
@@ -954,7 +955,7 @@ def _compute_tpi_balance(
     trv_state.calibration_balance = {
         "valve_percent": tpi_output.duty_cycle_pct,
         "apply_valve": supports_valve,
-        "debug": getattr(tpi_output, "debug", None),
+        "debug": tpi_output.debug,
     }
 
     self.schedule_save_state()
@@ -974,7 +975,7 @@ def _compute_pid_balance(
         trv_state.calibration_balance = None
         return None, False
 
-    state_mgr = getattr(self, "state_mgr", None)
+    state_mgr = self.state_mgr
     if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
@@ -1086,7 +1087,7 @@ def _compute_pid_balance(
 
     _LOGGER.debug(
         "better_thermostat %s: PID calibration for %s: valve_percent=%.1f%%, apply_valve=%s, debug=%s",
-        getattr(self, "device_name", "unknown"),
+        self.device_name,
         entity_id,
         percent,
         supports_valve,
