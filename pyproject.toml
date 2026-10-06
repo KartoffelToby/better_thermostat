@@ -7,7 +7,7 @@ dependencies = ["homeassistant>=2026.9.0"]
 
 [dependency-groups]
 dev = [
-    "daqp>=0.8.7",  # speeds up the MPC v2 QP; a NumPy solver runs without it
+    "daqp>=0.10.3",  # speeds up the MPC v2 QP; a NumPy solver runs without it
     "pytest>=9",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.0.0",  # the per-module coverage floors in CI depend on it

@@ -318,7 +318,7 @@ class TestHeatingPowerTrackerFinalization:
         t, _ = self._run_complete_cycle()
         assert len(t.stats) == 1
         entry = t.stats[0]
-        assert "dT" in entry
+        assert "delta_kelvin" in entry
         assert "min" in entry
         assert "rate" in entry
         assert "alpha" in entry

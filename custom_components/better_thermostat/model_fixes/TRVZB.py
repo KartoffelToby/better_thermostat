@@ -677,7 +677,7 @@ async def maybe_set_external_temperature(
 
         # Clamp and round
         try:
-            val = float(temperature)
+            value = float(temperature)
         except TypeError, ValueError:
             _LOGGER.debug(
                 "better_thermostat %s: TRVZB maybe_set_external_temperature got non-float: %s",
@@ -685,19 +685,19 @@ async def maybe_set_external_temperature(
                 temperature,
             )
             return False
-        val = max(0.0, min(99.9, round(val, 1)))
+        value = max(0.0, min(99.9, round(value, 1)))
 
         await self.hass.services.async_call(
             "number",
             "set_value",
-            {"entity_id": target, "value": val},
+            {"entity_id": target, "value": value},
             blocking=True,
             context=self.context,
         )
         _LOGGER.debug(
             "better_thermostat %s: set TRVZB external_temperature_input=%.1f on %s (for %s)",
             self.device_name,
-            val,
+            value,
             target,
             entity_id,
         )

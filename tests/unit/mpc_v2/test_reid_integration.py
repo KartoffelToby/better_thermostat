@@ -309,7 +309,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
         extract_segments,
     )
 
-    cfg = ReidConfig()
+    config = ReidConfig()
     spacing = 300.0
     samples: list[ReidSample] = []
     # First heat-up run: 10 samples over 2700 s, rising 1.8 K.
@@ -321,7 +321,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
         )
     # Degraded episode: no samples for longer than the gap threshold.
     gap_start = samples[-1].t_s
-    resume = gap_start + cfg.max_gap_s + spacing
+    resume = gap_start + config.max_gap_s + spacing
     # Second heat-up run after recovery.
     for i in range(10):
         samples.append(
@@ -333,7 +333,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
             )
         )
 
-    segments = extract_segments(samples, cfg)
+    segments = extract_segments(samples, config)
     assert len(segments) == 2
     assert all(s.kind == "heatup" for s in segments)
     # Without the gap the same samples form one contiguous run.
@@ -343,7 +343,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
         )
         for i in range(20)
     ]
-    assert len(extract_segments(contiguous, cfg)) == 1
+    assert len(extract_segments(contiguous, config)) == 1
 
 
 def test_dispatch_skips_sampling_for_explicit_preset() -> None:

@@ -683,10 +683,10 @@ def _release_entry(entry_id: str) -> None:
 
 def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
     """Return cur_temp_filtered with fallback to external_temp_ema."""
-    val: float | None = getattr(bt_climate, "cur_temp_filtered", None)
-    if val is None:
-        val = getattr(bt_climate, "external_temp_ema", None)
-    return val
+    value: float | None = getattr(bt_climate, "cur_temp_filtered", None)
+    if value is None:
+        value = getattr(bt_climate, "external_temp_ema", None)
+    return value
 
 
 # Base classes
@@ -760,19 +760,19 @@ class _BtMpcSensorBase(_BtSensorBase):
 
     def _update_state(self) -> None:
         """Update state from calibration_balance debug data."""
-        val = None
+        value = None
         if self._bt_climate.real_trvs:
             for trv in self._bt_climate.real_trvs.values():
                 cal_bal = trv.calibration_balance
                 if cal_bal and "debug" in cal_bal:
                     debug = cal_bal["debug"]
                     if self._debug_key in debug:
-                        val = debug[self._debug_key]
+                        value = debug[self._debug_key]
                         break
 
-        if val is not None:
+        if value is not None:
             try:
-                self._attr_native_value = float(val)
+                self._attr_native_value = float(value)
             except ValueError, TypeError:
                 self._attr_native_value = None
         else:
@@ -787,10 +787,10 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
 
     def _update_state(self) -> None:
         """Update state from a climate entity attribute."""
-        val: object = getattr(self._bt_climate, self._climate_attr, None)
-        if val is not None:
+        value: object = getattr(self._bt_climate, self._climate_attr, None)
+        if value is not None:
             try:
-                fval = float(val)  # type: ignore[arg-type]
+                fval = float(value)  # type: ignore[arg-type]
                 self._attr_native_value = (
                     round(fval, self._rounding) if self._rounding is not None else fval
                 )
@@ -813,10 +813,10 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
 
     def _update_state(self) -> None:
         """Update state from climate entity."""
-        val = _get_filtered_temp(self._bt_climate)
-        if val is not None:
+        value = _get_filtered_temp(self._bt_climate)
+        if value is not None:
             try:
-                self._attr_native_value = float(val)
+                self._attr_native_value = float(value)
             except ValueError, TypeError:
                 self._attr_native_value = None
         else:
@@ -857,10 +857,10 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
 
     def _update_state(self) -> None:
         """Update state from internal EMA."""
-        val = _get_filtered_temp(self._bt_climate)
-        if val is not None:
+        value = _get_filtered_temp(self._bt_climate)
+        if value is not None:
             try:
-                self._update_ema(float(val))
+                self._update_ema(float(value))
                 assert self._ema_value is not None  # set by _update_ema
                 self._attr_native_value = round(self._ema_value, 2)
             except ValueError, TypeError:
@@ -962,7 +962,7 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
 
     def _update_state(self) -> None:
         """Update state from the MPC v2 debug payload."""
-        val = None
+        value = None
         if self._bt_climate.real_trvs:
             for trv in self._bt_climate.real_trvs.values():
                 cal_bal = trv.calibration_balance
@@ -972,11 +972,11 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
                     and str(debug.get("controller_version")).lower() == "v2"
                     and self._v2_debug_key in debug
                 ):
-                    val = debug[self._v2_debug_key]
+                    value = debug[self._v2_debug_key]
                     break
 
         try:
-            self._attr_native_value = float(val) if val is not None else None
+            self._attr_native_value = float(value) if value is not None else None
         except ValueError, TypeError:
             self._attr_native_value = None
 
@@ -1102,9 +1102,9 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
 
     def _update_state(self) -> None:
         """Update state using utility function."""
-        val = _get_current_solar_intensity(self._bt_climate)
-        if val is not None:
+        value = _get_current_solar_intensity(self._bt_climate)
+        if value is not None:
             # Function returns 0.0-1.0, convert to %
-            self._attr_native_value = round(float(val) * 100.0, 1)
+            self._attr_native_value = round(float(value) * 100.0, 1)
         else:
             self._attr_native_value = 0.0

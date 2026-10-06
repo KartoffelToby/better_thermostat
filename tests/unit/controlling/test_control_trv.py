@@ -174,7 +174,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
 
 def _default_trv_config(**overrides):
     """Return a default real_trvs entry (a Trv) for a single TRV."""
-    cfg = {
+    config = {
         "ignore_trv_states": False,
         "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
         "min_temp": 5.0,
@@ -193,8 +193,8 @@ def _default_trv_config(**overrides):
             "no_off_system_mode": False,
         },
     }
-    cfg.update(overrides)
-    return Trv.from_legacy_dict("climate.trv1", cfg)
+    config.update(overrides)
+    return Trv.from_legacy_dict("climate.trv1", config)
 
 
 def _with_valve_channel(trv):
@@ -3263,7 +3263,7 @@ class TestControlTrvOnADualRoleEntity:
 
 def _offset_trv_config(**overrides):
     """Return a Trv configured for offset (LOCAL_BASED) calibration."""
-    cfg = {
+    config = {
         "ignore_trv_states": False,
         "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
         "min_temp": 5.0,
@@ -3286,8 +3286,8 @@ def _offset_trv_config(**overrides):
             "no_off_system_mode": False,
         },
     }
-    cfg.update(overrides)
-    return Trv.from_legacy_dict("climate.trv1", cfg)
+    config.update(overrides)
+    return Trv.from_legacy_dict("climate.trv1", config)
 
 
 def _make_offset_self(**overrides):

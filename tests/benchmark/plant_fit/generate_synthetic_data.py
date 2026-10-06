@@ -238,10 +238,10 @@ def generate_dataset(
         (epoch + timedelta(hours=h)).timestamp() for h in range(len(hourly_outdoor))
     ]
     series: dict[str, TimeSeries] = {
-        OUTDOOR_ENTITY_ID: TimeSeries(ts=list(timestamps), val=list(hourly_outdoor))
+        OUTDOOR_ENTITY_ID: TimeSeries(ts=list(timestamps), value=list(hourly_outdoor))
     }
     for eid, vals in rooms_hourly.items():
-        series[eid] = TimeSeries(ts=list(timestamps), val=list(vals))
+        series[eid] = TimeSeries(ts=list(timestamps), value=list(vals))
     return series
 
 
@@ -265,9 +265,9 @@ def main(
     # Convert hourly TimeSeries back to per-entity float arrays for CSV.
     samples_per_series = next(iter(series.values()))
     n_hours = len(samples_per_series.ts)
-    hourly_outdoor = series[OUTDOOR_ENTITY_ID].val
+    hourly_outdoor = series[OUTDOOR_ENTITY_ID].value
     rooms_hourly = {
-        eid: ts.val for eid, ts in series.items() if eid != OUTDOOR_ENTITY_ID
+        eid: ts.value for eid, ts in series.items() if eid != OUTDOOR_ENTITY_ID
     }
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)

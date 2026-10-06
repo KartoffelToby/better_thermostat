@@ -57,7 +57,7 @@ class HeatingCycle(TypedDict):
 class HeatingStats(TypedDict):
     """Compact heating-power learning sample."""
 
-    dT: float
+    delta_kelvin: float
     min: float
     rate: float
     alpha: float
@@ -339,7 +339,7 @@ class HeatingPowerTracker:
             # Short stats history
             self.stats.append(
                 {
-                    "dT": round(temp_diff, 2),
+                    "delta_kelvin": round(temp_diff, 2),
                     "min": round(duration_min, 1),
                     "rate": round(heating_rate, 4),
                     "alpha": round(alpha, 3),
