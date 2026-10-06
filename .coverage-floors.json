@@ -13,7 +13,7 @@
   "custom_components/better_thermostat/adapters/zwave_js.py": 96.2,
   "custom_components/better_thermostat/calibration.py": 84.7,
   "custom_components/better_thermostat/climate.py": 89.4,
-  "custom_components/better_thermostat/config_flow.py": 82.0,
+  "custom_components/better_thermostat/config_flow.py": 100.0,
   "custom_components/better_thermostat/core/__init__.py": 100.0,
   "custom_components/better_thermostat/core/calibrator.py": 100.0,
   "custom_components/better_thermostat/core/clock.py": 100.0,

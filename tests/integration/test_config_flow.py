@@ -13,7 +13,9 @@ entry: what was stored, and what the thermostat that came up from it drives.
 """
 
 import asyncio
+from dataclasses import replace
 
+from homeassistant.components.climate import HVACMode
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
@@ -776,3 +778,76 @@ async def test_the_settings_flow_stores_what_it_changes_as_options(hass, fake_tr
     await _run_options_flow(hass, entry, _user_step_input(TRV_ID, tolerance=0.7))
 
     assert entry.options.get(CONF_TOLERANCE) == 0.7
+
+
+async def test_a_submission_without_a_name_is_sent_back_to_the_user(hass, fake_trv):
+    set_room_sensor(hass, 19.0)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _user_step_input(TRV_ID, name="")
+    )
+
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["errors"] == {"base": "no_name"}
+
+
+async def _advance_to_confirm(hass, user_input, advanced_steps=1):
+    """Run the user and the advanced steps and return the confirm form."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input
+    )
+    shown = []
+    for _ in range(advanced_steps):
+        assert result["step_id"] == "advanced", result
+        shown.append(result["description_placeholders"]["trv"])
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "confirm", result
+    return result, shown
+
+
+async def test_a_thermostat_without_an_off_mode_is_named_before_the_entry_is_made(hass):
+    """Better Thermostat warns that it will use the minimum temperature instead."""
+    set_room_sensor(hass, 19.0)
+    await build_devices(hass, replace(GENERIC_HEAT_TRV, hvac_modes=(HVACMode.HEAT,)))
+
+    result, _ = await _advance_to_confirm(hass, _user_step_input(TRV_ID))
+
+    assert result["errors"] == {"base": "no_off_mode"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+
+
+async def test_a_thermostat_that_has_not_reported_is_treated_as_having_no_off_mode(
+    hass,
+):
+    """Without a reported state the flow cannot see an off mode, and says so."""
+    set_room_sensor(hass, 19.0)
+    er.async_get(hass).async_get_or_create(
+        "climate", "generic_thermostat", "late_trv", suggested_object_id="late_trv"
+    )
+
+    result, _ = await _advance_to_confirm(hass, _user_step_input("climate.late_trv"))
+
+    assert result["errors"] == {"base": "no_off_mode"}
+
+
+async def test_each_thermostat_of_a_room_gets_its_own_advanced_step(hass):
+    set_room_sensor(hass, 19.0)
+    await build_devices(hass, GENERIC_HEAT_TRV, SPARE_HEAT_TRV)
+
+    result, shown = await _advance_to_confirm(
+        hass,
+        _user_step_input(TRV_ID) | {CONF_HEATER: [TRV_ID, SPARE_TRV_ID]},
+        advanced_steps=2,
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert shown == [TRV_ID, SPARE_TRV_ID]
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result
+    assert [trv["trv"] for trv in result["data"][CONF_HEATER]] == [TRV_ID, SPARE_TRV_ID]

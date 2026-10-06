@@ -467,7 +467,7 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
     if isinstance(duration, (int, float)):
         try:
             return max(int(duration), 0)
-        except TypeError, ValueError:
+        except OverflowError, ValueError:
             return 0
     if isinstance(duration, dict):
         try:
@@ -505,8 +505,6 @@ def _build_user_fields(
             return user_input[key]
         if key in current and current[key] is not None:
             return current[key]
-        if fallback is None and key in _USER_FIELD_DEFAULTS:
-            return _USER_FIELD_DEFAULTS[key]
         return fallback
 
     def add_field(
@@ -521,17 +519,14 @@ def _build_user_fields(
                 description = {"suggested_value": default}
             use_default = False
 
+        # Only entity selectors are required, and they carry their default as
+        # a suggested value, never as a schema default.
         if required:
-            if use_default:
-                fields[vol.Required(key, default=default)] = field_type
-            else:
-                fields[
-                    (
-                        vol.Required(key, description=description)
-                        if description
-                        else vol.Required(key)
-                    )
-                ] = field_type
+            fields[
+                vol.Required(key, description=description)
+                if description
+                else vol.Required(key)
+            ] = field_type
         elif use_default:
             fields[vol.Optional(key, default=default)] = field_type
         else:
@@ -661,23 +656,22 @@ def _build_user_fields(
         (CONF_TARGET_TEMP_MIN, TEMP_MIN_SELECTOR),
         (CONF_TARGET_TEMP_MAX, TEMP_MAX_SELECTOR),
     ):
-        bound_default = resolve(bound_key, _USER_FIELD_DEFAULTS[bound_key])
-        if bound_default is not None:
-            bound_default = _resolve_min_max_selector_token(bound_default)
+        bound_default = _resolve_min_max_selector_token(
+            resolve(bound_key, _USER_FIELD_DEFAULTS[bound_key])
+        )
         add_field(bound_key, bound_selector, default=bound_default)
 
     target_step_default = resolve(
         CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
     )
-    if target_step_default is not None:
-        target_step_key = str(target_step_default)
-        if target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE:
-            # A re-displayed form carries the submitted selector token, not a stored value.
-            target_step_default = target_step_key
-        else:
-            target_step_default = _TARGET_TEMP_STEP_VALUE_TO_SELECTOR.get(
-                target_step_key, "auto_legacy"
-            )
+    target_step_key = str(target_step_default)
+    if target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE:
+        # A re-displayed form carries the submitted selector token, not a stored value.
+        target_step_default = target_step_key
+    else:
+        target_step_default = _TARGET_TEMP_STEP_VALUE_TO_SELECTOR.get(
+            target_step_key, "auto_legacy"
+        )
     add_field(CONF_TARGET_TEMP_STEP, TEMP_STEP_SELECTOR, default=target_step_default)
 
     return fields
@@ -917,51 +911,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
-    # Home Assistant's ConfigFlow raises NotImplementedError from this hook and
-    # calls it from `async_has_matching_flow`, so the override exists for HA
-    # rather than for any caller inside this integration. The parameter widens
-    # the base's `Self` because the flow HA hands over is any in-progress flow
-    # for the domain.
-    def is_matching(self, other_flow: config_entries.ConfigFlow) -> bool:
-        """Return True if this flow matches an existing config flow (reconfigure)."""
-        if (
-            getattr(self, "unique_id", None)
-            and getattr(other_flow, "unique_id", None) == self.unique_id
-        ):
-            return True
-        return False
-
     async def async_step_confirm(self, user_input=None, confirm_type=None):
         """Handle user-confirmation of discovered node."""
         errors = {}
-        if not self.data:
-            errors["base"] = "no_data"
-            return self.async_show_form(step_id="confirm", errors=errors)
-
+        # The user step sets the data before any step that leads here.
+        assert self.data is not None
         # attach current trv bundle
         self.data[CONF_HEATER] = self.trv_bundle
         if user_input is not None:
-            if self.data is not None:
-                _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
-                unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
-                await self.async_set_unique_id(
-                    f"{self.data['name']}_{unique_trv_string}"
+            _LOGGER.debug("Confirm: %s", self.data[CONF_HEATER])
+            unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_HEATER]])
+            await self.async_set_unique_id(f"{self.data['name']}_{unique_trv_string}")
+            _LOGGER.debug(
+                "Creating entry with heater bundle: %s", self.data.get(CONF_HEATER)
+            )
+            self._abort_if_unique_id_configured()
+            # Another flow can have created an entry for one of these
+            # thermostats while this one waited on its forms, so the
+            # check runs again with nothing awaited before the entry.
+            in_use = _in_use_placeholders(
+                self.hass, [x["trv"] for x in self.data[CONF_HEATER]], None
+            )
+            if in_use:
+                return self.async_abort(
+                    reason="trv_in_use", description_placeholders=in_use
                 )
-                _LOGGER.debug(
-                    "Creating entry with heater bundle: %s", self.data.get(CONF_HEATER)
-                )
-                self._abort_if_unique_id_configured()
-                # Another flow can have created an entry for one of these
-                # thermostats while this one waited on its forms, so the
-                # check runs again with nothing awaited before the entry.
-                in_use = _in_use_placeholders(
-                    self.hass, [x["trv"] for x in self.data[CONF_HEATER]], None
-                )
-                if in_use:
-                    return self.async_abort(
-                        reason="trv_in_use", description_placeholders=in_use
-                    )
-                return self.async_create_entry(title=self.data["name"], data=self.data)
+            return self.async_create_entry(title=self.data["name"], data=self.data)
         if confirm_type is not None:
             errors["base"] = confirm_type
         data = self.data or {}
@@ -978,11 +953,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         trv_cfg = _trv_config if isinstance(_trv_config, dict) else None
         if trv_cfg is None:
             trv_cfg = self._active_trv_config
-        if trv_cfg is None:
-            _LOGGER.debug(
-                "ConfigFlow advanced step missing TRV context; returning to confirm"
-            )
-            return await self.async_step_confirm()
+        # The step is entered with a TRV and submitted for the one it showed.
+        assert trv_cfg is not None
 
         self._active_trv_config = trv_cfg
         ctx = await _prepare_advanced_context(self, trv_cfg)
@@ -1066,17 +1038,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             _LOGGER.debug("ConfigFlow user step received input: %s", user_input)
-            try:
-                normalized = _normalize_user_submission(
-                    user_input,
-                    mode="create",
-                    base=current,
-                    errors=errors,
-                    system_unit=self.hass.config.units.temperature_unit,
-                )
-            except Exception as err:
-                _LOGGER.exception("ConfigFlow user step normalization failed: %s", err)
-                raise
+            normalized = _normalize_user_submission(
+                user_input,
+                mode="create",
+                base=current,
+                errors=errors,
+                system_unit=self.hass.config.units.temperature_unit,
+            )
             self.data = normalized
             _LOGGER.debug("ConfigFlow user step normalized data: %s", normalized)
             if not normalized.get(CONF_NAME):
@@ -1164,11 +1132,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         trv_cfg = _trv_config if isinstance(_trv_config, dict) else None
         if trv_cfg is None:
             trv_cfg = self._active_trv_config
-        if trv_cfg is None:
-            _LOGGER.debug(
-                "OptionsFlow advanced step missing TRV context; aborting to init"
-            )
-            return await self.async_step_init()
+        # The step is entered with a TRV and submitted for the one it showed.
+        assert trv_cfg is not None
 
         self._active_trv_config = trv_cfg
         ctx = await _prepare_advanced_context(self, trv_cfg)
@@ -1277,17 +1242,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         in_use_placeholders: dict[str, str] = {}
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
-            try:
-                normalized = _normalize_user_submission(
-                    user_input,
-                    mode="update",
-                    base=self._config_entry.data,
-                    errors=errors,
-                    system_unit=self.hass.config.units.temperature_unit,
-                )
-            except Exception as err:
-                _LOGGER.exception("OptionsFlow user step normalization failed: %s", err)
-                raise
+            normalized = _normalize_user_submission(
+                user_input,
+                mode="update",
+                base=self._config_entry.data,
+                errors=errors,
+                system_unit=self.hass.config.units.temperature_unit,
+            )
             _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
             self.updated_config = normalized
             # The room sensor is required, but in this form it is optional so
@@ -1321,15 +1282,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if isinstance(trv, dict) and trv.get("trv")
                 }
 
-                for heater_item in heaters:
-                    if isinstance(heater_item, dict):
-                        entity_id = heater_item.get("trv")
-                    else:
-                        entity_id = heater_item
-
-                    if not entity_id:
-                        continue
-
+                # The submission is normalised to a list of entity ids.
+                for entity_id in heaters:
                     if entity_id in existing_trvs:
                         # Use existing config for this TRV
                         trv_copy = copy.deepcopy(existing_trvs[entity_id])
@@ -1433,7 +1387,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return True
         return False
 
-    def _get_active_algorithms(self, config: Mapping[str, Any]) -> set:
+    @staticmethod
+    def _get_active_algorithms(config: Mapping[str, Any]) -> set:
         """Get set of calibration algorithms currently in use by any TRV."""
         if not config or CONF_HEATER not in config:
             return set()
@@ -1443,12 +1398,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             advanced = trv.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
             if calibration_mode:
-                # Convert string to enum if needed
-                if isinstance(calibration_mode, str):
-                    try:
-                        calibration_mode = CalibrationMode(calibration_mode)
-                    except ValueError:
-                        continue
-                active_algorithms.add(calibration_mode)
+                try:
+                    active_algorithms.add(CalibrationMode(calibration_mode))
+                except ValueError:
+                    continue
 
         return active_algorithms
