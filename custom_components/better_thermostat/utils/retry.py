@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
 import functools
 import logging
 import random
@@ -41,6 +42,37 @@ UNRECOVERABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
 # ``ServiceNotFound`` for a service whose integration is still loading or
 # reloading, and the service is back a few seconds later.
 RETRYABLE_DESPITE_TYPE: tuple[type[Exception], ...] = (ServiceNotFound,)
+
+
+class CommandCancelledError(ConnectionError):
+    """A device command its client library cancelled while it was in flight."""
+
+
+@contextmanager
+def command_cancellation_as_disconnect() -> Generator[None]:
+    """Turn a device command its library cancelled into a lost connection.
+
+    The Z-Wave JS and Matter clients cancel the future of every command still
+    in flight when their connection drops, so the service call waiting on it
+    raises ``asyncio.CancelledError`` in a task nobody cancelled. Left as it
+    is, that cancellation ends whatever task made the write, the control loop
+    included, and slips past every handler that catches device failures. A
+    cancellation of the current task itself is passed on unchanged.
+
+    Raises
+    ------
+    CommandCancelledError
+        When the command was cancelled while the current task was not
+    """
+    try:
+        yield
+    except asyncio.CancelledError as err:
+        task = asyncio.current_task()
+        if task is None or task.cancelling():
+            raise
+        raise CommandCancelledError(
+            "the device's client library cancelled the command"
+        ) from err
 
 
 def async_retry(

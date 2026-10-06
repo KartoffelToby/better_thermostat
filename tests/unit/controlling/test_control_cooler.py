@@ -716,6 +716,54 @@ class TestControlCoolerSendCache:
         assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
 
     @pytest.mark.asyncio
+    async def test_a_command_the_library_cancelled_counts_as_a_failure(self):
+        """A cancelled set_temperature is paced like a failure; the mode still goes.
+
+        The Z-Wave JS and Matter clients cancel every command in flight when
+        their connection drops. The cancellation reaches this task, which
+        nobody cancelled, and has to stay inside the cooler pass: let through,
+        it ends the control loop that runs the pass.
+        """
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+
+        async def _cancel_set_temperature(domain, service, *args, **kwargs):
+            if service == "set_temperature":
+                future = asyncio.get_running_loop().create_future()
+                future.cancel()
+                await future
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_cancel_set_temperature)
+
+        await control_cooler(mock_self)
+
+        assert last_sent_cooler_temperature(mock_self) is None
+        mode_calls = _service_calls(mock_hass, "set_hvac_mode")
+        assert len(mode_calls) == 1
+        assert mode_calls[0].args[2]["hvac_mode"] == HVACMode.COOL
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_cooler_pass_still_ends_it(self):
+        """A cancellation of the pass itself propagates out of the service call."""
+        mock_self, mock_hass, _ = _make_cooler_setup(
+            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
+        )
+        started = asyncio.Event()
+
+        async def _hang(*_args, **_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        mock_hass.services.async_call = AsyncMock(side_effect=_hang)
+
+        task = asyncio.create_task(control_cooler(mock_self))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    @pytest.mark.asyncio
     async def test_timeout_error_on_hvac_mode_call_does_not_propagate(self):
         """A raw TimeoutError from set_hvac_mode is logged, not raised."""
         mock_self, mock_hass, _ = _make_cooler_setup(
@@ -1018,18 +1066,6 @@ class TestControlCoolerSendCache:
         gaps = [b - a for a, b in zip(attempts, attempts[1:], strict=False)]
         assert min(gaps) >= COOLER_FAILURE_BACKOFF_BASE_S
         assert gaps[-1] > gaps[0]
-
-    @pytest.mark.asyncio
-    async def test_cancellation_during_service_call_propagates(self):
-        """CancelledError is not swallowed by the per-call error isolation."""
-        mock_self, mock_hass, _ = _make_cooler_setup(
-            cooler_state=HVACMode.OFF, cooler_temp_attr=20.0
-        )
-
-        mock_hass.services.async_call = AsyncMock(side_effect=asyncio.CancelledError())
-
-        with pytest.raises(asyncio.CancelledError):
-            await control_cooler(mock_self)
 
 
 class TestControlCoolerContactSuppression:
