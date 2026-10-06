@@ -106,9 +106,7 @@ def _register_entity(
         platform,
         unique_id,
         device_id=device.id,
-        config_entry=hass.config_entries.async_get_entry(
-            next(iter(device.config_entries))
-        ),
+        config_entry=hass.config_entries.async_get_entry(device.config_entry_id),
     )
 
 
