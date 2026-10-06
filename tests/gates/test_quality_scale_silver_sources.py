@@ -96,9 +96,12 @@ def test_every_module_is_held_above_the_coverage_target():
 
     A module's floor is the coverage it may not drop below; a floor under the
     target lets the module fall back there unnoticed, whatever it measures
-    today.
+    today, and a module without a floor is not held at all.
     """
     floors = json.loads(FLOORS_FILE.read_text(encoding="utf-8"))
+    package = REPO_ROOT / "custom_components/better_thermostat"
+    modules = {str(path.relative_to(REPO_ROOT)) for path in package.rglob("*.py")}
+    assert sorted(modules - floors.keys()) == []
     below = {
         str(Path(module).relative_to("custom_components/better_thermostat")): floor
         for module, floor in floors.items()
