@@ -607,14 +607,14 @@ its own tests, and only from lines `1.9` still holds, since a state a later
 `glossary.toml` is looked up under its new spelling too.
 
 ```bash
-git fetch origin 1.9:refs/remotes/origin/1.9        # once, if you have no 1.9
+git fetch origin develop:refs/remotes/origin/develop 1.9:refs/remotes/origin/1.9
 uv run python scripts/forward_port_gaps.py list     # every commit, with its hit rate
-uv run python scripts/forward_port_gaps.py check \
-    --maintenance origin/1.9 --development origin/develop   # what CI runs
+uv run python scripts/forward_port_gaps.py check    # what CI runs
 ```
 
-Without `--development`, the script compares against your local `develop`,
-which may lag behind `origin/develop`.
+Both lines default to their `origin/` refs, so a local `develop` that lags
+behind cannot report gaps that `origin/develop` has closed. To measure a local
+branch instead, pass it as `--development`.
 
 A commit under a 50% hit rate is a candidate to forward-port. Where it stays
 behind on purpose — the same defect fixed in a different place on each line, for

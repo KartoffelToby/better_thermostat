@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import MagicMock
 
 from homeassistant.components.climate.const import HVACMode
 
@@ -101,6 +102,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         entry_id="bt_test_entry",
         state_mgr=_FakeStateManager(),
         clock=FakeClock(monotonic_value=1_000_000.0),
+        schedule_save_state=MagicMock(),
     )
 
 
