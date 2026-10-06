@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import ModuleType
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
@@ -25,6 +25,12 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     quirk_writes_valve,
 )
 from custom_components.better_thermostat.utils.helpers import device_offers_mode
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.adapters.delegate import WriteOutage
+    from custom_components.better_thermostat.utils.calibration.strategies import (
+        BalanceCalibrator,
+    )
 
 
 @runtime_checkable
@@ -91,7 +97,7 @@ class Trv:
     # -- Static configuration --------------------------------------------
     integration: str | None = None
     model: str | None = None
-    calibration: Any = None
+    calibration: int | None = None
     adapter: ModuleType | None = None
     # A model-quirk module satisfying the ModelQuirks surface, loaded
     # dynamically like the adapter and therefore typed as the module.
@@ -235,14 +241,14 @@ class Trv:
     # keyed by channel, each with the delegate's record of the outage. The
     # next write on such a channel gets one attempt instead of the retry
     # chain, which runs under the room's control lock, until the outage ends.
-    unreachable_write_channels: dict[str, Any] = field(default_factory=dict)
+    unreachable_write_channels: dict[str, WriteOutage] = field(default_factory=dict)
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
     balance: dict[str, Any] | None = None
-    # Per-TRV calibrator (BalanceCalibrator): the protocol adapter the
+    # Per-TRV calibrator: the protocol adapter the
     # dispatch observes every cycle and actuates through when ready.
-    calibrator: Any | None = None
+    calibrator: BalanceCalibrator | None = None
 
     # -- Calibrator annunciation --------------------------------------------
     # Worst health grade the calibrator reported for this TRV, plus the

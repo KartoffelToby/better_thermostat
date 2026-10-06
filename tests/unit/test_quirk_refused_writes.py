@@ -64,6 +64,7 @@ def _host(state=None, model=None, advanced=None):
     host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
+    host.in_maintenance = False
     host.hass = MagicMock()
     host.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     host.hass.states.get.return_value = state

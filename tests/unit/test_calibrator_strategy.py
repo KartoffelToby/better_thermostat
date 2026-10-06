@@ -15,6 +15,8 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlModeState,
 )
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.calibration.mpc import MpcOutput
+from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Output
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
@@ -24,6 +26,7 @@ from custom_components.better_thermostat.utils.calibration.strategies import (
     BalanceCalibrator,
     build_strategy_registry,
 )
+from custom_components.better_thermostat.utils.calibration.tpi import TpiOutput
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from tests.factories import ThermostatStandIn, make_state
 
@@ -98,17 +101,21 @@ class TestStrategyRegistry:
     """The registry maps controller modes to balance strategies."""
 
     def _registry(self, percent=55.0, use_valve=False):
-        result = MagicMock()
-        result.valve_percent = percent
-        result.duty_cycle_pct = percent
+        def compute_mpc(bt, entity_id):
+            return MagicMock(spec=MpcOutput, valve_percent=percent), use_valve
 
-        def compute(bt, entity_id):
-            return result, use_valve
+        def compute_mpc_v2(bt, entity_id):
+            return MagicMock(spec=MpcV2Output, valve_percent=percent), use_valve
+
+        def compute_tpi(bt, entity_id):
+            return MagicMock(spec=TpiOutput, duty_cycle_pct=percent), use_valve
 
         def compute_pid(bt, entity_id):
             return percent, use_valve
 
-        return build_strategy_registry(compute, compute, compute, compute_pid)
+        return build_strategy_registry(
+            compute_mpc, compute_mpc_v2, compute_tpi, compute_pid
+        )
 
     def test_modes_are_covered(self):
         """MPC, MPC v2, TPI, and PID have strategies; DEFAULT does not."""
@@ -218,9 +225,15 @@ class TestBalanceCalibrator:
 
     def _adapter(self, *, percent=55.0, use_valve=False, balance=None):
         registry = build_strategy_registry(
-            lambda bt, e: (MagicMock(valve_percent=percent), use_valve),
-            lambda bt, e: (MagicMock(valve_percent=percent), use_valve),
-            lambda bt, e: (MagicMock(duty_cycle_pct=percent), use_valve),
+            lambda bt, e: (MagicMock(spec=MpcOutput, valve_percent=percent), use_valve),
+            lambda bt, e: (
+                MagicMock(spec=MpcV2Output, valve_percent=percent),
+                use_valve,
+            ),
+            lambda bt, e: (
+                MagicMock(spec=TpiOutput, duty_cycle_pct=percent),
+                use_valve,
+            ),
             lambda bt, e: (percent, use_valve),
         )
         bt = ThermostatStandIn()

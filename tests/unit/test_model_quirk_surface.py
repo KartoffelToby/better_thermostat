@@ -34,7 +34,10 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.model_fixes import default as default_quirk
+from custom_components.better_thermostat.model_fixes import (
+    default as default_quirk,
+    model_quirks,
+)
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
@@ -118,6 +121,7 @@ def _host():
     host.context = None
     host.room_temperature = 19.5
     host.heat_target_temperature = 21.0
+    host.in_maintenance = False
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock()
     host.hass.states.get = lambda requested: State(
@@ -513,6 +517,29 @@ class TestTheDispatchAlwaysFindsWhatItReachesFor:
         if hasattr(default_quirk, name):
             return
         assert _dispatched_from_the_shell(name), f"{name} is dispatched from nowhere"
+
+    @pytest.mark.parametrize(
+        ("name", "argument"),
+        [
+            ("fix_local_calibration", 0.5),
+            ("fix_target_temperature_calibration", 21.0),
+            ("override_set_hvac_mode", "heat"),
+            ("override_set_temperature", 21.0),
+        ],
+    )
+    def test_a_trv_without_a_loaded_module_is_named(self, name, argument):
+        """Before ``load_model_quirks`` ran there is nothing to dispatch to.
+
+        The shim says which TRV it was reaching for, instead of an
+        attribute error on ``None``.
+        """
+        host = _host()
+        assert host.real_trvs[ENTITY_ID].model_quirks is None
+        shim = getattr(model_quirks, name)
+        with pytest.raises(AttributeError, match=ENTITY_ID):
+            result = shim(host, ENTITY_ID, argument)
+            if inspect.isawaitable(result):
+                asyncio.run(result)
 
 
 def _reference_for(name):

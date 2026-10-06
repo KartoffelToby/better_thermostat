@@ -352,7 +352,7 @@ async def _announce_contact_change(self: BetterThermostat, role: ContactRole) ->
             f"resumed heating because a {role.kind} was closed",
         )
     self.async_write_ha_state()
-    if getattr(self, "in_maintenance", False):
+    if self.in_maintenance:
         # Keep state up to date during maintenance, but defer control
         # until maintenance ends.
         self._control_needed_after_maintenance = True

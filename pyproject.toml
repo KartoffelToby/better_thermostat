@@ -203,10 +203,6 @@ matches = "custom_components/better_thermostat/events/trv.py"
 errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/model_fixes/model_quirks.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/number.py"
 errors = { bad-override-mutable-attribute = false }
 
@@ -224,10 +220,6 @@ errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/utils/snapshot.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/state_manager.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
