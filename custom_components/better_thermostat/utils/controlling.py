@@ -34,9 +34,9 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.adapters.delegate import (
     calibration_entity_disabled,
-    get_current_offset,
+    get_calibration_offset,
+    set_calibration_offset,
     set_hvac_mode,
-    set_offset,
     set_temperature,
     set_valve,
     valve_channel_available,
@@ -67,7 +67,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
     COOLER_SETPOINT_KEYS,
@@ -393,7 +393,7 @@ def _get_valve_control(
     snapshot: WorldSnapshot,
     entity_id: str,
     calibration_mode: CalibrationMode | str,
-    calibration_type: CalibrationType | str,
+    calibration_output: CalibrationOutput | str,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
@@ -405,7 +405,7 @@ def _get_valve_control(
     # and leaves the valve stuck open after boost ends.
     if (
         is_boost_heating(snapshot)
-        and calibration_type == CalibrationType.DIRECT_VALVE_BASED
+        and calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
     ):
         _trv = self.real_trvs.get(entity_id)
         max_opening = _trv.valve_max_opening if _trv is not None else 100
@@ -416,7 +416,7 @@ def _get_valve_control(
         return {"valve_percent": target_pct, "apply_valve": True}, "boost_mode"
 
     # Check calibration-based valve control
-    if calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+    if calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
         return None, None
 
     # Try calibration balance from various calibration modes
@@ -703,7 +703,7 @@ def _through_safety_hull(
     *,
     setpoint: float | None = None,
     valve_percent: float | None = None,
-    offset: float | None = None,
+    calibration_offset: float | None = None,
 ) -> TrvDesired:
     """Run one intent through the safety hull at the command boundary."""
     desired = DesiredState(
@@ -712,7 +712,7 @@ def _through_safety_hull(
                 entity_id=entity_id,
                 setpoint=setpoint,
                 valve_percent=valve_percent,
-                offset=offset,
+                calibration_offset=calibration_offset,
             )
         }
     )
@@ -2115,14 +2115,14 @@ async def control_trv(
             _calibration_mode = self.real_trvs[entity_id].advanced.get(
                 "calibration_mode", DEFAULT_CALIBRATION_MODE
             )
-            _calibration_type = self.real_trvs[entity_id].advanced.get(
-                "calibration", CalibrationType.TARGET_TEMP_BASED
+            _calibration_output = self.real_trvs[entity_id].advanced.get(
+                "calibration", CalibrationOutput.TARGET_TEMP_BASED
             )
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (
                 is_boost_heating(snapshot)
-                and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+                and _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
             ):
                 _temperature = self.real_trvs[entity_id].max_temp
 
@@ -2148,7 +2148,11 @@ async def control_trv(
                     valve_settings, _source = None, None
                 else:
                     valve_settings, _source = _get_valve_control(
-                        self, snapshot, entity_id, _calibration_mode, _calibration_type
+                        self,
+                        snapshot,
+                        entity_id,
+                        _calibration_mode,
+                        _calibration_output,
                     )
                 # A valve with no channel to write through is not pursued,
                 # and no retry is scheduled for it, until one appears.
@@ -2211,7 +2215,7 @@ async def control_trv(
                         _schedule_budget_retry(
                             self, entity_id, _budget_remaining(self, entity_id, "valve")
                         )
-                elif _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+                elif _calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
                     pass  # non-valve TRV: no valve control expected
             except Exception:
                 _LOGGER.debug(
@@ -2240,7 +2244,7 @@ async def control_trv(
             if (
                 is_boost_heating(snapshot)
                 and _new_hvac_mode == HVACMode.OFF
-                and _calibration_type == CalibrationType.DIRECT_VALVE_BASED
+                and _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED
             ):
                 _LOGGER.debug(
                     "better_thermostat %s: Boost safety override - resetting valve to 0%% because HVAC mode is OFF",
@@ -2374,7 +2378,7 @@ async def control_trv(
                 # offset is not pursued until it is enabled again.
                 and not calibration_entity_disabled(self, entity_id)
             ):
-                _current_calibration_s = await get_current_offset(self, entity_id)
+                _current_calibration_s = await get_calibration_offset(self, entity_id)
 
                 if _current_calibration_s is None:
                     _LOGGER.error(
@@ -2394,8 +2398,8 @@ async def control_trv(
                 # A finite offset goes in and the hull only clamps it to range,
                 # so a finite offset comes back out.
                 _calibration = _through_safety_hull(
-                    snapshot, entity_id, offset=_calibration
-                ).offset
+                    snapshot, entity_id, calibration_offset=_calibration
+                ).calibration_offset
                 if _calibration is None:
                     _LOGGER.debug(
                         "better_thermostat %s: safety hull yielded no offset for "
@@ -2468,7 +2472,9 @@ async def control_trv(
                                     _calibration,
                                     _current_calibration,
                                 )
-                                if await set_offset(self, entity_id, _calibration):
+                                if await set_calibration_offset(
+                                    self, entity_id, _calibration
+                                ):
                                     trv.calibration_received = False
                                     trv.calibration_write_generation += 1
                                     self.task_manager.create_task(
@@ -2828,7 +2834,7 @@ async def check_calibration(
                 )
                 break
             _reported = convert_to_float(
-                str(await get_current_offset(self, entity_id)),
+                str(await get_calibration_offset(self, entity_id)),
                 self.device_name,
                 "check_calibration()",
             )

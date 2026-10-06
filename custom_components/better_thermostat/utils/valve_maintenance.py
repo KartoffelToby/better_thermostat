@@ -19,7 +19,7 @@ from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
 from ..trv import Trv
-from .const import CONF_VALVE_MAINTENANCE, CalibrationType
+from .const import CONF_VALVE_MAINTENANCE, CalibrationOutput
 from .helpers import device_offers_mode
 
 _LOGGER = logging.getLogger(__name__)
@@ -260,7 +260,7 @@ def build_trv_snapshots(
         adv = _get_advanced(trv)
         cal_type = adv.get("calibration")
         use_direct = bool(
-            support_valve and cal_type == CalibrationType.DIRECT_VALVE_BASED
+            support_valve and cal_type == CalibrationOutput.DIRECT_VALVE_BASED
         )
 
         raw_max = trv.max_temp

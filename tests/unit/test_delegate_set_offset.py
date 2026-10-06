@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.better_thermostat.adapters.delegate import set_offset
+from custom_components.better_thermostat.adapters.delegate import set_calibration_offset
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
@@ -35,7 +35,7 @@ def bt():
         entity_id=ENTITY_ID, local_calibration_min=-3.0, local_calibration_max=3.0
     )
     trv.adapter = MagicMock()
-    trv.adapter.set_offset = AsyncMock(return_value=True)
+    trv.adapter.set_calibration_offset = AsyncMock(return_value=True)
     mock.real_trvs = {ENTITY_ID: trv}
     return mock
 
@@ -43,7 +43,7 @@ def bt():
 @pytest.mark.asyncio
 async def test_accepted_write_records_the_requested_offset(bt):
     """A write the adapter accepted reports success and records what was asked."""
-    result = await set_offset(bt, ENTITY_ID, -2.0)
+    result = await set_calibration_offset(bt, ENTITY_ID, -2.0)
 
     assert result is True
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested == -2.0
@@ -59,7 +59,7 @@ async def test_failed_write_leaves_the_requested_offset_untouched(bt):
     spending it.
     """
     bt.real_trvs[ENTITY_ID].last_calibration_requested = -1.0
-    bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
+    bt.real_trvs[ENTITY_ID].adapter.set_calibration_offset = AsyncMock(
         side_effect=RuntimeError("device refused")
     )
     delays = []
@@ -68,12 +68,12 @@ async def test_failed_write_leaves_the_requested_offset_untouched(bt):
         delays.append(seconds)
 
     with patch("asyncio.sleep", new=_record_delay):
-        result = await set_offset(bt, ENTITY_ID, -2.0)
+        result = await set_calibration_offset(bt, ENTITY_ID, -2.0)
 
     assert result is False
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested == -1.0
     assert (
-        bt.real_trvs[ENTITY_ID].adapter.set_offset.await_count
+        bt.real_trvs[ENTITY_ID].adapter.set_calibration_offset.await_count
         == len(RETRY_BACKOFF_S) + 1
     )
     assert len(delays) == len(RETRY_BACKOFF_S)
@@ -84,7 +84,7 @@ async def test_failed_write_leaves_the_requested_offset_untouched(bt):
 @pytest.mark.asyncio
 async def test_failed_write_on_a_blank_record_records_nothing(bt):
     """A connection error on an unrecorded offset leaves the record blank."""
-    bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
+    bt.real_trvs[ENTITY_ID].adapter.set_calibration_offset = AsyncMock(
         side_effect=ConnectionError("boom")
     )
 
@@ -92,7 +92,7 @@ async def test_failed_write_on_a_blank_record_records_nothing(bt):
         return None
 
     with patch("asyncio.sleep", new=_skip_delay):
-        result = await set_offset(bt, ENTITY_ID, -2.0)
+        result = await set_calibration_offset(bt, ENTITY_ID, -2.0)
 
     assert result is False
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested is None
@@ -101,9 +101,11 @@ async def test_failed_write_on_a_blank_record_records_nothing(bt):
 @pytest.mark.asyncio
 async def test_device_without_an_offset_channel_records_nothing(bt):
     """An adapter that wrote nothing arms neither the gate nor the record."""
-    bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(return_value=False)
+    bt.real_trvs[ENTITY_ID].adapter.set_calibration_offset = AsyncMock(
+        return_value=False
+    )
 
-    result = await set_offset(bt, ENTITY_ID, -2.0)
+    result = await set_calibration_offset(bt, ENTITY_ID, -2.0)
 
     assert result is False
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested is None
@@ -112,7 +114,7 @@ async def test_device_without_an_offset_channel_records_nothing(bt):
 @pytest.mark.asyncio
 async def test_a_written_zero_offset_is_still_a_write(bt):
     """The answer, not the value written, decides what counts as a command."""
-    result = await set_offset(bt, ENTITY_ID, 0.0)
+    result = await set_calibration_offset(bt, ENTITY_ID, 0.0)
 
     assert result is True
     assert bt.real_trvs[ENTITY_ID].last_calibration_requested == 0.0
@@ -122,16 +124,18 @@ async def test_a_written_zero_offset_is_still_a_write(bt):
 async def test_clamped_write_keeps_the_pre_clamp_intent(bt):
     """An adapter clamp moves the command, not the recorded intent."""
 
-    async def _clamping_set_offset(_self, entity_id, offset):
+    async def _clamping_set_calibration_offset(_self, entity_id, calibration_offset):
         trv = _self.real_trvs[entity_id]
-        trv.last_calibration = max(float(trv.local_calibration_min), float(offset))
+        trv.last_calibration = max(
+            float(trv.local_calibration_min), float(calibration_offset)
+        )
         return True
 
-    bt.real_trvs[ENTITY_ID].adapter.set_offset = AsyncMock(
-        side_effect=_clamping_set_offset
+    bt.real_trvs[ENTITY_ID].adapter.set_calibration_offset = AsyncMock(
+        side_effect=_clamping_set_calibration_offset
     )
 
-    result = await set_offset(bt, ENTITY_ID, -5.0)
+    result = await set_calibration_offset(bt, ENTITY_ID, -5.0)
 
     assert result is True
     assert bt.real_trvs[ENTITY_ID].last_calibration == -3.0

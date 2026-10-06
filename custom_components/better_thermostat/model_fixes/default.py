@@ -41,9 +41,11 @@ def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     return False
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return the given local calibration offset unchanged."""
-    return offset
+    return calibration_offset
 
 
 def fix_valve_calibration(self: ModelFixHost, entity_id: str, valve: float) -> float:

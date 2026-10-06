@@ -64,12 +64,33 @@ def _with_door_region(state: KernelState, region: WindowState) -> KernelState:
     return replace(state, door=region)
 
 
+def _window_open_delay(self: BetterThermostat) -> float:
+    """Return the window-open debounce delay in seconds."""
+    return self.window_open_delay_seconds
+
+
+def _window_close_delay(self: BetterThermostat) -> float:
+    """Return the window-close debounce delay in seconds."""
+    return self.window_close_delay_seconds
+
+
+def _door_open_delay(self: BetterThermostat) -> float:
+    """Return the door-open debounce delay in seconds."""
+    return self.door_open_delay_seconds
+
+
+def _door_close_delay(self: BetterThermostat) -> float:
+    """Return the door-close debounce delay in seconds."""
+    return self.door_close_delay_seconds
+
+
 @dataclass(frozen=True)
 class ContactRole:
     """Binding of the shared contact logic to one sensor kind.
 
-    The attribute names say where the configuration of this kind of contact
-    lives on the BetterThermostat instance; the two region accessors say
+    The attribute names and the two delay accessors say where the
+    configuration of this kind of contact lives on the BetterThermostat
+    instance; the two region accessors say
     which kernel region it drives. Naming the region through a pair of
     functions keeps the two regions separate types-wise, so a window event
     cannot reach the door region by a typo in a string.
@@ -77,8 +98,8 @@ class ContactRole:
 
     kind: Literal["window", "door"]
     entity_id_attr: str
-    delay_attr: str
-    delay_after_attr: str
+    open_delay_of: Callable[[BetterThermostat], float]
+    close_delay_of: Callable[[BetterThermostat], float]
     queue_attr: str
     region_of: Callable[[KernelState], WindowState]
     with_region: Callable[[KernelState, WindowState], KernelState]
@@ -89,8 +110,8 @@ class ContactRole:
 WINDOW: Final = ContactRole(
     kind="window",
     entity_id_attr="window_id",
-    delay_attr="window_delay",
-    delay_after_attr="window_delay_after",
+    open_delay_of=_window_open_delay,
+    close_delay_of=_window_close_delay,
     queue_attr="window_queue_task",
     region_of=_window_region,
     with_region=_with_window_region,
@@ -101,8 +122,8 @@ WINDOW: Final = ContactRole(
 DOOR: Final = ContactRole(
     kind="door",
     entity_id_attr="door_id",
-    delay_attr="door_delay",
-    delay_after_attr="door_delay_after",
+    open_delay_of=_door_open_delay,
+    close_delay_of=_door_close_delay,
     queue_attr="door_queue_task",
     region_of=_door_region,
     with_region=_with_door_region,
@@ -127,8 +148,8 @@ def _issue_id(self: BetterThermostat, role: ContactRole) -> str:
 def _contact_params(self: BetterThermostat, role: ContactRole) -> WindowParams:
     """Debounce delays from the entity configuration."""
     return WindowParams(
-        open_delay_s=float(getattr(self, role.delay_attr) or 0),
-        close_delay_s=float(getattr(self, role.delay_after_attr) or 0),
+        open_delay_seconds=float(role.open_delay_of(self) or 0),
+        close_delay_seconds=float(role.close_delay_of(self) or 0),
     )
 
 
@@ -274,9 +295,9 @@ async def _settle_contact_region(self: BetterThermostat, role: ContactRole) -> N
             break
         params = _contact_params(self, role)
         delay = (
-            params.open_delay_s
+            params.open_delay_seconds
             if region.phase == WindowPhase.OPENING
-            else params.close_delay_s
+            else params.close_delay_seconds
         )
         remaining = region.pending_since + delay - self.clock.monotonic()
         if remaining > 0:

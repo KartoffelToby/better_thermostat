@@ -182,7 +182,7 @@ def trv_report_is_unreadable(
     )
 
 
-def fix_local_calibration(self, entity_id, offset):
+def fix_local_calibration(self, entity_id, calibration_offset):
     """Apply model-specific local calibration fix.
 
     Call the configured model quirks implementation to normalize the given
@@ -190,17 +190,17 @@ def fix_local_calibration(self, entity_id, offset):
     """
 
     _new_offset = self.real_trvs[entity_id].model_quirks.fix_local_calibration(
-        self, entity_id, offset
+        self, entity_id, calibration_offset
     )
 
     _new_offset = round(_new_offset, 1)
 
-    if offset != _new_offset:
+    if calibration_offset != _new_offset:
         _LOGGER.debug(
             "better_thermostat %s: %s - calibration offset model fix: %s to %s",
             self.device_name,
             entity_id,
-            offset,
+            calibration_offset,
             _new_offset,
         )
 

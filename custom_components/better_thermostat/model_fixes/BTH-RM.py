@@ -19,13 +19,15 @@ from custom_components.better_thermostat.utils.helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Return a corrected local calibration offset for BTH-RM.
 
     The BTH-RM does not require special rounding adjustments, so this
     function is a passthrough for future extensibility.
     """
-    return offset
+    return calibration_offset
 
 
 def fix_target_temperature_calibration(

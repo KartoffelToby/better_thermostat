@@ -30,11 +30,11 @@ class BtConfig:
     humidity_sensor_entity_id: str | None = None
     cooler_entity_id: str | None = None
     window_id: str | None = None
-    window_delay: float = 0.0
-    window_delay_after: float = 0.0
+    window_open_delay_seconds: float = 0.0
+    window_close_delay_seconds: float = 0.0
     door_id: str | None = None
-    door_delay: float = 0.0
-    door_delay_after: float = 0.0
+    door_open_delay_seconds: float = 0.0
+    door_close_delay_seconds: float = 0.0
     weather_entity: str | None = None
     outdoor_sensor: str | None = None
     off_temperature: float | None = None

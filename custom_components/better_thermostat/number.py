@@ -43,7 +43,7 @@ from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
@@ -144,7 +144,7 @@ async def async_setup_entry(
 
             advanced = trv_config.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            calibration_type = advanced.get(CONF_CALIBRATION)
+            calibration_output = advanced.get(CONF_CALIBRATION)
 
             # Normalize string values to CalibrationMode enum
             try:
@@ -154,10 +154,10 @@ async def async_setup_entry(
                 calibration_mode = None
 
             try:
-                if isinstance(calibration_type, str):
-                    calibration_type = CalibrationType(calibration_type)
+                if isinstance(calibration_output, str):
+                    calibration_output = CalibrationOutput(calibration_output)
             except ValueError, TypeError:
-                calibration_type = None
+                calibration_output = None
 
             if calibration_mode == CalibrationMode.PID_CALIBRATION:
                 for param in ["kp", "ki", "kd"]:
@@ -170,7 +170,7 @@ async def async_setup_entry(
                         "param": param,
                     }
 
-            if calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+            if calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
                 numbers.append(
                     BetterThermostatValveMaxOpeningNumber(
                         bt_climate, trv_entity_id, has_multiple_trvs

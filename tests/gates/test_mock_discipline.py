@@ -43,12 +43,12 @@ TESTS_ROOT = Path(__file__).resolve().parent.parent
 # would otherwise follow.
 ANSWER_IS_READ = frozenset(
     {
-        "set_offset",
+        "set_calibration_offset",
         "set_valve",
         "override_set_hvac_mode",
         "override_set_temperature",
         "override_set_valve",
-        "get_current_offset",
+        "get_calibration_offset",
     }
 )
 
@@ -416,7 +416,7 @@ def test_the_seam_is_reachable_from_here():
     A typo in a module path would empty ``SEAM`` and pass every other
     test in this file without checking anything.
     """
-    assert {"set_offset", "set_valve", "get_current_offset"} <= SEAM
+    assert {"set_calibration_offset", "set_valve", "get_calibration_offset"} <= SEAM
     assert {"override_set_hvac_mode", "override_set_temperature"} <= SEAM
     assert len(list(_iter_patch_sites())) > 100
 

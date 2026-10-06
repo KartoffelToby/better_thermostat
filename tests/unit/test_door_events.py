@@ -31,8 +31,8 @@ def _make_bt(*, sensor_state="off", door_open=False, open_delay=0, close_delay=0
     bt.device_name = "Test BT"
     bt.door_id = "binary_sensor.door"
     bt.door_open = door_open
-    bt.door_delay = open_delay
-    bt.door_delay_after = close_delay
+    bt.door_open_delay_seconds = open_delay
+    bt.door_close_delay_seconds = close_delay
     bt.clock = FakeClock()
     bt.kernel_state = running_kernel_state()
     bt.kernel_state = replace(
@@ -320,7 +320,7 @@ class TestDoorQueue:
             slept.append(seconds)
             bt.clock.advance(seconds)
             # The user raises the delay while the first wait runs.
-            bt.door_delay = 30
+            bt.door_open_delay_seconds = 30
 
         with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)

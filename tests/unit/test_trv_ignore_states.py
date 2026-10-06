@@ -15,7 +15,7 @@ from custom_components.better_thermostat.events.trv import accepts_user_setpoint
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 
 
@@ -35,7 +35,7 @@ def trv():
             "system_mode_received": True,
             "ignore_trv_states": False,
             "advanced": {
-                "calibration": CalibrationType.LOCAL_BASED,
+                "calibration": CalibrationOutput.LOCAL_BASED,
                 "calibration_mode": CalibrationMode.DEFAULT,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,

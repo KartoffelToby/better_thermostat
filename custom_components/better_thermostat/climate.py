@@ -61,10 +61,10 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 # Local imports
 from .adapters.delegate import (
-    get_current_offset,
-    get_max_offset,
-    get_min_offset,
-    get_offset_step,
+    get_calibration_offset,
+    get_calibration_offset_step,
+    get_max_calibration_offset,
+    get_min_calibration_offset,
     init,
     load_adapter,
     set_hvac_mode as adapter_set_hvac_mode,
@@ -162,7 +162,7 @@ from .utils.const import (
     TARGET_TEMP_BOUND_AUTO,
     VERSION,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from .utils.controlling import (
     TaskManager,
@@ -548,14 +548,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.config.window_id
 
     @property
-    def window_delay(self) -> float:
+    def window_open_delay_seconds(self) -> float:
         """Return the window-open debounce delay in seconds."""
-        return self.config.window_delay
+        return self.config.window_open_delay_seconds
 
     @property
-    def window_delay_after(self) -> float:
+    def window_close_delay_seconds(self) -> float:
         """Return the window-close debounce delay in seconds."""
-        return self.config.window_delay_after
+        return self.config.window_close_delay_seconds
 
     @property
     def door_id(self) -> str | None:
@@ -563,14 +563,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.config.door_id
 
     @property
-    def door_delay(self) -> float:
+    def door_open_delay_seconds(self) -> float:
         """Return the door-open debounce delay in seconds."""
-        return self.config.door_delay
+        return self.config.door_open_delay_seconds
 
     @property
-    def door_delay_after(self) -> float:
+    def door_close_delay_seconds(self) -> float:
         """Return the door-close debounce delay in seconds."""
-        return self.config.door_delay_after
+        return self.config.door_close_delay_seconds
 
     @property
     def weather_entity(self) -> str | None:
@@ -794,11 +794,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         sensor_entity_id,
         humidity_sensor_entity_id,
         window_id,
-        window_delay,
-        window_delay_after,
+        window_open_delay_seconds,
+        window_close_delay_seconds,
         door_id,
-        door_delay,
-        door_delay_after,
+        door_open_delay_seconds,
+        door_close_delay_seconds,
         weather_entity,
         outdoor_sensor,
         off_temperature,
@@ -832,15 +832,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             External humidity sensor entity id.
         window_id : str | None
             Window contact sensor entity id for open-window detection.
-        window_delay : int
+        window_open_delay_seconds : int
             Delay in seconds before reacting to a window opening.
-        window_delay_after : int
+        window_close_delay_seconds : int
             Delay in seconds before reacting to a window closing.
         door_id : str | None
             Door contact sensor entity id for open-door detection.
-        door_delay : int
+        door_open_delay_seconds : int
             Delay in seconds before reacting to a door opening.
-        door_delay_after : int
+        door_close_delay_seconds : int
             Delay in seconds before reacting to a door closing.
         weather_entity : str | None
             Weather entity used as outdoor temperature source.
@@ -940,11 +940,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             humidity_sensor_entity_id=humidity_sensor_entity_id,
             cooler_entity_id=cooler_entity_id,
             window_id=window_id or None,
-            window_delay=window_delay or 0,
-            window_delay_after=window_delay_after or 0,
+            window_open_delay_seconds=window_open_delay_seconds or 0,
+            window_close_delay_seconds=window_close_delay_seconds or 0,
             door_id=door_id or None,
-            door_delay=door_delay or 0,
-            door_delay_after=door_delay_after or 0,
+            door_open_delay_seconds=door_open_delay_seconds or 0,
+            door_close_delay_seconds=door_close_delay_seconds or 0,
             weather_entity=weather_entity or None,
             outdoor_sensor=outdoor_sensor or None,
             off_temperature=_off_temperature,
@@ -1233,12 +1233,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         for trv in self.all_trvs:
             _calibration = 1
             _advanced = trv.get("advanced", {})
-            _calibration_type = _advanced.get("calibration")
-            if _calibration_type == CalibrationType.TARGET_TEMP_BASED:
+            _calibration_output = _advanced.get("calibration")
+            if _calibration_output == CalibrationOutput.TARGET_TEMP_BASED:
                 _calibration = 0
-            if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+            if _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
                 _calibration = 2
-            if _calibration_type == CalibrationType.LOCAL_BASED:
+            if _calibration_output == CalibrationOutput.LOCAL_BASED:
                 _calibration = 3
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
@@ -2541,14 +2541,16 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
                 try:
                     async with asyncio.timeout(10):
-                        trv.last_calibration = await get_current_offset(self, entity_id)
-                        trv.local_calibration_min = await get_min_offset(
+                        trv.last_calibration = await get_calibration_offset(
                             self, entity_id
                         )
-                        trv.local_calibration_max = await get_max_offset(
+                        trv.local_calibration_min = await get_min_calibration_offset(
                             self, entity_id
                         )
-                        trv.local_calibration_step = await get_offset_step(
+                        trv.local_calibration_max = await get_max_calibration_offset(
+                            self, entity_id
+                        )
+                        trv.local_calibration_step = await get_calibration_offset_step(
                             self, entity_id
                         )
                     # Ensure None values are replaced with sensible defaults
@@ -2638,7 +2640,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             # SENSOR_FALLBACK as if it were live and keep the ladder's
             # HOLD rung unreachable.
             _raw_current_temp = _attrs.get("current_temperature")
-            _current_temp = (
+            _trv_current_temperature = (
                 convert_to_float_celsius(
                     str(_raw_current_temp),
                     self.device_name,
@@ -2652,18 +2654,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
             # Marker / garbage readings (for example AVM's 126.5 / 127 °C)
             # must not seed the cache and feed the first control cycle.
-            if _current_temp is not None and not is_reasonable_temperature(
-                _current_temp
+            if _trv_current_temperature is not None and not is_reasonable_temperature(
+                _trv_current_temperature
             ):
                 _LOGGER.warning(
                     "better_thermostat %s: TRV %s reports implausible "
                     "current_temperature %s at startup; ignoring",
                     self.device_name,
                     entity_id,
-                    _current_temp,
+                    _trv_current_temperature,
                 )
-                _current_temp = None
-            trv.current_temperature = _current_temp
+                _trv_current_temperature = None
+            trv.current_temperature = _trv_current_temperature
         return failed
 
     async def _initialize_arrived_trvs(self) -> None:
@@ -3963,7 +3965,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             hysteresis=self._hysteresis,
             room_temperature=self.room_temperature,
             heat_target_temperature=self.heat_target_temperature,
-            cool_target=self.cool_target_temperature,
+            cool_target_temperature=self.cool_target_temperature,
             hvac_mode=self.hvac_mode,
             bt_hvac_mode=self.bt_hvac_mode,
             window_open=self.contact_open,

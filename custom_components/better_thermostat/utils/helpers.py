@@ -825,7 +825,7 @@ def heating_power_valve_position(self, entity_id: str) -> float:
     temperature, a heuristic mapping to valve opening percentage is
     returned (between 0.0 and 1.0).
 
-    Examples (resulting valve_pos for a given temp_diff and heating_power):
+    Examples (resulting valve_fraction for a given temp_diff and heating_power):
 
     | temp_diff | hp=0.02 | hp=0.01 | hp=0.005 |
     |-----------|---------|---------|----------|
@@ -859,13 +859,13 @@ def heating_power_valve_position(self, entity_id: str) -> float:
     # Original formula with improved robustness
     a = 0.019
     b = 0.946
-    valve_pos = a * (_temp_diff / heating_power) ** b
+    valve_fraction = a * (_temp_diff / heating_power) ** b
 
     # Apply minimum valve position when heating is actively needed
     # If temp_diff > threshold, ensure minimum valve opening
     # This prevents the system from getting stuck with too-low valve positions
     if _temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
-        valve_pos = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_pos)
+        valve_fraction = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_fraction)
     elif _temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
         # For smaller differences, use a proportional minimum
         min_valve = (
@@ -873,10 +873,10 @@ def heating_power_valve_position(self, entity_id: str) -> float:
             + (_temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD)
             * VALVE_MIN_PROPORTIONAL_SLOPE
         )
-        valve_pos = max(min_valve, valve_pos)
+        valve_fraction = max(min_valve, valve_fraction)
 
     # Bound to valid range
-    valve_pos = max(0.0, min(1.0, valve_pos))
+    valve_fraction = max(0.0, min(1.0, valve_fraction))
 
     _LOGGER.debug(
         "better_thermostat %s: %s / heating_power_valve_position - temp diff: %s - heating power: %s (bounded) - expected valve position: %s%%",
@@ -884,9 +884,9 @@ def heating_power_valve_position(self, entity_id: str) -> float:
         entity_id,
         round(_temp_diff, 1),
         round(heating_power, 4),
-        round(valve_pos * 100),
+        round(valve_fraction * 100),
     )
-    return valve_pos
+    return valve_fraction
 
 
 def clamp_valve_percent(value: float) -> int:

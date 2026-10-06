@@ -53,8 +53,8 @@ def _thermostat_without_target(stored_mode: object) -> ThermostatStandIn:
     bt.heat_target_temperature = None
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _entity_id, offset: float(
-        offset
+    quirks.fix_local_calibration.side_effect = (
+        lambda _self, _entity_id, calibration_offset: float(calibration_offset)
     )
 
     bt.real_trvs = {

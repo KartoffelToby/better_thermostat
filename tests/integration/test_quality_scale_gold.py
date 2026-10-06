@@ -23,7 +23,7 @@ import pytest
 
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 
 from .conftest import (
@@ -42,7 +42,7 @@ DRIVEN_VALVE_TRV = replace(
     name="driven_valve",
     entity_id="climate.driven_valve",
     entity_name="driven valve",
-    calibration=CalibrationType.DIRECT_VALVE_BASED.value,
+    calibration=CalibrationOutput.DIRECT_VALVE_BASED.value,
 )
 
 # Every way an entry can be set up that brings entities of its own.

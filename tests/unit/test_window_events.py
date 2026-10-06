@@ -30,8 +30,8 @@ def _make_bt(*, sensor_state="off", window_open=False, open_delay=0, close_delay
     bt.device_name = "Test BT"
     bt.window_id = "binary_sensor.window"
     bt.window_open = window_open
-    bt.window_delay = open_delay
-    bt.window_delay_after = close_delay
+    bt.window_open_delay_seconds = open_delay
+    bt.window_close_delay_seconds = close_delay
     bt.clock = FakeClock()
     bt.kernel_state = running_kernel_state()
     bt.kernel_state = replace(
@@ -323,7 +323,7 @@ class TestWindowQueue:
             slept.append(seconds)
             bt.clock.advance(seconds)
             # The user raises the delay while the first wait runs.
-            bt.window_delay = 30
+            bt.window_open_delay_seconds = 30
 
         with patch(f"{_CONTACT}.asyncio.sleep", side_effect=fake_sleep):
             await _run_queue_once(bt)

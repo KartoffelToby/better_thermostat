@@ -14,12 +14,12 @@ from ..utils.helpers import find_local_calibration_entity, find_valve_entity
 from .base import AdapterCapabilities
 from .generic import (
     discover_calibration_entity,
-    get_current_offset as generic_get_current_offset,
-    get_max_offset as generic_get_max_offset,
-    get_min_offset as generic_get_min_offset,
-    get_offset_step as generic_get_offset_step,
+    get_calibration_offset as generic_get_calibration_offset,
+    get_calibration_offset_step as generic_get_calibration_offset_step,
+    get_max_calibration_offset as generic_get_max_calibration_offset,
+    get_min_calibration_offset as generic_get_min_calibration_offset,
+    set_calibration_offset as generic_set_calibration_offset,
     set_hvac_mode as generic_set_hvac_mode,
-    set_offset as generic_set_offset,
     set_temperature as generic_set_temperature,
 )
 from .types import AdapterHost, AdapterProbeHost
@@ -71,8 +71,8 @@ async def get_info(self: AdapterProbeHost, entity_id: str) -> dict[str, bool]:
     """Get info from TRV."""
     support_offset = False
     support_valve = False
-    offset = await find_local_calibration_entity(self, entity_id)
-    if offset is not None:
+    calibration_entity_id = await find_local_calibration_entity(self, entity_id)
+    if calibration_entity_id is not None:
         support_offset = True
     valve = await find_valve_entity(self, entity_id)
     if valve is not None and valve.get("entity_id"):
@@ -148,7 +148,7 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
     await asyncio.sleep(3)
 
 
-async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Read the offset the calibration entity currently reports.
 
     Parameters
@@ -164,25 +164,27 @@ async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
         Offset in Kelvin, 0.0 when the TRV has no calibration entity or the
         entity reports nothing readable.
     """
-    return await generic_get_current_offset(self, entity_id)
+    return await generic_get_calibration_offset(self, entity_id)
 
 
-async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
+async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> float:
     """Get offset step."""
-    return await generic_get_offset_step(self, entity_id)
+    return await generic_get_calibration_offset_step(self, entity_id)
 
 
-async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
-    return await generic_get_min_offset(self, entity_id)
+    return await generic_get_min_calibration_offset(self, entity_id)
 
 
-async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
-    return await generic_get_max_offset(self, entity_id)
+    return await generic_get_max_calibration_offset(self, entity_id)
 
 
-async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
+async def set_calibration_offset(
+    self: AdapterHost, entity_id: str, calibration_offset: float
+) -> bool:
     """Write a calibration offset to the discovered calibration entity.
 
     Parameters
@@ -191,7 +193,7 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         Host providing Home Assistant access and the per-TRV records.
     entity_id : str
         Entity ID of the TRV to write to
-    offset : float
+    calibration_offset : float
         Calibration offset in Kelvin, clamped to the device's declared range
 
     Returns
@@ -200,7 +202,7 @@ async def set_offset(self: AdapterHost, entity_id: str, offset: float) -> bool:
         True once the write went out, False when no calibration entity was
         discovered for this TRV and there is nothing to write to.
     """
-    return await generic_set_offset(self, entity_id, offset)
+    return await generic_set_calibration_offset(self, entity_id, calibration_offset)
 
 
 async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> None:

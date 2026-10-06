@@ -19,7 +19,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.better_thermostat.entity import LAST_AVAILABLE_STATE
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 
 from .conftest import (
     BT_ENTITY,
@@ -37,7 +37,7 @@ NO_GRACE = timedelta(seconds=0)
 SWITCH = "switch.bt_test_child_lock"
 VALVE_CAP = "number.bt_test_valve_max_opening"
 DRIVEN_VALVE_TRV = replace(
-    VALVE_TRV, calibration=CalibrationType.DIRECT_VALVE_BASED.value
+    VALVE_TRV, calibration=CalibrationOutput.DIRECT_VALVE_BASED.value
 )
 
 

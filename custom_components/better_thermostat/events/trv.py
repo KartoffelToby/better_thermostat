@@ -17,7 +17,7 @@ from homeassistant.core import State, callback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from custom_components.better_thermostat.adapters.delegate import get_current_offset
+from custom_components.better_thermostat.adapters.delegate import get_calibration_offset
 from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
@@ -31,7 +31,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
@@ -496,7 +496,7 @@ async def trigger_trv_change(
                         entity_id,
                     )
                     return
-                trv.last_calibration = await get_current_offset(self, entity_id)
+                trv.last_calibration = await get_calibration_offset(self, entity_id)
 
         # Under SENSOR_FALLBACK the TRV readings are the room temperature,
         # so a new one is controlled on even when it confirms an offset write.
@@ -926,10 +926,10 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
     advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
-        _calibration_type = advanced.get("calibration")
+        _calibration_output = advanced.get("calibration")
         _calibration_mode = advanced.get("calibration_mode")
 
-        if _calibration_type is None:
+        if _calibration_output is None:
             _LOGGER.warning(
                 "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
                 self.device_name,
@@ -938,13 +938,13 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None
 
-        elif _calibration_type == CalibrationType.LOCAL_BASED:
+        elif _calibration_output == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
             _new_heating_setpoint = self.heat_target_temperature
 
-        elif _calibration_type in (
-            CalibrationType.TARGET_TEMP_BASED,
-            CalibrationType.DIRECT_VALVE_BASED,
+        elif _calibration_output in (
+            CalibrationOutput.TARGET_TEMP_BASED,
+            CalibrationOutput.DIRECT_VALVE_BASED,
         ):
             if _calibration_mode == CalibrationMode.NO_CALIBRATION:
                 _new_heating_setpoint = self.heat_target_temperature
@@ -957,7 +957,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             _LOGGER.warning(
                 "better_thermostat %s: unknown calibration type %s, using fallback mode",
                 self.device_name,
-                _calibration_type,
+                _calibration_output,
             )
             _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None

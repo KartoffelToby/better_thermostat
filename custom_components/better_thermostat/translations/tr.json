@@ -366,7 +366,7 @@
         "no_calibration": "Kalibrasyon yok"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Doğrudan vana kontrolü",
         "target_temp_based": "Hedef sıcaklığa dayalı",

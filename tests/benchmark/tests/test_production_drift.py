@@ -60,7 +60,7 @@ def _adapter_valve_pct(temp_diff_K: float, heating_power: float) -> float:
         trv_temp_C=None,
         outdoor_temp_C=5.0,
     )
-    return adapter._compute_valve_pct(ctx)
+    return adapter._compute_valve_percent(ctx)
 
 
 @pytest.mark.parametrize("temp_diff_K", _TEMP_DIFFS_K)

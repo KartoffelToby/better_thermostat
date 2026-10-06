@@ -12,7 +12,8 @@ last entry reaches zero the file is deleted and the check becomes "no rejected
 spelling anywhere".
 
 Only identifiers are counted. Each file is parsed with :mod:`ast` and the names
-are taken from the tree, never from strings, comments or docstrings. A
+are taken from the tree, never from strings, comments or docstrings. A leading
+underscore does not hide a spelling: `_offset` counts as `offset`. A
 persisted configuration key that happens to spell a rejected alias lives in
 zone B and moves only with a migration, not with a rename. Where a rejected
 alias is the correct name after all, ``[[exception]]`` in `glossary.toml`
@@ -116,6 +117,13 @@ def _load_glossary() -> Glossary:
             )
         exceptions.setdefault(entry["alias"], []).extend(entry["paths"])
 
+    inert = sorted(set(exceptions) - set(aliases))
+    if inert:
+        sys.exit(
+            f"{GLOSSARY_FILE.name}: no term rejects {', '.join(inert)}, "
+            "so its exception excuses nothing"
+        )
+
     return Glossary(
         aliases={alias: tuple(names) for alias, names in aliases.items()},
         exceptions={alias: tuple(paths) for alias, paths in exceptions.items()},
@@ -167,6 +175,19 @@ def _parse(path: Path) -> ast.Module:
         sys.exit(f"{relative}: {err}")
 
 
+def _alias(name: str, glossary: Glossary) -> str | None:
+    """Return the rejected alias a name spells, with or without leading underscores.
+
+    A private `_offset` carries the same word as `offset`, so the underscore
+    does not hide it. An alias the glossary lists with its underscore, such as
+    `_real_trv`, matches as written.
+    """
+    if name in glossary.aliases:
+        return name
+    stripped = name.lstrip("_")
+    return stripped if stripped in glossary.aliases else None
+
+
 def _production_spellings(glossary: Glossary) -> frozenset[str]:
     """Return the rejected aliases the production tree still spells.
 
@@ -177,10 +198,10 @@ def _production_spellings(glossary: Glossary) -> frozenset[str]:
     is gone.
     """
     return frozenset(
-        name
+        alias
         for path in sorted((REPO_ROOT / PRODUCTION_ROOT).rglob("*.py"))
         for name, _ in _identifiers(_parse(path))
-        if name in glossary.aliases
+        if (alias := _alias(name, glossary)) is not None
     )
 
 
@@ -192,12 +213,13 @@ def _scan(path: Path, glossary: Glossary, production: frozenset[str]) -> list[Fi
     seen: set[tuple[str, int]] = set()
     findings = []
     for name, line in _identifiers(_parse(path)):
-        targets = glossary.aliases.get(name)
-        if targets is None or (name, line) in seen:
+        alias = _alias(name, glossary)
+        if alias is None or (name, line) in seen:
             continue
-        if mirrors_production and name in production:
+        targets = glossary.aliases[alias]
+        if mirrors_production and alias in production:
             continue
-        if any(relative.startswith(p) for p in glossary.exceptions.get(name, ())):
+        if any(relative.startswith(p) for p in glossary.exceptions.get(alias, ())):
             continue
         seen.add((name, line))
         findings.append(Finding(relative, line, name, targets))
@@ -265,12 +287,18 @@ def check(paths: list[Path] | None) -> int:
     for path, count, allowed in over:
         for finding in findings[path]:
             print(finding)
-        print(f"over budget: {path} {count} rejected names, budget {allowed}\n")
+        if allowed:
+            print(f"over budget: {path} {count} rejected names, budget {allowed}\n")
+        else:
+            print(f"{path}: {count} rejected names, none allowed\n")
 
     if over:
-        print(f"{len(over)} file(s) over budget")
+        print(f"{len(over)} file(s) carry more rejected names than allowed")
         return 1
 
+    if not counts and not budget:
+        print("no rejected names")
+        return 0
     print(
         f"{sum(counts.values())} rejected names across {len(counts)} files, "
         "all within budget"

@@ -31,7 +31,7 @@ COOLER_ID = "climate.air_conditioner"
 def build_bt(
     room_temperature,
     heat_target_temperature=21.0,
-    cool_target=24.0,
+    cool_target_temperature=24.0,
     tolerance=0.5,
     decided_mode=None,
     reported_mode=HVACMode.OFF,
@@ -41,7 +41,7 @@ def build_bt(
     bt = ThermostatStandIn()
     bt.tolerance = tolerance
     bt.heat_target_temperature = heat_target_temperature
-    bt.cool_target_temperature = cool_target
+    bt.cool_target_temperature = cool_target_temperature
     bt.bt_target_temp_step = None
     bt.room_temperature = room_temperature
     bt.hvac_mode = HVACMode.HEAT_COOL
@@ -105,7 +105,7 @@ def test_heating_target_floors_the_cooling_report():
     """
     kwargs = {
         "heat_target_temperature": 21.0,
-        "cool_target": 21.2,
+        "cool_target_temperature": 21.2,
         "tolerance": 0.0,
         "decided_mode": HVACMode.COOL,
     }
@@ -162,21 +162,25 @@ def test_seed_is_off_without_a_cooler():
 
 
 @pytest.mark.parametrize(
-    "heat_target_temperature, cool_target", [(21.0, 24.0), (21.0, 21.5)]
+    "heat_target_temperature, cool_target_temperature", [(21.0, 24.0), (21.0, 21.5)]
 )
 @pytest.mark.parametrize("tolerance", [0.0, 0.2, 0.5, 1.0])
 @pytest.mark.parametrize("cool_previously_active", [False, True])
-@pytest.mark.parametrize("offset", [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5, 1.0, 2.0])
+@pytest.mark.parametrize("margin", [-0.5, -0.2, -0.1, 0.0, 0.1, 0.2, 0.5, 1.0, 2.0])
 def test_report_agrees_with_the_command(
-    heat_target_temperature, cool_target, tolerance, cool_previously_active, offset
+    heat_target_temperature,
+    cool_target_temperature,
+    tolerance,
+    cool_previously_active,
+    margin,
 ):
     """The reported cooling action matches what control_cooler would command."""
-    room_temperature = round(cool_target + offset, 2)
+    room_temperature = round(cool_target_temperature + margin, 2)
     reported = compute_hvac_action(
         hysteresis=ToleranceHysteresis(),
         room_temperature=room_temperature,
         heat_target_temperature=heat_target_temperature,
-        cool_target=cool_target,
+        cool_target_temperature=cool_target_temperature,
         hvac_mode=HVACMode.HEAT_COOL,
         bt_hvac_mode=HVACMode.HEAT,
         window_open=False,
@@ -188,7 +192,7 @@ def test_report_agrees_with_the_command(
     commanded = (
         should_cool_with_tolerance(
             room_temperature,
-            cool_target,
+            cool_target_temperature,
             tolerance,
             cool_previously_active,
             min_band=COOLER_MODE_HYSTERESIS_K,
@@ -215,7 +219,7 @@ async def test_command_and_report_agree_across_a_temperature_sweep():
 
     bt = build_bt(
         room_temperature=21.5,
-        cool_target=24.0,
+        cool_target_temperature=24.0,
         heat_target_temperature=21.0,
         tolerance=0.5,
     )

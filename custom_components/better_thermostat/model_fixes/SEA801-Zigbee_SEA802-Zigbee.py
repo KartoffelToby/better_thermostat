@@ -18,7 +18,9 @@ from custom_components.better_thermostat.utils.helpers import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Adjust the local calibration offset for SEA801/SEA802 devices.
 
     The function applies small adjustments based on the external and target
@@ -31,7 +33,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV the offset belongs to.
-    offset : float
+    calibration_offset : float
         Local calibration offset reported by the device.
 
     Returns
@@ -40,19 +42,19 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         The adjusted local calibration offset.
     """
     if entity_uses_mpc_calibration(self, entity_id):
-        return offset
+        return calibration_offset
     _cur_external_temp = self.room_temperature
-    _target_temp = self.heat_target_temperature
+    _heat_target_temperature = self.heat_target_temperature
 
-    if _cur_external_temp is None or _target_temp is None:
-        return offset
+    if _cur_external_temp is None or _heat_target_temperature is None:
+        return calibration_offset
 
-    if (_cur_external_temp + 0.1) >= _target_temp:
-        offset = round(offset + 0.5, 1)
-    elif (_cur_external_temp + 0.5) >= _target_temp:
-        offset -= 2.5
+    if (_cur_external_temp + 0.1) >= _heat_target_temperature:
+        calibration_offset = round(calibration_offset + 0.5, 1)
+    elif (_cur_external_temp + 0.5) >= _heat_target_temperature:
+        calibration_offset -= 2.5
 
-    return offset
+    return calibration_offset
 
 
 def fix_target_temperature_calibration(

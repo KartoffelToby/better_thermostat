@@ -58,8 +58,8 @@ def build_bt(
     bt.state_mgr = StateManager(MagicMock(), "overheating_idle")
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _entity, offset: float(
-        offset
+    quirks.fix_local_calibration.side_effect = (
+        lambda _self, _entity, calibration_offset: float(calibration_offset)
     )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _entity, temperature: float(temperature)

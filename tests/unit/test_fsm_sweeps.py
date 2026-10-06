@@ -43,8 +43,8 @@ class TestWindowSweep:
 
     PARAMS = (
         wd.WindowParams(),
-        wd.WindowParams(open_delay_s=10.0, close_delay_s=10.0),
-        wd.WindowParams(open_delay_s=60.0, close_delay_s=60.0),
+        wd.WindowParams(open_delay_seconds=10.0, close_delay_seconds=10.0),
+        wd.WindowParams(open_delay_seconds=60.0, close_delay_seconds=60.0),
     )
 
     @pytest.mark.parametrize(
@@ -70,7 +70,7 @@ class TestWindowSweep:
         # A pending transition only commits after its full delay.
         if state.phase == wd.WindowPhase.OPENING and sensor_open:
             elapsed = NOW - state.pending_since if state.pending_since else None
-            if elapsed is not None and elapsed < params.open_delay_s:
+            if elapsed is not None and elapsed < params.open_delay_seconds:
                 assert result.phase == wd.WindowPhase.OPENING
 
         # Stepping again with the same observation changes nothing.

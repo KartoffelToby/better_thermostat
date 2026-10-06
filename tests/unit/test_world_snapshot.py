@@ -21,7 +21,7 @@ from custom_components.better_thermostat.core.snapshot import (
 )
 from custom_components.better_thermostat.model_fixes import ZWA021
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from custom_components.better_thermostat.utils.snapshot import build_snapshot
 from tests.factories import ThermostatStandIn
 
@@ -231,7 +231,7 @@ class TestTrvReportedBuilding:
         bt = _make_bt()
         bt.real_trvs["climate.trv"].model_quirks = ZWA021
         bt.real_trvs["climate.trv"].advanced = {
-            "calibration": CalibrationType.DIRECT_VALVE_BASED
+            "calibration": CalibrationOutput.DIRECT_VALVE_BASED
         }
         bt.hass.states.get.return_value = State("climate.trv", "unknown")
         snapshot = build_snapshot(bt)

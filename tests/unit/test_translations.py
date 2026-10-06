@@ -293,14 +293,14 @@ def test_selector_catalog_covers_every_option():
     )
     from custom_components.better_thermostat.utils.const import (
         CalibrationMode,
-        CalibrationType,
+        CalibrationOutput,
         MpcV2PlantPreset,
     )
 
     catalog = _load_json(TRANSLATIONS / "en.json")["selector"]
     expected = {
         "calibration_mode": {member.value for member in CalibrationMode},
-        "calibration_type": {member.value for member in CalibrationType},
+        "calibration_output": {member.value for member in CalibrationOutput},
         "mpc_v2_plant_preset": {member.value for member in MpcV2PlantPreset},
         "target_temp_min": set(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),
         "target_temp_max": set(_TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE),

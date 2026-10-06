@@ -1346,8 +1346,8 @@ class TestControlCoolerModeHysteresis:
             == HVACMode.COOL
         )
 
-        for offset in (0.4, 0.2, 0.0):
-            mock_self.room_temperature = self.HOLD_UNTIL + offset
+        for margin in (0.4, 0.2, 0.0):
+            mock_self.room_temperature = self.HOLD_UNTIL + margin
             mock_self.clock.monotonic_value += COOLER_RESEND_INTERVAL_S
             await control_cooler(mock_self)
             assert len(_service_calls(mock_hass, "set_hvac_mode")) == 1
@@ -1844,11 +1844,11 @@ class TestControlCoolerLatchOfAFreshThermostat:
             sensor_entity_id=None,
             humidity_sensor_entity_id=None,
             window_id=None,
-            window_delay=0,
-            window_delay_after=0,
+            window_open_delay_seconds=0,
+            window_close_delay_seconds=0,
             door_id=None,
-            door_delay=0,
-            door_delay_after=0,
+            door_open_delay_seconds=0,
+            door_close_delay_seconds=0,
             weather_entity=None,
             outdoor_sensor=None,
             off_temperature=None,

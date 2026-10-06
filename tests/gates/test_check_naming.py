@@ -118,6 +118,24 @@ def test_only_identifiers_are_counted(checker):
     assert [(f.alias, f.line) for f in findings] == [("cfg", 5), ("cfg", 8)]
 
 
+def test_a_leading_underscore_does_not_hide_a_rejected_spelling(checker):
+    """A private `_cfg` carries the word `cfg` and is a finding like it."""
+    _write(checker, "custom_components/loader.py", "_cfg = 1\n__val = 2\nvalue = 3\n")
+    findings = checker._findings(None, checker._load_glossary())
+    assert [(f.alias, f.line) for f in findings] == [("_cfg", 1), ("__val", 2)]
+
+
+def test_an_alias_listed_with_its_underscore_matches_as_written(checker):
+    """`_v` is rejected as written; the bare `v` is not."""
+    checker.GLOSSARY_FILE.write_text(
+        GLOSSARY.replace('rejected = ["val"]', 'rejected = ["val", "_v"]'),
+        encoding="utf-8",
+    )
+    _write(checker, "custom_components/loader.py", "_v = 1\nv = 2\n")
+    findings = checker._findings(None, checker._load_glossary())
+    assert [(f.alias, f.line) for f in findings] == [("_v", 1)]
+
+
 def test_check_passes_when_a_file_stays_within_its_budget(checker):
     """A file at its recorded count is not a regression."""
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
@@ -138,7 +156,7 @@ def test_check_fails_on_the_first_name_in_an_unbudgeted_file(checker, capsys):
     _write(checker, "custom_components/loader.py", ONE_IDENTIFIER)
     _budget(checker)
     assert checker.check(None) == 1
-    assert "budget 0" in capsys.readouterr().out
+    assert "none allowed" in capsys.readouterr().out
 
 
 # A field production spells the way the glossary rejects, and a test that has
@@ -282,6 +300,16 @@ def test_a_glossary_that_contradicts_itself_is_refused(checker):
         encoding="utf-8",
     )
     with pytest.raises(SystemExit, match="both a term and an alias"):
+        checker._load_glossary()
+
+
+def test_an_exception_for_a_spelling_no_term_rejects_is_refused(checker):
+    """An exception that excuses nothing reads as if the checker relied on it."""
+    checker.GLOSSARY_FILE.write_text(
+        GLOSSARY.replace('rejected = ["current_temperature"]', "rejected = []"),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="no term rejects current_temperature"):
         checker._load_glossary()
 
 

@@ -366,7 +366,7 @@
         "no_calibration": "Без калибровки"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Прямое управление клапаном",
         "target_temp_based": "По целевой температуре",

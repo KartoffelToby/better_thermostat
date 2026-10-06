@@ -98,10 +98,10 @@ class HeatingPowerAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute valve percent + update the heating-power learner."""
-        valve_pct = self._compute_valve_pct(ctx)
-        self._update_learner(ctx, valve_pct > 0.0)
+        valve_percent = self._compute_valve_percent(ctx)
+        self._update_learner(ctx, valve_percent > 0.0)
         return BenchmarkOutput(
-            valve_percent=valve_pct,
+            valve_percent=valve_percent,
             diagnostics={
                 "heating_power": self.heating_power,
                 "cycle_active": self._cycle_start_t is not None,
@@ -120,23 +120,23 @@ class HeatingPowerAdapter:
     # Internals
     # ------------------------------------------------------------------
 
-    def _compute_valve_pct(self, ctx: BenchmarkContext) -> float:
+    def _compute_valve_percent(self, ctx: BenchmarkContext) -> float:
         """Heating-power → valve-position formula, mirroring ``utils/helpers.py``."""
         temp_diff = ctx.target_temp_C - ctx.current_temp_C
         if temp_diff <= 0.0:
             return 0.0
         hp = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, self.heating_power))
-        valve_pos = 0.019 * (temp_diff / hp) ** 0.946
+        valve_fraction = 0.019 * (temp_diff / hp) ** 0.946
         if temp_diff > VALVE_MIN_THRESHOLD_TEMP_DIFF:
-            valve_pos = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_pos)
+            valve_fraction = max(VALVE_MIN_OPENING_LARGE_DIFF, valve_fraction)
         elif temp_diff >= VALVE_MIN_SMALL_DIFF_THRESHOLD:
             min_v = (
                 VALVE_MIN_BASE
                 + (temp_diff - VALVE_MIN_SMALL_DIFF_THRESHOLD)
                 * VALVE_MIN_PROPORTIONAL_SLOPE
             )
-            valve_pos = max(min_v, valve_pos)
-        return max(0.0, min(1.0, valve_pos)) * 100.0
+            valve_fraction = max(min_v, valve_fraction)
+        return max(0.0, min(1.0, valve_fraction)) * 100.0
 
     def _update_learner(self, ctx: BenchmarkContext, is_heating: bool) -> None:
         """Track heating cycles and EMA-update ``heating_power`` on finalize.

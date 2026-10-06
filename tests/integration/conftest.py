@@ -408,10 +408,10 @@ async def build_devices(hass, *profiles: DeviceProfile) -> list[SimulatedClimate
         # registered under an id derived from the device name.
         entity.entity_id = profile.entity_id
         if profile.offset_channel is OffsetChannel.NUMBER_ENTITY:
-            offset = SimulatedOffsetNumber(profile)
-            offset.entity_id = offset_number_id(profile)
-            entity.offset_number = offset
-            numbers.append(offset)
+            offset_number = SimulatedOffsetNumber(profile)
+            offset_number.entity_id = offset_number_id(profile)
+            entity.offset_number = offset_number
+            numbers.append(offset_number)
         if profile.valve_channel is ValveChannel.NUMBER_ENTITY:
             valve = SimulatedValveNumber(profile)
             valve.entity_id = valve_number_id(profile)

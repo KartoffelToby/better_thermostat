@@ -65,7 +65,7 @@ from .utils.const import (
     DEFAULT_CALIBRATION_MODE,
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from .utils.helpers import (
@@ -376,18 +376,18 @@ def _build_advanced_fields(
 
     options = []
     if support_valve:
-        options.append(CalibrationType.DIRECT_VALVE_BASED)
+        options.append(CalibrationOutput.DIRECT_VALVE_BASED)
 
-    options.append(CalibrationType.TARGET_TEMP_BASED)
+    options.append(CalibrationOutput.TARGET_TEMP_BASED)
 
     if support_offset:
-        options.append(CalibrationType.LOCAL_BASED)
+        options.append(CalibrationOutput.LOCAL_BASED)
 
     calib_selector = selector.SelectSelector(
         selector.SelectSelectorConfig(
             options=options,
             mode=selector.SelectSelectorMode.DROPDOWN,
-            translation_key="calibration_type",
+            translation_key="calibration_output",
         )
     )
     ordered: OrderedDict = OrderedDict()
@@ -741,14 +741,14 @@ def _normalize_user_submission(
             normalized[key] = 0
 
     suggested_off_temp = _off_temperature_default(system_unit)
-    off_temp = user_input.get(
+    off_temperature = user_input.get(
         CONF_OFF_TEMPERATURE, normalized.get(CONF_OFF_TEMPERATURE, suggested_off_temp)
     )
-    if off_temp is None:
+    if off_temperature is None:
         normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
     else:
         try:
-            normalized[CONF_OFF_TEMPERATURE] = int(off_temp)
+            normalized[CONF_OFF_TEMPERATURE] = int(off_temperature)
         except TypeError, ValueError:
             normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
 

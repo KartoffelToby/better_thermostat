@@ -12,7 +12,7 @@ import pytest
 
 from custom_components.better_thermostat.adapters import shelly
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.blu_trv"
@@ -118,7 +118,7 @@ class TestSetpoint:
     @pytest.mark.asyncio
     async def test_no_setpoint_while_the_valve_runs_without_a_target(self):
         """Direct valve control on a TRV that reports no target skips the write."""
-        bt = _thermostat(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        bt = _thermostat(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
         with _registry_patch(_registry()):
             await shelly.init(bt, ENTITY_ID)
 
@@ -130,10 +130,10 @@ class TestSetpoint:
     @pytest.mark.parametrize(
         ("calibration", "head_attributes", "valve_entity"),
         [
-            (CalibrationType.DIRECT_VALVE_BASED, {"temperature": 20.0}, VALVE_ENTITY),
-            (CalibrationType.TARGET_TEMP_BASED, {}, VALVE_ENTITY),
-            (CalibrationType.DIRECT_VALVE_BASED, {}, None),
-            (CalibrationType.DIRECT_VALVE_BASED, {}, "sensor.blu_trv_valve_position"),
+            (CalibrationOutput.DIRECT_VALVE_BASED, {"temperature": 20.0}, VALVE_ENTITY),
+            (CalibrationOutput.TARGET_TEMP_BASED, {}, VALVE_ENTITY),
+            (CalibrationOutput.DIRECT_VALVE_BASED, {}, None),
+            (CalibrationOutput.DIRECT_VALVE_BASED, {}, "sensor.blu_trv_valve_position"),
         ],
         ids=[
             "target-reported",
@@ -165,7 +165,7 @@ class TestValveWrite:
     @pytest.mark.asyncio
     async def test_the_position_goes_to_the_valve_number(self):
         """The percentage is written to the adopted valve entity."""
-        bt = _thermostat(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        bt = _thermostat(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
         with _registry_patch(_registry()):
             await shelly.init(bt, ENTITY_ID)
 

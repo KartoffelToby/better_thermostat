@@ -151,7 +151,7 @@ which is exactly a resilience signal.
 ## §5 — Metrics: what is measured and why
 
 All metrics are computed from a `TimeSeries` (`metrics.py`) of
-`(t, T_room, T_setpoint, valve_pct)`. Per dimension:
+`(t, T_room, T_setpoint, valve_percent)`. Per dimension:
 
 ### Comfort
 

@@ -135,12 +135,14 @@ def _calls(thermostat):
 class TestTheDefaultQuirkChangesNothing:
     """The passthrough half: values come back as they went in."""
 
-    @pytest.mark.parametrize("offset", [0.0, -2.5, 7.0])
-    def test_a_local_calibration_is_handed_back_untouched(self, offset):
+    @pytest.mark.parametrize("calibration_offset", [0.0, -2.5, 7.0])
+    def test_a_local_calibration_is_handed_back_untouched(self, calibration_offset):
         """The offset reaches the device as it was calculated."""
         assert (
-            default_quirk.fix_local_calibration(_thermostat(), ENTITY_ID, offset)
-            == offset
+            default_quirk.fix_local_calibration(
+                _thermostat(), ENTITY_ID, calibration_offset
+            )
+            == calibration_offset
         )
 
     @pytest.mark.parametrize("valve", [0, 42, 100])

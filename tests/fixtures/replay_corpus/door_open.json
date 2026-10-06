@@ -3,17 +3,17 @@
     "call_for_heat": true,
     "trvs": {
       "climate.trv1": {
+        "calibration_offset": null,
         "entity_id": "climate.trv1",
         "hvac_mode": "off",
-        "offset": null,
         "setpoint": null,
         "suppression": "door",
         "valve_percent": null
       },
       "climate.trv2": {
+        "calibration_offset": null,
         "entity_id": "climate.trv2",
         "hvac_mode": "off",
-        "offset": null,
         "setpoint": null,
         "suppression": "door",
         "valve_percent": null

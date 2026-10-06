@@ -59,7 +59,7 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
     return await generic_set_hvac_mode(self, entity_id, hvac_mode)
 
 
-async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get current offset."""
     state = self.hass.states.get(entity_id)
     if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
@@ -75,22 +75,22 @@ async def get_current_offset(self: AdapterHost, entity_id: str) -> float:
         return 0.0
 
 
-async def get_offset_step(self: AdapterHost, entity_id: str) -> float:
+async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> float:
     """Get offset step."""
     return OFFSET_STEP
 
 
-async def get_min_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get min offset."""
     return OFFSET_MIN
 
 
-async def get_max_offset(self: AdapterHost, entity_id: str) -> float:
+async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> float:
     """Get max offset."""
     return OFFSET_MAX
 
 
-async def set_offset(
+async def set_calibration_offset(
     self: AdapterHost, entity_id: str, calibration_offset: float
 ) -> bool:
     """Write a calibration offset through the Tado offset service.
@@ -110,8 +110,12 @@ async def set_offset(
         True once the write went out. The offset rides on the TRV's own
         service call, so every Tado TRV has the channel.
     """
-    calibration_offset = min(await get_max_offset(self, entity_id), calibration_offset)
-    calibration_offset = max(await get_min_offset(self, entity_id), calibration_offset)
+    calibration_offset = min(
+        await get_max_calibration_offset(self, entity_id), calibration_offset
+    )
+    calibration_offset = max(
+        await get_min_calibration_offset(self, entity_id), calibration_offset
+    )
     await self.hass.services.async_call(
         "tado",
         "set_climate_temperature_offset",

@@ -30,8 +30,8 @@ def bt_default_mode():
     bt.room_temperature = 20.0
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _entity_id, offset: float(
-        offset
+    quirks.fix_local_calibration.side_effect = (
+        lambda _self, _entity_id, calibration_offset: float(calibration_offset)
     )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _entity_id, temperature: float(temperature)

@@ -1,6 +1,6 @@
 """Tests for convert_outbound_states fallback mode.
 
-Issue #1698: When calibration_type is None, the system_mode logic is skipped,
+Issue #1698: When calibration_output is None, the system_mode logic is skipped,
 causing the TRV to receive incorrect hvac_mode values.
 
 The bug: In convert_outbound_states(), when _calibration_type is None (fallback mode),

@@ -25,7 +25,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
     _locked_device_moved,
@@ -139,7 +139,7 @@ def thermostat(reported_states):
                 "hvac_action": "heating",
                 "valve_position": 50,
                 "advanced": {
-                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration": CalibrationOutput.LOCAL_BASED,
                     "calibration_mode": CalibrationMode.DEFAULT,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": False,

@@ -12,8 +12,8 @@ from homeassistant.components.climate.const import HVACMode
 import pytest
 
 from custom_components.better_thermostat.adapters.delegate import (
+    set_calibration_offset,
     set_hvac_mode,
-    set_offset,
 )
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
@@ -31,7 +31,7 @@ def bt():
     trv = Trv(entity_id=KNOWN_TRV)
     trv.adapter = MagicMock()
     trv.adapter.set_hvac_mode = AsyncMock()
-    trv.adapter.set_offset = AsyncMock(return_value=True)
+    trv.adapter.set_calibration_offset = AsyncMock(return_value=True)
     mock.real_trvs = {KNOWN_TRV: trv}
     return mock
 
@@ -55,5 +55,5 @@ async def test_an_offset_write_to_an_unknown_trv_raises(bt):
         ),
         pytest.raises(KeyError, match=UNKNOWN_TRV),
     ):
-        await set_offset(bt, UNKNOWN_TRV, 1.0)
-    bt.real_trvs[KNOWN_TRV].adapter.set_offset.assert_not_awaited()
+        await set_calibration_offset(bt, UNKNOWN_TRV, 1.0)
+    bt.real_trvs[KNOWN_TRV].adapter.set_calibration_offset.assert_not_awaited()

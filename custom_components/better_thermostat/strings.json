@@ -366,7 +366,7 @@
         "no_calibration": "No Calibration"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Direct Valve Based",
         "target_temp_based": "Target Temperature Based",

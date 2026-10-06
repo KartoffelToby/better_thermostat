@@ -49,7 +49,9 @@ def _make_bt(
     bt.bt_hvac_mode = HVACMode.OFF
 
     quirks = MagicMock()
-    quirks.fix_local_calibration.side_effect = lambda _self, _eid, offset: float(offset)
+    quirks.fix_local_calibration.side_effect = lambda _self, _eid, calibration_offset: (
+        float(calibration_offset)
+    )
     quirks.fix_target_temperature_calibration.side_effect = (
         lambda _self, _eid, temperature: float(temperature)
     )

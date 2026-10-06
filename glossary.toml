@@ -15,8 +15,9 @@
 #     B  persisted key. Renaming needs a migration.
 #     C  user-facing contract. Renaming breaks automations.
 #
-# Adding a term is a normal pull request. Lowering a budget in
-# `.naming-budget.json` is what a rename delivers; raising one needs a reason.
+# Adding a term is a normal pull request. A term that rejects a spelling the
+# tree still uses records that backlog in `.naming-budget.json`; the renames that
+# follow lower it until the file deletes itself.
 # The convention these terms live under is in CONTRIBUTING.md → Naming.
 
 # ---------------------------------------------------------------------------
@@ -152,7 +153,7 @@ note = "`real` says nothing and the mapping does not name its key, so the name i
 name = "window_open_delay_seconds"
 zone = "B"
 definition = "Delay before BT reacts to a window opening."
-rejected = ["window_delay", "open_delay_s", "window_off_delay"]
+rejected = ["window_delay", "window_off_delay"]
 
 [[term]]
 name = "window_close_delay_seconds"
@@ -173,6 +174,19 @@ definition = "Delay before BT reacts to a door closing."
 rejected = ["door_delay_after"]
 
 [[term]]
+name = "open_delay_seconds"
+zone = "A"
+definition = "Delay before the contact state machine confirms an opening, for whichever contact it tracks."
+rejected = ["open_delay_s"]
+note = "The window state machine serves windows and doors alike, so its parameters carry no contact kind."
+
+[[term]]
+name = "close_delay_seconds"
+zone = "A"
+definition = "Delay before the contact state machine confirms a closing, for whichever contact it tracks."
+rejected = ["close_delay_s"]
+
+[[term]]
 name = "valve_percent"
 zone = "A"
 definition = "The valve opening BT computes, 0–100."
@@ -184,13 +198,20 @@ name = "calibration_offset"
 zone = "A"
 definition = "The offset value written to a device that calibrates by offset."
 rejected = ["offset"]
-note = "It pairs with `calibration_mode`; naming the value `offset` alone leaves the pair unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter methods (`set_offset`, `get_current_offset`, …) carry the same concept and follow when that contract is next opened."
+note = "It is what BT writes when the calibration output is the offset; naming the value `offset` alone leaves that unstated. Bare `calibration` stays out entirely, since it stands for the value, the method and the entity at once. The adapter contract carries it in its method names: `set_calibration_offset`, `get_calibration_offset`, `get_min_calibration_offset`, …"
+
+[[term]]
+name = "calibration_output"
+zone = "A"
+definition = "What BT writes to a TRV to calibrate it: the setpoint, the local offset or the valve opening."
+rejected = ["calibration_type"]
+note = "Named for what it writes, not how the value is computed; that is `calibration_mode`. The stored values (`target_temp_based`, …) stay, so a rollback to 1.9.3 still reads them."
 
 [[term]]
 name = "calibration_mode"
 zone = "A"
-definition = "The calibration method (target temperature based, offset based, …)."
-rejected = ["calibration_type"]
+definition = "The algorithm that computes the calibration (default, aggressive, PID, MPC, …)."
+rejected = []
 
 # ---------------------------------------------------------------------------
 # General
@@ -244,12 +265,4 @@ definition = "An HA entity id. Never `_id`, `_entity`, or a bare noun."
 # Exceptions: where a rejected spelling is the correct name after all. Each one
 # needs a reason. Without it the checker's findings stop being trustworthy.
 # ---------------------------------------------------------------------------
-
-[[exception]]
-alias = "current_temperature"
-paths = [
-  "custom_components/better_thermostat/climate.py",
-  "custom_components/better_thermostat/trv.py",
-]
-reason = "The HA property BT implements, and the `Trv` field it is read from."
 

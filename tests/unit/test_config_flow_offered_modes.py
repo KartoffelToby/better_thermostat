@@ -28,7 +28,7 @@ from custom_components.better_thermostat.config_flow import (
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_HEATER,
-    CalibrationType,
+    CalibrationOutput,
 )
 from tests.factories import make_entity_registry, make_registry_entry
 
@@ -262,7 +262,7 @@ class TestOfferedCalibrationStrategies:
         """
         form = await render(QUIRK_BACKED_MODEL)
 
-        assert CalibrationType.DIRECT_VALVE_BASED in _offered_calibrations(form)
+        assert CalibrationOutput.DIRECT_VALVE_BASED in _offered_calibrations(form)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("render", ADVANCED_FORMS.values(), ids=ADVANCED_FORMS)
@@ -275,4 +275,4 @@ class TestOfferedCalibrationStrategies:
         """
         form = await render(UNQUIRKED_MODEL)
 
-        assert CalibrationType.DIRECT_VALVE_BASED not in _offered_calibrations(form)
+        assert CalibrationOutput.DIRECT_VALVE_BASED not in _offered_calibrations(form)

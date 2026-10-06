@@ -44,7 +44,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import (
     HOMEMATICIP_MIN_WRITE_INTERVAL_S,
@@ -64,9 +64,9 @@ _PATCHES = {
     "convert_outbound_states": f"{_CTRL}.convert_outbound_states",
     "set_hvac_mode": f"{_CTRL}.set_hvac_mode",
     "set_temperature": f"{_CTRL}.set_temperature",
-    "set_offset": f"{_CTRL}.set_offset",
+    "set_calibration_offset": f"{_CTRL}.set_calibration_offset",
     "set_valve": f"{_CTRL}.set_valve",
-    "get_current_offset": f"{_CTRL}.get_current_offset",
+    "get_calibration_offset": f"{_CTRL}.get_calibration_offset",
     "override_set_hvac_mode": f"{_CTRL}.override_set_hvac_mode",
     "override_set_temperature": f"{_CTRL}.override_set_temperature",
 }
@@ -189,7 +189,7 @@ def _default_trv_config(**overrides):
         "hvac_mode": HVACMode.HEAT,
         "advanced": {
             "calibration_mode": CalibrationMode.NO_CALIBRATION,
-            "calibration": CalibrationType.TARGET_TEMP_BASED,
+            "calibration": CalibrationOutput.TARGET_TEMP_BASED,
             "no_off_system_mode": False,
         },
     }
@@ -395,7 +395,7 @@ class TestControlTrvUnavailablePath:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -412,8 +412,8 @@ class TestControlTrvUnavailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
-            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_calibration_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -443,7 +443,7 @@ class TestControlTrvUnavailablePath:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -460,8 +460,8 @@ class TestControlTrvUnavailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
-            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_calibration_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -489,7 +489,7 @@ class TestControlTrvUnavailablePath:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.LOCAL_BASED,
+                        "calibration": CalibrationOutput.LOCAL_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -509,8 +509,8 @@ class TestControlTrvUnavailablePath:
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
-            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["set_calibration_offset"], autospec=True, return_value=True),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -651,7 +651,7 @@ class TestControlTrvAvailablePath:
                     last_hvac_mode=HVACMode.OFF,
                     advanced={
                         "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                         "no_off_system_mode": False,
                         "heat_auto_swapped": True,
                     },
@@ -818,7 +818,7 @@ class TestControlTrvAvailablePath:
                     _default_trv_config(
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         }
                     )
@@ -858,7 +858,7 @@ class TestControlTrvAvailablePath:
     async def test_grouped_trv_calibration_fix(self):
         """Test grouped TRV calibration fix.
 
-        When get_current_offset matches the target calibration and
+        When get_calibration_offset matches the target calibration and
         calibration_received is False, it should be reset to True.
         """
         mock_self = _make_mock_self(
@@ -870,7 +870,7 @@ class TestControlTrvAvailablePath:
                     calibration_received=False,  # Stuck at False
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                         "no_off_system_mode": False,
                     },
                 )
@@ -880,7 +880,7 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
@@ -907,8 +907,8 @@ class TestControlTrvAvailablePath:
             assert result is True
 
     @pytest.mark.asyncio
-    async def test_get_current_offset_none_returns_true(self):
-        """Test that get_current_offset returning None logs error and returns True."""
+    async def test_get_calibration_offset_none_returns_true(self):
+        """Test that get_calibration_offset returning None logs error and returns True."""
         mock_self = _make_mock_self(
             trv_state=HVACMode.HEAT,
             trv_attrs={"temperature": 20.0},
@@ -917,7 +917,7 @@ class TestControlTrvAvailablePath:
                     calibration_received=True,
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                         "no_off_system_mode": False,
                     },
                 )
@@ -927,7 +927,7 @@ class TestControlTrvAvailablePath:
         with (
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
@@ -944,7 +944,7 @@ class TestControlTrvAvailablePath:
                 "local_temperature_calibration": 2.0,
                 "system_mode": HVACMode.HEAT,
             }
-            # Fatal error: get_current_offset returns None
+            # Fatal error: get_calibration_offset returns None
             mock_get_offset.return_value = None
 
             result = await control_trv(mock_self, "climate.trv1")
@@ -1092,7 +1092,7 @@ class TestControlTrvAvailablePath:
             system_mode_received=True,
             advanced={
                 "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                 "no_off_system_mode": False,
             },
         )
@@ -1115,7 +1115,7 @@ class TestControlTrvAvailablePath:
             ),
             patch(_PATCHES["set_temperature"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
             patch("asyncio.sleep", new=AsyncMock()),
         ):
             mock_convert.return_value = {
@@ -1150,7 +1150,7 @@ class TestControlTrvAvailablePath:
                         system_mode_received=True,
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         },
                     )
@@ -1651,7 +1651,7 @@ class TestBoostModeSafetyOverride:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     },
                     "system_mode_received": True,
@@ -1708,7 +1708,7 @@ class TestBoostModeSafetyOverride:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -1763,7 +1763,7 @@ class TestBoostModeSafetyOverride:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     }
                 )
@@ -1819,7 +1819,7 @@ class TestBoostModeSafetyOverride:
                     _default_trv_config(
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         }
                     )
@@ -1892,7 +1892,7 @@ class TestBoostModeSafetyOverride:
                 "climate.trv1": _default_trv_config(
                     advanced={
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                         CONF_HOMEMATICIP: True,
                     }
@@ -1997,7 +1997,7 @@ class TestBoostModeSafetyOverride:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                        "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                         "no_off_system_mode": False,
                     },
                     "system_mode_received": True,
@@ -2060,7 +2060,7 @@ class TestValveWriteResult:
                     _default_trv_config(
                         advanced={
                             "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
                             "no_off_system_mode": False,
                         }
                     )
@@ -2303,7 +2303,7 @@ class TestRaceConditionLockCoverage:
     """Test that parallel TRV control does not cause race conditions.
 
     The _temp_lock must protect all critical operations including
-    set_valve(), set_hvac_mode(), set_offset(), and set_temperature()
+    set_valve(), set_hvac_mode(), set_calibration_offset(), and set_temperature()
     to prevent shared state corruption when multiple TRVs are controlled
     concurrently via asyncio.gather().
     """
@@ -2384,7 +2384,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2406,7 +2406,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2435,8 +2435,8 @@ class TestRaceConditionLockCoverage:
             ) as mock_set_valve,
             patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
             patch(
-                _PATCHES["set_offset"], autospec=True, return_value=True
-            ) as mock_set_offset,
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
             patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
@@ -2444,7 +2444,7 @@ class TestRaceConditionLockCoverage:
             patch(
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -2463,10 +2463,10 @@ class TestRaceConditionLockCoverage:
                 await asyncio.sleep(0.01)
                 execution_log.append(f"set_hvac_mode_end_{args[1]}")
 
-            async def delayed_set_offset(*args, **kwargs):
-                execution_log.append(f"set_offset_start_{args[1]}")
+            async def delayed_set_calibration_offset(*args, **kwargs):
+                execution_log.append(f"set_calibration_offset_start_{args[1]}")
                 await asyncio.sleep(0.01)
-                execution_log.append(f"set_offset_end_{args[1]}")
+                execution_log.append(f"set_calibration_offset_end_{args[1]}")
                 return True
 
             async def delayed_set_temp(*args, **kwargs):
@@ -2476,7 +2476,7 @@ class TestRaceConditionLockCoverage:
 
             mock_set_valve.side_effect = delayed_set_valve
             mock_set_hvac_mode.side_effect = delayed_set_hvac_mode
-            mock_set_offset.side_effect = delayed_set_offset
+            mock_set_calibration_offset.side_effect = delayed_set_calibration_offset
             mock_set_temp.side_effect = delayed_set_temp
 
             results = await asyncio.gather(
@@ -2491,7 +2491,7 @@ class TestRaceConditionLockCoverage:
             total_calls = (
                 mock_set_temp.call_count
                 + mock_set_hvac_mode.call_count
-                + mock_set_offset.call_count
+                + mock_set_calibration_offset.call_count
                 + mock_set_valve.call_count
             )
             assert total_calls >= 2, (
@@ -2585,7 +2585,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2606,7 +2606,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             ),
@@ -2623,7 +2623,7 @@ class TestRaceConditionLockCoverage:
             patch(
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -2702,7 +2702,7 @@ class TestRaceConditionLockCoverage:
                     ),
                     "advanced": {
                         "calibration_mode": CalibrationMode.MPC_CALIBRATION,
-                        "calibration": CalibrationType.TARGET_TEMP_BASED,
+                        "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     },
                 },
             )
@@ -2719,8 +2719,8 @@ class TestRaceConditionLockCoverage:
             ) as mock_set_valve,
             patch(_PATCHES["set_hvac_mode"], autospec=True) as mock_set_hvac_mode,
             patch(
-                _PATCHES["set_offset"], autospec=True, return_value=True
-            ) as mock_set_offset,
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
             patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(
                 _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
@@ -2728,7 +2728,7 @@ class TestRaceConditionLockCoverage:
             patch(
                 _PATCHES["override_set_temperature"], autospec=True, return_value=False
             ),
-            patch(_PATCHES["get_current_offset"], autospec=True, return_value=0.0),
+            patch(_PATCHES["get_calibration_offset"], autospec=True, return_value=0.0),
         ):
             mock_convert.return_value = {
                 "temperature": 22.0,
@@ -2747,9 +2747,9 @@ class TestRaceConditionLockCoverage:
                     ("set_hvac_mode", mock_self._temp_lock.locked())
                 )
 
-            async def check_lock_on_set_offset(*args, **kwargs):
+            async def check_lock_on_set_calibration_offset(*args, **kwargs):
                 lock_state_during_operations.append(
-                    ("set_offset", mock_self._temp_lock.locked())
+                    ("set_calibration_offset", mock_self._temp_lock.locked())
                 )
                 return True
 
@@ -2760,7 +2760,9 @@ class TestRaceConditionLockCoverage:
 
             mock_set_valve.side_effect = check_lock_on_set_valve
             mock_set_hvac_mode.side_effect = check_lock_on_set_hvac_mode
-            mock_set_offset.side_effect = check_lock_on_set_offset
+            mock_set_calibration_offset.side_effect = (
+                check_lock_on_set_calibration_offset
+            )
             mock_set_temp.side_effect = check_lock_on_set_temp
 
             result = await control_trv(mock_self, "climate.trv1")
@@ -2941,19 +2943,19 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["set_offset"], autospec=True, return_value=True
-            ) as mock_set_offset,
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
             patch(_PATCHES["set_temperature"], autospec=True),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_get_offset.return_value = 2.0  # confirms last_calibration
-            mock_set_offset.return_value = True
+            mock_set_calibration_offset.return_value = True
             mock_convert.return_value = {
                 "temperature": 21.0,
                 "local_temperature_calibration": 3.0,  # the intent moved
@@ -2965,7 +2967,9 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            mock_set_offset.assert_awaited_once_with(mock_bt_grouped, entity_id, 3.0)
+            mock_set_calibration_offset.assert_awaited_once_with(
+                mock_bt_grouped, entity_id, 3.0
+            )
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
     async def test_calibration_sent_when_received_true_and_differs(
@@ -2981,12 +2985,12 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["set_offset"], autospec=True, return_value=True
-            ) as mock_set_offset,
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
             patch(_PATCHES["set_temperature"], autospec=True),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
@@ -3004,7 +3008,9 @@ class TestGroupedTrvCalibration:
 
             await control_trv(mock_bt_grouped, entity_id)
 
-            mock_set_offset.assert_called_once_with(mock_bt_grouped, entity_id, 3.0)
+            mock_set_calibration_offset.assert_called_once_with(
+                mock_bt_grouped, entity_id, 3.0
+            )
             assert mock_bt_grouped.real_trvs[entity_id].calibration_received is False
 
     async def test_missing_reference_calibration_skips_offset_write(
@@ -3026,12 +3032,12 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
             patch(
-                _PATCHES["set_offset"], autospec=True, return_value=True
-            ) as mock_set_offset,
+                _PATCHES["set_calibration_offset"], autospec=True, return_value=True
+            ) as mock_set_calibration_offset,
             patch(_PATCHES["set_temperature"], autospec=True) as mock_set_temp,
             patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
@@ -3054,7 +3060,7 @@ class TestGroupedTrvCalibration:
             result = await control_trv(mock_bt_grouped, entity_id)
 
             assert result is True
-            mock_set_offset.assert_not_called()
+            mock_set_calibration_offset.assert_not_called()
             mock_set_temp.assert_awaited_once_with(mock_bt_grouped, entity_id, 21.0)
 
     @pytest.mark.parametrize(
@@ -3081,10 +3087,10 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["set_calibration_offset"], autospec=True, return_value=True),
             patch(_PATCHES["set_temperature"], autospec=True),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
@@ -3115,10 +3121,10 @@ class TestGroupedTrvCalibration:
 
         with (
             patch(
-                _PATCHES["get_current_offset"], autospec=True, return_value=0.0
+                _PATCHES["get_calibration_offset"], autospec=True, return_value=0.0
             ) as mock_get_offset,
             patch(_PATCHES["convert_outbound_states"]) as mock_convert,
-            patch(_PATCHES["set_offset"], autospec=True, return_value=True),
+            patch(_PATCHES["set_calibration_offset"], autospec=True, return_value=True),
             patch(_PATCHES["set_temperature"], autospec=True),
             patch(_PATCHES["set_hvac_mode"], autospec=True),
             patch(_PATCHES["set_valve"], autospec=True, return_value=True),
@@ -3166,7 +3172,7 @@ class TestControlTrvOnADualRoleEntity:
                 "hvac_mode": HVACMode.HEAT,
                 "advanced": {
                     "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                    "calibration": CalibrationType.TARGET_TEMP_BASED,
+                    "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": heat_auto_swapped,
                 },
@@ -3282,7 +3288,7 @@ def _offset_trv_config(**overrides):
         "local_temperature_calibration_entity": "number.trv1_offset",
         "advanced": {
             "calibration_mode": CalibrationMode.DEFAULT,
-            "calibration": CalibrationType.LOCAL_BASED,
+            "calibration": CalibrationOutput.LOCAL_BASED,
             "no_off_system_mode": False,
         },
     }
@@ -3300,17 +3306,27 @@ def _make_offset_self(**overrides):
 
 
 async def _run_offset_cycle(
-    mock_self, desired_offset, reported_offset, set_offset=None, system_mode=None
+    mock_self,
+    desired_offset,
+    reported_offset,
+    set_calibration_offset=None,
+    system_mode=None,
 ):
     """Run one control_trv cycle for the offset-calibrated TRV."""
-    if set_offset is None:
-        set_offset = AsyncMock(return_value=True)
+    if set_calibration_offset is None:
+        set_calibration_offset = AsyncMock(return_value=True)
     with (
         patch(_PATCHES["convert_outbound_states"]) as mock_convert,
         patch(
-            _PATCHES["get_current_offset"], autospec=True, return_value=reported_offset
+            _PATCHES["get_calibration_offset"],
+            autospec=True,
+            return_value=reported_offset,
         ) as mock_get_offset,
-        patch(_PATCHES["set_offset"], autospec=True, side_effect=set_offset),
+        patch(
+            _PATCHES["set_calibration_offset"],
+            autospec=True,
+            side_effect=set_calibration_offset,
+        ),
         patch(_PATCHES["set_temperature"], autospec=True),
         patch(_PATCHES["set_hvac_mode"], autospec=True),
         patch(_PATCHES["set_valve"], autospec=True, return_value=True),
@@ -3325,7 +3341,7 @@ async def _run_offset_cycle(
             "system_mode": system_mode or HVACMode.HEAT,
         }
         await control_trv(mock_self, "climate.trv1")
-    return set_offset, mock_get_offset
+    return set_calibration_offset, mock_get_offset
 
 
 def _accepted_write(mock_self):
@@ -3335,13 +3351,13 @@ def _accepted_write(mock_self):
     the value asked for, both before the device has said anything.
     """
 
-    async def _set_offset(_self, entity_id, offset):
+    async def _set_calibration_offset(_self, entity_id, calibration_offset):
         trv = mock_self.real_trvs[entity_id]
-        trv.last_calibration = offset
-        trv.last_calibration_requested = offset
+        trv.last_calibration = calibration_offset
+        trv.last_calibration_requested = calibration_offset
         return True
 
-    return AsyncMock(side_effect=_set_offset)
+    return AsyncMock(side_effect=_set_calibration_offset)
 
 
 class TestOffsetWriteGate:
@@ -3373,19 +3389,19 @@ class TestOffsetWriteGate:
         with patch(f"{_HELPERS}.er.async_get", return_value=disabled):
             for _ in range(3):
                 mock_self.clock.advance(MIN_WRITE_INTERVAL_S + 1)
-                set_offset, get_offset = await _run_offset_cycle(
+                set_calibration_offset, get_offset = await _run_offset_cycle(
                     mock_self, desired_offset=-2.0, reported_offset=0.0
                 )
-                set_offset.assert_not_awaited()
+                set_calibration_offset.assert_not_awaited()
                 get_offset.assert_not_called()
         assert mock_self.real_trvs["climate.trv1"].last_offset_write_monotonic is None
         assert "bt_budget_retry_climate.trv1" not in captured
 
         with patch(f"{_HELPERS}.er.async_get", return_value=enabled):
-            set_offset, _ = await _run_offset_cycle(
+            set_calibration_offset, _ = await _run_offset_cycle(
                 mock_self, desired_offset=-2.0, reported_offset=0.0
             )
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
     async def test_unconfirmed_offset_is_written_once_the_report_confirms(self):
@@ -3396,11 +3412,11 @@ class TestOffsetWriteGate:
         """
         mock_self = _make_offset_self(calibration_received=False, last_calibration=0.0)
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=0.0
         )
 
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
     async def test_write_arms_the_confirmation_watchdog(self):
@@ -3426,7 +3442,7 @@ class TestOffsetWriteGate:
         open and the report away from the command re-sends the command.
         """
         mock_self = _make_offset_self(calibration_received=True, last_calibration=0.0)
-        set_offset = _accepted_write(mock_self)
+        set_calibration_offset = _accepted_write(mock_self)
 
         for _ in range(3):
             mock_self.real_trvs["climate.trv1"].calibration_received = True
@@ -3434,11 +3450,11 @@ class TestOffsetWriteGate:
                 mock_self,
                 desired_offset=-2.0,
                 reported_offset=0.0,
-                set_offset=set_offset,
+                set_calibration_offset=set_calibration_offset,
             )
             mock_self.clock.advance(31.0)
 
-        assert set_offset.await_count == 3
+        assert set_calibration_offset.await_count == 3
 
     @pytest.mark.asyncio
     async def test_converged_offset_is_not_rewritten(self):
@@ -3449,11 +3465,11 @@ class TestOffsetWriteGate:
             last_calibration_requested=-2.0,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=-2.0
         )
 
-        set_offset.assert_not_awaited()
+        set_calibration_offset.assert_not_awaited()
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
 
     @pytest.mark.asyncio
@@ -3468,18 +3484,18 @@ class TestOffsetWriteGate:
             last_calibration=-3.0,
             last_calibration_requested=-5.0,
         )
-        set_offset = AsyncMock(return_value=True)
+        set_calibration_offset = AsyncMock(return_value=True)
 
         for _ in range(5):
             await _run_offset_cycle(
                 mock_self,
                 desired_offset=-5.0,
                 reported_offset=-3.0,
-                set_offset=set_offset,
+                set_calibration_offset=set_calibration_offset,
             )
             mock_self.clock.advance(31.0)
 
-        set_offset.assert_not_awaited()
+        set_calibration_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_new_intent_past_a_clamp_is_written_once(self):
@@ -3490,11 +3506,11 @@ class TestOffsetWriteGate:
             last_calibration_requested=-5.0,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-6.0, reported_offset=-3.0
         )
 
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -6.0)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -6.0)
 
     @pytest.mark.asyncio
     async def test_dropped_write_is_reasserted_against_an_unchanged_intent(self):
@@ -3505,11 +3521,11 @@ class TestOffsetWriteGate:
             last_calibration_requested=-2.0,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=0.0
         )
 
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
     async def test_report_beyond_a_step_counts_as_diverged(self):
@@ -3521,11 +3537,11 @@ class TestOffsetWriteGate:
             local_calibration_step=0.1,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=-1.7
         )
 
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -2.0)
 
     @pytest.mark.asyncio
     async def test_report_within_a_step_counts_as_confirmed(self):
@@ -3537,11 +3553,11 @@ class TestOffsetWriteGate:
             local_calibration_step=1.0,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=-3.0
         )
 
-        set_offset.assert_not_awaited()
+        set_calibration_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_report_one_step_below_the_command_is_not_rewritten(self):
@@ -3559,11 +3575,11 @@ class TestOffsetWriteGate:
             local_calibration_step=0.1,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=6.3, reported_offset=6.2
         )
 
-        set_offset.assert_not_awaited()
+        set_calibration_offset.assert_not_awaited()
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
 
     @pytest.mark.asyncio
@@ -3576,11 +3592,11 @@ class TestOffsetWriteGate:
             local_calibration_step=0.1,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=6.3, reported_offset=6.1
         )
 
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", 6.3)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", 6.3)
 
     @pytest.mark.asyncio
     async def test_failed_write_keeps_the_gate_open_and_retries(self):
@@ -3592,10 +3608,13 @@ class TestOffsetWriteGate:
                 (coro.close(), tasks.append(name)) and Mock()
             )
         )
-        set_offset = AsyncMock(return_value=False)
+        set_calibration_offset = AsyncMock(return_value=False)
 
         await _run_offset_cycle(
-            mock_self, desired_offset=-2.0, reported_offset=0.0, set_offset=set_offset
+            mock_self,
+            desired_offset=-2.0,
+            reported_offset=0.0,
+            set_calibration_offset=set_calibration_offset,
         )
 
         assert mock_self.real_trvs["climate.trv1"].calibration_received is True
@@ -3603,10 +3622,13 @@ class TestOffsetWriteGate:
 
         mock_self.clock.advance(31.0)
         await _run_offset_cycle(
-            mock_self, desired_offset=-2.0, reported_offset=0.0, set_offset=set_offset
+            mock_self,
+            desired_offset=-2.0,
+            reported_offset=0.0,
+            set_calibration_offset=set_calibration_offset,
         )
 
-        assert set_offset.await_count == 2
+        assert set_calibration_offset.await_count == 2
 
     @pytest.mark.asyncio
     async def test_no_calibration_mode_leaves_the_channel_alone(self):
@@ -3616,7 +3638,7 @@ class TestOffsetWriteGate:
             last_calibration=0.0,
             advanced={
                 "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationType.LOCAL_BASED,
+                "calibration": CalibrationOutput.LOCAL_BASED,
                 "no_off_system_mode": False,
             },
         )
@@ -3627,11 +3649,11 @@ class TestOffsetWriteGate:
             )
         )
 
-        set_offset, get_offset = await _run_offset_cycle(
+        set_calibration_offset, get_offset = await _run_offset_cycle(
             mock_self, desired_offset=-2.0, reported_offset=0.0
         )
 
-        set_offset.assert_not_awaited()
+        set_calibration_offset.assert_not_awaited()
         get_offset.assert_not_awaited()
         assert not [name for name in tasks if name.startswith("bt_check_calibration")]
 
@@ -3644,14 +3666,14 @@ class TestOffsetWriteGate:
             last_calibration_requested=-2.0,
         )
 
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self,
             desired_offset=-2.0,
             reported_offset=0.0,
             system_mode=HVACMode.OFF,
         )
 
-        set_offset.assert_not_awaited()
+        set_calibration_offset.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_declared_step_finer_than_the_reported_grid_converges(self):
@@ -3670,26 +3692,26 @@ class TestOffsetWriteGate:
         )
         reported = {"value": 0.0}
 
-        async def _write_and_round(_self, entity_id, offset):
+        async def _write_and_round(_self, entity_id, calibration_offset):
             """Take the command and publish it on the device's own grid."""
             trv = mock_self.real_trvs[entity_id]
-            trv.last_calibration = offset
-            trv.last_calibration_requested = offset
-            reported["value"] = round(round(offset / 0.05) * 0.05, 6)
+            trv.last_calibration = calibration_offset
+            trv.last_calibration_requested = calibration_offset
+            reported["value"] = round(round(calibration_offset / 0.05) * 0.05, 6)
             return True
 
-        set_offset = AsyncMock(side_effect=_write_and_round)
+        set_calibration_offset = AsyncMock(side_effect=_write_and_round)
         for _ in range(20):
             mock_self.real_trvs["climate.trv1"].calibration_received = True
             await _run_offset_cycle(
                 mock_self,
                 desired_offset=-2.32,
                 reported_offset=reported["value"],
-                set_offset=set_offset,
+                set_calibration_offset=set_calibration_offset,
             )
             mock_self.clock.advance(31.0)
 
-        assert set_offset.await_count == 1
+        assert set_calibration_offset.await_count == 1
 
     @pytest.mark.asyncio
     async def test_each_write_arms_a_watchdog_for_its_own_command(self):
@@ -3730,15 +3752,15 @@ class TestOffsetWriteGate:
         earlier_watchdog = check_calibration(mock_self, "climate.trv1", 1)
 
         # The cycle confirms -2.0 and writes -3.0, arming the newer watchdog.
-        set_offset, _ = await _run_offset_cycle(
+        set_calibration_offset, _ = await _run_offset_cycle(
             mock_self, desired_offset=-3.0, reported_offset=-2.0
         )
 
-        set_offset.assert_awaited_once_with(mock_self, "climate.trv1", -3.0)
+        set_calibration_offset.assert_awaited_once_with(mock_self, "climate.trv1", -3.0)
         assert trv.calibration_received is False
         assert trv.calibration_write_generation == 2
 
-        with patch(f"{_CTRL}.get_current_offset", autospec=True, return_value=-2.0):
+        with patch(f"{_CTRL}.get_calibration_offset", autospec=True, return_value=-2.0):
             assert await earlier_watchdog is True
 
         assert trv.calibration_received is False
@@ -3840,7 +3862,7 @@ class TestSnappingSelectOffsetConverges:
         trv = mock_self.real_trvs["climate.trv1"]
         # The real write path: the delegate records the intent and the
         # adapter the command.
-        set_offset = AsyncMock(side_effect=delegate.set_offset)
+        set_calibration_offset = AsyncMock(side_effect=delegate.set_calibration_offset)
 
         for _ in range(5):
             # The watchdog releases the gate at the end of its window.
@@ -3849,7 +3871,7 @@ class TestSnappingSelectOffsetConverges:
                 mock_self,
                 desired_offset=-2.0,
                 reported_offset=device.reported,
-                set_offset=set_offset,
+                set_calibration_offset=set_calibration_offset,
             )
             mock_self.clock.advance(31.0)
 
@@ -3863,7 +3885,7 @@ class TestSnappingSelectOffsetConverges:
         device = _SnappingSelect()
         mock_self = self._wire(device)
         trv = mock_self.real_trvs["climate.trv1"]
-        set_offset = AsyncMock(side_effect=delegate.set_offset)
+        set_calibration_offset = AsyncMock(side_effect=delegate.set_calibration_offset)
 
         for desired in (-2.0, 2.0):
             trv.calibration_received = True
@@ -3871,7 +3893,7 @@ class TestSnappingSelectOffsetConverges:
                 mock_self,
                 desired_offset=desired,
                 reported_offset=device.reported,
-                set_offset=set_offset,
+                set_calibration_offset=set_calibration_offset,
             )
             mock_self.clock.advance(31.0)
 
@@ -4257,7 +4279,7 @@ def _paced_trv(entity_id, *, homematicip):
             "hvac_mode": HVACMode.HEAT,
             "advanced": {
                 "calibration_mode": CalibrationMode.NO_CALIBRATION,
-                "calibration": CalibrationType.TARGET_TEMP_BASED,
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 "no_off_system_mode": False,
                 CONF_HOMEMATICIP: homematicip,
             },

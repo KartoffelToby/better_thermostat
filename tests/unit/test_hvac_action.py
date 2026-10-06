@@ -29,7 +29,7 @@ def _default_kwargs(**overrides):
         "hysteresis": ToleranceHysteresis(),
         "room_temperature": 20.0,
         "heat_target_temperature": 21.0,
-        "cool_target": None,
+        "cool_target_temperature": None,
         "hvac_mode": HVACMode.HEAT,
         "bt_hvac_mode": HVACMode.HEAT,
         "window_open": False,
@@ -95,11 +95,11 @@ class TestShouldCoolWithTolerance:
     """Tests for should cool with tolerance."""
 
     def test_starts_at_the_upper_edge(self):
-        """Cooling starts when temp >= cool_target + tolerance."""
+        """Cooling starts when temp >= cool_target_temperature + tolerance."""
         assert should_cool_with_tolerance(24.5, 24.0, 0.5, False) is True
 
     def test_no_start_in_band_when_idle(self):
-        """No start in [cool_target, cool_target+tol) when not yet cooling."""
+        """No start in [cool_target_temperature, cool_target_temperature+tol) when not yet cooling."""
         assert should_cool_with_tolerance(24.4, 24.0, 0.5, False) is False
 
     def test_continues_in_band_when_cooling(self):
@@ -267,7 +267,7 @@ class TestComputeHvacAction:
                 hvac_mode=HVACMode.HEAT_COOL,
                 bt_hvac_mode=HVACMode.HEAT,
                 room_temperature=27.0,
-                cool_target=25.0,
+                cool_target_temperature=25.0,
                 tolerance=0.5,
             )
         )
@@ -280,7 +280,7 @@ class TestComputeHvacAction:
                 hvac_mode=HVACMode.HEAT_COOL,
                 bt_hvac_mode=HVACMode.HEAT,
                 room_temperature=25.3,
-                cool_target=25.0,
+                cool_target_temperature=25.0,
                 tolerance=0.5,
             )
         )
@@ -461,7 +461,7 @@ class TestHysteresisTransitions:
                 hvac_mode=HVACMode.HEAT_COOL,
                 bt_hvac_mode=HVACMode.HEAT,
                 room_temperature=27.0,
-                cool_target=25.0,
+                cool_target_temperature=25.0,
             )
         )
         assert r.new_hold_active is False

@@ -223,15 +223,15 @@ HEAD_CLOCK = "custom_components.better_thermostat.events.trv.dt_util"
 
 
 class HeadClock:
-    """The wall clock the head handler reads, ahead of real time by ``offset``."""
+    """The wall clock the head handler reads, ahead of real time by ``shift``."""
 
     def __init__(self) -> None:
         """Start level with real time."""
-        self.offset = timedelta(0)
+        self.shift = timedelta(0)
 
     def now(self, time_zone=None):
         """Return the time the room has reached."""
-        return dt_util.now(time_zone) + self.offset
+        return dt_util.now(time_zone) + self.shift
 
     def __getattr__(self, name: str):
         """Leave everything but the current time to Home Assistant."""
@@ -290,9 +290,9 @@ class Room:
         head's range.
         """
         head = self.heads[index]
-        offset = head.current_temperature - self.room_temperature
+        head_bias = head.current_temperature - self.room_temperature
         profile = head.profile
-        return min(max(target + offset, profile.min_temp), profile.max_temp)
+        return min(max(target + head_bias, profile.min_temp), profile.max_temp)
 
     def carries(self, index: int, value: float | None, target: float | None) -> bool:
         """Return whether head ``index`` holding ``value`` carries ``target``."""
@@ -748,7 +748,7 @@ async def _let_debounce_pass(room: Room) -> None:
     """Let Home Assistant's clock run past a reading's debounce interval."""
     await room.hass.async_block_till_done()
     if any(trv.internal_reread_pending for trv in room.bt.real_trvs.values()):
-        room.clock.offset += DEBOUNCE
+        room.clock.shift += DEBOUNCE
     async_fire_time_changed(room.hass, dt_util.utcnow() + DEBOUNCE)
     await room.hass.async_block_till_done()
 

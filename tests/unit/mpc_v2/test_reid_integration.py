@@ -23,7 +23,7 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
 )
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.state_manager import (
@@ -132,14 +132,14 @@ def test_deserialize_rejects_malformed_reid_payload() -> None:
 # -- Dispatcher wiring --------------------------------------------------------
 
 
-def _trv_info(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
+def _make_trv(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
     """Build a Trv configured for MPC v2 calibration with a given preset."""
     return Trv(
         entity_id=entity_id,
         current_temperature=19.0,
         valve_max_opening=100.0,
         advanced={
-            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
             "calibration_mode": CalibrationMode.MPC_V2_CALIBRATION,
             "mpc_v2_plant_preset": preset,
         },
@@ -153,7 +153,7 @@ def _trv_info(entity_id: str, preset: MpcV2PlantPreset) -> Trv:
 def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
     """Build a minimal BT-shaped namespace with a real StateManager."""
     return SimpleNamespace(
-        real_trvs={"climate.x": _trv_info("climate.x", preset)},
+        real_trvs={"climate.x": _make_trv("climate.x", preset)},
         heat_target_temperature=21.0,
         room_temperature=19.5,
         tolerance=0.0,

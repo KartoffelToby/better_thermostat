@@ -17,7 +17,7 @@ import pytest
 
 from custom_components.better_thermostat.utils.const import (
     SERVICE_RUN_VALVE_MAINTENANCE,
-    CalibrationType,
+    CalibrationOutput,
 )
 
 from .conftest import (
@@ -155,7 +155,7 @@ async def test_an_unloaded_entry_leaves_no_listener_behind(hass):
     [
         (GENERIC_HEAT_TRV, "switch.bt_test_child_lock"),
         (
-            replace(VALVE_TRV, calibration=CalibrationType.DIRECT_VALVE_BASED.value),
+            replace(VALVE_TRV, calibration=CalibrationOutput.DIRECT_VALVE_BASED.value),
             "number.bt_test_valve_max_opening",
         ),
     ],

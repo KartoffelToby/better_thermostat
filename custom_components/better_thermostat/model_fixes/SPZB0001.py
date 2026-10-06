@@ -13,19 +13,21 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
-from ..utils.const import CalibrationType
+from ..utils.const import CalibrationOutput
 from ..utils.helpers import is_sibling_entry
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Clamp local calibration to safe bounds for SPZB0001 devices."""
-    if offset > 5:
-        offset = 5
-    elif offset < -5:
-        offset = -5
-    return offset
+    if calibration_offset > 5:
+        calibration_offset = 5
+    elif calibration_offset < -5:
+        calibration_offset = -5
+    return calibration_offset
 
 
 async def check_operation_mode(
@@ -118,10 +120,10 @@ async def check_operation_mode(
 
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
-    _calibration_type = self.real_trvs[entity_id].advanced.get(
-        "calibration", CalibrationType.TARGET_TEMP_BASED
+    _calibration_output = self.real_trvs[entity_id].advanced.get(
+        "calibration", CalibrationOutput.TARGET_TEMP_BASED
     )
-    if _calibration_type == CalibrationType.DIRECT_VALVE_BASED:
+    if _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
         await check_operation_mode(self, entity_id, goal="1")
     else:
         await check_operation_mode(self, entity_id, goal="2")

@@ -29,7 +29,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_WINDOW_TIMEOUT_AFTER,
     GENERIC_MODEL,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 
 DETECTED_MODEL = "TRVZB"
@@ -45,7 +45,7 @@ def _make_trv(entity_id, **extra):
         "integration": "generic",
         "adapter": "generic",
         "advanced": {
-            CONF_CALIBRATION: CalibrationType.TARGET_TEMP_BASED,
+            CONF_CALIBRATION: CalibrationOutput.TARGET_TEMP_BASED,
             CONF_CALIBRATION_MODE: CalibrationMode.DEFAULT,
             CONF_PROTECT_OVERHEATING: False,
         },

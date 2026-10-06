@@ -35,7 +35,7 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.helpers import mode_remap
@@ -126,7 +126,7 @@ def mock_bt():
                 "hvac_action": "heating",
                 "valve_position": 50,
                 "advanced": {
-                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration": CalibrationOutput.LOCAL_BASED,
                     "calibration_mode": CalibrationMode.DEFAULT,
                     "no_off_system_mode": False,
                     "heat_auto_swapped": False,
@@ -196,7 +196,7 @@ def _add_homematicip_peer(bt):
             "hvac_action": "heating",
             "valve_position": 50,
             "advanced": {
-                "calibration": CalibrationType.LOCAL_BASED,
+                "calibration": CalibrationOutput.LOCAL_BASED,
                 "calibration_mode": CalibrationMode.DEFAULT,
                 "no_off_system_mode": False,
                 "heat_auto_swapped": False,
@@ -397,7 +397,7 @@ class TestInternalTemperatureChange:
         trv.model_quirks = ZWA021
         trv.advanced = {
             **trv.advanced,
-            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
         }
         unknown = _make_state("unknown")
         mock_bt.hass.states.get.return_value = unknown
@@ -729,7 +729,7 @@ class TestInternalTemperatureChange:
 
     @pytest.mark.asyncio
     async def test_calibration_zero_fetches_offset(self, mock_bt):
-        """When calibration==0, get_current_offset() should be called."""
+        """When calibration==0, get_calibration_offset() should be called."""
         mock_bt.real_trvs[ENTITY_ID].calibration_received = False
         mock_bt.real_trvs[ENTITY_ID].calibration = 0
         trv_state = _make_state(attributes={"current_temperature": 20.0})
@@ -740,7 +740,7 @@ class TestInternalTemperatureChange:
 
         with (
             patch(
-                "custom_components.better_thermostat.events.trv.get_current_offset",
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
                 autospec=True,
                 return_value=2.5,
             ) as mock_offset,
@@ -759,7 +759,7 @@ class TestInternalTemperatureChange:
         """The handler survives the entry vanishing mid-flight.
 
         A reconfigure/unload can remove the real_trvs entry while the
-        handler awaits get_current_offset; the handler keeps working on
+        handler awaits get_calibration_offset; the handler keeps working on
         its local Trv object and completes without raising.
         """
         trv = mock_bt.real_trvs[ENTITY_ID]
@@ -777,7 +777,7 @@ class TestInternalTemperatureChange:
 
         with (
             patch(
-                "custom_components.better_thermostat.events.trv.get_current_offset",
+                "custom_components.better_thermostat.events.trv.get_calibration_offset",
                 autospec=True,
                 side_effect=pop_entry_and_return_offset,
             ),
@@ -2834,7 +2834,7 @@ class TestTargetTempBasedSync:
 
     def _set_target_temp_based(self, mock_bt):
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
+            CalibrationOutput.TARGET_TEMP_BASED
         )
 
     @pytest.mark.asyncio
@@ -3190,7 +3190,7 @@ class TestConvertOutboundStates:
     def test_local_based_calibration_payload(self, mock_bt):
         """LOCAL_BASED produces payload with local_temperature_calibration."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.LOCAL_BASED
+            CalibrationOutput.LOCAL_BASED
         )
         mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
 
@@ -3214,7 +3214,7 @@ class TestConvertOutboundStates:
     def test_target_temp_based_payload(self, mock_bt):
         """TARGET_TEMP_BASED produces payload with calculated setpoint."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
+            CalibrationOutput.TARGET_TEMP_BASED
         )
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration_mode"] = (
             CalibrationMode.DEFAULT
@@ -3240,7 +3240,7 @@ class TestConvertOutboundStates:
     def test_no_calibration_mode_uses_target(self, mock_bt):
         """NO_CALIBRATION mode uses heat_target_temperature directly."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.TARGET_TEMP_BASED
+            CalibrationOutput.TARGET_TEMP_BASED
         )
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration_mode"] = (
             CalibrationMode.NO_CALIBRATION
@@ -3457,7 +3457,7 @@ class TestConvertOutboundStates:
     def test_exception_returns_none(self, mock_bt):
         """Internal exception → None returned."""
         mock_bt.real_trvs[ENTITY_ID].advanced["calibration"] = (
-            CalibrationType.LOCAL_BASED
+            CalibrationOutput.LOCAL_BASED
         )
 
         with (
@@ -3557,7 +3557,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
                 "hvac_action": "heating",
                 "valve_position": 50,
                 "advanced": {
-                    "calibration": CalibrationType.LOCAL_BASED,
+                    "calibration": CalibrationOutput.LOCAL_BASED,
                     "calibration_mode": CalibrationMode.DEFAULT,
                     "no_off_system_mode": no_off,
                     "heat_auto_swapped": False,
@@ -3994,11 +3994,12 @@ class TestDualRoleEntityReports:
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
     @pytest.mark.parametrize(
-        ("cool_target", "held", "pressed"), [(24.3, 24.0, 25.0), (24.7, 25.0, 24.0)]
+        ("cool_target_temperature", "held", "pressed"),
+        [(24.3, 24.0, 25.0), (24.7, 25.0, 24.0)],
     )
     @pytest.mark.asyncio
     async def test_shared_entity_press_toward_an_off_grid_cool_target_is_adopted(
-        self, shared_bt, cool_target, held, pressed
+        self, shared_bt, cool_target_temperature, held, pressed
     ):
         """One press toward an off-grid cool target names the cool target.
 
@@ -4006,8 +4007,8 @@ class TestDualRoleEntityReports:
         from there toward the target lands less than a step from it.
         """
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
-        shared_bt.cool_target_temperature = cool_target
-        shared_bt._cooler_last_sent = {"temperature": (cool_target, 0.0)}
+        shared_bt.cool_target_temperature = cool_target_temperature
+        shared_bt._cooler_last_sent = {"temperature": (cool_target_temperature, 0.0)}
 
         await self._report(
             shared_bt,
@@ -4021,17 +4022,19 @@ class TestDualRoleEntityReports:
         assert shared_bt.heat_target_temperature == 20.0
         shared_bt.control_queue_task.put_nowait.assert_called_once()
 
-    @pytest.mark.parametrize(("cool_target", "held"), [(24.3, 24.0), (24.7, 25.0)])
+    @pytest.mark.parametrize(
+        ("cool_target_temperature", "held"), [(24.3, 24.0), (24.7, 25.0)]
+    )
     @pytest.mark.parametrize("send_cache_primed", [True, False])
     @pytest.mark.asyncio
     async def test_shared_entity_reads_an_off_grid_cooling_write_as_an_echo(
-        self, shared_bt, cool_target, held, send_cache_primed
+        self, shared_bt, cool_target_temperature, held, send_cache_primed
     ):
         """An off-grid cool target the device holds on its grid moves nothing."""
         shared_bt.real_trvs[ENTITY_ID].target_temp_step = 1.0
-        shared_bt.cool_target_temperature = cool_target
+        shared_bt.cool_target_temperature = cool_target_temperature
         shared_bt._cooler_last_sent = (
-            {"temperature": (cool_target, 0.0)} if send_cache_primed else {}
+            {"temperature": (cool_target_temperature, 0.0)} if send_cache_primed else {}
         )
 
         await self._report(
@@ -4042,7 +4045,7 @@ class TestDualRoleEntityReports:
             step=1.0,
         )
 
-        assert shared_bt.cool_target_temperature == cool_target
+        assert shared_bt.cool_target_temperature == cool_target_temperature
         assert shared_bt.heat_target_temperature == 20.0
         shared_bt.control_queue_task.put_nowait.assert_not_called()
 
