@@ -1066,6 +1066,27 @@ class TestCheckAndUpdateDegradedMode:
         assert result is True
         assert "sensor.room_temp" in mock_bt_instance.unavailable_sensors
 
+    @pytest.mark.asyncio
+    async def test_a_missing_room_sensor_is_neither_looked_up_nor_listed(
+        self, mock_bt_instance
+    ):
+        """Without a configured room sensor, no state lookup and no list entry."""
+        from custom_components.better_thermostat.utils.watcher import (
+            check_and_update_degraded_mode,
+        )
+
+        mock_bt_instance.sensor_entity_id = None
+        mock_bt_instance.hass.states.get.side_effect = _answers_with("20.0")
+
+        with patch("custom_components.better_thermostat.utils.watcher.ir"):
+            await check_and_update_degraded_mode(mock_bt_instance)
+
+        looked_up = [
+            call.args[0] for call in mock_bt_instance.hass.states.get.call_args_list
+        ]
+        assert None not in looked_up
+        assert None not in mock_bt_instance.unavailable_sensors
+
     # The fixture configures four optional sensors plus the room sensor.
     WATCHED_SENSORS = (
         "binary_sensor.window",

@@ -600,7 +600,7 @@ async def await_critical_entities(
 
 
 async def check_and_update_degraded_mode(
-    self, room_sensor_state: State | None = None
+    self: BetterThermostat, room_sensor_state: State | None = None
 ) -> bool:
     """Check optional sensors and update degraded mode status.
 
@@ -643,36 +643,41 @@ async def check_and_update_degraded_mode(
             )
 
     # Check room temperature sensor - special case with TRV fallback
-    if room_sensor_state is None:
-        room_sensor_state = self.hass.states.get(self.sensor_entity_id)
-    sensor_available = (
-        room_sensor_state is not None
-        and room_sensor_state.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
-    )
-    if not sensor_available:
-        unavailable.append(self.sensor_entity_id)
-        if self.sensor_entity_id not in previously_unavailable:
-            # The fallback lasts as long as the outage does, while this check
-            # runs on every trigger, so the warning follows the transition
-            # into the outage rather than repeating for its whole length.
-            _LOGGER.warning(
-                "better_thermostat %s: Room temperature sensor %s unavailable, "
-                "falling back to TRV internal temperature",
-                self.device_name,
-                self.sensor_entity_id,
-            )
-    else:
-        if self.sensor_entity_id in previously_unavailable:
-            _LOGGER.info(
-                "better_thermostat %s: Room temperature sensor %s is available again",
-                self.device_name,
-                self.sensor_entity_id,
-            )
-        refresh_battery_reading(
-            self,
-            self.sensor_entity_id,
-            recovered=self.sensor_entity_id in previously_unavailable,
+    # Startup aborts without a room sensor, so one is configured whenever
+    # this runs; without one the room has no sensor reading to offer.
+    sensor_entity_id = self.sensor_entity_id
+    sensor_available = False
+    if sensor_entity_id is not None:
+        if room_sensor_state is None:
+            room_sensor_state = self.hass.states.get(sensor_entity_id)
+        sensor_available = (
+            room_sensor_state is not None
+            and room_sensor_state.state not in UNAVAILABLE_STATES + UNKNOWN_STATES
         )
+        if not sensor_available:
+            unavailable.append(sensor_entity_id)
+            if sensor_entity_id not in previously_unavailable:
+                # The fallback lasts as long as the outage does, while this check
+                # runs on every trigger, so the warning follows the transition
+                # into the outage rather than repeating for its whole length.
+                _LOGGER.warning(
+                    "better_thermostat %s: Room temperature sensor %s unavailable, "
+                    "falling back to TRV internal temperature",
+                    self.device_name,
+                    sensor_entity_id,
+                )
+        else:
+            if sensor_entity_id in previously_unavailable:
+                _LOGGER.info(
+                    "better_thermostat %s: Room temperature sensor %s is available again",
+                    self.device_name,
+                    sensor_entity_id,
+                )
+            refresh_battery_reading(
+                self,
+                sensor_entity_id,
+                recovered=sensor_entity_id in previously_unavailable,
+            )
 
     # The ladder asks more of the room sensor than availability: a sensor
     # that stays available while reporting implausible values leaves the
