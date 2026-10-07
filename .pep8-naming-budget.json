@@ -27,7 +27,6 @@
   "custom_components/better_thermostat/utils/calibration/mpc_v2_internals/smith.py": 1,
   "custom_components/better_thermostat/utils/calibration/pid.py": 10,
   "custom_components/better_thermostat/utils/calibration/tpi.py": 5,
-  "custom_components/better_thermostat/utils/state_manager.py": 2,
   "tests/benchmark/adapters/base.py": 6,
   "tests/benchmark/adapters/baselines.py": 6,
   "tests/benchmark/adapters/heating_power_adapter.py": 1,

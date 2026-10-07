@@ -39,8 +39,8 @@ _REID = MpcV2ReidData(
     tau_room_min=240.0,
     gain_heater=3.0,
     fitted_ts=1000.0,
-    rmse_prior_K=0.4,
-    rmse_fit_K=0.1,
+    rmse_prior_kelvin=0.4,
+    rmse_fit_kelvin=0.1,
     n_segments=4,
 )
 
