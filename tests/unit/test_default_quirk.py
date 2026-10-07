@@ -49,8 +49,8 @@ def _thermostat(child_lock=None, states=None):
 
     Parameters
     ----------
-    child_lock : bool or None
-        The configured child lock, or None for a configuration that
+    child_lock : bool, str or None
+        The configured child lock as stored, or None for a configuration that
         carries no such setting.
     states : dict or None
         Current state string per entity ID; an entity left out of it
@@ -337,6 +337,23 @@ class TestTheChildLockFollowsTheConfiguration:
         await _run_tweak(thermostat, child_lock=CHILD_LOCK_SWITCH)
 
         assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize(
+        ("stored", "current", "service"),
+        [("false", STATE_ON, "turn_off"), ("true", STATE_OFF, "turn_on")],
+    )
+    @pytest.mark.asyncio
+    async def test_a_stored_spelling_reads_as_the_options_flow_saves_it(
+        self, stored, current, service
+    ):
+        """An older entry's ``"false"`` unlocks the device rather than locking it."""
+        thermostat = _thermostat(child_lock=stored, states={CHILD_LOCK_SWITCH: current})
+
+        await _run_tweak(thermostat, child_lock=CHILD_LOCK_SWITCH)
+
+        assert _calls(thermostat) == [
+            ("switch", service, {"entity_id": CHILD_LOCK_SWITCH})
+        ]
 
     @pytest.mark.asyncio
     async def test_a_configuration_without_the_setting_looks_for_no_lock(self):

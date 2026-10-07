@@ -1,7 +1,9 @@
 """Tests for the child-lock switch state handling."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.const import STATE_OFF
+from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
@@ -38,3 +40,42 @@ def test_is_on_reflects_advanced_flag(state):
     switch = _make_switch(trv)
 
     assert switch.is_on is state
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [("false", False), ("true", True), ("True", True), (0, False), (None, False)],
+)
+def test_is_on_reads_a_stored_spelling_as_the_options_flow_saves_it(stored, expected):
+    """An older entry's ``"false"`` shows the switch off, ``None`` as off."""
+    trv = Trv(entity_id=TRV_ID, advanced={"child_lock": stored})
+    switch = _make_switch(trv)
+
+    assert switch.is_on is expected
+
+
+@pytest.mark.parametrize(("stored", "expected"), [("false", False), ("true", True)])
+def test_the_configured_option_reads_a_stored_spelling(stored, expected):
+    """The option recorded next to the switch state reads ``"false"`` as off."""
+    switch = _make_switch(Trv(entity_id=TRV_ID))
+    switch._bt_climate.all_trvs = [{"trv": TRV_ID, "advanced": {"child_lock": stored}}]
+
+    assert switch._configured_child_lock() is expected
+
+
+@pytest.mark.asyncio
+async def test_a_restored_off_matching_a_stored_false_sends_nothing():
+    """A TRV holding ``"false"`` already holds the restored off."""
+    trv = Trv(entity_id=TRV_ID, advanced={"child_lock": "false"})
+    switch = _make_switch(trv)
+    switch._bt_climate.all_trvs = []
+    switch.async_get_last_available_state = AsyncMock(
+        return_value=State("switch.child_lock", STATE_OFF)
+    )
+    switch.async_get_last_extra_data = AsyncMock(return_value=None)
+    switch._set_child_lock = AsyncMock()
+
+    await switch._restore_child_lock()
+
+    assert trv.advanced["child_lock"] is False
+    switch._set_child_lock.assert_not_awaited()

@@ -4454,3 +4454,118 @@ class TestInternalRereadAfterTheDebounce:
         assert seen_at_first_deadline == [21.0]
         assert [round(delay, 3) for delay, _cb in timers] == [4.0, 4.0]
         assert trv.current_temperature == pytest.approx(23.9)
+
+
+# ---------------------------------------------------------------------------
+# Stored spellings of the advanced boolean options
+# ---------------------------------------------------------------------------
+
+
+class TestStoredFlagSpellings:
+    """An older entry's ``"false"`` reads as off, as the options flow saves it."""
+
+    @pytest.mark.asyncio
+    async def test_a_stored_false_child_lock_lets_the_mode_change_through(
+        self, mock_bt
+    ):
+        """A device whose child lock is stored as ``"false"`` is not locked."""
+        mock_bt.real_trvs[ENTITY_ID].advanced["child_lock"] = "false"
+        trv_state = _make_state(
+            state_str="off",
+            attributes={"current_temperature": 18.0, "temperature": 19.0},
+        )
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].hvac_mode = "heat"
+        event = _make_event(
+            mock_bt, new_state=trv_state, old_state=_make_state(state_str="heat")
+        )
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.OFF,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].hvac_mode == "off"
+
+    @pytest.mark.asyncio
+    async def test_a_stored_false_homematicip_keeps_the_short_window(self, mock_bt):
+        """Only a valve marked HomematicIP waits out its radio duty cycle."""
+        mock_bt.real_trvs[ENTITY_ID].advanced[CONF_HOMEMATICIP] = "false"
+        mock_bt.real_trvs[ENTITY_ID].last_internal_sensor_change = dt_util.now() - (
+            timedelta(seconds=30)
+        )
+        trv_state = _make_state(attributes={"current_temperature": 20.0})
+        mock_bt.hass.states.get.return_value = trv_state
+        mock_bt.real_trvs[ENTITY_ID].current_temperature = 18.0
+        mock_bt.real_trvs[ENTITY_ID].calibration_received = True
+        mock_bt.real_trvs[ENTITY_ID].calibration = 1
+        event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.real_trvs[ENTITY_ID].current_temperature == 20.0
+
+    @pytest.mark.asyncio
+    async def test_a_stored_false_no_off_minimum_setpoint_does_not_switch_off(
+        self, mock_bt
+    ):
+        """A device that can switch off does not read its minimum as OFF."""
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = "false"
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        old_state = _make_state(
+            attributes={"temperature": 19.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 5.0},
+        )
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert mock_bt.bt_hvac_mode == HVACMode.HEAT
+
+    @pytest.mark.asyncio
+    async def test_a_stored_false_no_off_setpoint_leaves_an_off_room_off(self, mock_bt):
+        """A setpoint a device reports while the room is off is neither adopted
+        nor read as turning the room on.
+        """
+        mock_bt.real_trvs[ENTITY_ID].advanced["no_off_system_mode"] = "false"
+        target_before = mock_bt.heat_target_temperature
+        mock_bt.real_trvs[ENTITY_ID].min_temp = 5.0
+        mock_bt.bt_hvac_mode = HVACMode.OFF
+        old_state = _make_state(
+            attributes={"temperature": 5.0, "current_temperature": 18.0}
+        )
+        new_state = _make_state(
+            attributes={"temperature": 20.0, "current_temperature": 18.0}
+        )
+        mock_bt.hass.states.get.return_value = _make_state(
+            state_str="heat",
+            attributes={"current_temperature": 18.0, "temperature": 20.0},
+        )
+        mock_bt.real_trvs[ENTITY_ID].commanded_setpoint = 5.0
+        event = _make_event(mock_bt, new_state=new_state, old_state=old_state)
+
+        with patch(
+            "custom_components.better_thermostat.events.trv.convert_inbound_states",
+            return_value=HVACMode.HEAT,
+        ):
+            await trigger_trv_change(mock_bt, event)
+
+        assert (mock_bt.bt_hvac_mode, mock_bt.heat_target_temperature) == (
+            HVACMode.OFF,
+            target_before,
+        )

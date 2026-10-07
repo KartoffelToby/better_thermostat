@@ -52,7 +52,7 @@ _MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenan
 
 def _trv(
     *,
-    maintenance: bool = False,
+    maintenance: object = False,
     max_temp: float = 30,
     min_temp: float = 5,
     quirks: object | None = None,
@@ -184,6 +184,17 @@ class TestCollectMaintenanceTrvs:
         }
         result = collect_maintenance_trvs(trvs)
         assert set(result) == {"trv2", "trv3"}
+
+    @pytest.mark.parametrize(
+        ("stored", "enabled"),
+        [("false", False), ("False", False), (0, False), ("true", True), (1, True)],
+    )
+    def test_a_stored_spelling_reads_as_the_options_flow_saves_it(
+        self, stored, enabled
+    ):
+        """An older entry's ``"false"`` keeps the valve maintenance off."""
+        trvs = {"trv1": _trv(maintenance=stored)}
+        assert collect_maintenance_trvs(trvs) == (["trv1"] if enabled else [])
 
     def test_missing_advanced_key(self):
         """TRV dict without 'advanced' should not crash."""
