@@ -10,24 +10,35 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.const import CONF_NAME
 import pytest
 
-from custom_components.better_thermostat.config_flow import OptionsFlowHandler
+from custom_components.better_thermostat.config_flow import (
+    OptionsFlowHandler,
+    _AdvancedContext,
+    _TrvDraft,
+)
 from custom_components.better_thermostat.utils.const import CONF_THERMOSTAT
 
-ADVANCED_CONTEXT = {
-    "trv_id": "climate.trv",
-    "default_calibration": "target_temp_based",
-    "homematic": False,
-    "has_auto": False,
-    "info": {},
-    "adapter": None,
-    "integration": "generic",
-}
+ADVANCED_CONTEXT = _AdvancedContext(
+    entity_id="climate.trv",
+    info={},
+    default_calibration="target_temp_based",
+    homematic=False,
+    has_auto=False,
+)
 
 
-def _bundles(count: int) -> list[dict]:
+def _stored(count: int) -> list[dict]:
     return [
         {"trv": f"climate.trv{index}", "integration": "generic", "advanced": {}}
         for index in range(count)
+    ]
+
+
+def _drafts(count: int) -> list[_TrvDraft]:
+    return [
+        _TrvDraft(
+            entity_id=stored["trv"], integration="generic", adapter=None, stored=stored
+        )
+        for stored in _stored(count)
     ]
 
 
@@ -36,10 +47,10 @@ def _bundles(count: int) -> list[dict]:
 async def test_only_the_last_thermostat_form_is_the_last_step(count: int):
     """Every advanced form but the last one leads on to another form."""
     entry = MagicMock()
-    entry.data = {CONF_NAME: "Room", CONF_THERMOSTAT: _bundles(count)}
+    entry.data = {CONF_NAME: "Room", CONF_THERMOSTAT: _stored(count)}
     flow = OptionsFlowHandler(entry)
     flow.hass = MagicMock()
-    flow.trv_bundle = _bundles(count)
+    flow.trv_bundle = _drafts(count)
     flow.updated_config = dict(entry.data)
 
     flags = []
@@ -47,7 +58,7 @@ async def test_only_the_last_thermostat_form_is_the_last_step(count: int):
         "custom_components.better_thermostat.config_flow._prepare_advanced_context",
         new=AsyncMock(return_value=ADVANCED_CONTEXT),
     ):
-        form = await flow.async_step_advanced(None, flow.trv_bundle[0], entry.data)
+        form = await flow.async_step_advanced(None, flow.trv_bundle[0])
         flags.append(form["last_step"])
         for _ in range(count - 1):
             form = await flow.async_step_advanced({"calibration": "target_temp_based"})
