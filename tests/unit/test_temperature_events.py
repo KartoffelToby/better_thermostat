@@ -526,18 +526,6 @@ class TestTriggerTemperatureChangeGuards:
         mock_ir.async_create_issue.assert_called_once()
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_first_run_accepts_via_first_reading_path(self, mock_bt):
-        """Accept the first reading via 'first_reading' when room_temperature is None."""
-        mock_bt.last_external_sensor_change = None
-        mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
-
 
 # ---------------------------------------------------------------------------
 # 4. Temperature acceptance (debounce)
@@ -556,23 +544,6 @@ class TestTemperatureAcceptance:
     async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
         """Accept the first temperature reading when room_temperature is None."""
         mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
-
-    @pytest.mark.asyncio
-    async def test_first_update_accepted_when_timestamp_uninitialized(self, mock_bt):
-        """First real update passes even with no prior timestamp.
-
-        With a known room_temperature but ``last_external_sensor_change is None`` the
-        guard must seed a timestamp older than the debounce window (not "now"),
-        so the first significant update clears the interval check.
-        """
-        mock_bt.room_temperature = 20.0
-        mock_bt.last_external_sensor_change = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -1615,6 +1586,30 @@ class TestPendingReadingAfterTheDebounce:
             await self._fire(mock_bt, callback)
 
         commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_room_without_a_sensor_has_withdrawn_the_reading(self, mock_bt):
+        """Without a room sensor no reading is still reported, so none is applied."""
+        callback = self._arm(mock_bt)
+        mock_bt.sensor_entity_id = None
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    def test_nothing_pending_arms_no_timer(self, mock_bt):
+        """Without a pending reading there is nothing to apply later."""
+        mock_bt.pending_temp = None
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ) as call_later:
+            _commit_pending_after(mock_bt, 5.0)
+
+        call_later.assert_not_called()
+        assert mock_bt.plateau_timer_cancel is None
 
     @pytest.mark.asyncio
     async def test_a_sensor_that_moved_on_leaves_its_new_reading_to_its_event(

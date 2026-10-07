@@ -245,7 +245,6 @@ class Trv:
 
     # -- Calibration results -----------------------------------------------
     calibration_balance: dict[str, Any] | None = None
-    balance: dict[str, Any] | None = None
     # Per-TRV calibrator: the protocol adapter the
     # dispatch observes every cycle and actuates through when ready.
     calibrator: BalanceCalibrator | None = None

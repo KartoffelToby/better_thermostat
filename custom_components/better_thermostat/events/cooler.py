@@ -7,6 +7,7 @@ entity and updates the integration state accordingly.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
@@ -25,10 +26,17 @@ from custom_components.better_thermostat.utils.helpers import (
 )
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
+if TYPE_CHECKING:
+    from homeassistant.core import Event, EventStateChangedData
+
+    from custom_components.better_thermostat.climate import BetterThermostat
+
 _LOGGER = logging.getLogger(__name__)
 
 
-def cooling_writes_as_held(self, state: State) -> tuple[float | None, float | None]:
+def cooling_writes_as_held(
+    self: BetterThermostat, state: State
+) -> tuple[float | None, float | None]:
     """Return the cooling channel's writes as the device holds them, in °C.
 
     The cooling channel sends the cool target rounded onto the cooler's own
@@ -58,7 +66,9 @@ def cooling_writes_as_held(self, state: State) -> tuple[float | None, float | No
     )
 
 
-async def trigger_cooler_change(self, event):
+async def trigger_cooler_change(
+    self: BetterThermostat, event: Event[EventStateChangedData]
+) -> None:
     """Trigger a change in the cooler state."""
     if self.startup_running:
         return
