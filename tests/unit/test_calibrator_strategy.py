@@ -341,3 +341,27 @@ class TestPidSelfHealing:
         # ...but every unsafe field is still healed.
         assert healed.pid_integral == 0.0
         assert healed.pid_kp is None
+
+    def test_non_finite_measurement_chain_is_dropped(self):
+        """A non-finite stored measurement or error restarts the D channel."""
+        state = PIDState(
+            pid_integral=5.0,
+            pid_last_meas=float("nan"),
+            pid_last_error=float("-inf"),
+            pid_kp=60.0,
+            pid_ki=0.01,
+            pid_kd=2000.0,
+        )
+        healed, health = sanitize_pid_state(state, PIDParams())
+        assert health == CalibratorHealth.NON_FINITE
+        assert healed.pid_last_meas is None
+        assert healed.pid_last_error is None
+        assert healed.pid_integral == 5.0
+        assert healed.pid_kp == 60.0
+
+    def test_runaway_gains_reset_when_non_finite_grades_first(self):
+        """Gains outside their bounds reset under a NON_FINITE grade too."""
+        state = PIDState(pid_last_meas=float("nan"), pid_kp=1e9, pid_ki=0.01)
+        healed, health = sanitize_pid_state(state, PIDParams())
+        assert health == CalibratorHealth.NON_FINITE
+        assert (healed.pid_kp, healed.pid_ki, healed.pid_kd) == (None, None, None)

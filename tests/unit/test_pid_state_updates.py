@@ -174,3 +174,50 @@ class TestStandbyObservation:
 
         assert state.pid_last_time == 1000.0
         assert state.pid_last_meas != 20.4
+
+    def test_the_smoothed_reading_is_followed_over_the_raw_one(self):
+        """A filtered room temperature is the one the chain follows."""
+        state = PIDState()
+
+        observe_standby(
+            _PARAMS, state, 20.0, now=1000.0, inp_room_temperature_filtered=21.0
+        )
+
+        assert state.pid_last_meas == 21.0
+
+    def test_the_filtered_reading_alone_moves_the_chain(self):
+        """Without a raw reading the filtered one still advances the chain."""
+        state = PIDState()
+
+        observe_standby(
+            _PARAMS, state, None, now=1000.0, inp_room_temperature_filtered=21.0
+        )
+
+        assert (state.pid_last_meas, state.pid_last_time) == (21.0, 1000.0)
+
+    def test_derivative_on_error_takes_the_reading_unsmoothed(self):
+        """With the D channel on the error, standby stores the reading as is."""
+        params = PIDParams(auto_tune=False, d_on_measurement=False)
+        state = PIDState(pid_last_meas=20.0, pid_last_time=900.0)
+
+        observe_standby(params, state, 21.0, now=1000.0)
+
+        assert (state.pid_last_meas, state.pid_last_time) == (21.0, 1000.0)
+
+    def test_an_unusable_smoothing_factor_blends_half_and_half(self):
+        """A smoothing factor that is not a number falls back to 0.5."""
+        params = PIDParams(auto_tune=False, d_smoothing_alpha="fast")
+        state = PIDState(pid_last_meas=20.0, pid_last_time=900.0)
+
+        observe_standby(params, state, 21.0, now=1000.0)
+
+        assert state.pid_last_meas == pytest.approx(20.5)
+
+    def test_the_smoothing_factor_weights_the_new_reading(self):
+        """A valid smoothing factor sets the weight of the new reading."""
+        params = PIDParams(auto_tune=False, d_smoothing_alpha=0.25)
+        state = PIDState(pid_last_meas=20.0, pid_last_time=900.0)
+
+        observe_standby(params, state, 21.0, now=1000.0)
+
+        assert state.pid_last_meas == pytest.approx(20.25)
