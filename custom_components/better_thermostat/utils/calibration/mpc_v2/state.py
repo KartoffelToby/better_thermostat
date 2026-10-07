@@ -6,8 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import logging
 import math
-from typing import Any
+from typing import TypedDict
 
+from ...stored_values import is_json_object, stored_float
 from .controller import ControllerSnapshot, MpcV2Controller
 from .params import MpcV2Params
 
@@ -66,7 +67,17 @@ def plant_signature_differs(old: tuple[float, ...], new: tuple[float, ...]) -> b
     )
 
 
-def export_mpc_v2_state(state: MpcV2State) -> dict[str, Any] | None:
+class MpcV2Payload(TypedDict):
+    """The persisted form of one live v2 state, as the store holds it."""
+
+    last_percent: float | None
+    last_compute_ts: float
+    created_ts: float
+    outdoor_fallback_logged: bool
+    snapshot: Mapping[str, object]
+
+
+def export_mpc_v2_state(state: MpcV2State) -> MpcV2Payload | None:
     """Return a JSON-serialisable snapshot of a single live v2 state.
 
     Returns ``None`` when the state has no controller yet — there is nothing
@@ -74,17 +85,17 @@ def export_mpc_v2_state(state: MpcV2State) -> dict[str, Any] | None:
     """
     if state.controller is None:
         return None
-    return {
-        "last_percent": state.last_percent,
-        "last_compute_ts": state.last_compute_ts,
-        "created_ts": state.created_ts,
-        "outdoor_fallback_logged": state.outdoor_fallback_logged,
-        "snapshot": state.controller.export_snapshot().to_mapping(),
-    }
+    return MpcV2Payload(
+        last_percent=state.last_percent,
+        last_compute_ts=state.last_compute_ts,
+        created_ts=state.created_ts,
+        outdoor_fallback_logged=state.outdoor_fallback_logged,
+        snapshot=state.controller.export_snapshot().to_mapping(),
+    )
 
 
 def import_mpc_v2_state(
-    payload: Mapping[str, Any],
+    payload: Mapping[str, object],
     params: MpcV2Params | None = None,
     *,
     key: str | None = None,
@@ -98,7 +109,7 @@ def import_mpc_v2_state(
 
     Parameters
     ----------
-    payload : Mapping[str, Any]
+    payload : Mapping[str, object]
         the exported state to rehydrate
     params : MpcV2Params | None
         parameters for the rebuilt controller, defaults when None
@@ -116,7 +127,7 @@ def import_mpc_v2_state(
         value = payload.get(attr)
         if value is not None:
             try:
-                number = float(value)
+                number = stored_float(value)
                 # `float()` takes "NaN", "Infinity" and anything that
                 # overflows to one, and the contract above says an unusable
                 # field keeps its default. A non-finite command or timestamp
@@ -141,7 +152,7 @@ def import_mpc_v2_state(
     # performs every cycle (otherwise the WARN fires on every compute).
     state.outdoor_fallback_logged = bool(payload.get("outdoor_fallback_logged", False))
     snapshot = payload.get("snapshot")
-    if not isinstance(snapshot, Mapping):
+    if not is_json_object(snapshot):
         return state
     effective_params = params or MpcV2Params()
     controller = MpcV2Controller(effective_params)

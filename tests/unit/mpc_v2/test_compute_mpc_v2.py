@@ -771,6 +771,74 @@ def test_non_finite_snapshot_values_are_rejected(
     assert any("non-finite" in r.getMessage() for r in caplog.records)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"v": None},
+        {"v": [SNAPSHOT_VERSION]},
+        {"v": SNAPSHOT_VERSION, "x_hat": "12"},
+        {"v": SNAPSHOT_VERSION, "x_hat": {"20.0": 1, "21.0": 2}},
+        {"v": SNAPSHOT_VERSION, "x_hat": None},
+        {"v": SNAPSHOT_VERSION, "kalman_P": "12"},
+        {"v": SNAPSHOT_VERSION, "kalman_P": {"1": [1.0]}},
+        {"v": SNAPSHOT_VERSION, "kalman_P": ["12", "34"]},
+        {"v": SNAPSHOT_VERSION, "kalman_P": [[1.0, 0.0], None]},
+        {"v": SNAPSHOT_VERSION, "u_history": "05"},
+        {"v": SNAPSHOT_VERSION, "u_history": {"0.5": 0.5}},
+        {"v": SNAPSHOT_VERSION, "x_hat": [21.0, [22.0]]},
+    ],
+)
+def test_misshapen_snapshot_values_are_rejected(raw: dict[str, object], caplog) -> None:
+    """A version that is no number, or an array field that is no list, drops it.
+
+    Strings and objects are iterable, so without the list check a stored
+    ``"12"`` would read as the vector ``[1.0, 2.0]``.
+    """
+    with caplog.at_level("WARNING"):
+        snap = ControllerSnapshot.from_mapping(raw)
+    assert snap is None
+    assert any("non-numeric" in r.getMessage() for r in caplog.records)
+
+
+def test_snapshot_arrays_accept_tuples_and_numeric_scalars() -> None:
+    """Tuples read like lists, and a numeric string version parses."""
+    snap = ControllerSnapshot.from_mapping(
+        {
+            "v": str(SNAPSHOT_VERSION),
+            "x_hat": (21.0, "22.5"),
+            "kalman_P": ([1.0, 0.0], (0.0, 1.0)),
+            "u_history": (0.25,),
+            "planning_disturbance": "0.5",
+        }
+    )
+    assert snap is not None
+    assert snap.v == SNAPSHOT_VERSION
+    assert snap.x_hat == [21.0, 22.5]
+    assert snap.kalman_P == [[1.0, 0.0], [0.0, 1.0]]
+    assert snap.u_history == [0.25]
+    assert snap.planning_disturbance == 0.5
+
+
+def test_export_payload_imports_back_unchanged() -> None:
+    """The exported payload is the mapping ``import_mpc_v2_state`` reads."""
+    _, state = compute_mpc_v2(_baseline_input(key="payload-key"), MpcV2Params(), None)
+    exported = export_mpc_v2_state(state)
+    assert exported is not None
+    assert set(exported) == {
+        "last_percent",
+        "last_compute_ts",
+        "created_ts",
+        "outdoor_fallback_logged",
+        "snapshot",
+    }
+    stored = json.loads(json.dumps(exported))
+
+    rehydrated = import_mpc_v2_state(stored, MpcV2Params())
+
+    assert rehydrated.controller is not None
+    assert export_mpc_v2_state(rehydrated) == stored
+
+
 def test_governor_state_keeps_its_stored_key() -> None:
     """The governor state is stored as ``rg_v_C`` and read back from there."""
     controller = MpcV2Controller(MpcV2Params())

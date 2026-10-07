@@ -18,6 +18,7 @@ from custom_components.better_thermostat.utils.restore import (
     clamp_heat_loss,
     clamp_heating_power,
     mean_trv_target,
+    restore_cooling_target,
     restore_target_temperature,
     saved_cooling_target,
     saved_heating_target,
@@ -329,3 +330,90 @@ class TestClampHeatLoss:
     def test_none_returns_none(self):
         """None returns None."""
         assert clamp_heat_loss(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Restored values that are not scalars
+# ---------------------------------------------------------------------------
+
+# A restored attribute is whatever JSON value the saved state held, so the
+# consumers take it as an untyped object and narrow it themselves.
+_NON_SCALARS = [
+    pytest.param([21.0], id="list"),
+    pytest.param({"value": 21.0}, id="dict"),
+]
+
+
+class TestRestoredValuesThatAreNotScalars:
+    """A list or an object degrades like any other non-numeric saved value."""
+
+    @pytest.mark.parametrize("saved", _NON_SCALARS)
+    def test_target_falls_back_to_the_trv_mean(self, saved, caplog):
+        """A non-scalar saved target warns and takes the TRV mean."""
+        result = restore_target_temperature(
+            saved, [_trv(20.0), _trv(22.0)], 5.0, 30.0, DEV
+        )
+
+        assert result == 21.0
+        assert "is not numeric" in caplog.text
+
+    @pytest.mark.parametrize("saved", _NON_SCALARS)
+    def test_target_without_a_trv_is_none(self, saved):
+        """A non-scalar saved target with no TRV target yields None."""
+        assert restore_target_temperature(saved, [], 5.0, 30.0, DEV) is None
+
+    @pytest.mark.parametrize(("saved", "expected"), [(True, 5.0), (False, 5.0)])
+    def test_target_bool_is_read_as_its_number(self, saved, expected):
+        """A bool saved target reads as 1 or 0 and is clamped to the minimum."""
+        assert restore_target_temperature(saved, [], 5.0, 30.0, DEV) == expected
+
+    @pytest.mark.parametrize("saved", _NON_SCALARS)
+    def test_trv_mean_skips_a_non_scalar_target(self, saved):
+        """A TRV publishing a non-scalar target contributes nothing."""
+        assert mean_trv_target([_trv(saved), _trv(22.0)], DEV) == 22.0
+
+    @pytest.mark.parametrize("raw", _NON_SCALARS)
+    def test_heating_power_falls_back_to_the_default(self, raw):
+        """A non-scalar heating power falls back to 0.01 before clamping."""
+        assert clamp_heating_power(raw, DEV) == 0.01
+
+    def test_heating_power_bool_is_read_as_its_number(self):
+        """A bool heating power reads as 1.0 and is clamped to the maximum."""
+        assert clamp_heating_power(True, DEV) == MAX_HEATING_POWER
+        assert clamp_heating_power(False, DEV) == MIN_HEATING_POWER
+
+    @pytest.mark.parametrize("raw", _NON_SCALARS)
+    def test_heat_loss_is_none(self, raw):
+        """A non-scalar heat loss yields None."""
+        assert clamp_heat_loss(raw) is None
+
+    def test_heat_loss_bool_is_read_as_its_number(self):
+        """A bool heat loss reads as 1.0 or 0.0 and is clamped."""
+        assert clamp_heat_loss(True) == MAX_HEAT_LOSS
+        assert clamp_heat_loss(False) == MIN_HEAT_LOSS
+
+    @pytest.mark.parametrize("raw", _NON_SCALARS)
+    def test_saved_targets_are_passed_through(self, raw):
+        """The readers hand a non-scalar on unchanged for the consumer to judge."""
+        assert saved_heating_target({ATTR_TEMPERATURE: raw}) is raw
+        assert saved_heating_target({ATTR_TARGET_TEMP_LOW: raw}) is raw
+        assert saved_cooling_target({ATTR_TARGET_TEMP_HIGH: raw}) is raw
+
+
+class TestRestoreCoolingTarget:
+    """restore_cooling_target reads a saved cooling target as Celsius."""
+
+    @pytest.mark.parametrize(
+        ("saved", "expected"),
+        [(23.0, 23.0), ("23.5", 23.5), (None, None), ("n/a", None), ([23.0], None)],
+        ids=["float", "string", "none", "malformed", "list"],
+    )
+    def test_saved_value(self, saved, expected):
+        """A number or numeric string is read; anything else yields None."""
+        assert restore_cooling_target(saved, DEV) == expected
+
+    def test_fahrenheit_converted_to_celsius(self):
+        """A saved value in Fahrenheit comes back as Celsius."""
+        assert restore_cooling_target(
+            77.0, DEV, UnitOfTemperature.FAHRENHEIT
+        ) == pytest.approx(25.0)

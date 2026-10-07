@@ -6,7 +6,14 @@ from homeassistant.const import STATE_OFF
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.switch import BetterThermostatChildLockSwitch
+from custom_components.better_thermostat.entity import (
+    LAST_AVAILABLE_STATE,
+    last_available_state,
+)
+from custom_components.better_thermostat.switch import (
+    BetterThermostatChildLockSwitch,
+    _switch_state_wins,
+)
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn
 
@@ -94,3 +101,43 @@ def test_a_switch_of_a_head_not_built_shows_off_and_publishes_nothing():
     switch._update_state(True)
 
     switch.async_write_ha_state.assert_not_called()
+
+
+_UNAVAILABLE = State("switch.child_lock", "unavailable")
+
+
+@pytest.mark.parametrize(
+    "recorded", [pytest.param(["on"], id="list"), pytest.param("on", id="string")]
+)
+def test_a_recorded_state_that_is_not_an_object_restores_the_saved_one(recorded):
+    """Extra data whose recorded state is no JSON object is ignored."""
+    restored = last_available_state(_UNAVAILABLE, {LAST_AVAILABLE_STATE: recorded})
+
+    assert restored is _UNAVAILABLE
+
+
+def test_a_recorded_state_object_is_restored():
+    """Extra data holding the last available state as an object restores it."""
+    shown = State("switch.child_lock", "on")
+
+    restored = last_available_state(
+        _UNAVAILABLE, {LAST_AVAILABLE_STATE: shown.as_dict()}
+    )
+
+    assert restored is not None
+    assert restored.state == "on"
+
+
+@pytest.mark.parametrize(
+    ("recorded", "expected"),
+    [
+        pytest.param([True], None, id="list"),
+        pytest.param({"value": True}, None, id="dict"),
+        pytest.param(True, True, id="same_option"),
+        pytest.param(False, None, id="changed_option"),
+        pytest.param(None, True, id="unrecorded"),
+    ],
+)
+def test_the_recorded_option_is_compared_as_it_was_saved(recorded, expected):
+    """A recorded option that is not the configured bool lets the option hold."""
+    assert _switch_state_wins("on", {"configured": recorded}, True) is expected

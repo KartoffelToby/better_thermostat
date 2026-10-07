@@ -24,7 +24,7 @@ class ModelFixTrv(Protocol):
     """Minimal per-TRV record the model fixes read."""
 
     @property
-    def advanced(self) -> Mapping[str, Any]:
+    def advanced(self) -> Mapping[str, object]:
         """Per-TRV advanced options, keyed by option name."""
         ...
 

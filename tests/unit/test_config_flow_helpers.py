@@ -20,10 +20,13 @@ from custom_components.better_thermostat.config_flow import (
     _build_user_fields,
     _duration_dict_to_seconds,
     _load_adapter_info,
+    _normalize_advanced_submission,
     _normalize_user_submission,
     _quirk_valve_support,
     _seconds_to_duration_dict,
+    _stored_thermostats,
     _trv_supports_auto,
+    _TrvDraft,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
@@ -81,48 +84,43 @@ def test_a_delay_is_stored_as_whole_seconds_never_below_zero(duration, seconds):
     assert _duration_dict_to_seconds(duration) == seconds
 
 
-def test_a_retired_pid_balance_mode_becomes_the_pid_calibration_mode():
-    stored = {"balance_mode": "pid"}
-
+def _offered_calibration_mode(stored):
     fields = _build_advanced_fields(
         sources=[stored],
         default_calibration="target_temp_based",
         homematic=False,
         has_auto=False,
     )
-
-    assert stored == {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION.value}
-    default = next(
+    return next(
         marker.default() for marker in fields if marker == CONF_CALIBRATION_MODE
     )
-    assert default == CalibrationMode.PID_CALIBRATION.value
+
+
+def test_a_retired_pid_balance_mode_becomes_the_pid_calibration_mode():
+    stored = {"balance_mode": "pid"}
+
+    assert _offered_calibration_mode(stored) == CalibrationMode.PID_CALIBRATION.value
+    assert stored == {"balance_mode": "pid"}
 
 
 @pytest.mark.parametrize("balance_mode", ["heuristic", "none"])
 def test_another_retired_balance_mode_falls_back_to_the_default_mode(balance_mode):
     stored = {"balance_mode": balance_mode}
 
-    _build_advanced_fields(
-        sources=[stored],
-        default_calibration="target_temp_based",
-        homematic=False,
-        has_auto=False,
-    )
-
-    assert stored == {CONF_CALIBRATION_MODE: DEFAULT_CALIBRATION_MODE.value}
+    assert _offered_calibration_mode(stored) == DEFAULT_CALIBRATION_MODE.value
+    assert stored == {"balance_mode": balance_mode}
 
 
 def test_a_retired_balance_mode_leaves_a_chosen_calibration_mode_alone():
     stored = {"balance_mode": "heuristic", CONF_CALIBRATION_MODE: "tpi_calibration"}
 
-    _build_advanced_fields(
-        sources=[stored],
-        default_calibration="target_temp_based",
-        homematic=False,
-        has_auto=False,
-    )
+    assert _offered_calibration_mode(stored) == "tpi_calibration"
 
-    assert stored == {CONF_CALIBRATION_MODE: "tpi_calibration"}
+
+def test_a_retired_pid_balance_mode_overrides_a_stored_calibration_mode():
+    stored = {"balance_mode": "pid", CONF_CALIBRATION_MODE: "tpi_calibration"}
+
+    assert _offered_calibration_mode(stored) == CalibrationMode.PID_CALIBRATION.value
 
 
 def test_without_a_thermostat_there_is_no_auto_mode_to_offer():
@@ -245,6 +243,8 @@ def test_a_missing_range_bound_is_stored_as_auto(bound):
     [
         ({}, set()),
         ({CONF_THERMOSTAT: [{"advanced": {}}]}, set()),
+        ({CONF_THERMOSTAT: "climate.trv"}, set()),
+        ({CONF_THERMOSTAT: ["climate.trv", {"advanced": None}]}, set()),
         ({CONF_THERMOSTAT: [{"advanced": {CONF_CALIBRATION_MODE: "retired"}}]}, set()),
         (
             {
@@ -289,3 +289,67 @@ def test_a_range_bound_that_is_not_a_number_raises_no_range_error():
     )
 
     assert errors == {}
+
+
+def test_a_choice_that_is_not_a_scalar_takes_its_default():
+    advanced = _normalize_advanced_submission(
+        {"calibration": ["local_calibration_based"], "calibration_mode": None},
+        default_calibration="target_temp_based",
+        homematic=False,
+        has_auto=False,
+    )
+
+    assert advanced["calibration"] == "target_temp_based"
+    assert advanced["calibration_mode"] is None
+    assert "mpc_v2_plant_preset" not in advanced
+    draft = _TrvDraft(
+        entity_id="climate.trv", integration=None, adapter=None, stored={}
+    )
+    draft.advanced = advanced
+    assert "mpc_v2_plant_preset" not in draft.to_stored()["advanced"]
+
+
+def test_a_preset_list_keeps_only_preset_names():
+    normalized = _normalize_user_submission(
+        _submission(presets=["eco", 3]), mode="update", base=None
+    )
+    assert normalized["presets"] == ["eco"]
+
+    normalized = _normalize_user_submission(
+        _submission(presets="eco"), mode="update", base=None
+    )
+    assert normalized["presets"] is None
+
+
+def test_a_thermostat_not_yet_through_its_advanced_step_is_stored_as_it_was():
+    stored = {"trv": "climate.trv", "integration": "mqtt", "advanced": {"x": 1}}
+    draft = _TrvDraft(
+        entity_id="climate.trv", integration="mqtt", adapter=None, stored=stored
+    )
+
+    assert draft.to_stored() == stored | {"adapter": None}
+    assert stored == {"trv": "climate.trv", "integration": "mqtt", "advanced": {"x": 1}}
+
+
+def test_the_stored_advanced_options_of_a_draft_must_be_a_mapping():
+    draft = _TrvDraft(
+        entity_id="climate.trv",
+        integration=None,
+        adapter=None,
+        stored={"advanced": "broken"},
+    )
+
+    assert draft.stored_advanced() is None
+
+
+@pytest.mark.parametrize("value", [None, "climate.trv", {"trv": "climate.trv"}])
+def test_an_entry_without_a_thermostat_list_has_no_stored_thermostats(value):
+    assert _stored_thermostats(value) == {}
+
+
+def test_only_stored_thermostats_with_an_entity_id_are_found():
+    found = {"trv": "climate.a", "advanced": {}}
+
+    assert _stored_thermostats([found, {"trv": ""}, {"trv": 5}, "climate.b"]) == {
+        "climate.a": found
+    }

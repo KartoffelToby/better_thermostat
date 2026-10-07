@@ -40,6 +40,7 @@ from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
     CONF_HEAT_AUTO_SWAPPED,
     CONF_NO_OFF_SYSTEM_MODE,
+    CONF_THERMOSTAT,
     DEFAULT_CALIBRATION_MODE,
     DOMAIN,
     GENERIC_MODEL,
@@ -110,14 +111,51 @@ class _DeviceModelHost(_RegistryHost, Protocol):
         ...
 
 
-def entry_settings(entry: ConfigEntry) -> dict[str, Any]:
+def entry_settings(entry: ConfigEntry) -> dict[str, object]:
     """Return the configuration of ``entry``, wherever it is stored.
 
     Better Thermostat 2.0 keeps the settings in the entry's options and leaves
     its data empty; 1.9 keeps them in the data. Reading both, the options over
     the data, lets an entry last saved by either version run here.
+
+    The values are as stored and unchecked. A reader narrows each one it
+    uses, for example with ``setting_str``; a loaded entry also holds them
+    parsed on its runtime data.
     """
     return {**entry.data, **entry.options}
+
+
+def setting_str(settings: Mapping[str, object], key: str) -> str | None:
+    """Return the string stored under ``key``, or ``None`` without one.
+
+    A missing key and a value of any other type both read as ``None``, so
+    the reader works on an entry whose settings never parsed.
+    """
+    value = settings.get(key)
+    return value if isinstance(value, str) else None
+
+
+def entry_name(entry: ConfigEntry) -> str:
+    """Return the name of ``entry``: the stored name, else the entry's title.
+
+    The name is read without parsing the settings, so it also works for an
+    entry that is not loaded, failed setup or stores no name.
+    """
+    name = setting_str(entry_settings(entry), CONF_NAME)
+    return entry.title if name is None else name
+
+
+def stored_trv_configs(settings: Mapping[str, object]) -> list[dict[str, object]]:
+    """Return the per-thermostat mappings stored in ``settings``.
+
+    Anything other than a list under the thermostat key reads as no
+    thermostats, and an element that is not a mapping is skipped, so the
+    reader works on an entry whose settings never parsed.
+    """
+    heaters = settings.get(CONF_THERMOSTAT)
+    if not isinstance(heaters, list):
+        return []
+    return [trv for trv in heaters if isinstance(trv, dict)]
 
 
 def _shares_device(entry: er.RegistryEntry, device_id: str | None) -> bool:
@@ -274,7 +312,7 @@ def async_normalize_bt_entity_ids(
         The entity platform being set up; only its registry entries are
         considered, and each platform carries its own recorded name.
     """
-    name = entry_settings(entry).get(CONF_NAME)
+    name = setting_str(entry_settings(entry), CONF_NAME)
     normalized = hass.data.setdefault(NORMALIZED_ID_NAMES, {}).setdefault(
         entry.entry_id, {}
     )

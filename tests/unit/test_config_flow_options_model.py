@@ -115,8 +115,8 @@ async def test_options_flow_swap_to_generic_thermostat_resolves_generic_model():
 
     assert result["type"] == "form"
     assert result["step_id"] == "advanced"
-    assert [trv["trv"] for trv in flow.trv_bundle] == [GENERIC_TRV]
-    assert flow.trv_bundle[0]["model"] == "generic"
+    assert [trv.entity_id for trv in flow.trv_bundle] == [GENERIC_TRV]
+    assert flow.trv_bundle[0].stored["model"] == "generic"
 
 
 @pytest.mark.asyncio
@@ -139,7 +139,7 @@ async def test_config_flow_swap_to_generic_thermostat_resolves_generic_model():
 
     assert result["type"] == "form"
     assert result["step_id"] == "advanced"
-    assert flow.trv_bundle[0]["model"] == "generic"
+    assert flow.trv_bundle[0].stored["model"] == "generic"
 
 
 @pytest.mark.asyncio

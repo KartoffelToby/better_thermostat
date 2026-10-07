@@ -81,8 +81,9 @@ convention = "numpy"
 # file name under `model_fixes` is a lookup key rather than a name anybody
 # chose. `_QUIRK_MODULE_ALIASES` in `model_quirks.py` redirects a model to
 # another model's module; snake_case module names would turn that one-line
-# redirect into an entry per supported device. `scripts/pep8_naming_budget.py`
-# accepts N999 under `model_fixes` and nowhere else.
+# redirect into an entry per supported device. The same glob is declared under
+# `[tool.better_thermostat.pep8-naming] module-name-paths`, which is what CI
+# holds the module names to.
 "custom_components/better_thermostat/model_fixes/**" = ["N999"]
 
 [tool.ruff.lint.pep8-naming]
@@ -100,9 +101,9 @@ convention = "numpy"
 # `C` is left out on purpose: absolute temperatures carry no suffix, and the
 # symbol for a degree Celsius is not `C`.
 #
-# Ruff applies the patterns everywhere. `scripts/pep8_naming_budget.py` holds
-# them to the notation zones: the calibration code and its three test mirrors.
-# Outside those paths a name these patterns let through still fails CI.
+# Ruff applies the patterns everywhere. `scripts/pep8_naming_exceptions.py`
+# holds them to `[tool.better_thermostat.pep8-naming] notation-paths`: outside
+# those paths a name these patterns let through still fails CI.
 #
 # This is about case alone. `scripts/check_naming.py` judges the vocabulary in
 # these paths as well, so the notation may not use a spelling `glossary.toml`
@@ -116,6 +117,24 @@ extend-ignore-names = [
   "d[A-Z]",
   "d[A-Z]_*[!C]",
 ]
+
+# The exceptions to PEP 8 naming, by place. `scripts/pep8_naming_exceptions.py`
+# (CI) fails on every naming finding these do not cover; no `noqa`, no
+# `per-file-ignores` entry and no budget hides a name from it. A name either
+# follows PEP 8 or is declared here with its reason.
+[tool.better_thermostat.pep8-naming]
+# The paths that write the control-theory notation `extend-ignore-names`
+# describes: the calibration code and the tests that mirror it. A value leaves
+# the notation where it leaves these paths.
+notation-paths = [
+  "custom_components/better_thermostat/utils/calibration/**",
+  "tests/benchmark/**",
+  "tests/unit/mpc_v2/**",
+  "tests/unit/test_mpc_comprehensive.py",
+]
+# The modules named after device model strings (N999); the reason stands at the
+# matching `per-file-ignores` entry, which ruff itself needs.
+module-name-paths = ["custom_components/better_thermostat/model_fixes/**"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]

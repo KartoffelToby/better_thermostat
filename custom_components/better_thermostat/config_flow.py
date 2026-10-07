@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
+from dataclasses import dataclass
 import logging
 from types import ModuleType
-from typing import Any, override
+from typing import Any, Final, NotRequired, TypedDict, override
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
@@ -70,13 +71,16 @@ from .utils.const import (
     CalibrationOutput,
     MpcV2PlantPreset,
 )
+from .utils.entry_schema import StoredChoice
 from .utils.helpers import (
     device_offers_mode,
+    entry_name,
     entry_settings,
     get_device_model,
     get_trv_intigration,
 )
 from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
+from .utils.stored_values import is_json_object
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +99,7 @@ _TARGET_TEMP_MIN_MAX_VALUE_TO_SELECTOR = {
 }
 
 
-def _resolve_min_max_selector_token(value: str | float | None) -> str:
+def _resolve_min_max_selector_token(value: object) -> str:
     """Return the selector token for a stored bound or for a submitted token.
 
     Parameters
@@ -210,12 +214,208 @@ PRESET_SELECTOR = selector.SelectSelector(
 # suggestion is this temperature expressed in that unit.
 _OFF_TEMPERATURE_DEFAULT_CELSIUS = 20
 
-_USER_FIELD_DEFAULTS: dict[str, Any] = {
+_UserFieldDefaults = TypedDict(  # noqa: UP013
+    "_UserFieldDefaults",
+    {
+        "tolerance": float,
+        "target_temp_min": str,
+        "target_temp_max": str,
+        "target_temp_step": str,
+    },
+)
+
+_USER_FIELD_DEFAULTS: Final[_UserFieldDefaults] = {
     CONF_TOLERANCE: 0.0,
     CONF_TARGET_TEMP_MIN: TARGET_TEMP_BOUND_AUTO,
     CONF_TARGET_TEMP_MAX: TARGET_TEMP_BOUND_AUTO,
     CONF_TARGET_TEMP_STEP: "0.0",
 }
+
+# The user step's settings as the flow normalises a submission. The
+# thermostats are entity ids here; the stored entry holds a bundle per
+# thermostat in their place. A delay or the preset list the submission does
+# not carry is left out, and the stored value stands. The keys are spelled
+# as strings for the reason ``utils/entry_schema.py`` gives.
+_UserDraft = TypedDict(  # noqa: UP013
+    "_UserDraft",
+    {
+        "name": str,
+        "thermostat": list[str],
+        "cooler": str | None,
+        "temperature_sensor": str | None,
+        "window_sensors": str | None,
+        "door_sensors": str | None,
+        "humidity_sensor": str | None,
+        "outdoor_sensor": str | None,
+        "weather": str | None,
+        "window_off_delay": NotRequired[int],
+        "window_off_delay_after": NotRequired[int],
+        "door_off_delay": NotRequired[int],
+        "door_off_delay_after": NotRequired[int],
+        "off_temperature": int,
+        "presets": NotRequired[list[str] | None],
+        "tolerance": float,
+        "target_temp_min": str,
+        "target_temp_max": str,
+        "target_temp_step": str,
+    },
+)
+
+# One thermostat's advanced options as the flow normalises a submission. The
+# choices are kept as submitted; the plant preset is left out when the
+# submission does not carry it.
+_AdvancedDraft = TypedDict(  # noqa: UP013
+    "_AdvancedDraft",
+    {
+        "calibration": StoredChoice,
+        "calibration_mode": StoredChoice,
+        "mpc_v2_plant_preset": NotRequired[StoredChoice],
+        "protect_overheating": bool,
+        "no_off_system_mode": bool,
+        "heat_auto_swapped": bool,
+        "valve_maintenance": bool,
+        "child_lock": bool,
+        "homematicip": bool,
+    },
+)
+
+
+@dataclass(slots=True)
+class _TrvDraft:
+    """One thermostat while a flow configures it.
+
+    ``stored`` is the thermostat the way the entry stores it: for one the
+    entry already has, a copy of its stored mapping with every key it carries,
+    known or not, in the stored order. Its ``adapter`` slot is always stored
+    as ``None``; the loaded module lives in ``adapter`` for as long as the
+    flow runs. ``advanced`` is what the thermostat's advanced step submitted,
+    and replaces the stored advanced options once it is set.
+    """
+
+    entity_id: str
+    integration: str | None
+    adapter: ModuleType | None
+    stored: dict[str, object]
+    advanced: _AdvancedDraft | None = None
+
+    def stored_advanced(self) -> Mapping[str, object] | None:
+        """Return the advanced options the entry holds for this thermostat."""
+        advanced = self.stored.get("advanced")
+        return advanced if is_json_object(advanced) else None
+
+    def to_stored(self) -> dict[str, object]:
+        """Return the thermostat in the shape the entry stores."""
+        stored = dict(self.stored)
+        stored["adapter"] = None
+        if self.advanced is not None:
+            stored["advanced"] = _stored_advanced(self.advanced)
+        return stored
+
+
+@dataclass(frozen=True, slots=True)
+class _AdvancedContext:
+    """What the advanced step of one thermostat offers and defaults to."""
+
+    entity_id: str
+    info: Mapping[str, bool]
+    default_calibration: str
+    homematic: bool
+    has_auto: bool
+
+
+def _int_or(value: object, fallback: int) -> int:
+    """Return ``int(value)``, or ``fallback`` when ``int()`` refuses the value."""
+    if not isinstance(value, int | float | str):
+        return fallback
+    try:
+        return int(value)
+    except ValueError:
+        return fallback
+
+
+def _float_or(value: object, fallback: float) -> float:
+    """Return ``float(value)``, or ``fallback`` when ``float()`` refuses it."""
+    if not isinstance(value, int | float | str):
+        return fallback
+    try:
+        return float(value)
+    except ValueError:
+        return fallback
+
+
+def _submitted_choice(value: object, fallback: StoredChoice) -> StoredChoice:
+    """Return a submitted choice, or ``fallback`` when it is not a scalar."""
+    if value is None or isinstance(value, str | int | float):
+        return value
+    return fallback
+
+
+def _entity_or_none(value: object) -> str | None:
+    """Return a submitted entity id, with an emptied selector read as none."""
+    return value if isinstance(value, str) and value else None
+
+
+def _merged_settings(
+    base: Mapping[str, object], draft: _UserDraft
+) -> dict[str, object]:
+    """Return ``base`` with the user step's settings written over it.
+
+    The keys ``base`` holds keep their place and the others follow in the
+    order the user step lists them, so a key ``draft`` leaves out keeps its
+    stored value.
+    """
+    merged = copy.deepcopy(dict(base))
+    merged[CONF_NAME] = draft[CONF_NAME]
+    merged[CONF_THERMOSTAT] = list(draft[CONF_THERMOSTAT])
+    merged[CONF_COOLER] = draft[CONF_COOLER]
+    merged[CONF_TEMPERATURE_SENSOR] = draft[CONF_TEMPERATURE_SENSOR]
+    merged[CONF_WINDOW_SENSORS] = draft[CONF_WINDOW_SENSORS]
+    merged[CONF_DOOR_SENSORS] = draft[CONF_DOOR_SENSORS]
+    merged[CONF_HUMIDITY_SENSOR] = draft[CONF_HUMIDITY_SENSOR]
+    merged[CONF_OUTDOOR_SENSOR] = draft[CONF_OUTDOOR_SENSOR]
+    merged[CONF_WEATHER] = draft[CONF_WEATHER]
+    if CONF_WINDOW_OFF_DELAY in draft:
+        merged[CONF_WINDOW_OFF_DELAY] = draft[CONF_WINDOW_OFF_DELAY]
+    if CONF_WINDOW_OFF_DELAY_AFTER in draft:
+        merged[CONF_WINDOW_OFF_DELAY_AFTER] = draft[CONF_WINDOW_OFF_DELAY_AFTER]
+    if CONF_DOOR_OFF_DELAY in draft:
+        merged[CONF_DOOR_OFF_DELAY] = draft[CONF_DOOR_OFF_DELAY]
+    if CONF_DOOR_OFF_DELAY_AFTER in draft:
+        merged[CONF_DOOR_OFF_DELAY_AFTER] = draft[CONF_DOOR_OFF_DELAY_AFTER]
+    merged[CONF_OFF_TEMPERATURE] = draft[CONF_OFF_TEMPERATURE]
+    if CONF_PRESETS in draft:
+        merged[CONF_PRESETS] = draft[CONF_PRESETS]
+    merged[CONF_TOLERANCE] = draft[CONF_TOLERANCE]
+    merged[CONF_TARGET_TEMP_MIN] = draft[CONF_TARGET_TEMP_MIN]
+    merged[CONF_TARGET_TEMP_MAX] = draft[CONF_TARGET_TEMP_MAX]
+    merged[CONF_TARGET_TEMP_STEP] = draft[CONF_TARGET_TEMP_STEP]
+    return merged
+
+
+def _stored_advanced(draft: _AdvancedDraft) -> dict[str, object]:
+    """Return one thermostat's advanced options in the shape the entry stores."""
+    stored: dict[str, object] = {
+        CONF_CALIBRATION: draft[CONF_CALIBRATION],
+        CONF_CALIBRATION_MODE: draft[CONF_CALIBRATION_MODE],
+    }
+    if CONF_MPC_V2_PLANT_PRESET in draft:
+        stored[CONF_MPC_V2_PLANT_PRESET] = draft[CONF_MPC_V2_PLANT_PRESET]
+    stored[CONF_PROTECT_OVERHEATING] = draft[CONF_PROTECT_OVERHEATING]
+    stored[CONF_NO_OFF_SYSTEM_MODE] = draft[CONF_NO_OFF_SYSTEM_MODE]
+    stored[CONF_HEAT_AUTO_SWAPPED] = draft[CONF_HEAT_AUTO_SWAPPED]
+    stored[CONF_VALVE_MAINTENANCE] = draft[CONF_VALVE_MAINTENANCE]
+    stored[CONF_CHILD_LOCK] = draft[CONF_CHILD_LOCK]
+    stored[CONF_HOMEMATICIP] = draft[CONF_HOMEMATICIP]
+    return stored
+
+
+def _stored_settings(
+    settings: Mapping[str, object], thermostats: Iterable[_TrvDraft]
+) -> dict[str, object]:
+    """Return the settings a flow writes, with each thermostat as stored."""
+    stored = dict(settings)
+    stored[CONF_THERMOSTAT] = [trv.to_stored() for trv in thermostats]
+    return stored
 
 
 def _off_temperature_default(system_unit: str | None) -> int:
@@ -319,39 +519,42 @@ def _trv_supports_auto(
     return device_offers_mode(hvac_modes, HVACMode.AUTO)
 
 
+def _without_balance_mode(source: Mapping[str, object]) -> dict[str, object]:
+    """Return ``source`` with its ``balance_mode`` read as a calibration mode.
+
+    An older entry can carry the ``balance_mode`` that ``calibration_mode``
+    replaced. ``pid`` reads as the PID calibration mode; ``heuristic`` and
+    ``none`` leave the calibration mode as chosen, or on the default when
+    none is. ``source`` itself is left as it is.
+    """
+    view = dict(source)
+    balance_mode = view.get("balance_mode")
+    if balance_mode == "pid":
+        view[CONF_CALIBRATION_MODE] = CalibrationMode.PID_CALIBRATION.value
+        view.pop("balance_mode", None)
+    elif balance_mode in ("heuristic", "none"):
+        if CONF_CALIBRATION_MODE not in view:
+            view[CONF_CALIBRATION_MODE] = DEFAULT_CALIBRATION_MODE.value
+        view.pop("balance_mode", None)
+    return view
+
+
 def _build_advanced_fields(
     *,
-    sources: Iterable[dict[str, Any] | None],
+    sources: Iterable[Mapping[str, object] | None],
     default_calibration: str,
     homematic: bool,
     has_auto: bool,
     support_valve: bool = False,
     support_offset: bool = False,
-) -> OrderedDict[vol.Marker, Any]:
-    # Migrate old balance_mode to calibration_mode
-    sources_list = list(sources)
-    for source in sources_list:
-        if isinstance(source, dict):
-            balance_mode = source.get("balance_mode")
-            if balance_mode == "pid":
-                # Migrate PID from balance_mode to calibration_mode
-                source["calibration_mode"] = CalibrationMode.PID_CALIBRATION.value
-                # Remove old balance_mode
-                source.pop("balance_mode", None)
-            elif balance_mode in ("heuristic", "none"):
-                # For other balance modes, set calibration_mode to default if not set
-                if "calibration_mode" not in source:
-                    source["calibration_mode"] = DEFAULT_CALIBRATION_MODE.value
-                # Remove old balance_mode
-                source.pop("balance_mode", None)
+) -> OrderedDict[vol.Marker, object]:
+    views = [_without_balance_mode(source) for source in sources if source is not None]
 
-    sources = sources_list
-
-    def get_value(key: str, fallback: Any) -> Any:
+    def get_value(key: str, fallback: object) -> object:
         """Get value from first source dict that contains the key."""
-        for source in sources:
-            if isinstance(source, dict) and key in source:
-                return source[key]
+        for view in views:
+            if key in view:
+                return view[key]
         return fallback
 
     def get_bool(key: str, fallback: bool) -> bool:
@@ -378,7 +581,7 @@ def _build_advanced_fields(
             translation_key="calibration_output",
         )
     )
-    ordered: OrderedDict[vol.Marker, Any] = OrderedDict()
+    ordered: OrderedDict[vol.Marker, object] = OrderedDict()
 
     # 1) Calibration + protection flags
     ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
@@ -427,34 +630,38 @@ def _build_advanced_fields(
 
 
 def _normalize_advanced_submission(
-    data: dict[str, Any], *, default_calibration: str, homematic: bool, has_auto: bool
-) -> dict[str, Any]:
-    normalized: dict[str, Any] = dict(data)
-    normalized[CONF_CALIBRATION] = normalized.get(CONF_CALIBRATION, default_calibration)
-    normalized[CONF_CALIBRATION_MODE] = normalized.get(
-        CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE
-    )
-    normalized[CONF_PROTECT_OVERHEATING] = _as_bool(
-        normalized.get(CONF_PROTECT_OVERHEATING), False
-    )
-    normalized[CONF_NO_OFF_SYSTEM_MODE] = _as_bool(
-        normalized.get(CONF_NO_OFF_SYSTEM_MODE), False
-    )
-    normalized[CONF_HEAT_AUTO_SWAPPED] = _as_bool(
-        normalized.get(CONF_HEAT_AUTO_SWAPPED), False
-    )
-    normalized[CONF_VALVE_MAINTENANCE] = _as_bool(
-        normalized.get(CONF_VALVE_MAINTENANCE), False
-    )
-    normalized[CONF_CHILD_LOCK] = _as_bool(normalized.get(CONF_CHILD_LOCK), False)
-    normalized[CONF_HOMEMATICIP] = _as_bool(normalized.get(CONF_HOMEMATICIP), homematic)
+    data: Mapping[str, object],
+    *,
+    default_calibration: str,
+    homematic: bool,
+    has_auto: bool,
+) -> _AdvancedDraft:
+    normalized: _AdvancedDraft = {
+        CONF_CALIBRATION: _submitted_choice(
+            data.get(CONF_CALIBRATION, default_calibration), default_calibration
+        ),
+        CONF_CALIBRATION_MODE: _submitted_choice(
+            data.get(CONF_CALIBRATION_MODE, DEFAULT_CALIBRATION_MODE),
+            DEFAULT_CALIBRATION_MODE,
+        ),
+        CONF_PROTECT_OVERHEATING: _as_bool(data.get(CONF_PROTECT_OVERHEATING), False),
+        CONF_NO_OFF_SYSTEM_MODE: _as_bool(data.get(CONF_NO_OFF_SYSTEM_MODE), False),
+        CONF_HEAT_AUTO_SWAPPED: _as_bool(data.get(CONF_HEAT_AUTO_SWAPPED), False),
+        CONF_VALVE_MAINTENANCE: _as_bool(data.get(CONF_VALVE_MAINTENANCE), False),
+        CONF_CHILD_LOCK: _as_bool(data.get(CONF_CHILD_LOCK), False),
+        CONF_HOMEMATICIP: _as_bool(data.get(CONF_HOMEMATICIP), homematic),
+    }
+    if CONF_MPC_V2_PLANT_PRESET in data:
+        normalized[CONF_MPC_V2_PLANT_PRESET] = _submitted_choice(
+            data[CONF_MPC_V2_PLANT_PRESET], MpcV2PlantPreset.AUTO
+        )
 
     _LOGGER.debug("Normalized advanced submission: %s", normalized)
 
     return normalized
 
 
-def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> int:
+def _duration_dict_to_seconds(duration: object) -> int:
     if duration is None:
         return 0
     if isinstance(duration, (int, float)):
@@ -462,7 +669,7 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
             return max(int(duration), 0)
         except OverflowError, ValueError:
             return 0
-    if isinstance(duration, dict):
+    if is_json_object(duration):
         try:
             return int(cv.time_period_dict(duration).total_seconds()) or 0
         except vol.Invalid, TypeError, ValueError:
@@ -470,11 +677,8 @@ def _duration_dict_to_seconds(duration: int | float | dict[str, int] | None) -> 
     return 0
 
 
-def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]:
-    try:
-        total = int(value or 0)
-    except TypeError, ValueError:
-        total = 0
+def _seconds_to_duration_dict(value: object) -> dict[str, int]:
+    total = _int_or(value or 0, 0)
     total = max(total, 0)
     hours, remainder = divmod(total, 3600)
     minutes, seconds = divmod(remainder, 60)
@@ -484,15 +688,15 @@ def _seconds_to_duration_dict(value: int | float | str | None) -> dict[str, int]
 def _build_user_fields(
     *,
     mode: str,
-    current: Mapping[str, Any],
-    user_input: dict[str, Any] | None = None,
+    current: Mapping[str, object],
+    user_input: Mapping[str, object] | None = None,
     system_unit: str | None = None,
-) -> OrderedDict[vol.Marker, Any]:
+) -> OrderedDict[vol.Marker, object]:
     user_input = user_input or {}
     is_create = mode == "create"
-    fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+    fields: OrderedDict[vol.Marker, object] = OrderedDict()
 
-    def resolve(key: str, fallback: Any = None) -> Any:
+    def resolve(key: str, fallback: object = None) -> object:
         """Resolve field value from user input, current config, or defaults."""
         if key in user_input:
             return user_input[key]
@@ -501,7 +705,7 @@ def _build_user_fields(
         return fallback
 
     def add_field(
-        key: str, field_type: Any, *, required: bool = False, default: Any = None
+        key: str, field_type: object, *, required: bool = False, default: object = None
     ) -> None:
         """Add a field to the form schema with appropriate validation."""
         description = None
@@ -555,9 +759,9 @@ def _build_user_fields(
             # user submitted. Both have to survive into the selector, or the
             # redisplayed form loses the thermostats the user had picked.
             default = [
-                item.get("trv") if isinstance(item, dict) else item
+                entity_id
                 for item in default
-                if (item.get("trv") if isinstance(item, dict) else item)
+                if (entity_id := item.get("trv") if is_json_object(item) else item)
             ]
         if key == CONF_THERMOSTAT and not default:
             default = None
@@ -617,11 +821,9 @@ def _build_user_fields(
         add_field(key, selector.DurationSelector(), default=duration_default)
 
     suggested_off_temp = _off_temperature_default(system_unit)
-    off_temp_default = resolve(CONF_OFF_TEMPERATURE, suggested_off_temp)
-    try:
-        off_temp_default = int(off_temp_default)
-    except TypeError, ValueError:
-        off_temp_default = suggested_off_temp
+    off_temp_default = _int_or(
+        resolve(CONF_OFF_TEMPERATURE, suggested_off_temp), suggested_off_temp
+    )
     add_field(CONF_OFF_TEMPERATURE, int, default=off_temp_default)
 
     # An entry that carries no preset list runs on the PresetManager default
@@ -635,11 +837,10 @@ def _build_user_fields(
         ),
     )
 
-    tolerance_default = resolve(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE])
-    try:
-        tolerance_default = float(tolerance_default)
-    except TypeError, ValueError:
-        tolerance_default = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+    tolerance_fallback = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+    tolerance_default = _float_or(
+        resolve(CONF_TOLERANCE, tolerance_fallback), tolerance_fallback
+    )
     add_field(
         CONF_TOLERANCE,
         vol.All(vol.Coerce(float), vol.Range(min=0)),
@@ -655,10 +856,9 @@ def _build_user_fields(
         )
         add_field(bound_key, bound_selector, default=bound_default)
 
-    target_step_default = resolve(
-        CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
+    target_step_key = str(
+        resolve(CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP])
     )
-    target_step_key = str(target_step_default)
     if target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE:
         # A re-displayed form carries the submitted selector token, not a stored value.
         target_step_default = target_step_key
@@ -671,106 +871,141 @@ def _build_user_fields(
     return fields
 
 
+def _submitted_thermostats(value: object) -> list[str]:
+    """Return the entity ids of the thermostats a submission or an entry names.
+
+    A submission names them as entity ids, a stored entry as one bundle per
+    thermostat, and a single thermostat can stand on its own.
+    """
+    if isinstance(value, list):
+        items: list[object] = list(value)
+    elif value is None:
+        items = []
+    else:
+        items = [value]
+    if items and is_json_object(items[0]):
+        return [
+            entity_id
+            for item in items
+            if is_json_object(item)
+            and isinstance(entity_id := item.get("trv"), str)
+            and entity_id
+        ]
+    return [item for item in items if isinstance(item, str)]
+
+
+def _submitted_presets(value: object) -> list[str] | None:
+    """Return a submitted preset list, with ``None`` for no list."""
+    if isinstance(value, list):
+        return [preset for preset in value if isinstance(preset, str)]
+    return None
+
+
+def _submitted_selector_value(
+    value: object, selector_to_value: Mapping[str, str], fallback: str
+) -> str:
+    """Return the stored form of a selector token, a stored value or a default.
+
+    A selector token maps to its value. Anything else is kept as it is, with
+    a missing value or an empty one that is not a token taking ``fallback``.
+    """
+    token = str(value)
+    if token in selector_to_value:
+        return selector_to_value[token]
+    if value is None or value == "":
+        return fallback
+    return token
+
+
 def _normalize_user_submission(
-    user_input: dict[str, Any],
+    user_input: Mapping[str, object],
     *,
     mode: str,
-    base: Mapping[str, Any] | None = None,
+    base: Mapping[str, object] | None = None,
     errors: dict[str, str] | None = None,
     system_unit: str | None = None,
-) -> dict[str, Any]:
-    base_copy = copy.deepcopy(dict(base)) if base else {}
-    normalized: dict[str, Any] = base_copy
+) -> _UserDraft:
+    """Return the user step's settings from a submission on top of ``base``.
 
-    normalized[CONF_NAME] = user_input.get(CONF_NAME, normalized.get(CONF_NAME, ""))
+    ``base`` is what the step started from: the entry's settings, or the
+    settings of a submission the step sent back. The returned draft holds the
+    keys the step sets; ``_merged_settings`` writes them over ``base``.
+    """
+    base = base or {}
 
-    heaters_value = user_input.get(CONF_THERMOSTAT, normalized.get(CONF_THERMOSTAT, []))
-    heaters_list: list[Any]
-    if isinstance(heaters_value, list):
-        heaters_list = heaters_value
-    elif heaters_value is None:
-        heaters_list = []
-    else:
-        heaters_list = [heaters_value]
-    if heaters_list and isinstance(heaters_list[0], dict):
-        heaters_list = [
-            item.get("trv")
-            for item in heaters_list
-            if isinstance(item, dict) and item.get("trv")
-        ]
-    normalized[CONF_THERMOSTAT] = list(heaters_list)
+    def submitted(key: str, fallback: object) -> object:
+        return user_input.get(key, base.get(key, fallback))
 
-    optional_keys = (
-        CONF_COOLER,
-        CONF_TEMPERATURE_SENSOR,
-        CONF_WINDOW_SENSORS,
-        CONF_DOOR_SENSORS,
-        CONF_HUMIDITY_SENSOR,
-        CONF_OUTDOOR_SENSOR,
-        CONF_WEATHER,
-    )
-    for key in optional_keys:
-        if key in user_input:
-            value = user_input.get(key)
-            if value == "" or value is None:
-                normalized[key] = None
-            else:
-                normalized[key] = value
-        else:
-            normalized[key] = None
-
-    for key in (
-        CONF_WINDOW_OFF_DELAY,
-        CONF_WINDOW_OFF_DELAY_AFTER,
-        CONF_DOOR_OFF_DELAY,
-        CONF_DOOR_OFF_DELAY_AFTER,
-    ):
-        if key in user_input:
-            normalized[key] = _duration_dict_to_seconds(user_input.get(key))
-        elif mode == "create" and key not in normalized:
-            normalized[key] = 0
-
+    name = submitted(CONF_NAME, "")
     suggested_off_temp = _off_temperature_default(system_unit)
-    off_temperature = user_input.get(
-        CONF_OFF_TEMPERATURE, normalized.get(CONF_OFF_TEMPERATURE, suggested_off_temp)
-    )
-    if off_temperature is None:
-        normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
-    else:
-        try:
-            normalized[CONF_OFF_TEMPERATURE] = int(off_temperature)
-        except TypeError, ValueError:
-            normalized[CONF_OFF_TEMPERATURE] = suggested_off_temp
+    off_temperature = submitted(CONF_OFF_TEMPERATURE, suggested_off_temp)
+    tolerance_fallback = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
+
+    normalized: _UserDraft = {
+        CONF_NAME: name if isinstance(name, str) else "",
+        CONF_THERMOSTAT: _submitted_thermostats(submitted(CONF_THERMOSTAT, [])),
+        CONF_COOLER: _entity_or_none(user_input.get(CONF_COOLER)),
+        CONF_TEMPERATURE_SENSOR: _entity_or_none(
+            user_input.get(CONF_TEMPERATURE_SENSOR)
+        ),
+        CONF_WINDOW_SENSORS: _entity_or_none(user_input.get(CONF_WINDOW_SENSORS)),
+        CONF_DOOR_SENSORS: _entity_or_none(user_input.get(CONF_DOOR_SENSORS)),
+        CONF_HUMIDITY_SENSOR: _entity_or_none(user_input.get(CONF_HUMIDITY_SENSOR)),
+        CONF_OUTDOOR_SENSOR: _entity_or_none(user_input.get(CONF_OUTDOOR_SENSOR)),
+        CONF_WEATHER: _entity_or_none(user_input.get(CONF_WEATHER)),
+        CONF_OFF_TEMPERATURE: _int_or(off_temperature, suggested_off_temp),
+        CONF_TOLERANCE: _float_or(
+            submitted(CONF_TOLERANCE, tolerance_fallback), tolerance_fallback
+        ),
+        CONF_TARGET_TEMP_MIN: _submitted_selector_value(
+            submitted(CONF_TARGET_TEMP_MIN, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN]),
+            _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE,
+            _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MIN],
+        ),
+        CONF_TARGET_TEMP_MAX: _submitted_selector_value(
+            submitted(CONF_TARGET_TEMP_MAX, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX]),
+            _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE,
+            _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_MAX],
+        ),
+        CONF_TARGET_TEMP_STEP: _submitted_selector_value(
+            submitted(
+                CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
+            ),
+            _TARGET_TEMP_STEP_SELECTOR_TO_VALUE,
+            _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP],
+        ),
+    }
+
+    is_create = mode == "create"
+    if CONF_WINDOW_OFF_DELAY in user_input:
+        normalized[CONF_WINDOW_OFF_DELAY] = _duration_dict_to_seconds(
+            user_input[CONF_WINDOW_OFF_DELAY]
+        )
+    elif is_create and CONF_WINDOW_OFF_DELAY not in base:
+        normalized[CONF_WINDOW_OFF_DELAY] = 0
+    if CONF_WINDOW_OFF_DELAY_AFTER in user_input:
+        normalized[CONF_WINDOW_OFF_DELAY_AFTER] = _duration_dict_to_seconds(
+            user_input[CONF_WINDOW_OFF_DELAY_AFTER]
+        )
+    elif is_create and CONF_WINDOW_OFF_DELAY_AFTER not in base:
+        normalized[CONF_WINDOW_OFF_DELAY_AFTER] = 0
+    if CONF_DOOR_OFF_DELAY in user_input:
+        normalized[CONF_DOOR_OFF_DELAY] = _duration_dict_to_seconds(
+            user_input[CONF_DOOR_OFF_DELAY]
+        )
+    elif is_create and CONF_DOOR_OFF_DELAY not in base:
+        normalized[CONF_DOOR_OFF_DELAY] = 0
+    if CONF_DOOR_OFF_DELAY_AFTER in user_input:
+        normalized[CONF_DOOR_OFF_DELAY_AFTER] = _duration_dict_to_seconds(
+            user_input[CONF_DOOR_OFF_DELAY_AFTER]
+        )
+    elif is_create and CONF_DOOR_OFF_DELAY_AFTER not in base:
+        normalized[CONF_DOOR_OFF_DELAY_AFTER] = 0
 
     if CONF_PRESETS in user_input:
-        normalized[CONF_PRESETS] = user_input[CONF_PRESETS]
-    elif mode == "create" and CONF_PRESETS not in normalized:
-        no_presets: list[str] = []
-        normalized[CONF_PRESETS] = no_presets
-
-    tolerance = user_input.get(
-        CONF_TOLERANCE,
-        normalized.get(CONF_TOLERANCE, _USER_FIELD_DEFAULTS[CONF_TOLERANCE]),
-    )
-    if tolerance is None:
-        normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
-    else:
-        try:
-            normalized[CONF_TOLERANCE] = float(tolerance)
-        except TypeError, ValueError:
-            normalized[CONF_TOLERANCE] = _USER_FIELD_DEFAULTS[CONF_TOLERANCE]
-
-    for bound_key in (CONF_TARGET_TEMP_MIN, CONF_TARGET_TEMP_MAX):
-        bound = user_input.get(
-            bound_key, normalized.get(bound_key, _USER_FIELD_DEFAULTS[bound_key])
-        )
-        bound_token = str(bound)
-        bound_from_selector = bound_token in _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE
-        if bound_from_selector:
-            bound = _TARGET_TEMP_MIN_MAX_SELECTOR_TO_VALUE[bound_token]
-        if bound is None or (bound == "" and not bound_from_selector):
-            bound = _USER_FIELD_DEFAULTS[bound_key]
-        normalized[bound_key] = str(bound)
+        normalized[CONF_PRESETS] = _submitted_presets(user_input[CONF_PRESETS])
+    elif is_create and CONF_PRESETS not in base:
+        normalized[CONF_PRESETS] = []
 
     if errors is not None:
         try:
@@ -785,45 +1020,56 @@ def _normalize_user_submission(
             if auto not in (lower_bound, upper_bound) and lower_bound > upper_bound:
                 errors[CONF_TARGET_TEMP_MIN] = "target_temp_min_above_max"
 
-    target_step = user_input.get(
-        CONF_TARGET_TEMP_STEP,
-        normalized.get(
-            CONF_TARGET_TEMP_STEP, _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
-        ),
-    )
-    target_step_key = str(target_step)
-    target_step_from_selector = target_step_key in _TARGET_TEMP_STEP_SELECTOR_TO_VALUE
-    if target_step_from_selector:
-        target_step = _TARGET_TEMP_STEP_SELECTOR_TO_VALUE[target_step_key]
-    if target_step is None or (target_step == "" and not target_step_from_selector):
-        target_step = _USER_FIELD_DEFAULTS[CONF_TARGET_TEMP_STEP]
-    normalized[CONF_TARGET_TEMP_STEP] = str(target_step)
-
     return normalized
 
 
 async def _prepare_advanced_context(
-    flow: ConfigFlow | OptionsFlowHandler, trv_config: dict[str, Any] | None
-) -> dict[str, Any]:
-    trv_config = trv_config or {}
-    integration = trv_config.get("integration")
-    entity_id = trv_config.get("trv")
-    adapter, info = await _load_adapter_info(
-        flow, integration, entity_id, existing_adapter=trv_config.get("adapter")
+    flow: ConfigFlow | OptionsFlowHandler, trv: _TrvDraft
+) -> _AdvancedContext:
+    _adapter, info = await _load_adapter_info(
+        flow, trv.integration, trv.entity_id, existing_adapter=trv.adapter
     )
-    default_calibration = _default_calibration_from_info(info)
-    homematic = bool(integration and "homematic" in integration.lower())
-    has_auto = _trv_supports_auto(flow, entity_id)
+    return _AdvancedContext(
+        entity_id=trv.entity_id,
+        info=info,
+        default_calibration=_default_calibration_from_info(info),
+        homematic=bool(trv.integration and "homematic" in trv.integration.lower()),
+        has_auto=_trv_supports_auto(flow, trv.entity_id),
+    )
 
-    return {
-        "adapter": adapter,
-        "info": info,
-        "default_calibration": default_calibration,
-        "homematic": homematic,
-        "has_auto": has_auto,
-        "integration": integration,
-        "trv_id": entity_id,
-    }
+
+async def _new_trv_draft(
+    flow: ConfigFlow | OptionsFlowHandler, entity_id: str
+) -> tuple[_TrvDraft, str]:
+    """Return the draft of a thermostat the entry does not have yet, and its model."""
+    integration = await get_trv_intigration(flow, entity_id)
+    model = await get_device_model(flow, entity_id)
+    adapter = await load_adapter(flow, integration, entity_id)
+    draft = _TrvDraft(
+        entity_id=entity_id,
+        integration=integration,
+        adapter=adapter,
+        stored={
+            "trv": entity_id,
+            "integration": integration,
+            "model": model,
+            "adapter": None,
+        },
+    )
+    return draft, model
+
+
+def _stored_trv_draft(entity_id: str, stored: Mapping[str, object]) -> _TrvDraft:
+    """Return the draft of a thermostat the entry has, from its stored mapping."""
+    copied = copy.deepcopy(dict(stored))
+    copied["adapter"] = None
+    integration = copied.get("integration")
+    return _TrvDraft(
+        entity_id=entity_id,
+        integration=integration if isinstance(integration, str) else None,
+        adapter=None,
+        stored=copied,
+    )
 
 
 def _in_use_placeholders(
@@ -843,10 +1089,7 @@ def _in_use_placeholders(
             continue
         owners = other_entries_controlling(hass, trv_entity_id, entry_id)
         if owners:
-            return {
-                "trv": trv_entity_id,
-                "entry": entry_settings(owners[0]).get(CONF_NAME, owners[0].title),
-            }
+            return {"trv": trv_entity_id, "entry": entry_name(owners[0])}
     return None
 
 
@@ -887,10 +1130,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         self.device_name = ""
-        self.data: dict[str, Any] | None = None
-        self.trv_bundle: list[dict[str, Any]] = []
+        # The user step's settings, with the thermostats as entity ids.
+        self.data: dict[str, object] | None = None
+        self._user_draft: _UserDraft | None = None
+        self.trv_bundle: list[_TrvDraft] = []
         self.i = 0
-        self._active_trv_config: dict[str, Any] | None = None
+        self._active_trv: _TrvDraft | None = None
         super().__init__()
 
     @staticmethod
@@ -906,85 +1151,74 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None, confirm_type: str | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle user-confirmation of discovered node."""
-        errors = {}
-        # The user step sets the data before any step that leads here.
-        assert self.data is not None
-        # attach current trv bundle
-        self.data[CONF_THERMOSTAT] = self.trv_bundle
+        errors: dict[str, str] = {}
+        # The user step sets the settings before any step that leads here.
+        assert self.data is not None and self._user_draft is not None
+        name = self._user_draft[CONF_NAME]
+        entity_ids = [trv.entity_id for trv in self.trv_bundle]
         if user_input is not None:
-            _LOGGER.debug("Confirm: %s", self.data[CONF_THERMOSTAT])
-            unique_trv_string = "_".join([x["trv"] for x in self.data[CONF_THERMOSTAT]])
-            await self.async_set_unique_id(f"{self.data['name']}_{unique_trv_string}")
+            options = _stored_settings(self.data, self.trv_bundle)
+            _LOGGER.debug("Confirm: %s", options[CONF_THERMOSTAT])
+            unique_trv_string = "_".join(entity_ids)
+            await self.async_set_unique_id(f"{name}_{unique_trv_string}")
             _LOGGER.debug(
-                "Creating entry with heater bundle: %s", self.data.get(CONF_THERMOSTAT)
+                "Creating entry with heater bundle: %s", options[CONF_THERMOSTAT]
             )
             self._abort_if_unique_id_configured()
             # Another flow can have created an entry for one of these
             # thermostats while this one waited on its forms, so the
             # check runs again with nothing awaited before the entry.
-            in_use = _in_use_placeholders(
-                self.hass, [x["trv"] for x in self.data[CONF_THERMOSTAT]], None
-            )
+            in_use = _in_use_placeholders(self.hass, entity_ids, None)
             if in_use:
                 return self.async_abort(
                     reason="trv_in_use", description_placeholders=in_use
                 )
-            return self.async_create_entry(
-                title=self.data["name"], data={}, options=self.data
-            )
+            return self.async_create_entry(title=name, data={}, options=options)
         if confirm_type is not None:
             errors["base"] = confirm_type
-        data = self.data or {}
-        _trv_list = data.get(CONF_THERMOSTAT) or []
-        _trvs = ",".join([x.get("trv", "?") for x in _trv_list])
         return self.async_show_form(
             step_id="confirm",
             errors=errors,
-            description_placeholders={"name": data.get(CONF_NAME, ""), "trv": _trvs},
+            description_placeholders={"name": name, "trv": ",".join(entity_ids)},
         )
 
     async def async_step_advanced(
-        self,
-        user_input: dict[str, Any] | None = None,
-        _trv_config: dict[str, Any] | None = None,
+        self, user_input: dict[str, Any] | None = None, trv: _TrvDraft | None = None
     ) -> config_entries.ConfigFlowResult:
         """Handle the advanced step of the config flow."""
-        trv_config = _trv_config if isinstance(_trv_config, dict) else None
-        if trv_config is None:
-            trv_config = self._active_trv_config
+        if trv is None:
+            trv = self._active_trv
         # The step is entered with a TRV and submitted for the one it showed.
-        assert trv_config is not None
+        assert trv is not None
 
-        self._active_trv_config = trv_config
-        ctx = await _prepare_advanced_context(self, trv_config)
-        existing_adv = (
-            trv_config.get("advanced") if isinstance(trv_config, dict) else None
-        )
+        self._active_trv = trv
+        ctx = await _prepare_advanced_context(self, trv)
+        existing_adv = trv.stored_advanced()
         _LOGGER.debug(
             "ConfigFlow advanced step called (index=%s, trv=%s) with user_input=%s",
             self.i,
-            ctx.get("trv_id"),
+            ctx.entity_id,
             user_input,
         )
 
         if user_input is not None:
             advanced_data = _normalize_advanced_submission(
                 user_input,
-                default_calibration=ctx["default_calibration"],
-                homematic=ctx["homematic"],
-                has_auto=ctx["has_auto"],
+                default_calibration=ctx.default_calibration,
+                homematic=ctx.homematic,
+                has_auto=ctx.has_auto,
             )
             _LOGGER.debug(
                 "ConfigFlow advanced step storing data for %s (index %s): %s",
-                trv_config.get("trv"),
+                trv.entity_id,
                 self.i,
                 advanced_data,
             )
-            self.trv_bundle[self.i]["advanced"] = advanced_data
-            self.trv_bundle[self.i]["adapter"] = None
+            self.trv_bundle[self.i].advanced = advanced_data
+            self.trv_bundle[self.i].adapter = None
 
             self.i += 1
-            self._active_trv_config = None
+            self._active_trv = None
             if len(self.trv_bundle) > self.i:
                 _LOGGER.debug(
                     "ConfigFlow advanced step moving to next TRV index=%s", self.i
@@ -992,9 +1226,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_advanced(None, self.trv_bundle[self.i])
 
             _has_off_mode = True
-            for trv in self.trv_bundle:
-                entity_id = trv.get("trv")
-                state_obj = self.hass.states.get(entity_id) if entity_id else None
+            for configured in self.trv_bundle:
+                state_obj = self.hass.states.get(configured.entity_id)
                 hvac_modes: list[str] = []
                 if state_obj:
                     hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
@@ -1005,19 +1238,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_confirm(None, "no_off_mode")
             return await self.async_step_confirm()
 
-        user_input = user_input or {}
-        info = ctx.get("info", {})
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
-            default_calibration=ctx["default_calibration"],
-            homematic=ctx["homematic"],
-            has_auto=ctx["has_auto"],
-            support_valve=info.get("support_valve", False),
-            support_offset=info.get("support_offset", False),
+            default_calibration=ctx.default_calibration,
+            homematic=ctx.homematic,
+            has_auto=ctx.has_auto,
+            support_valve=ctx.info.get("support_valve", False),
+            support_offset=ctx.info.get("support_offset", False),
         )
         _LOGGER.debug(
             "ConfigFlow advanced step showing form for trv=%s with defaults=%s",
-            ctx.get("trv_id"),
+            ctx.entity_id,
             existing_adv,
         )
 
@@ -1026,7 +1257,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(fields),
             last_step=False,
             description_placeholders={
-                "trv": ctx.get("trv_id") or "-",
+                "trv": ctx.entity_id or "-",
                 "docs_url": CONFIG_WALKTHROUGH_URL,
             },
         )
@@ -1049,12 +1280,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors=errors,
                 system_unit=self.hass.config.units.temperature_unit,
             )
-            self.data = normalized
-            _LOGGER.debug("ConfigFlow user step normalized data: %s", normalized)
-            if not normalized.get(CONF_NAME):
+            settings = _merged_settings(current, normalized)
+            self.data = settings
+            self._user_draft = normalized
+            _LOGGER.debug("ConfigFlow user step normalized data: %s", settings)
+            if not normalized[CONF_NAME]:
                 errors["base"] = "no_name"
 
-            heaters = normalized.get(CONF_THERMOSTAT) or []
+            heaters = normalized[CONF_THERMOSTAT]
             if not heaters:
                 errors[CONF_THERMOSTAT] = "no_heater"
 
@@ -1070,20 +1303,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         reason="trv_in_use", description_placeholders=in_use
                     )
                 self.trv_bundle = []
-                for trv in heaters:
-                    integration = await get_trv_intigration(self, trv)
-                    self.trv_bundle.append(
-                        {
-                            "trv": trv,
-                            "integration": integration,
-                            "model": await get_device_model(self, trv),
-                            "adapter": await load_adapter(self, integration, trv),
-                        }
-                    )
+                models: list[str] = []
+                for entity_id in heaters:
+                    draft, model = await _new_trv_draft(self, entity_id)
+                    self.trv_bundle.append(draft)
+                    models.append(model)
                 _LOGGER.debug(
                     "ConfigFlow user step built trv bundle: %s", self.trv_bundle
                 )
-                self.data[CONF_MODEL] = "/".join([x["model"] for x in self.trv_bundle])
+                settings[CONF_MODEL] = "/".join(models)
                 return await self.async_step_advanced(None, self.trv_bundle[0])
 
         fields = _build_user_fields(
@@ -1111,12 +1339,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.i = 0
-        # Dynamic config structures use Any as they store heterogeneous data
-        self.trv_bundle: list[dict[str, Any]] = []
+        self.trv_bundle: list[_TrvDraft] = []
         self.device_name = ""
         self._last_step = False
-        self.updated_config: dict[str, Any] = {}
-        self._active_trv_config: dict[str, Any] | None = None
+        # The entry's settings with the user step's written over them, with
+        # the thermostats as entity ids.
+        self.updated_config: dict[str, object] = {}
+        self._active_trv: _TrvDraft | None = None
         # Do not set `self.config_entry` directly; store in a private attribute
         # to avoid deprecated behavior. The framework will set `config_entry` on
         # the options flow object as needed.
@@ -1130,83 +1359,76 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return await self.async_step_user()
 
     async def async_step_advanced(
-        self,
-        user_input: dict[str, Any] | None = None,
-        _trv_config: dict[str, Any] | None = None,
-        _update_config: dict[str, Any] | None = None,
+        self, user_input: dict[str, Any] | None = None, trv: _TrvDraft | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the advanced options."""
-        trv_config = _trv_config if isinstance(_trv_config, dict) else None
-        if trv_config is None:
-            trv_config = self._active_trv_config
+        if trv is None:
+            trv = self._active_trv
         # The step is entered with a TRV and submitted for the one it showed.
-        assert trv_config is not None
+        assert trv is not None
 
-        self._active_trv_config = trv_config
-        ctx = await _prepare_advanced_context(self, trv_config)
-        existing_adv = (
-            trv_config.get("advanced") if isinstance(trv_config, dict) else None
-        )
+        self._active_trv = trv
+        ctx = await _prepare_advanced_context(self, trv)
+        existing_adv = trv.stored_advanced()
         _LOGGER.debug(
             "OptionsFlow advanced step called (index=%s, trv=%s) with user_input=%s",
             self.i,
-            ctx.get("trv_id"),
+            ctx.entity_id,
             user_input,
         )
 
         if user_input is not None:
             advanced_data = _normalize_advanced_submission(
                 user_input,
-                default_calibration=ctx["default_calibration"],
-                homematic=ctx["homematic"],
-                has_auto=ctx["has_auto"],
+                default_calibration=ctx.default_calibration,
+                homematic=ctx.homematic,
+                has_auto=ctx.has_auto,
             )
             _LOGGER.debug(
                 "OptionsFlow advanced step storing data for %s (index %s): %s",
-                trv_config.get("trv"),
+                trv.entity_id,
                 self.i,
                 advanced_data,
             )
-            self.trv_bundle[self.i]["advanced"] = advanced_data
-            self.trv_bundle[self.i]["adapter"] = None
+            self.trv_bundle[self.i].advanced = advanced_data
+            self.trv_bundle[self.i].adapter = None
 
             self.i += 1
 
             if len(self.trv_bundle) > self.i:
-                self._active_trv_config = None
-                return await self.async_step_advanced(
-                    None, self.trv_bundle[self.i], _update_config
-                )
+                self._active_trv = None
+                return await self.async_step_advanced(None, self.trv_bundle[self.i])
 
-            self.updated_config[CONF_THERMOSTAT] = self.trv_bundle
-            _LOGGER.debug("Updated config: %s", self.updated_config)
+            options = _stored_settings(self.updated_config, self.trv_bundle)
+            _LOGGER.debug("Updated config: %s", options)
             _LOGGER.debug(
-                "OptionsFlow writing heater bundle: %s",
-                self.updated_config.get(CONF_THERMOSTAT),
+                "OptionsFlow writing heater bundle: %s", options[CONF_THERMOSTAT]
             )
 
             # Another entry can have taken a thermostat this one gains while
             # the forms were open, so the check runs again with nothing
             # awaited before the write.
-            in_use = self._in_use_placeholders([trv["trv"] for trv in self.trv_bundle])
+            in_use = self._in_use_placeholders(
+                [configured.entity_id for configured in self.trv_bundle]
+            )
             if in_use:
                 self.i = 0
                 self.trv_bundle = []
-                self._active_trv_config = None
+                self._active_trv = None
                 return self._show_user_form(
-                    self.updated_config, {CONF_THERMOSTAT: "trv_in_use"}, in_use
+                    options, {CONF_THERMOSTAT: "trv_in_use"}, in_use
                 )
 
             # The comparison reads the entry as stored, so it runs before the
             # write; the signal goes out only once the write has happened.
-            algorithms_changed = self._calibration_algorithms_changed()
+            algorithms_changed = self._calibration_algorithms_changed(options)
 
             # The whole configuration lives in the entry's options. The data
             # is emptied in the same update, so an entry 1.9 saved last, whose
             # settings are in its data, is written - and so reloaded - once
             # rather than twice.
             self.hass.config_entries.async_update_entry(
-                self._config_entry, data={}, options=self.updated_config
+                self._config_entry, data={}, options=options
             )
             if algorithms_changed:
                 # Dynamic entity management adds and removes algorithm sensors.
@@ -1214,29 +1436,28 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 async_dispatcher_send(
                     self.hass, signal_key, {"entry_id": self._config_entry.entry_id}
                 )
-            self._active_trv_config = None
+            self._active_trv = None
             # The options are written above already; finishing the flow with
             # the same options leaves the entry unchanged and reloads nothing.
+            name = options.get(CONF_NAME)
             return self.async_create_entry(
-                title=self.updated_config["name"], data=self.updated_config
+                title=name if isinstance(name, str) else None, data=options
             )
 
-        user_input = user_input or {}
-        info = ctx.get("info", {})
         fields = _build_advanced_fields(
             sources=(user_input, existing_adv),
-            default_calibration=ctx["default_calibration"],
-            homematic=ctx["homematic"],
-            has_auto=ctx["has_auto"],
-            support_valve=info.get("support_valve", False),
-            support_offset=info.get("support_offset", False),
+            default_calibration=ctx.default_calibration,
+            homematic=ctx.homematic,
+            has_auto=ctx.has_auto,
+            support_valve=ctx.info.get("support_valve", False),
+            support_offset=ctx.info.get("support_offset", False),
         )
         _LOGGER.debug(
             "OptionsFlow advanced step showing form for trv=%s with defaults=%s",
-            ctx.get("trv_id"),
+            ctx.entity_id,
             existing_adv,
         )
-        self.device_name = user_input.get(CONF_NAME, "-")
+        self.device_name = "-"
         self._last_step = self.i == len(self.trv_bundle) - 1
 
         return self.async_show_form(
@@ -1244,7 +1465,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=vol.Schema(fields),
             last_step=self._last_step,
             description_placeholders={
-                "trv": ctx.get("trv_id") or "-",
+                "trv": ctx.entity_id or "-",
                 "docs_url": CONFIG_WALKTHROUGH_URL,
             },
         )
@@ -1257,28 +1478,30 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         in_use_placeholders: dict[str, str] = {}
         if user_input is not None:
             _LOGGER.debug("OptionsFlow user step received input: %s", user_input)
+            stored_settings: Mapping[str, object] = entry_settings(self._config_entry)
             normalized = _normalize_user_submission(
                 user_input,
                 mode="update",
-                base=entry_settings(self._config_entry),
+                base=stored_settings,
                 errors=errors,
                 system_unit=self.hass.config.units.temperature_unit,
             )
-            _LOGGER.debug("OptionsFlow user step normalized data: %s", normalized)
-            self.updated_config = normalized
+            self.updated_config = _merged_settings(stored_settings, normalized)
+            _LOGGER.debug(
+                "OptionsFlow user step normalized data: %s", self.updated_config
+            )
+            heaters = normalized[CONF_THERMOSTAT]
             # The room sensor is required, but in this form it is optional so
             # the stored one can be pre-filled; an emptied selector arrives as
             # a missing key.
-            if not normalized.get(CONF_TEMPERATURE_SENSOR):
+            if not normalized[CONF_TEMPERATURE_SENSOR]:
                 errors[CONF_TEMPERATURE_SENSOR] = "no_sensor"
-            in_use = self._in_use_placeholders(normalized.get(CONF_THERMOSTAT) or [])
+            in_use = self._in_use_placeholders(heaters)
             if in_use:
                 errors[CONF_THERMOSTAT] = "trv_in_use"
                 in_use_placeholders = in_use
             unknown = _unknown_placeholders(
-                self.hass,
-                normalized.get(CONF_THERMOSTAT) or [],
-                kept=trv_entity_ids(self._config_entry),
+                self.hass, heaters, kept=trv_entity_ids(self._config_entry)
             )
             if unknown:
                 errors[CONF_THERMOSTAT] = "trv_not_found"
@@ -1287,47 +1510,27 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if not errors:
                 self.trv_bundle = []
 
-                # Get the list of heaters from the normalized input
-                heaters = normalized.get(CONF_THERMOSTAT, [])
+                # The stored thermostats by entity id.
+                existing_trvs = _stored_thermostats(
+                    entry_settings(self._config_entry).get(CONF_THERMOSTAT)
+                )
 
-                # Create a map of existing TRV configs by TRV ID
-                existing_trvs = {
-                    trv.get("trv"): trv
-                    for trv in entry_settings(self._config_entry).get(
-                        CONF_THERMOSTAT, []
-                    )
-                    if isinstance(trv, dict) and trv.get("trv")
-                }
-
-                # The submission is normalised to a list of entity ids.
                 for entity_id in heaters:
                     if entity_id in existing_trvs:
-                        # Use existing config for this TRV
-                        trv_copy = copy.deepcopy(existing_trvs[entity_id])
-                        trv_copy["adapter"] = None
-                        self.trv_bundle.append(trv_copy)
+                        self.trv_bundle.append(
+                            _stored_trv_draft(entity_id, existing_trvs[entity_id])
+                        )
                     else:
                         # This is a new TRV added during edit
-                        integration = await get_trv_intigration(self, entity_id)
-                        self.trv_bundle.append(
-                            {
-                                "trv": entity_id,
-                                "integration": integration,
-                                "model": await get_device_model(self, entity_id),
-                                "adapter": await load_adapter(
-                                    self, integration, entity_id
-                                ),
-                            }
-                        )
+                        draft, _model = await _new_trv_draft(self, entity_id)
+                        self.trv_bundle.append(draft)
 
                 _LOGGER.debug(
                     "OptionsFlow user step built trv bundle: %s", self.trv_bundle
                 )
 
                 if self.trv_bundle:
-                    return await self.async_step_advanced(
-                        None, self.trv_bundle[0], self.updated_config
-                    )
+                    return await self.async_step_advanced(None, self.trv_bundle[0])
 
                 errors[CONF_THERMOSTAT] = "no_heater"
 
@@ -1352,11 +1555,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def _show_user_form(
         self,
-        current: Mapping[str, Any],
+        current: Mapping[str, object],
         errors: dict[str, str],
         placeholders: Mapping[str, str],
-        user_input: dict[str, Any] | None = None,
-    ):
+        user_input: Mapping[str, object] | None = None,
+    ) -> config_entries.ConfigFlowResult:
         """Show the user step prefilled from ``current`` and ``user_input``."""
         fields = _build_user_fields(
             mode="update",
@@ -1376,14 +1579,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             },
         )
 
-    def _calibration_algorithms_changed(self) -> bool:
-        """Return whether the update changes the set of calibration algorithms."""
-        old_config = entry_settings(self._config_entry)
-        new_config = self.updated_config
-
-        # Get active calibration algorithms from both configs
-        old_algorithms = self._get_active_algorithms(old_config)
-        new_algorithms = self._get_active_algorithms(new_config)
+    def _calibration_algorithms_changed(self, options: Mapping[str, object]) -> bool:
+        """Return whether ``options`` change the set of calibration algorithms."""
+        old_algorithms = self._get_active_algorithms(entry_settings(self._config_entry))
+        new_algorithms = self._get_active_algorithms(options)
 
         if old_algorithms != new_algorithms:
             algorithms_added = new_algorithms - old_algorithms
@@ -1391,7 +1590,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             _LOGGER.info(
                 "Better Thermostat %s: Calibration algorithms changed. Added: %s, Removed: %s",
-                self.updated_config.get(CONF_NAME, "unknown"),
+                options.get(CONF_NAME, "unknown"),
                 [alg.value for alg in algorithms_added],
                 [alg.value for alg in algorithms_removed],
             )
@@ -1399,19 +1598,37 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         return False
 
     @staticmethod
-    def _get_active_algorithms(config: Mapping[str, Any]) -> set[CalibrationMode]:
+    def _get_active_algorithms(config: Mapping[str, object]) -> set[CalibrationMode]:
         """Get set of calibration algorithms currently in use by any TRV."""
-        if not config or CONF_THERMOSTAT not in config:
+        thermostats = config.get(CONF_THERMOSTAT)
+        if not isinstance(thermostats, list):
             return set()
 
         active_algorithms: set[CalibrationMode] = set()
-        for trv in config.get(CONF_THERMOSTAT, []):
+        for trv in thermostats:
+            if not is_json_object(trv):
+                continue
             advanced = trv.get("advanced", {})
+            if not is_json_object(advanced):
+                continue
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            if calibration_mode:
+            if isinstance(calibration_mode, str) and calibration_mode:
                 try:
                     active_algorithms.add(CalibrationMode(calibration_mode))
                 except ValueError:
                     continue
 
         return active_algorithms
+
+
+def _stored_thermostats(value: object) -> dict[str, Mapping[str, object]]:
+    """Return the thermostats an entry stores, by entity id."""
+    if not isinstance(value, list):
+        return {}
+    return {
+        entity_id: trv
+        for trv in value
+        if is_json_object(trv)
+        and isinstance(entity_id := trv.get("trv"), str)
+        and entity_id
+    }
