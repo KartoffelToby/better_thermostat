@@ -425,23 +425,28 @@ The two halves are checked by different tools. `check_naming.py` reads vocabular
 and says nothing about case; `ruff check` reads case and shape through its `N`
 rules and says nothing about which word was chosen.
 
-Where the case rules give way, `pyproject.toml` says so, in two places. Its
-`extend-ignore-names` lists the shapes of the control-theory notation: a lone
-capital, a capital with a subscript, a capital symbol as a suffix or infix, a
-derivative, never a trailing `C`. A `per-file-ignores` entry accepts N999 under
-`model_fixes/`, whose module names are the device model strings. Ruff applies
-the name patterns everywhere, so `scripts/pep8_naming_budget.py` scans the
-notation zones with them and every other file without them, and accepts N999
-under `model_fixes/` alone. Any other naming finding fails CI, whether a lint
-setting or a `# noqa` hides it from `ruff check` or not:
+A name either follows PEP 8 or is an exception `pyproject.toml` declares with
+its reason; there is no third way. Two exceptions are declared. The
+control-theory notation: `[tool.ruff.lint.pep8-naming] extend-ignore-names`
+lists its shapes (a lone capital, a capital with a subscript, a capital symbol
+as a suffix or infix, a derivative, never a trailing `C`), and
+`[tool.better_thermostat.pep8-naming] notation-paths` lists where it is
+written. And the device model strings that name the modules under
+`model_fixes/` (N999), listed in `module-name-paths` and, because ruff needs it
+too, in a `per-file-ignores` entry; a gate test keeps the two lists equal.
+
+Ruff applies the name patterns everywhere, so
+`scripts/pep8_naming_exceptions.py` scans the notation paths with them and every
+other file without them, with `noqa` and every other lint setting ignored. CI
+fails on any finding the declarations do not cover:
 
 ```bash
-uv run python scripts/pep8_naming_budget.py check    # what CI runs
+uv run python scripts/pep8_naming_exceptions.py check    # what CI runs
 ```
 
-A deviation the notation does not cover is a name to fix. Where one has to
-stay for a while, `update --allow-raise` records it per file in
-`.pep8-naming-budget.json`, which only ever falls and deletes itself at zero.
+A name the declarations do not cover is a name to fix. A new exception is a
+pull request against `pyproject.toml` that says why the domain spells it that
+way.
 
 Inside those paths both gates apply. The ruff exemption covers case alone, so
 the notation may still not use a spelling `glossary.toml` rejects: a
