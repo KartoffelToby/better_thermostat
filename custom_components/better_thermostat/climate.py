@@ -1096,6 +1096,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # repair issue while slow integrations finish initializing.
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
+        # Startup grace period before an unavailable TRV raises a
+        # ``missing_entity`` repair; armed when startup begins.
+        self._critical_grace_until: datetime | None = None
         self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
             maxsize=1
         )

@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from collections.abc import Callable
+import copy
 from dataclasses import replace
 from datetime import UTC, datetime
+import functools
 import inspect
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -27,6 +30,7 @@ from custom_components.better_thermostat.core.decide import (
     KernelState,
     running_kernel_state,
 )
+from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import (
     HvacMode as CoreHvacMode,
     TrvReported,
@@ -169,6 +173,74 @@ def _thermostat_state_names() -> frozenset[str]:
 THERMOSTAT_STATE = _thermostat_state_names()
 
 
+def _constructor_literals() -> dict[str, object]:
+    """Return what ``BetterThermostat.__init__`` assigns as a plain literal.
+
+    Only an assignment of ``None``, a number, a string, a bool or an empty
+    container counts, so the value can be rebuilt without the arguments
+    the constructor takes.
+    """
+    source = Path(inspect.getfile(BetterThermostat)).read_text(encoding="utf-8")
+    cls = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == BetterThermostat.__name__
+    )
+    init = next(
+        node
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    literals: dict[str, object] = {}
+    for node in ast.walk(init):
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets, value = [node.target], node.value
+        else:
+            continue
+        for target in targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+                and target.attr not in literals
+            ):
+                try:
+                    literals[target.attr] = ast.literal_eval(value)
+                except ValueError:
+                    continue
+    return literals
+
+
+# Bookkeeping every constructed thermostat carries and no test leaves out
+# on purpose: the stand-in answers these with the value the constructor
+# assigns. Leaving one out exercises the same branch a fresh thermostat
+# takes, so it hides no state the test forgot.
+_CONSTRUCTOR_DEFAULTED = (
+    "unavailable_sensors",
+    "_critical_grace_until",
+    "_outdoor_check_lock",
+    "_temperature_filter_lock",
+)
+_CONSTRUCTOR_LITERALS = _constructor_literals()
+STAND_IN_DEFAULTS: dict[str, Callable[[], object]] = {
+    **{
+        name: functools.partial(copy.copy, _CONSTRUCTOR_LITERALS[name])
+        for name in _CONSTRUCTOR_DEFAULTED
+    },
+    # Built from config the constructor takes; these are the values of a
+    # thermostat configured without a temperature step and before Home
+    # Assistant assigned it a unique id.
+    "flight_recorder": FlightRecorder,
+    "bt_target_temperature_step": lambda: None,
+    "_unique_id": lambda: None,
+}
+
+# Properties that only return another attribute, answered from it.
+_PROPERTY_SOURCES = {"unique_id": "_unique_id"}
+
+
 class ThermostatStandIn(MagicMock):
     """A BetterThermostat stand-in that refuses to invent state.
 
@@ -176,14 +248,25 @@ class ThermostatStandIn(MagicMock):
     mock, so a missing ``in_maintenance`` reads as maintenance running and
     the test exercises a branch it never meant to. This stand-in raises
     for any state attribute or property the test did not set and still
-    answers methods with mocks. Production that reads through
-    ``getattr(bt, name, default)`` or ``hasattr`` gets the default
-    instead of an error. Its children are plain ``MagicMock``s, so
-    ``bt.hass.config`` stays as permissive as before.
+    answers methods with mocks. Production reads thermostat state
+    directly, so a test sets every attribute the path it drives reads.
+
+    The exceptions are the attributes in ``STAND_IN_DEFAULTS``, which a
+    thermostat holds from construction on: the stand-in answers them with
+    the constructor's value, built fresh per stand-in. ``unique_id``
+    answers from ``_unique_id``, as the property does. Its children are
+    plain ``MagicMock``s, so ``bt.hass.config`` stays as permissive as
+    before.
     """
 
     def __getattr__(self, name: str):
         """Refuse thermostat state the test did not set."""
+        if (default := STAND_IN_DEFAULTS.get(name)) is not None:
+            value = default()
+            setattr(self, name, value)
+            return value
+        if (source := _PROPERTY_SOURCES.get(name)) is not None:
+            return getattr(self, source)
         if name in THERMOSTAT_STATE:
             raise AttributeError(
                 f"the stand-in has no {name!r}; set it on the stand-in "
