@@ -155,7 +155,7 @@ def _make_mock_self(trv_state=None, trv_attrs=None, real_trvs=None, **kwargs):
     mock_self.outdoor_sensor_entity_id = None
     mock_self.weather_entity_id = None
     mock_self.room_temperature_filtered = None
-    mock_self.temp_slope = None
+    mock_self.temperature_slope = None
     mock_self.cool_target_temperature = None
     mock_self.tolerance = kwargs.pop("tolerance", 0.0)
     mock_self.bt_min_temp = 5.0
@@ -1636,7 +1636,7 @@ class TestBoostModeSafetyOverride:
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
-        mock_self.temp_slope = None
+        mock_self.temperature_slope = None
         mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
@@ -1984,7 +1984,7 @@ class TestBoostModeSafetyOverride:
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
-        mock_self.temp_slope = None
+        mock_self.temperature_slope = None
         mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
@@ -2360,7 +2360,7 @@ class TestRaceConditionLockCoverage:
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
-        mock_self.temp_slope = None
+        mock_self.temperature_slope = None
         mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
@@ -2564,7 +2564,7 @@ class TestRaceConditionLockCoverage:
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
-        mock_self.temp_slope = None
+        mock_self.temperature_slope = None
         mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
@@ -2684,7 +2684,7 @@ class TestRaceConditionLockCoverage:
         mock_self.outdoor_sensor_entity_id = None
         mock_self.weather_entity_id = None
         mock_self.room_temperature_filtered = None
-        mock_self.temp_slope = None
+        mock_self.temperature_slope = None
         mock_self.cool_target_temperature = None
         mock_self.tolerance = 0.0
         mock_self.bt_min_temp = 5.0
@@ -2867,7 +2867,7 @@ def mock_bt_grouped():
     bt.outdoor_sensor_entity_id = None
     bt.weather_entity_id = None
     bt.room_temperature_filtered = None
-    bt.temp_slope = None
+    bt.temperature_slope = None
     bt.cool_target_temperature = None
     bt.tolerance = 0.0
     bt.bt_min_temp = 5.0

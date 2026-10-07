@@ -42,6 +42,7 @@ _TELEMETRY = {
     "heat_loss_cycle_count",
     "heat_loss_cycle_last",
     "heat_loss_stats",
+    "heating_power_normalized",
     "heating_power_norm",
 }
 

@@ -39,7 +39,7 @@ def _make_bt() -> MagicMock:
     bt.bt_hvac_mode = "heat"
     bt.room_temperature = 20.1
     bt.room_temperature_filtered = 20.2
-    bt.temp_slope = 0.05
+    bt.temperature_slope = 0.05
     bt.window_open = False
     bt.call_for_heat = True
     bt.preset_mode = "eco"
@@ -76,7 +76,7 @@ COMPLETENESS_TABLE = [
     ("bt_hvac_mode", "hvac_mode", HvacMode.HEAT),
     ("room_temperature", "room_temperature", 20.1),
     ("room_temperature_filtered", "room_temperature_filtered", 20.2),
-    ("temp_slope", "temp_slope", 0.05),
+    ("temperature_slope", "temperature_slope", 0.05),
     ("call_for_heat", "call_for_heat", True),
     ("preset_mode", "preset_mode", "eco"),
     ("tolerance", "tolerance", 0.3),

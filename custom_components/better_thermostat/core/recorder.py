@@ -254,7 +254,12 @@ def snapshot_from_dict(data: dict[str, Json]) -> WorldSnapshot:
         hvac_mode=parse_hvac_mode(_str_or_none(data["hvac_mode"])),
         room_temperature=_float_or_none(data["room_temperature"]),
         room_temperature_filtered=_float_or_none(data["room_temperature_filtered"]),
-        temp_slope=_float_or_none(data["temp_slope"]),
+        # An export carries the slope as temperature_slope or as temp_slope.
+        temperature_slope=_float_or_none(
+            data["temperature_slope"]
+            if "temperature_slope" in data
+            else data["temp_slope"]
+        ),
         call_for_heat=_bool_of(data["call_for_heat"]),
         window_open=_bool_or_none(data.get("window_open")),
         preset_mode=_str_or_none(data["preset_mode"]),

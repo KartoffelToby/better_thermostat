@@ -532,7 +532,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     # Thermal tracker properties
     # These forward to self._heating_tracker / self._loss_tracker and provide
     # the read-only surface that the TelemetrySource protocol (utils/telemetry.py)
-    # consumes, plus the attribute names sensor.py maps via _climate_attr. Keeping
+    # consumes, plus the values sensor.py reads through _climate_value. Keeping
     # them on the entity is what lets telemetry stay decoupled from the tracker
     # internals instead of reaching into the private trackers directly.
     # ------------------------------------------------------------------
@@ -647,14 +647,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.runtime.room_temperature_ema = value
 
     @property
-    def temp_slope(self) -> float | None:
+    def temperature_slope(self) -> float | None:
         """Return the temperature slope in K/min."""
-        return self.runtime.temp_slope
+        return self.runtime.temperature_slope
 
-    @temp_slope.setter
-    def temp_slope(self, value: float | None) -> None:
+    @temperature_slope.setter
+    def temperature_slope(self, value: float | None) -> None:
         """Set the temperature slope in K/min."""
-        self.runtime.temp_slope = value
+        self.runtime.temperature_slope = value
 
     @property
     def window_open(self) -> bool:
@@ -1127,7 +1127,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # trigger one control cycle once maintenance finishes.
         self._control_needed_after_maintenance = False
         # Balance / Hydraulic: temperature trend (K/min)
-        self.temp_slope = None
+        self.temperature_slope = None
         self._slope_last_temp = None
         self._slope_last_ts = None
         # External temperature filter (anti-jitter for controllers like MPC)
@@ -2181,16 +2181,18 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 except ValueError, TypeError:
                     pass
 
-            if (_store_filters is None or _store_filters.temp_slope is None) and (
+            if (
+                _store_filters is None or _store_filters.temperature_slope is None
+            ) and (
                 stored_slope := _restored_attribute(
                     old_state, ATTR_STATE_TEMPERATURE_SLOPE
                 )
             ) is not None:
                 try:
                     _restored_slope = float(stored_slope)
-                    self.temp_slope = _restored_slope
+                    self.temperature_slope = _restored_slope
                     _LOGGER.debug(
-                        "better_thermostat %s: restored temp_slope from state: %.4f",
+                        "better_thermostat %s: restored temperature_slope from state: %.4f",
                         self.device_name,
                         _restored_slope,
                     )
@@ -3574,15 +3576,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             self.room_temperature_ema = filters.room_temperature_ema
             self.room_temperature_filtered = round(filters.room_temperature_ema, 2)
             self._room_temperature_ema_monotonic = self.clock.monotonic()
-        if filters.temp_slope is not None:
-            self.temp_slope = filters.temp_slope
+        if filters.temperature_slope is not None:
+            self.temperature_slope = filters.temperature_slope
 
     def _record_runtime_to_state(self) -> None:
         """Push the entity-held thermal stats and filters into the StateManager."""
         if self.state_mgr is None:
             return
         self.state_mgr.record_thermal(self.heating_power, self.heat_loss_rate)
-        self.state_mgr.record_filters(self.room_temperature_ema, self.temp_slope)
+        self.state_mgr.record_filters(self.room_temperature_ema, self.temperature_slope)
 
     @callback
     def schedule_save_state(self, delay_s: float = 15.0) -> None:
@@ -5048,7 +5050,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                     if dt_min > 0.1:  # Avoid division by zero or tiny steps
                         delta_kelvin = new_ema - old_ema
                         slope = delta_kelvin / dt_min
-                        self.temp_slope = slope
+                        self.temperature_slope = slope
                         _LOGGER.debug(
                             "better_thermostat %s: periodic slope calc: old_ema=%.3f new_ema=%.3f dt=%.2fmin -> slope=%.4f K/min",
                             self.device_name,

@@ -389,7 +389,7 @@ def make_state_attributes_bt(**overrides) -> MagicMock:
     bt.door_open = False
     bt.kernel_state = running_kernel_state()
     bt.clock = FakeClock()
-    bt.temp_slope = None
+    bt.temperature_slope = None
     for name, value in overrides.items():
         setattr(bt, name, value)
     return bt

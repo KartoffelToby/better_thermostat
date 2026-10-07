@@ -433,7 +433,7 @@ def _compute_mpc_balance(
                 filtered_temp_C=mpc_filtered_temp,
                 trv_temp_C=trv_state.current_temperature,
                 tolerance_K=float(self.tolerance or 0.0),
-                temp_slope_K_per_min=self.temp_slope,
+                temp_slope_K_per_min=self.temperature_slope,
                 window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
@@ -1074,7 +1074,7 @@ def _compute_pid_balance(
             self.heat_target_temperature,
             _pid_room_temp,
             trv_state.current_temperature,
-            self.temp_slope,
+            self.temperature_slope,
             key,
             inp_current_temp_ema_C=(
                 self.room_temperature_filtered

@@ -113,7 +113,7 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
         room_temperature=19.0,
         room_temperature_filtered=None,
         tolerance=0.0,
-        temp_slope=None,
+        temperature_slope=None,
         window_open=window_open,
         door_open=door_open,
         contact_open=bool(window_open) or bool(door_open),

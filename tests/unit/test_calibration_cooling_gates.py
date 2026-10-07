@@ -48,7 +48,7 @@ def build_bt(
     bt.weather_entity_id = None
     bt.window_open = False
     bt.contact_open = False
-    bt.temp_slope = None
+    bt.temperature_slope = None
     bt.heating_power = 0.04
     bt.heat_loss_rate = 0.02
     bt.hass = None

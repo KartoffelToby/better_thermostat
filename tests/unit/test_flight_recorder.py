@@ -109,13 +109,13 @@ class TestExport:
         """NaN/inf in a recorded snapshot never reach the JSON payload."""
         recorder = FlightRecorder()
         snapshot = replace(
-            _snapshot(), room_temperature=float("nan"), temp_slope=float("inf")
+            _snapshot(), room_temperature=float("nan"), temperature_slope=float("inf")
         )
         _record_one(recorder, snapshot)
         exported = recorder.export()
         entry = exported[0]["snapshot"]
         assert entry["room_temperature"] is None
-        assert entry["temp_slope"] is None
+        assert entry["temperature_slope"] is None
         json.dumps(exported, allow_nan=False)
 
 
@@ -327,6 +327,20 @@ def test_state_without_pending_target_field_loads():
     assert rebuilt.control_mode.pending_target is None
 
 
+def test_snapshot_exported_as_temp_slope_loads():
+    """Exports from before the slope's rename still reconstruct and replay."""
+    recorder = FlightRecorder()
+    snapshot = replace(_snapshot(), temperature_slope=0.02)
+    desired, _ = decide(snapshot, running_kernel_state())
+    recorder.record(snapshot, running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["snapshot"]["temp_slope"] = entry["snapshot"].pop("temperature_slope")
+
+    assert snapshot_from_dict(entry["snapshot"]).temperature_slope == 0.02
+    matches, _ = replay(entry)
+    assert matches is True
+
+
 class TestRoundtripCompleteness:
     """Every field of every recorded type survives export and reconstruct.
 
@@ -386,7 +400,7 @@ class TestRoundtripCompleteness:
             "hvac_mode": HvacMode.HEAT,
             "room_temperature": 19.0,
             "room_temperature_filtered": 19.1,
-            "temp_slope": 0.02,
+            "temperature_slope": 0.02,
             "call_for_heat": True,
             "window_open": True,
             "preset_mode": "eco",

@@ -231,7 +231,7 @@ class TestSerializeDeserializeRoundtrip:
     def test_filters_keep_their_stored_keys(self):
         """The room temperature EMA is stored as ``external_temp_ema``."""
         original = RuntimeState(
-            filters=FilterState(room_temperature_ema=20.4, temp_slope=0.002)
+            filters=FilterState(room_temperature_ema=20.4, temperature_slope=0.002)
         )
 
         raw = _serialize(original)
@@ -239,7 +239,7 @@ class TestSerializeDeserializeRoundtrip:
 
         assert raw["filters"] == {"external_temp_ema": 20.4, "temp_slope": 0.002}
         assert restored.filters.room_temperature_ema == 20.4
-        assert restored.filters.temp_slope == 0.002
+        assert restored.filters.temperature_slope == 0.002
 
     def test_legacy_presets_section_ignored(self):
         """A legacy presets section in a stored payload is ignored.
@@ -1137,7 +1137,7 @@ class TestDroppedStoredValuesAreReported:
             ("thermal", "heating_power", "heating_power", "later"),
             ("thermal", "heat_loss_rate", "heat_loss_rate", "Infinity"),
             ("filters", "external_temp_ema", "room_temperature_ema", [20.0]),
-            ("filters", "temp_slope", "temp_slope", "NaN"),
+            ("filters", "temp_slope", "temperature_slope", "NaN"),
         ],
     )
     def test_an_unusable_thermal_or_filter_value_is_named(
@@ -1753,7 +1753,7 @@ class TestFilterState:
         mgr = _make_manager()
         mgr.record_filters(20.5, 0.0012)
         assert mgr.filters.room_temperature_ema == 20.5
-        assert mgr.filters.temp_slope == 0.0012
+        assert mgr.filters.temperature_slope == 0.0012
         assert mgr.dirty is True
 
     def test_roundtrip_through_serialization(self):
@@ -1762,7 +1762,7 @@ class TestFilterState:
         mgr.record_filters(20.5, 0.0012)
         restored = _deserialize(_serialize(mgr.state))
         assert restored.filters.room_temperature_ema == 20.5
-        assert restored.filters.temp_slope == 0.0012
+        assert restored.filters.temperature_slope == 0.0012
 
     def test_non_finite_values_are_dropped_on_load(self):
         """Poisoned filter values degrade to defaults instead of loading."""
@@ -1770,7 +1770,7 @@ class TestFilterState:
         raw["filters"] = {"external_temp_ema": float("nan"), "temp_slope": "oops"}
         restored = _deserialize(raw)
         assert restored.filters.room_temperature_ema is None
-        assert restored.filters.temp_slope is None
+        assert restored.filters.temperature_slope is None
 
     def test_non_finite_samples_are_not_recorded(self):
         """A NaN or infinite sample is dropped where it is handed in.
@@ -1781,11 +1781,11 @@ class TestFilterState:
         mgr = _make_manager()
         mgr.record_filters(float("nan"), float("inf"))
         assert mgr.filters.room_temperature_ema is None
-        assert mgr.filters.temp_slope is None
+        assert mgr.filters.temperature_slope is None
 
         mgr.record_filters(20.5, 0.0012)
         assert mgr.filters.room_temperature_ema == 20.5
-        assert mgr.filters.temp_slope == 0.0012
+        assert mgr.filters.temperature_slope == 0.0012
 
 
 # ---------------------------------------------------------------------------

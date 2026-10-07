@@ -31,9 +31,9 @@ class TestCollectCycleTelemetry:
         return bt
 
     def test_minimal_state_emits_only_normalized_power(self):
-        """All empty/None — only heating_power_norm passes through."""
+        """All empty/None — only heating_power_normalized passes through."""
         out = collect_cycle_telemetry(self._bt())
-        assert out == {"heating_power_norm": None}
+        assert out == {"heating_power_normalized": None}
 
     def test_heating_cycle_count_and_last(self):
         """Heating cycles surface count and serialised last entry."""
@@ -58,13 +58,13 @@ class TestCollectCycleTelemetry:
     def test_normalized_power_passthrough(self):
         """A numeric heating_power_normalized value is forwarded verbatim."""
         out = collect_cycle_telemetry(self._bt(heating_power_normalized=0.42))
-        assert out["heating_power_norm"] == 0.42
+        assert out["heating_power_normalized"] == 0.42
 
     def test_normalized_power_none_kept(self):
         """None still surfaces as a value (not filtered)."""
         out = collect_cycle_telemetry(self._bt(heating_power_normalized=None))
-        assert "heating_power_norm" in out
-        assert out["heating_power_norm"] is None
+        assert "heating_power_normalized" in out
+        assert out["heating_power_normalized"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -78,15 +78,15 @@ class TestCollectBalanceAttrs:
     def test_empty_when_no_slope_no_balance(self):
         """Nothing is emitted when both slope and per-TRV balance are absent."""
         bt = ThermostatStandIn()
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
         assert out == {}
 
     def test_slope_rounded_to_4_decimals(self):
-        """temp_slope is rounded to 4 decimal places for readability."""
+        """temperature_slope is rounded to 4 decimal places for readability."""
         bt = ThermostatStandIn()
-        bt.temp_slope = 0.001234567
+        bt.temperature_slope = 0.001234567
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
         assert out["temperature_slope_kelvin_per_min"] == 0.0012
@@ -94,7 +94,7 @@ class TestCollectBalanceAttrs:
     def test_balance_aggregated_across_trvs(self):
         """Per-TRV calibration balance is collected into one JSON map."""
         bt = ThermostatStandIn()
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {
             "climate.a": Trv.from_legacy_dict(
                 "climate.a", {"calibration_balance": {"valve_percent": 70, "extra": 1}}
@@ -110,7 +110,7 @@ class TestCollectBalanceAttrs:
     def test_trv_without_balance_skipped(self):
         """TRVs with missing or None balance are skipped, not serialised."""
         bt = ThermostatStandIn()
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {
             "climate.a": Trv.from_legacy_dict(
                 "climate.a", {"calibration_balance": {"valve_percent": 50}}
@@ -300,7 +300,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
         bt.loss_cycles = None
         bt.last_heat_loss_stats = None
         bt.heating_power_normalized = None
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {}
         bt.__dict__.update(overrides)
         return bt
@@ -342,7 +342,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
         )
         assert "heating_cycle_last" not in out
         assert _parse_as_a_consumer_would(out["heat_loss_cycle_last"]) == {"loss": 0.3}
-        assert out["heating_power_norm"] == 0.8
+        assert out["heating_power_normalized"] == 0.8
 
     def test_non_finite_valve_percent_is_omitted(self):
         """A NaN valve percentage drops the calibration balance attribute."""
@@ -391,7 +391,7 @@ def _fully_populated_bt(debug: dict) -> ThermostatStandIn:
     bt.loss_cycles = [{"start": 2.0}]
     bt.last_heat_loss_stats = [{"rate": 0.1}]
     bt.heating_power_normalized = 0.5
-    bt.temp_slope = 0.01
+    bt.temperature_slope = 0.01
     return bt
 
 
@@ -457,11 +457,11 @@ class TestCollectMpcV2DebugAttrs:
         )
 
         assert collect_mpc_v2_debug_attrs(bt) == {
-            "mpc_v2_T_room_hat": 20.5,
-            "mpc_v2_T_rad_hat": 35.25,
+            "mpc_v2_room_temperature_estimate": 20.5,
+            "mpc_v2_radiator_temperature_estimate": 35.25,
             "mpc_v2_disturbance_kelvin_per_min": 0.0123,
             "mpc_v2_tau_room_minutes": 180.5,
-            "mpc_v2_coupling_rad_room": 0.75,
+            "mpc_v2_radiator_room_coupling": 0.75,
             "mpc_v2_group_valve_percent": 42.5,
             "mpc_v2_reid_tau_room_minutes": 200.5,
             "mpc_v2_reid_gain": 3.25,

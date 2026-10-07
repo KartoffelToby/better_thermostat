@@ -8,9 +8,13 @@ import logging
 from typing import Any, Literal, Protocol, TypedDict
 
 from custom_components.better_thermostat.utils.const import (
+    ATTR_HEATING_POWER_NORMALIZED,
+    ATTR_MPC_V2_COUPLING,
     ATTR_MPC_V2_DISTURBANCE,
     ATTR_MPC_V2_GROUP_VALVE,
+    ATTR_MPC_V2_RADIATOR_TEMPERATURE,
     ATTR_MPC_V2_REID_TAU_ROOM,
+    ATTR_MPC_V2_ROOM_TEMPERATURE,
     ATTR_MPC_V2_TAU_ROOM,
     ATTR_PID_DT,
     ATTR_PID_ERROR,
@@ -92,7 +96,7 @@ class TelemetrySource(Protocol):
         ...
 
     @property
-    def temp_slope(self) -> float | None:
+    def temperature_slope(self) -> float | None:
         """Current temperature slope in °C/min, if known."""
         ...
 
@@ -182,7 +186,7 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, object]:
         if stats is not None:
             out[ATTR_STATE_HEAT_LOSS_STATS] = stats
 
-    out["heating_power_norm"] = bt.heating_power_normalized
+    out[ATTR_HEATING_POWER_NORMALIZED] = bt.heating_power_normalized
 
     return out
 
@@ -191,8 +195,8 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Temperature slope plus a compact per-TRV calibration balance summary."""
     out: dict[str, object] = {}
 
-    if bt.temp_slope is not None:
-        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temp_slope, 4)
+    if bt.temperature_slope is not None:
+        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temperature_slope, 4)
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():
@@ -276,11 +280,11 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
 
 # (debug key, output key, decimals)
 _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
-    ("T_room_hat", "mpc_v2_T_room_hat", 3),
-    ("T_rad_hat", "mpc_v2_T_rad_hat", 3),
+    ("T_room_hat", ATTR_MPC_V2_ROOM_TEMPERATURE, 3),
+    ("T_rad_hat", ATTR_MPC_V2_RADIATOR_TEMPERATURE, 3),
     ("D_hat_K_per_min", ATTR_MPC_V2_DISTURBANCE, 4),
     ("tau_room_min", ATTR_MPC_V2_TAU_ROOM, 1),
-    ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
+    ("coupling_rad_room", ATTR_MPC_V2_COUPLING, 3),
     ("group_valve_pct", ATTR_MPC_V2_GROUP_VALVE, 1),
     ("reid_tau_room", ATTR_MPC_V2_REID_TAU_ROOM, 1),
     ("reid_gain", "mpc_v2_reid_gain", 2),
@@ -332,7 +336,7 @@ TELEMETRY_ATTRIBUTES: frozenset[str] = frozenset(
         "heat_loss_cycle_count",
         "heat_loss_cycle_last",
         ATTR_STATE_HEAT_LOSS_STATS,
-        "heating_power_norm",
+        ATTR_HEATING_POWER_NORMALIZED,
         ATTR_STATE_TEMPERATURE_SLOPE,
         "calibration_balance",
         ATTR_PID_MEASUREMENT_SLOPE,

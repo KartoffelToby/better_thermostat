@@ -106,7 +106,7 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> ThermostatStandIn
     bt.heat_target_temperature = 22.0
     bt.room_temperature = None
     bt.room_temperature_filtered = None
-    bt.temp_slope = 0.0
+    bt.temperature_slope = 0.0
     bt.tolerance = 0.0
     bt.window_open = False
     bt.door_open = False

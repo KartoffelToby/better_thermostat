@@ -788,13 +788,16 @@ class _BtMpcSensorBase(_BtSensorBase):
 class _BtSimpleAttributeSensor(_BtSensorBase):
     """Base class for sensors reading a single climate attribute."""
 
-    _climate_attr: str
     _rounding: int | None = None
+
+    def _climate_value(self) -> float | None:
+        """Return the climate entity value this sensor publishes."""
+        raise NotImplementedError
 
     @override
     def _update_state(self) -> None:
         """Update state from a climate entity attribute."""
-        value: float | None = getattr(self._bt_climate, self._climate_attr, None)
+        value = self._climate_value()
         if value is not None:
             try:
                 fval = float(value)
@@ -884,9 +887,12 @@ class BetterThermostatTempSlopeSensor(_BtSimpleAttributeSensor):
     _attr_translation_key = "temp_slope"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _climate_attr = "temp_slope"
     _rounding = 4
     _unique_id_suffix = "temp_slope"
+
+    @override
+    def _climate_value(self) -> float | None:
+        return self._bt_climate.temperature_slope
 
 
 class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
@@ -896,9 +902,12 @@ class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _climate_attr = "heating_power"
     _rounding = 4
     _unique_id_suffix = "heating_power"
+
+    @override
+    def _climate_value(self) -> float | None:
+        return self._bt_climate.heating_power
 
 
 class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
@@ -908,9 +917,12 @@ class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _climate_attr = "heat_loss_rate"
     _rounding = 5
     _unique_id_suffix = "heat_loss"
+
+    @override
+    def _climate_value(self) -> float | None:
+        return self._bt_climate.heat_loss_rate
 
 
 class BetterThermostatVirtualTempSensor(_BtMpcSensorBase):

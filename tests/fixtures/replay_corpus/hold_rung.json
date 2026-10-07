@@ -35,7 +35,7 @@
     "room_temperature": null,
     "room_temperature_filtered": null,
     "solar_intensity": 0.0,
-    "temp_slope": null,
+    "temperature_slope": null,
     "tolerance": 0.3,
     "trvs": {
       "climate.trv1": {

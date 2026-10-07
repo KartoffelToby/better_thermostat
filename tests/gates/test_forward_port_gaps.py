@@ -788,6 +788,70 @@ def test_each_occurrence_of_a_rejected_name_is_renamed_on_its_own(
     assert commit.hits == 4
 
 
+@pytest.mark.parametrize(
+    ("develop_spelling", "hits"),
+    [
+        ("self._trv.remember_the_setpoint(entity_id, reported_{i})", 4),
+        ("self.trv.remember_the_setpoint(entity_id, reported_{i})", 0),
+    ],
+    ids=["underscore-kept", "underscore-dropped"],
+)
+def test_a_private_name_is_renamed_with_its_underscores(lines, develop_spelling, hits):
+    """A private alias is renamed onto the term behind the same underscores.
+
+    The naming gate reads ``_trv_data`` as the alias ``trv_data``; the
+    development line that renamed it to ``_trv`` is found, one that also made
+    it public is a different statement.
+    """
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=GLOSSARY,
+        develop_spelling=develop_spelling,
+        maintenance_spelling="self._trv_data.remember_the_setpoint(entity_id, reported_{i})",
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == hits
+
+
+@pytest.mark.parametrize(
+    ("name", "renamed"),
+    [
+        ("_real_trv", ("trv",)),
+        ("_trv_data", ("_trv",)),
+        ("__trv_data", ("__trv",)),
+        ("trv_data", ("trv",)),
+        ("_trv_cache", ()),
+        ("__", ()),
+    ],
+    ids=["private-alias", "private", "dunder", "public", "unlisted", "underscores"],
+)
+def test_a_name_is_renamed_as_the_naming_gate_reads_it(lines, name, renamed):
+    """An alias listed with its underscore wins; otherwise they are kept.
+
+    The naming gate reads a name as written first and then without its
+    leading underscores, so the rename puts back exactly those it took off.
+    """
+    script, _ = lines
+    renames = {"_real_trv": ("trv",), "trv_data": ("trv",)}
+
+    assert script._renamed(name, renames) == renamed
+
+
+def test_a_private_alias_past_the_cap_is_still_renamed(lines):
+    """Past the spelling cap, a private alias takes the term behind its underscore."""
+    script, _ = lines
+    marker = " + ".join(["_old"] * 12)
+
+    spellings = script._spellings(marker, {"old": ("first", "second")})
+
+    assert " + ".join(["_first"] * 12) in spellings
+    assert " + ".join(["_second"] * 12) in spellings
+
+
 def test_the_spellings_of_one_marker_are_bounded(lines):
     """A line full of aliases costs at most the cap, and still spells them all.
 

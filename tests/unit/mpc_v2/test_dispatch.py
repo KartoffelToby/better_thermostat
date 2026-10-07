@@ -81,7 +81,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         room_temperature=19.5,
         room_temperature_filtered=None,
         tolerance=0.0,
-        temp_slope=None,
+        temperature_slope=None,
         window_open=False,
         door_open=False,
         # The real entity derives this from both contacts; the dispatcher
