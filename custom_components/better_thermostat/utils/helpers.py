@@ -2682,13 +2682,13 @@ async def async_fire_logbook_entry(
     self: BetterThermostat, key: str, default_msg: str
 ) -> None:
     """Fire a logbook entry safely, with fallback translations."""
-    hass_obj = getattr(self, "hass", None)
+    # Home Assistant assigns ``hass`` when the entity is added to a platform.
+    hass_obj = self.hass
     log_msg = default_msg
     if hass_obj is not None:
         try:
-            lang = getattr(getattr(hass_obj, "config", None), "language", "en")
             translations = await translation.async_get_translations(
-                hass_obj, lang, "entity", integrations=[DOMAIN]
+                hass_obj, hass_obj.config.language, "entity", integrations=[DOMAIN]
             )
             log_msg = translations.get(
                 f"component.{DOMAIN}.entity.sensor.logbook.state.{key}", default_msg
@@ -2700,15 +2700,16 @@ async def async_fire_logbook_entry(
                 exc_info=True,
             )
 
-        entity_id = getattr(self, "entity_id", None)
+        # The entity id follows ``hass`` during platform setup, so an entry
+        # fired in between names the id the configured name will produce.
+        entity_id = self.entity_id
         if not entity_id:
-            name = getattr(self, "name", "better_thermostat")
-            entity_id = f"climate.{slugify(name)}"
+            entity_id = f"climate.{slugify(self.device_name)}"
 
         hass_obj.bus.async_fire(
             "logbook_entry",
             {
-                "name": getattr(self, "name", "Better Thermostat"),
+                "name": self.device_name,
                 "message": log_msg,
                 "entity_id": entity_id,
                 "domain": DOMAIN,

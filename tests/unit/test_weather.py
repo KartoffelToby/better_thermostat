@@ -68,6 +68,7 @@ def make_bt(hass, **kw):
     """Build a BetterThermostat stand-in carrying the attrs weather.py touches."""
     bt = SimpleNamespace(
         hass=hass,
+        entity_id="climate.test_bt",
         device_name="Test BT",
         weather_entity_id=None,
         outdoor_sensor_entity_id=None,
