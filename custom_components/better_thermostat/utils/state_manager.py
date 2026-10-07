@@ -70,6 +70,7 @@ from .const import (
     MIN_HEAT_LOSS,
     MIN_HEATING_POWER,
 )
+from .stored_values import finite_or_none, stored_count, stored_float, stored_int
 from .thermal_learning import clamp
 
 
@@ -285,43 +286,6 @@ class _PoisonedStateError(ValueError):
     """A stored entry carries a mathematical anomaly (NaN/inf)."""
 
 
-# Home Assistant's JSON encoder writes an integer only inside the 64-bit
-# range orjson supports and raises TypeError on anything wider. The Store's
-# write path turns that TypeError into a SerializationError, which the Store
-# catches and only logs, so a single unstorable integer anywhere in the
-# state leaves the config entry's file unwritten without failing the save.
-_MIN_STORED_INT = -(2**63)
-_MAX_STORED_INT = 2**64 - 1
-
-
-def _stored_int(value: Any) -> int:
-    """Return *value* as an integer the store can write back.
-
-    A JSON number wider than 64 bits is parsed as a float, and ``int()``
-    turns it into an arbitrary-precision integer that the encoder refuses.
-    Those raise ``ValueError`` here, so a caller handles them like any
-    other field ``int()`` cannot make sense of.
-    """
-    number = int(value)
-    if not _MIN_STORED_INT <= number <= _MAX_STORED_INT:
-        raise ValueError("integer outside the storable range")
-    return number
-
-
-def _stored_count(value: Any) -> int:
-    """Return *value* as a storable, non-negative tally.
-
-    A tally cannot be negative, so a negative value is as unusable as one
-    the store could not write back or one that is not an integer at all;
-    all three restore as 0.
-    """
-    try:
-        count = _stored_int(value)
-    except TypeError, ValueError, OverflowError:
-        return 0
-    return max(count, 0)
-
-
 def _within(value: float, bounds: tuple[float, float]) -> bool:
     """Return whether *value* lies inside *bounds*, inclusive at both ends.
 
@@ -329,33 +293,6 @@ def _within(value: float, bounds: tuple[float, float]) -> bool:
     """
     low, high = bounds
     return low <= value <= high
-
-
-def finite_or_none(value: Any) -> float | None:
-    """Return *value* as a finite float, or ``None`` when it is not one.
-
-    A missing value, one ``float()`` refuses, and NaN or infinity all
-    collapse to ``None``. Non-finite numbers carry no usable learning, and
-    keeping one would only feed the same unusable value back into the next
-    calculation that reads it.
-
-    Parameters
-    ----------
-    value : Any
-        the value to read, from a store or a caller
-
-    Returns
-    -------
-    float | None
-        the value as a finite float, or None when it is not one
-    """
-    if value is None:
-        return None
-    try:
-        number = float(value)
-    except TypeError, ValueError, OverflowError:
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
@@ -376,7 +313,7 @@ def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
     raise _PoisonedStateError(f"{attr} is null, which its declared type cannot hold")
 
 
-def _finite_or_poison(value: Any, attr: str) -> float:
+def _finite_or_poison(value: object, attr: str) -> float:
     """Parse one stored float; a non-finite number poisons the entry.
 
     Wrong types merely skip the field (schema evolution), but NaN or
@@ -384,7 +321,7 @@ def _finite_or_poison(value: Any, attr: str) -> float:
     trusted either, so the caller keeps none of the entry's stored values
     and the learning they carried starts over.
     """
-    number = float(value)
+    number = stored_float(value)
     if not math.isfinite(number):
         raise _PoisonedStateError(f"{attr} is non-finite")
     return number
@@ -426,7 +363,7 @@ def _discard_poisoned_entry(
         poisoned.append(f"{kind}:{key}")
 
 
-def _finite_element(value: Any, attr: str) -> float:
+def _finite_element(value: object, attr: str) -> float:
     """Parse one number stored inside a collection field.
 
     ``recent_errors`` and the bins of ``perf_curve`` are declared to hold
@@ -516,9 +453,9 @@ def deserialize_mpc(
                     ),
                 )
             elif attr in _COUNT_FIELDS:
-                setattr(state, attr, _stored_count(value))
+                setattr(state, attr, stored_count(value))
             elif attr in _SIGN_FIELDS:
-                setattr(state, attr, _stored_int(value))
+                setattr(state, attr, stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             elif attr in _STR_FIELDS:
@@ -654,7 +591,7 @@ def deserialize_mpc_v2_reid(
                 _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr == "n_segments":
-                setattr(state, attr, _stored_count(value))
+                setattr(state, attr, stored_count(value))
             else:
                 setattr(state, attr, _finite_or_poison(value, attr))
         except _PoisonedStateError as error:
@@ -725,9 +662,9 @@ def deserialize_pid(
                 _null_or_poison(attr, _PID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr in _COUNT_FIELDS:
-                setattr(state, attr, _stored_count(value))
+                setattr(state, attr, stored_count(value))
             elif attr in _SIGN_FIELDS:
-                setattr(state, attr, _stored_int(value))
+                setattr(state, attr, stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
@@ -830,7 +767,7 @@ def _stored_entries(
 
 
 def _stored_optional_number(
-    values: Mapping[str, Any], section: str, attr: str
+    values: Mapping[str, object], section: str, attr: str
 ) -> float | None:
     """Return one optional number of an unkeyed section, naming an unusable one.
 
