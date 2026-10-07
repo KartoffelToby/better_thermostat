@@ -297,6 +297,7 @@ def register_external_sensor_watch(self, entity_id: str):
         return None
 
     task_key = "_external_sensor_repair_task"
+    factory_key = "_external_sensor_repair_factory"
 
     @callback
     def _handle_selector_change(event) -> None:
@@ -314,17 +315,24 @@ def register_external_sensor_watch(self, entity_id: str):
     def _schedule(factory) -> None:
         pending = trv.extra.get(task_key)
         if pending is not None and not pending.done():
-            return
+            if trv.extra.get(factory_key) is factory:
+                return
+            pending.cancel()
 
         async def _run() -> None:
             try:
                 await factory()
             finally:
-                trv.extra.pop(task_key, None)
+                # A cancelled task must not clear the task that replaced it.
+                if trv.extra.get(task_key) is task:
+                    trv.extra.pop(task_key, None)
+                    trv.extra.pop(factory_key, None)
 
-        trv.extra[task_key] = self.hass.async_create_background_task(
+        task = self.hass.async_create_background_task(
             _run(), name=f"bt_external_sensor_repair_{entity_id}"
         )
+        trv.extra[task_key] = task
+        trv.extra[factory_key] = factory
 
     async def _repair_external_temperature() -> None:
         temperature = self.cur_temp
@@ -358,6 +366,7 @@ def register_external_sensor_watch(self, entity_id: str):
         unsub_selector()
         unsub_room()
         pending = trv.extra.pop(task_key, None)
+        trv.extra.pop(factory_key, None)
         if pending is not None and not pending.done():
             pending.cancel()
 
