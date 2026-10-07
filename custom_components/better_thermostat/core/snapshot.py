@@ -68,7 +68,7 @@ class WorldSnapshot:
     hvac_mode: HvacMode | None = None
     room_temperature: float | None = None
     room_temperature_filtered: float | None = None
-    temp_slope: float | None = None
+    temperature_slope: float | None = None
     call_for_heat: bool = True
     # Raw window-sensor reading at snapshot time (None: no sensor
     # configured). Pure observation for the flight recorder — the

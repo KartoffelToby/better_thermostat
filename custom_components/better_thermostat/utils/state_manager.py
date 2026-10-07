@@ -166,12 +166,12 @@ class FilterState:
     ----------
     room_temperature_ema : float | None
         Exponential moving average of the external temperature.
-    temp_slope : float | None
+    temperature_slope : float | None
         Estimated room-temperature slope.
     """
 
     room_temperature_ema: float | None = None
-    temp_slope: float | None = None
+    temperature_slope: float | None = None
 
 
 @dataclass
@@ -262,9 +262,10 @@ def _make_json_safe(obj: Any) -> Any:
     return obj
 
 
-# Store key of ``FilterState.room_temperature_ema``. The stores on disk carry
-# the value under this name, so it is the key read and written.
+# Store keys of the ``FilterState`` fields. The stores on disk carry the
+# values under these names, so they are the keys read and written.
 _STORED_ROOM_TEMPERATURE_EMA = "external_temp_ema"
+_STORED_TEMPERATURE_SLOPE = "temp_slope"
 
 
 def _serialize(state: RuntimeState) -> dict[str, Any]:
@@ -276,6 +277,7 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     data = asdict(state)
     filters = data["filters"]
     filters[_STORED_ROOM_TEMPERATURE_EMA] = filters.pop("room_temperature_ema")
+    filters[_STORED_TEMPERATURE_SLOPE] = filters.pop("temperature_slope")
     return _make_json_safe(data)
 
 
@@ -893,7 +895,9 @@ def _deserialize(
         room_temperature_ema=_stored_optional_number(
             filters_raw, "filters", _STORED_ROOM_TEMPERATURE_EMA
         ),
-        temp_slope=_stored_optional_number(filters_raw, "filters", "temp_slope"),
+        temperature_slope=_stored_optional_number(
+            filters_raw, "filters", _STORED_TEMPERATURE_SLOPE
+        ),
     )
 
     # A legacy "presets" section is ignored: preset temperatures are UI
@@ -1239,7 +1243,7 @@ class StateManager:
         return self._state.filters
 
     def record_filters(
-        self, room_temperature_ema: float | None, temp_slope: float | None
+        self, room_temperature_ema: float | None, temperature_slope: float | None
     ) -> None:
         """Record the entity-held filter state before a save.
 
@@ -1251,12 +1255,12 @@ class StateManager:
         ----------
         room_temperature_ema : float | None
             Exponential moving average of the external temperature.
-        temp_slope : float | None
+        temperature_slope : float | None
             Estimated room-temperature slope.
         """
         self._state.filters = FilterState(
             room_temperature_ema=finite_or_none(room_temperature_ema),
-            temp_slope=finite_or_none(temp_slope),
+            temperature_slope=finite_or_none(temperature_slope),
         )
         self._dirty = True
 

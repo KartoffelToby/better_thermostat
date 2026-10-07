@@ -141,7 +141,7 @@ def bt():
     mock.room_temperature_ema = None
     mock._room_temperature_ema_monotonic = None
     mock.room_temperature_ema_tau_seconds = 300.0
-    mock.temp_slope = None
+    mock.temperature_slope = None
     mock.last_known_external_temp = None
     mock._current_humidity = None
     mock.window_open = None
@@ -1925,7 +1925,7 @@ class TestRestoreState:
 
         assert bt.room_temperature_ema == 20.5
         assert bt.room_temperature_filtered == 20.5
-        assert bt.temp_slope == 0.0012
+        assert bt.temperature_slope == 0.0012
 
     @pytest.mark.parametrize(
         ("stored", "expected"),

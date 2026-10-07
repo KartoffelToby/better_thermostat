@@ -87,7 +87,7 @@ def thermostat(reported_states):
     bt.bt_target_temperature_step = 0.5
     bt.room_temperature = 18.0
     bt.room_temperature_filtered = None
-    bt.temp_slope = None
+    bt.temperature_slope = None
     bt.call_for_heat = True
     bt.preset_mode = None
     bt.tolerance = 0.3

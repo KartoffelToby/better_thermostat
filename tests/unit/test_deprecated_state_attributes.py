@@ -27,7 +27,7 @@ def test_every_deprecated_attribute_is_published_with_the_current_value():
     entity = make_state_attributes_bt(
         _preset_cool_temperature=24.5,
         _preset_cool_temperatures={"comfort": 25.0},
-        temp_slope=0.0012,
+        temperature_slope=0.0012,
         heating_power_normalized=0.42,
     )
     entity.preset_mgr.temperatures = {"comfort": 21.0}

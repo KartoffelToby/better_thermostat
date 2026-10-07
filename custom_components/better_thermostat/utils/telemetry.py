@@ -96,7 +96,7 @@ class TelemetrySource(Protocol):
         ...
 
     @property
-    def temp_slope(self) -> float | None:
+    def temperature_slope(self) -> float | None:
         """Current temperature slope in °C/min, if known."""
         ...
 
@@ -195,8 +195,8 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Temperature slope plus a compact per-TRV calibration balance summary."""
     out: dict[str, object] = {}
 
-    if bt.temp_slope is not None:
-        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temp_slope, 4)
+    if bt.temperature_slope is not None:
+        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temperature_slope, 4)
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():

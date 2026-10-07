@@ -788,6 +788,35 @@ def test_each_occurrence_of_a_rejected_name_is_renamed_on_its_own(
     assert commit.hits == 4
 
 
+@pytest.mark.parametrize(
+    ("develop_spelling", "hits"),
+    [
+        ("self._trv.remember_the_setpoint(entity_id, reported_{i})", 4),
+        ("self.trv.remember_the_setpoint(entity_id, reported_{i})", 0),
+    ],
+    ids=["underscore-kept", "underscore-dropped"],
+)
+def test_a_private_name_is_renamed_with_its_underscores(lines, develop_spelling, hits):
+    """A private alias is renamed onto the term behind the same underscores.
+
+    The naming gate reads ``_trv_data`` as the alias ``trv_data``; the
+    development line that renamed it to ``_trv`` is found, one that also made
+    it public is a different statement.
+    """
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=GLOSSARY,
+        develop_spelling=develop_spelling,
+        maintenance_spelling="self._trv_data.remember_the_setpoint(entity_id, reported_{i})",
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == hits
+
+
 def test_the_spellings_of_one_marker_are_bounded(lines):
     """A line full of aliases costs at most the cap, and still spells them all.
 

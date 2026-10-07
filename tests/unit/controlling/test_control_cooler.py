@@ -47,7 +47,7 @@ def _mock_bt():
     mock_self.heating_power_normalized = None
     mock_self.contact_open = False
     mock_self.room_temperature_filtered = None
-    mock_self.temp_slope = None
+    mock_self.temperature_slope = None
     mock_self.call_for_heat = True
     mock_self.bt_min_temp = None
     mock_self.bt_max_temp = None

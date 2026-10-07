@@ -83,6 +83,18 @@ definition = "The smoothing filter's state at full precision; `room_temperature_
 rejected = ["external_temp_ema"]
 
 [[term]]
+name = "room_temperature_ema_monotonic"
+zone = "A"
+definition = "When `room_temperature_ema` was last updated, on the monotonic clock."
+rejected = ["external_temp_ema_ts"]
+
+[[term]]
+name = "temperature_slope"
+zone = "A"
+definition = "Rate of change of the room temperature, in kelvin per minute."
+rejected = ["temp_slope"]
+
+[[term]]
 name = "setpoint"
 zone = "A"
 definition = "A target temperature on the device side: the value written to a TRV, or the value one reports back."

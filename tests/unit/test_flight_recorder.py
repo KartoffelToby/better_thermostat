@@ -109,13 +109,13 @@ class TestExport:
         """NaN/inf in a recorded snapshot never reach the JSON payload."""
         recorder = FlightRecorder()
         snapshot = replace(
-            _snapshot(), room_temperature=float("nan"), temp_slope=float("inf")
+            _snapshot(), room_temperature=float("nan"), temperature_slope=float("inf")
         )
         _record_one(recorder, snapshot)
         exported = recorder.export()
         entry = exported[0]["snapshot"]
         assert entry["room_temperature"] is None
-        assert entry["temp_slope"] is None
+        assert entry["temperature_slope"] is None
         json.dumps(exported, allow_nan=False)
 
 
@@ -386,7 +386,7 @@ class TestRoundtripCompleteness:
             "hvac_mode": HvacMode.HEAT,
             "room_temperature": 19.0,
             "room_temperature_filtered": 19.1,
-            "temp_slope": 0.02,
+            "temperature_slope": 0.02,
             "call_for_heat": True,
             "window_open": True,
             "preset_mode": "eco",

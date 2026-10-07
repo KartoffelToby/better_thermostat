@@ -81,7 +81,7 @@ def _make_bt_climate(**overrides):
     bt.hvac_mode = "heat"
     bt.room_temperature_filtered = None
     bt.room_temperature_ema = None
-    bt.temp_slope = None
+    bt.temperature_slope = None
     bt.heating_power = None
     bt.heat_loss_rate = None
     bt.real_trvs = {}
@@ -288,21 +288,21 @@ class TestSimpleAttributeSensors:
 
     def test_temp_slope_with_value(self):
         """Temp slope with value."""
-        bt = _make_bt_climate(temp_slope=0.0123)
+        bt = _make_bt_climate(temperature_slope=0.0123)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0123
 
     def test_temp_slope_rounds_to_4_decimals(self):
         """Temp slope rounds to 4 decimals."""
-        bt = _make_bt_climate(temp_slope=0.01236789)
+        bt = _make_bt_climate(temperature_slope=0.01236789)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0124
 
     def test_temp_slope_none(self):
         """Temp slope none."""
-        bt = _make_bt_climate(temp_slope=None)
+        bt = _make_bt_climate(temperature_slope=None)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -337,7 +337,7 @@ class TestSimpleAttributeSensors:
 
     def test_invalid_string_returns_none(self):
         """Invalid string returns none."""
-        bt = _make_bt_climate(temp_slope="not_a_number")
+        bt = _make_bt_climate(temperature_slope="not_a_number")
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None
@@ -1874,7 +1874,7 @@ class TestBtSimpleAttributeSensor:
 
     def test_rounding_applied_when_set(self):
         """Rounding applied when set."""
-        bt = _make_bt_climate(temp_slope=0.01236789)
+        bt = _make_bt_climate(temperature_slope=0.01236789)
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value == 0.0124
@@ -1908,7 +1908,7 @@ class TestBtSimpleAttributeSensor:
 
     def test_invalid_string_gives_none(self):
         """Invalid string gives none."""
-        bt = _make_bt_climate(temp_slope="not_a_number")
+        bt = _make_bt_climate(temperature_slope="not_a_number")
         sensor = BetterThermostatTempSlopeSensor(bt)
         sensor._update_state()
         assert sensor._attr_native_value is None

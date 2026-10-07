@@ -50,7 +50,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.preset_mode = None
     bt.room_temperature = 20.0
     bt.room_temperature_filtered = None
-    bt.temp_slope = None
+    bt.temperature_slope = None
     bt.tolerance = 0.0
     bt.heat_target_temperature = 21.0
     bt.cool_target_temperature = None

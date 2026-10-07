@@ -482,7 +482,7 @@ async def test_a_returning_room_sensor_restarts_the_filtered_temperature(
         await let_time_pass(LadderParams().up_stability_s + LADDER_TICK_S)
         assert bt.kernel_state.control_mode.mode == ControlMode.OPTIMAL
         assert bt.room_temperature_filtered == 22.0
-        assert bt.temp_slope == 0.0
+        assert bt.temperature_slope == 0.0
 
 
 def degraded_issue_sensors(hass, bt) -> str | None:

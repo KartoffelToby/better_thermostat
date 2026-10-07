@@ -40,7 +40,7 @@ def _make_bt(state_mgr: _MpcStateStub) -> ThermostatStandIn:
     bt.heat_target_temperature = 22.0
     bt.room_temperature = 20.0
     bt.room_temperature_filtered = None
-    bt.temp_slope = 0.0
+    bt.temperature_slope = 0.0
     bt.tolerance = 0.0
     bt.window_open = False
     bt.contact_open = False

@@ -44,8 +44,9 @@ A marker is looked up under the development line's names, too. The
 development line renames identifiers onto the terms of its `glossary.toml`
 and the maintenance line keeps the old spellings, so a marker spelling a
 rejected alias is also searched with the alias replaced by each term that
-lists it, one whole identifier at a time. The glossary is read from the
-development tree, the one that did the renaming.
+lists it, one whole identifier at a time; a private name is matched
+without its leading underscores and keeps them. The glossary is read from
+the development tree, the one that did the renaming.
 
 ``MARKER_MIN_LENGTH`` is 16 from measurement. Over the 801 candidate lines of
 eleven commits whose content was confirmed by hand to be absent from
@@ -531,6 +532,19 @@ def _renames(ref: str) -> dict[str, tuple[str, ...]]:
     return {alias: tuple(names) for alias, names in renames.items()}
 
 
+def _renamed(name: str, renames: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    """Return the names the glossary renames *name* to, or nothing.
+
+    A private name is looked up without its leading underscores and keeps
+    them in every replacement, the way the naming gate reads it.
+    """
+    if name in renames:
+        return renames[name]
+    stripped = name.lstrip("_")
+    prefix = name[: len(name) - len(stripped)]
+    return tuple(prefix + term for term in renames.get(stripped, ()))
+
+
 def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     """Return the marker as written plus every spelling the glossary renames it to.
 
@@ -541,12 +555,12 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     no more than that many spellings are returned.
     """
     occurrences = [
-        match for match in IDENTIFIER.finditer(marker) if match[0] in renames
+        match for match in IDENTIFIER.finditer(marker) if _renamed(match[0], renames)
     ]
-    options = [(match[0], *renames[match[0]]) for match in occurrences]
+    options = [(match[0], *_renamed(match[0], renames)) for match in occurrences]
     if math.prod(len(choices) for choices in options) > SPELLINGS_PER_MARKER:
         aliases = sorted({match[0] for match in occurrences})
-        options = [(alias, *renames[alias]) for alias in aliases]
+        options = [(alias, *_renamed(alias, renames)) for alias in aliases]
         option_of = [aliases.index(match[0]) for match in occurrences]
     else:
         option_of = list(range(len(occurrences)))

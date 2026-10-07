@@ -78,15 +78,15 @@ class TestCollectBalanceAttrs:
     def test_empty_when_no_slope_no_balance(self):
         """Nothing is emitted when both slope and per-TRV balance are absent."""
         bt = ThermostatStandIn()
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
         assert out == {}
 
     def test_slope_rounded_to_4_decimals(self):
-        """temp_slope is rounded to 4 decimal places for readability."""
+        """temperature_slope is rounded to 4 decimal places for readability."""
         bt = ThermostatStandIn()
-        bt.temp_slope = 0.001234567
+        bt.temperature_slope = 0.001234567
         bt.real_trvs = {}
         out = collect_balance_attrs(bt)
         assert out["temperature_slope_kelvin_per_min"] == 0.0012
@@ -94,7 +94,7 @@ class TestCollectBalanceAttrs:
     def test_balance_aggregated_across_trvs(self):
         """Per-TRV calibration balance is collected into one JSON map."""
         bt = ThermostatStandIn()
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {
             "climate.a": Trv.from_legacy_dict(
                 "climate.a", {"calibration_balance": {"valve_percent": 70, "extra": 1}}
@@ -110,7 +110,7 @@ class TestCollectBalanceAttrs:
     def test_trv_without_balance_skipped(self):
         """TRVs with missing or None balance are skipped, not serialised."""
         bt = ThermostatStandIn()
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {
             "climate.a": Trv.from_legacy_dict(
                 "climate.a", {"calibration_balance": {"valve_percent": 50}}
@@ -300,7 +300,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
         bt.loss_cycles = None
         bt.last_heat_loss_stats = None
         bt.heating_power_normalized = None
-        bt.temp_slope = None
+        bt.temperature_slope = None
         bt.real_trvs = {}
         bt.__dict__.update(overrides)
         return bt
@@ -391,7 +391,7 @@ def _fully_populated_bt(debug: dict) -> ThermostatStandIn:
     bt.loss_cycles = [{"start": 2.0}]
     bt.last_heat_loss_stats = [{"rate": 0.1}]
     bt.heating_power_normalized = 0.5
-    bt.temp_slope = 0.01
+    bt.temperature_slope = 0.01
     return bt
 
 
