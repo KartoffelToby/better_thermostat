@@ -266,8 +266,10 @@ async def override_set_valve(self, entity_id, percent):
 
     # The control cycle writes the valve before the mode, so engage the
     # manufacturer-specific mode here too; the cached flag makes a repeat a
-    # no-op, and without it the first valve write of a cycle is ignored.
-    await override_set_hvac_mode(self, entity_id, HVACMode.HEAT)
+    # no-op. Without the mode the valve write is ignored, so a failed mode
+    # write declines before one is sent.
+    if not await override_set_hvac_mode(self, entity_id, HVACMode.HEAT):
+        return False
 
     _LOGGER.debug(
         "better_thermostat %s: TRV %s Z-TRV-V01 set valve %s%% -> %s/%s",
