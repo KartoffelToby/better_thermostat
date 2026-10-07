@@ -103,6 +103,10 @@ class ModelFixHost(Protocol):
     # is attributed to the same origin as the rest of the cycle.
     context: Any
     real_trvs: Mapping[str, _TrvLike]
+    is_removed: bool
+    sensor_entity_id: str | None
+    entity_id: str
+    room_sensor_fallback: bool
 
     @property
     def hass(self) -> _HassLike:

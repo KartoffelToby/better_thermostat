@@ -60,6 +60,7 @@ OPTIONAL = (
     "initial_tweak",
     "lowest_setpoint",
     "maybe_set_external_temperature",
+    "register_external_sensor_watch",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -114,6 +115,8 @@ def _host():
     host.device_name = "Test BT"
     host.context = None
     host.cur_temp = 19.5
+    host.entity_id = "climate.test_bt"
+    host.room_sensor_fallback = False
     host.bt_target_temp = 21.0
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock()
