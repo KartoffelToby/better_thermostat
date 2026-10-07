@@ -862,10 +862,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         name : str
             Display name of the thermostat.
         trv_configs : list[dict[str, Any]]
-            TRV configuration entries controlled by this thermostat. Config
-            entries written before 1.0.0-Beta36 carried a single entity id
-            string here instead; ``async_migrate_entry`` rejects them, so
-            that shape never reaches the entity.
+            TRV configuration entries controlled by this thermostat.
         sensor_entity_id : str | None
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
