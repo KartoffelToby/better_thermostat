@@ -209,11 +209,10 @@ class TestBuildMpcGroupKey:
         assert "tunknown" in key
 
     def test_group_key_fallback_uid(self):
-        """Group key falls back to _unique_id if unique_id is None."""
+        """An entity without a unique id keys its group under ``bt``."""
         bt = ThermostatStandIn()
         bt.unique_id = None
-        bt._unique_id = "fallback_id"
         bt.heat_target_temperature = 20.0
 
         key = build_mpc_group_key(bt)
-        assert "fallback_id" in key
+        assert key.startswith("bt:")

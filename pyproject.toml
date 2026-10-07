@@ -215,14 +215,6 @@ matches = "custom_components/better_thermostat/utils/helpers.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/scheduler.py"
-errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/snapshot.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/utils/watcher.py"
 errors = { implicit-any-parameter = false, implicit-any-type-argument = false, implicit-any-empty-container = false }
 

@@ -1102,6 +1102,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         # repair issue while slow integrations finish initializing.
         self._degraded_grace_until: datetime | None = None
         self._degraded_warning_emitted: bool = False
+        # Startup grace period before an unavailable TRV raises a
+        # ``missing_entity`` repair; armed when startup begins.
+        self._critical_grace_until: datetime | None = None
         self.control_queue_task: asyncio.Queue[BetterThermostat | None] = asyncio.Queue(
             maxsize=1
         )
@@ -1836,7 +1839,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
         Returns True when startup can go ahead, False otherwise.
         """
-        grace_until = getattr(self, "_critical_grace_until", None)
+        grace_until = self._critical_grace_until
         in_grace = grace_until is not None and self.clock.now() < grace_until
 
         if room_sensor_reading(self, sensor_state) is None:

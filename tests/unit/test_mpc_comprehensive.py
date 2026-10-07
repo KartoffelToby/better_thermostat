@@ -283,10 +283,11 @@ class TestBuildMpcKey:
         assert "tunknown" in key
 
     def test_missing_unique_id_fallback(self):
-        """Test fallback uid when unique_id attribute is missing."""
+        """An entity without a unique id keys its state under ``bt``."""
 
         class FakeBT:
             heat_target_temperature = 20.0
+            unique_id = None
 
         key = build_mpc_key(FakeBT(), "climate.trv")
         assert key.startswith("bt:")
@@ -1638,10 +1639,11 @@ class TestBuildMpcGroupKey:
         assert ":group:" in key
 
     def test_group_key_missing_uid(self):
-        """Fallback uid when unique_id attribute is missing."""
+        """An entity without a unique id keys its group under ``bt``."""
 
         class FakeBT:
             heat_target_temperature = 20.0
+            unique_id = None
 
         key = build_mpc_group_key(FakeBT())
         assert key.startswith("bt:")

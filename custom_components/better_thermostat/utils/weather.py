@@ -335,7 +335,7 @@ def outdoor_check_lock(self: BetterThermostat) -> asyncio.Lock:
     asyncio.Lock
             the entity's own lock, created on first use
     """
-    lock = getattr(self, "_outdoor_check_lock", None)
+    lock = self._outdoor_check_lock
     if lock is None:
         lock = asyncio.Lock()
         self._outdoor_check_lock = lock
