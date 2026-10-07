@@ -9,12 +9,17 @@ availability — otherwise that handling is unreachable and a sensor that
 dies while the window is open strands the thermostat with heating off.
 """
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.climate import (
+    BetterThermostat,
+    _configured_delay,
+)
+from custom_components.better_thermostat.utils.const import CONF_WINDOW_OFF_DELAY
 
 CLIMATE_MOD = "custom_components.better_thermostat.climate"
 
@@ -76,3 +81,25 @@ async def test_event_without_new_state_is_dropped():
         await BetterThermostat._trigger_window_change(bt, event)
 
     bt._spawn_owned.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("stored", "seconds"),
+    [(None, 0.0), (0, 0.0), (0.0, 0.0), (30, 30.0), (12.5, 12.5), ("45", 45.0)],
+)
+def test_a_configured_delay_reads_as_seconds(stored, seconds):
+    """A stored delay reaches the contact regions as a number of seconds."""
+    delay = _configured_delay(stored, "Test BT", CONF_WINDOW_OFF_DELAY)
+
+    assert delay == seconds
+    assert isinstance(delay, float)
+
+
+@pytest.mark.parametrize("stored", ["", "soon"])
+def test_an_unreadable_delay_reads_as_no_delay(stored, caplog):
+    """A delay no number can be read from leaves the contact undelayed."""
+    with caplog.at_level(logging.WARNING):
+        delay = _configured_delay(stored, "Test BT", CONF_WINDOW_OFF_DELAY)
+
+    assert delay == 0.0
+    assert ("soon" in caplog.text) is (stored == "soon")

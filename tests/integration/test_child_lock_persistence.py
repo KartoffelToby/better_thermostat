@@ -81,6 +81,34 @@ async def test_a_switch_change_does_not_touch_the_config_entry(hass, fake_trv):
     assert entry.options["thermostat"][0]["advanced"]["child_lock"] is False
 
 
+async def test_the_held_child_lock_leaves_the_parsed_settings_alone(hass):
+    """Neither the restored nor the switched lock rewrites the parsed settings."""
+    set_room_sensor(hass, 19.0)
+    entry = make_entry(GENERIC_HEAT_TRV)
+    mock_restore_cache_with_extra_data(
+        hass, [(State(SWITCH, STATE_ON), {"configured": False})]
+    )
+    await build_devices(hass, GENERIC_HEAT_TRV)
+
+    bt = await _started(hass, entry)
+    assert bt.all_trvs is entry.runtime_data.settings["thermostat"]
+    (parsed_trv,) = entry.runtime_data.settings["thermostat"]
+    assert _held(bt) is True
+    assert parsed_trv["advanced"]["child_lock"] is False
+
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": SWITCH}, blocking=True
+    )
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": SWITCH}, blocking=True
+    )
+
+    assert _held(bt) is True
+    assert parsed_trv["advanced"]["child_lock"] is False
+    (trv,) = bt.real_trvs.values()
+    assert trv.advanced is not parsed_trv["advanced"]
+
+
 @pytest.mark.parametrize("wanted", [True, False])
 async def test_a_switch_change_survives_a_reload(hass, fake_trv, wanted):
     """A reload that changes nothing keeps the switch where the user put it."""

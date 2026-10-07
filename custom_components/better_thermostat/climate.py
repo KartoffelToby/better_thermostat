@@ -187,6 +187,7 @@ from .utils.controlling import (
     cooler_send_cache,
     reconcile_tick,
 )
+from .utils.entry_schema import TrvAdvanced, TrvSettings, parse_settings
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
     InboundSetpoint,
@@ -336,10 +337,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Better Thermostat climate entity for a config entry."""
-    settings: Mapping[str, Any] = entry_settings(entry)
+    settings = entry.runtime_data.settings
+    if settings is None:
+        settings = parse_settings(entry_settings(entry))
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
-        settings.get(CONF_NAME),
+        settings[CONF_NAME],
         entry.entry_id,
     )
 
@@ -374,7 +377,7 @@ async def async_setup_entry(
     async_add_entities([bt_entity])
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry finished creating entity",
-        settings.get(CONF_NAME),
+        settings[CONF_NAME],
     )
 
 
@@ -449,6 +452,26 @@ def _arm_degraded_grace(self: BetterThermostat) -> None:
             self.kernel_state.lifecycle, grace_until=self._degraded_grace_until
         ),
     )
+
+
+def _configured_delay(value: str | float | None, device_name: str, field: str) -> float:
+    """Return a configured contact delay in seconds.
+
+    The flows store a whole number of seconds; no delay, or one that does not
+    read as a number, is no delay at all.
+    """
+    if not value:
+        return 0.0
+    try:
+        return float(value)
+    except ValueError:
+        _LOGGER.warning(
+            "better_thermostat %s: invalid %s '%s', using no delay",
+            device_name,
+            field,
+            value,
+        )
+        return 0.0
 
 
 def _configured_temperature_bound(
@@ -841,15 +864,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     def __init__(
         self,
         name: str,
-        trv_configs: list[dict[str, Any]],
+        trv_configs: list[TrvSettings],
         sensor_entity_id: str | None,
         humidity_sensor_entity_id: str | None,
         window_sensor_entity_id: str | None,
-        window_open_delay_seconds: float | None,
-        window_close_delay_seconds: float | None,
+        window_open_delay_seconds: str | float | None,
+        window_close_delay_seconds: str | float | None,
         door_sensor_entity_id: str | None,
-        door_open_delay_seconds: float | None,
-        door_close_delay_seconds: float | None,
+        door_open_delay_seconds: str | float | None,
+        door_close_delay_seconds: str | float | None,
         weather_entity_id: str | None,
         outdoor_sensor_entity_id: str | None,
         off_temperature: str | float | None,
@@ -871,7 +894,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         ----------
         name : str
             Display name of the thermostat.
-        trv_configs : list[dict[str, Any]]
+        trv_configs : list[TrvSettings]
             TRV configuration entries controlled by this thermostat.
         sensor_entity_id : str | None
             External temperature sensor entity id.
@@ -879,15 +902,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             External humidity sensor entity id.
         window_sensor_entity_id : str | None
             Window contact sensor entity id for open-window detection.
-        window_open_delay_seconds : int
+        window_open_delay_seconds : str | float | None
             Delay in seconds before reacting to a window opening.
-        window_close_delay_seconds : int
+        window_close_delay_seconds : str | float | None
             Delay in seconds before reacting to a window closing.
         door_sensor_entity_id : str | None
             Door contact sensor entity id for open-door detection.
-        door_open_delay_seconds : int
+        door_open_delay_seconds : str | float | None
             Delay in seconds before reacting to a door opening.
-        door_close_delay_seconds : int
+        door_close_delay_seconds : str | float | None
             Delay in seconds before reacting to a door closing.
         weather_entity_id : str | None
             Weather entity used as outdoor temperature source.
@@ -922,7 +945,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         self.real_trvs: dict[str, Trv] = {}
         self.entity_ids = []
-        self.all_trvs: list[dict[str, Any]] = trv_configs
+        self.all_trvs: list[TrvSettings] = trv_configs
         # Robust off temperature parsing: preserve 0.0 and ignore invalid strings
         _off_temperature = None
         if off_temperature not in (None, "", "None"):  # allow numeric 0
@@ -987,11 +1010,19 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             humidity_sensor_entity_id=humidity_sensor_entity_id,
             cooler_entity_id=cooler_entity_id,
             window_sensor_entity_id=window_sensor_entity_id or None,
-            window_open_delay_seconds=window_open_delay_seconds or 0,
-            window_close_delay_seconds=window_close_delay_seconds or 0,
+            window_open_delay_seconds=_configured_delay(
+                window_open_delay_seconds, name, CONF_WINDOW_OFF_DELAY
+            ),
+            window_close_delay_seconds=_configured_delay(
+                window_close_delay_seconds, name, CONF_WINDOW_OFF_DELAY_AFTER
+            ),
             door_sensor_entity_id=door_sensor_entity_id or None,
-            door_open_delay_seconds=door_open_delay_seconds or 0,
-            door_close_delay_seconds=door_close_delay_seconds or 0,
+            door_open_delay_seconds=_configured_delay(
+                door_open_delay_seconds, name, CONF_DOOR_OFF_DELAY
+            ),
+            door_close_delay_seconds=_configured_delay(
+                door_close_delay_seconds, name, CONF_DOOR_OFF_DELAY_AFTER
+            ),
             weather_entity_id=weather_entity_id or None,
             outdoor_sensor_entity_id=outdoor_sensor_entity_id or None,
             off_temperature=_off_temperature,
@@ -1272,7 +1303,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         ]
 
         for trv in self.all_trvs:
-            _advanced = trv.get("advanced", {})
+            _advanced: TrvAdvanced = trv.get("advanced", {})
             _calibration_output = configured_calibration_output(_advanced)
             # 1 stands for a configuration that selects no calibration type.
             _calibration = (
@@ -1338,8 +1369,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 model_quirks=_model_quirks,
                 model=resolved_model,
                 # A copy: settings changed at runtime, such as the child-lock
-                # switch, must not rewrite the config entry in memory.
-                advanced=dict(_advanced),
+                # switch, must not rewrite the settings the entry was set up
+                # with.
+                advanced=_advanced.copy(),
             )
             # The child lock the startup sends the TRV is the one its switch
             # restores to, so the device is not set to the option first.
