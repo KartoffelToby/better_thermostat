@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er, restore_state
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 import voluptuous as vol
@@ -35,6 +36,9 @@ from .utils.calibration.pid import (
 )
 from .utils.const import CONF_CALIBRATION_MODE, CONF_CHILD_LOCK, DOMAIN, CalibrationMode
 from .utils.helpers import async_normalize_bt_entity_ids, find_device_entity
+
+if TYPE_CHECKING:
+    from .climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,7 +118,12 @@ class BetterThermostatPIDAutoTuneSwitch(
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        trv_entity_id: str,
+        show_trv_name: bool = True,
+    ) -> None:
         """Initialize the switch."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
@@ -128,6 +137,7 @@ class BetterThermostatPIDAutoTuneSwitch(
         else:
             self._attr_translation_key = "pid_auto_tune_no_trv"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -135,15 +145,17 @@ class BetterThermostatPIDAutoTuneSwitch(
         self._follow_thermostat()
 
     @property
-    def device_info(self):
+    @override
+    def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return self._bt_climate.device_info
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
         # Try to get the value from the current active PID state
-        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        state_mgr = self._bt_climate.state_mgr
         if state_mgr is not None:
             key = build_pid_key(self._bt_climate, self._trv_entity_id)
             pid_state = state_mgr.state.pid.get(key)
@@ -152,17 +164,19 @@ class BetterThermostatPIDAutoTuneSwitch(
 
         return DEFAULT_PID_AUTO_TUNE
 
-    async def async_turn_on(self, **kwargs) -> None:
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         self._update_state(True)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         self._update_state(False)
 
     def _update_state(self, state: bool):
         """Update the state."""
-        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        state_mgr = self._bt_climate.state_mgr
         if state_mgr is None:
             _LOGGER.debug(
                 "Cannot set PID auto-tune for %s: state manager not ready",
@@ -244,7 +258,12 @@ class BetterThermostatChildLockSwitch(
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        trv_entity_id: str,
+        show_trv_name: bool = True,
+    ) -> None:
         """Initialize the switch."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
@@ -257,6 +276,7 @@ class BetterThermostatChildLockSwitch(
         else:
             self._attr_translation_key = "child_lock_no_trv"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -272,6 +292,7 @@ class BetterThermostatChildLockSwitch(
                 return bool((trv_config.get("advanced") or {}).get(CONF_CHILD_LOCK))
         return False
 
+    @override
     def _extra_restore_data(self) -> dict[str, Any]:
         """Record the configured option next to the switch state.
 
@@ -312,11 +333,13 @@ class BetterThermostatChildLockSwitch(
             await self._set_child_lock(restored, force=True)
 
     @property
-    def device_info(self):
+    @override
+    def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return self._bt_climate.device_info
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
@@ -324,12 +347,14 @@ class BetterThermostatChildLockSwitch(
             return False
         return (trv.advanced or {}).get("child_lock", False)
 
-    async def async_turn_on(self, **kwargs) -> None:
+    @override
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
         self._update_state(True)
         await self._set_child_lock(True)
 
-    async def async_turn_off(self, **kwargs) -> None:
+    @override
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
         self._update_state(False)
         await self._set_child_lock(False)

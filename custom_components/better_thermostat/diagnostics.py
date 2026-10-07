@@ -91,7 +91,7 @@ def _device(hass: HomeAssistant, entity_id: str) -> dict[str, Any] | None:
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, config_entry: ConfigEntry
-) -> dict:
+) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     settings = entry_settings(config_entry)
     trvs = {}
@@ -134,7 +134,7 @@ async def async_get_config_entry_diagnostics(
     if bt is not None:
         # What the thermostat itself reports: mode, targets and the
         # annunciation attributes.
-        diagnostics_data["climate"] = _state(hass, getattr(bt, "entity_id", None))
+        diagnostics_data["climate"] = _state(hass, bt.entity_id)
         # Flight recorder: the last decision tuples for offline replay.
         recorder = getattr(bt, "flight_recorder", None)
         if recorder is not None:
