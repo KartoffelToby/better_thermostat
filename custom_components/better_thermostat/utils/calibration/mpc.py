@@ -25,7 +25,7 @@ MPC_STEP_SECONDS = 300.0
 MPC_HORIZON_STEPS = 6
 # Adaptation learns only from a room-temperature change of at least this size
 # (quantised sensors) and at most this rate (sensor jumps, transients).
-MPC_TEMP_CHANGE_THRESHOLD_C = 0.05
+MPC_TEMP_CHANGE_THRESHOLD_K = 0.05
 MPC_MAX_ABS_RATE_C_PER_MIN = 0.35
 
 
@@ -90,17 +90,17 @@ class MpcInput:
     """Input parameters for MPC calibration calculation."""
 
     key: str
-    target_temp_C: float | None
-    current_temp_C: float | None
-    filtered_temp_C: float | None = None
-    trv_temp_C: float | None = None
+    target_temperature: float | None
+    room_temperature: float | None
+    room_temperature_filtered: float | None = None
+    trv_temperature: float | None = None
     tolerance_K: float = 0.0
     temp_slope_K_per_min: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
     bt_name: str | None = None
     entity_id: str | None = None
-    outdoor_temp_C: float | None = None
+    outdoor_temperature: float | None = None
     is_day: bool = True
     other_heat_power: float = 0.0
     solar_intensity: float = 0.0  # 0.0 to 1.0 (cloud coverage, etc.)
@@ -119,7 +119,7 @@ class MpcOutput:
 class _MpcState:
     last_percent: float | None = None
     last_update_ts: float = 0.0
-    last_target_C: float | None = None
+    last_target_temperature: float | None = None
     ema_slope: float | None = None
     gain_est: float | None = None
     loss_est: float | None = None
@@ -137,8 +137,8 @@ class _MpcState:
     last_residual_time: float | None = None
     virtual_temp: float | None = None
     virtual_temp_ts: float = 0.0
-    last_sensor_temp_C: float | None = None
-    last_room_temp_C: float | None = None
+    last_sensor_temperature: float | None = None
+    last_room_temperature: float | None = None
     last_room_temp_ts: float = 0.0
     perf_curve: dict[str, dict[str, float | int]] = field(default_factory=dict)
     trv_profile: str = "unknown"
@@ -206,15 +206,15 @@ def _update_perf_curve(
     now: float,
     extra_debug: dict[str, object],
 ) -> None:
-    if inp.current_temp_C is None:
+    if inp.room_temperature is None:
         return
-    if not inp.heating_allowed or inp.window_open or inp.target_temp_C is None:
-        state.last_room_temp_C = float(inp.current_temp_C)
+    if not inp.heating_allowed or inp.window_open or inp.target_temperature is None:
+        state.last_room_temperature = float(inp.room_temperature)
         state.last_room_temp_ts = now
         return
 
-    if state.last_room_temp_ts <= 0.0 or state.last_room_temp_C is None:
-        state.last_room_temp_C = float(inp.current_temp_C)
+    if state.last_room_temp_ts <= 0.0 or state.last_room_temperature is None:
+        state.last_room_temperature = float(inp.room_temperature)
         state.last_room_temp_ts = now
         return
 
@@ -223,7 +223,7 @@ def _update_perf_curve(
     if dt_s < min_window:
         return
 
-    room_delta = float(inp.current_temp_C) - float(state.last_room_temp_C)
+    room_delta = float(inp.room_temperature) - float(state.last_room_temperature)
     dt_min = dt_s / 60.0
     if dt_min <= 0:
         return
@@ -239,11 +239,11 @@ def _update_perf_curve(
     label = _curve_bin_label(u_avg_pct, bin_pct)
 
     trv_rate = None
-    if inp.trv_temp_C is not None and state.last_trv_temp is not None:
-        trv_delta = float(inp.trv_temp_C) - float(state.last_trv_temp)
+    if inp.trv_temperature is not None and state.last_trv_temp is not None:
+        trv_delta = float(inp.trv_temperature) - float(state.last_trv_temp)
         trv_rate = trv_delta / dt_min
 
-    temp_error = float(inp.target_temp_C) - float(inp.current_temp_C)
+    temp_error = float(inp.target_temperature) - float(inp.room_temperature)
 
     stats = state.perf_curve.setdefault(
         label,
@@ -279,7 +279,7 @@ def _update_perf_curve(
     extra_debug["perf_curve_bin"] = label
     extra_debug["perf_room_rate"] = _round_for_debug(room_rate, 4)
 
-    state.last_room_temp_C = float(inp.current_temp_C)
+    state.last_room_temperature = float(inp.room_temperature)
     state.last_room_temp_ts = now
 
 
@@ -580,7 +580,7 @@ def _forget_stamps_ahead_of_the_clock(state: _MpcState, now: float) -> None:
         state.virtual_temp = None
     if state.last_room_temp_ts > now:
         state.last_room_temp_ts = 0.0
-        state.last_room_temp_C = None
+        state.last_room_temperature = None
     if state.last_integration_ts > now:
         # The totals hold the valve use accumulated since this stamp.
         state.last_integration_ts = 0.0
@@ -657,9 +657,9 @@ def compute_mpc(
         "better_thermostat %s: MPC input (%s) target=%s current=%s trv=%s slope=%s window_open=%s allowed=%s last_percent=%s key=%s",
         name,
         entity,
-        _round_for_debug(inp.target_temp_C, 3),
-        _round_for_debug(inp.current_temp_C, 3),
-        _round_for_debug(inp.trv_temp_C, 3),
+        _round_for_debug(inp.target_temperature, 3),
+        _round_for_debug(inp.room_temperature, 3),
+        _round_for_debug(inp.trv_temperature, 3),
         _round_for_debug(inp.temp_slope_K_per_min, 4),
         inp.window_open,
         inp.heating_allowed,
@@ -698,7 +698,7 @@ def compute_mpc(
             inp.window_open,
             inp.heating_allowed,
         )
-    elif inp.target_temp_C is None or inp.current_temp_C is None:
+    elif inp.target_temperature is None or inp.room_temperature is None:
         percent = state.last_percent if state.last_percent is not None else 0.0
         delta_kelvin = None
         _LOGGER.debug(
@@ -715,11 +715,11 @@ def compute_mpc(
 
         if (
             tolerance > 0.0
-            and inp.target_temp_C is not None
-            and inp.current_temp_C is not None
+            and inp.target_temperature is not None
+            and inp.room_temperature is not None
         ):
-            room_temperature = float(inp.current_temp_C)
-            heat_target_temperature = float(inp.target_temp_C)
+            room_temperature = float(inp.room_temperature)
+            heat_target_temperature = float(inp.target_temperature)
             restart_threshold = heat_target_temperature - tolerance
 
             if state.tolerance_hold_active:
@@ -754,8 +754,8 @@ def compute_mpc(
         #
         # NOTE: Even during tolerance hold we keep this observer running so
         # virtual temperature does not go stale before heating resumes.
-        if use_virtual_temp and inp.current_temp_C is not None:
-            sensor_temp = float(inp.current_temp_C)
+        if use_virtual_temp and inp.room_temperature is not None:
+            sensor_temp = float(inp.room_temperature)
             Q = max(1e-6, float(params.kalman_Q))  # process noise / sec
             R = max(1e-6, float(params.kalman_R))  # measurement noise
 
@@ -809,7 +809,7 @@ def compute_mpc(
                 state.virtual_temp_ts = now
 
             # --- UPDATE step (only when sensor actually changed) ---
-            prev_sensor = state.last_sensor_temp_C
+            prev_sensor = state.last_sensor_temperature
             sensor_changed = (
                 prev_sensor is None or abs(sensor_temp - float(prev_sensor)) >= 0.001
             )
@@ -828,17 +828,17 @@ def compute_mpc(
             else:
                 extra_debug["kalman_update"] = "skipped_sensor_unchanged"
 
-            state.last_sensor_temp_C = sensor_temp
+            state.last_sensor_temperature = sensor_temp
 
         # DELTA T USING VIRTUAL TEMPERATURE
         if (
             use_virtual_temp
             and state.virtual_temp is not None
-            and inp.target_temp_C is not None
+            and inp.target_temperature is not None
         ):
-            delta_kelvin = inp.target_temp_C - state.virtual_temp
-        elif inp.target_temp_C is not None and inp.current_temp_C is not None:
-            delta_kelvin = inp.target_temp_C - inp.current_temp_C
+            delta_kelvin = inp.target_temperature - state.virtual_temp
+        elif inp.target_temperature is not None and inp.room_temperature is not None:
+            delta_kelvin = inp.target_temperature - inp.room_temperature
         initial_delta_kelvin = delta_kelvin
 
         if not tolerance_hold_block:
@@ -856,10 +856,10 @@ def compute_mpc(
         # "Hybrid Learning": Use random forced calibration to get high-confidence loss samples.
         # Trigger: current >= target. Probability: decays with number of samples.
         # Action: Force valve closed until current < target - hysteresis.
-        if inp.current_temp_C is not None and inp.target_temp_C is not None:
+        if inp.room_temperature is not None and inp.target_temperature is not None:
             calib_hysteresis = 0.2
             if state.is_calibration_active:
-                if inp.current_temp_C <= (inp.target_temp_C - calib_hysteresis):
+                if inp.room_temperature <= (inp.target_temperature - calib_hysteresis):
                     state.is_calibration_active = False
                     _LOGGER.info(
                         "better_thermostat %s: Calibration finished (temp reached target - %.1fvK). Resuming control.",
@@ -873,7 +873,7 @@ def compute_mpc(
             elif not state.is_calibration_active:
                 # Trigger condition: Overheated/Reached target
                 # Check random chance if we have "enough" heat (delta_kelvin <= 0 means we are at/above target)
-                if inp.current_temp_C >= inp.target_temp_C:
+                if inp.room_temperature >= inp.target_temperature:
                     # Chance decays with experience: 1 (100%), 0.5, ... but min 5%
                     chance = max(0.05, 1.0 / (state.loss_learn_count + 1))
                     if random.random() < chance:
@@ -969,27 +969,27 @@ def _compute_predictive_percent(
     """
 
     # Defensive checks
-    if inp.current_temp_C is None or inp.target_temp_C is None:
+    if inp.room_temperature is None or inp.target_temperature is None:
         return 0.0, {"error": "missing temps"}
 
-    assert inp.current_temp_C is not None
-    assert inp.target_temp_C is not None
+    assert inp.room_temperature is not None
+    assert inp.target_temperature is not None
 
-    current_temp_C = float(inp.current_temp_C)
-    target_temp_C = float(inp.target_temp_C)
+    room_temperature = float(inp.room_temperature)
+    target_temperature = float(inp.target_temperature)
 
     # Determine which temperature to use for the cost function (Raw vs Filtered)
     # Default to filtered (EMA) for stability.
-    current_temp_cost_C = current_temp_C
+    cost_room_temperature = room_temperature
     temp_cost_source = "raw"
 
-    if inp.filtered_temp_C is not None:
+    if inp.room_temperature_filtered is not None:
         try:
-            current_temp_cost_C = float(inp.filtered_temp_C)
+            cost_room_temperature = float(inp.room_temperature_filtered)
             temp_cost_source = "filtered"
         except TypeError, ValueError:
-            current_temp_cost_C = current_temp_C
-            inp.filtered_temp_C = None
+            cost_room_temperature = room_temperature
+            inp.room_temperature_filtered = None
 
     use_virtual_temp = params.use_virtual_temp
 
@@ -998,7 +998,7 @@ def _compute_predictive_percent(
 
     if state.last_learn_time is None:
         state.last_learn_time = now
-        state.last_learn_temp = current_temp_cost_C
+        state.last_learn_temp = cost_room_temperature
 
     step_minutes = MPC_STEP_SECONDS / 60.0
     horizon = MPC_HORIZON_STEPS
@@ -1016,7 +1016,7 @@ def _compute_predictive_percent(
     # reset learning anchors to avoid connecting old history with current state.
     if state.last_time > 0.0 and (now - state.last_time) > 900.0:
         state.last_learn_time = now
-        state.last_learn_temp = current_temp_cost_C
+        state.last_learn_temp = cost_room_temperature
         state.u_integral = 0.0
         state.time_integral = 0.0
 
@@ -1028,14 +1028,18 @@ def _compute_predictive_percent(
     if window_block_s > 0 and state.last_window_open_ts > 0:
         if now - state.last_window_open_ts < window_block_s:
             state.last_learn_time = now
-            state.last_learn_temp = current_temp_cost_C
+            state.last_learn_temp = cost_room_temperature
             dt_last = 0.0
 
     # Initialize ka_est if we have outdoor temp context
-    if params.mpc_adapt and inp.outdoor_temp_C is not None and state.ka_est is None:
+    if (
+        params.mpc_adapt
+        and inp.outdoor_temperature is not None
+        and state.ka_est is None
+    ):
         # Default ka guess from current loss_est
         _loss = state.loss_est if state.loss_est is not None else params.mpc_loss_coeff
-        _delta = max(5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C))
+        _delta = max(5.0, float(cost_room_temperature) - float(inp.outdoor_temperature))
         state.ka_est = _loss / _delta
 
     # ---- ADAPTATION (rate-based identification) ----
@@ -1057,9 +1061,12 @@ def _compute_predictive_percent(
 
             # Gate on target stability to avoid learning during setpoint steps.
             target_changed = False
-            if state.last_target_C is not None:
+            if state.last_target_temperature is not None:
                 target_changed = (
-                    abs(float(target_temp_C) - float(state.last_target_C)) >= 0.05
+                    abs(
+                        float(target_temperature) - float(state.last_target_temperature)
+                    )
+                    >= 0.05
                 )
 
             # Use time-weighted average valve position for learning
@@ -1077,7 +1084,7 @@ def _compute_predictive_percent(
                 dt_min = 0.0
 
             # measured temperature change (fallback) and rate estimate
-            observed_delta_kelvin = float(current_temp_cost_C) - float(
+            observed_delta_kelvin = float(cost_room_temperature) - float(
                 state.last_learn_temp
             )
             observed_rate = (
@@ -1101,7 +1108,7 @@ def _compute_predictive_percent(
             implied_delta_kelvin = observed_rate * dt_min if dt_min > 0 else 0.0
 
             # Learn only when the sensor actually changed (quantised sensors).
-            temp_changed = abs(observed_delta_kelvin) >= MPC_TEMP_CHANGE_THRESHOLD_C
+            temp_changed = abs(observed_delta_kelvin) >= MPC_TEMP_CHANGE_THRESHOLD_K
 
             # Slope logic disabled - we rely purely on actual temperature changes
             # to avoid learning from lagging EMA slopes.
@@ -1260,7 +1267,7 @@ def _compute_predictive_percent(
                     # We should NOT increase the Loss estimate here (blaming insulation).
                     # Instead, we should reduce the Gain estimate (blaming the heater/flow) to open the valve more.
                     is_insufficient_heat = (
-                        target_temp_C - current_temp_cost_C
+                        target_temperature - cost_room_temperature
                     ) > 0.2 and loss_candidate > loss_est
 
                     if not is_insufficient_heat:
@@ -1358,7 +1365,7 @@ def _compute_predictive_percent(
                 if dt_residual < ss_min_interval_s or dt_residual > ss_max_interval_s:
                     gain_ss_rate_limited = True
 
-                e_now = target_temp_C - float(inp.current_temp_C)
+                e_now = target_temperature - float(inp.room_temperature)
 
                 if (
                     (not gain_ss_rate_limited)
@@ -1434,7 +1441,7 @@ def _compute_predictive_percent(
                 "id_temp_changed": temp_changed,
                 "id_learn_signal": learn_signal,
                 "id_temp_change_threshold_C": _round_for_debug(
-                    MPC_TEMP_CHANGE_THRESHOLD_C, 3
+                    MPC_TEMP_CHANGE_THRESHOLD_K, 3
                 ),
                 "id_rate": _round_for_debug(observed_rate, 4),
                 "id_rate_delta": _round_for_debug(observed_rate_delta, 4),
@@ -1464,7 +1471,7 @@ def _compute_predictive_percent(
             # Reset main anchor only on significant changes or context switch
             if temp_changed or target_changed:
                 state.last_learn_time = now
-                state.last_learn_temp = current_temp_cost_C
+                state.last_learn_temp = cost_room_temperature
                 state.u_integral = 0.0
                 state.time_integral = 0.0
 
@@ -1477,11 +1484,11 @@ def _compute_predictive_percent(
             # Update ka_est if loss was updated and we have context
             if (
                 updated_loss
-                and inp.outdoor_temp_C is not None
+                and inp.outdoor_temperature is not None
                 and state.loss_est is not None
             ):
                 _delta = max(
-                    5.0, float(current_temp_cost_C) - float(inp.outdoor_temp_C)
+                    5.0, float(cost_room_temperature) - float(inp.outdoor_temperature)
                 )
                 _loss_val = (
                     state.loss_est
@@ -1497,8 +1504,8 @@ def _compute_predictive_percent(
     gain = state.gain_est if state.gain_est is not None else params.mpc_thermal_gain
 
     # Calculate base loss rate for u0 calculation
-    if inp.outdoor_temp_C is not None and state.ka_est is not None:
-        _current_delta = float(current_temp_cost_C) - float(inp.outdoor_temp_C)
+    if inp.outdoor_temperature is not None and state.ka_est is not None:
+        _current_delta = float(cost_room_temperature) - float(inp.outdoor_temperature)
         loss = float(state.ka_est) * _current_delta
         # Clamp to bounds to ensure u0 is sane
         loss = max(params.mpc_loss_min, min(params.mpc_loss_max, loss))
@@ -1554,7 +1561,7 @@ def _compute_predictive_percent(
     T0 = (
         float(state.virtual_temp)
         if use_virtual_temp and state.virtual_temp is not None
-        else current_temp_cost_C
+        else cost_room_temperature
     )
 
     other_heat_step = float(inp.other_heat_power) * step_minutes
@@ -1562,7 +1569,7 @@ def _compute_predictive_percent(
     # For constant-loss model (no ka_est or no outdoor temp)
     net_passive_step = other_heat_step - loss_step  # everything except gain*u
 
-    e0 = target_temp_C - T0  # initial error (positive = need heating)
+    e0 = target_temperature - T0  # initial error (positive = need heating)
 
     a = gain_step  # temperature change per step per unit u
 
@@ -1571,7 +1578,7 @@ def _compute_predictive_percent(
         temp_cost = 0.0
         for k in range(1, horizon + 1):
             t_k = T0 + k * (a * u_clamped + net_passive_step)
-            e_k = target_temp_C - t_k
+            e_k = target_temperature - t_k
             if e_k >= 0.0:
                 temp_cost += e_k * e_k
             else:
@@ -1625,7 +1632,7 @@ def _compute_predictive_percent(
     state.last_temp = (
         state.virtual_temp
         if use_virtual_temp and state.virtual_temp is not None
-        else inp.current_temp_C
+        else inp.room_temperature
     )
     state.last_time = now
 
@@ -1642,8 +1649,8 @@ def _compute_predictive_percent(
         "mpc_horizon": horizon,
         "mpc_eval_count": eval_count,
         "mpc_step_minutes": _round_for_debug(step_minutes, 3),
-        "mpc_temp_cost_C": _round_for_debug(current_temp_cost_C, 3),
-        "mpc_sensor_temp_C": _round_for_debug(inp.current_temp_C, 3),
+        "mpc_temp_cost_C": _round_for_debug(cost_room_temperature, 3),
+        "mpc_sensor_temp_C": _round_for_debug(inp.room_temperature, 3),
         "mpc_temp_cost_source": temp_cost_source,
         "mpc_control_pen": _round_for_debug(control_pen, 4),
         "mpc_change_pen": _round_for_debug(change_pen, 4),
@@ -1756,12 +1763,12 @@ def _room_rise_over(
     it spans an interval of its own. The move is scaled from that interval
     to *window_s*. ``None`` when there is no earlier reading to compare.
     """
-    if inp.current_temp_C is None or state.last_room_temp_C is None:
+    if inp.room_temperature is None or state.last_room_temperature is None:
         return None
     elapsed_s = now - state.last_room_temp_ts
     if state.last_room_temp_ts <= 0.0 or elapsed_s <= 0.0:
         return None
-    room_delta = float(inp.current_temp_C) - float(state.last_room_temp_C)
+    room_delta = float(inp.room_temperature) - float(state.last_room_temperature)
     return room_delta * window_s / elapsed_s
 
 
@@ -1824,16 +1831,16 @@ def _post_process_percent(
     target_changed = False
 
     # track target temp changes
-    if inp.target_temp_C is not None:
-        prev_target = state.last_target_C
+    if inp.target_temperature is not None:
+        prev_target = state.last_target_temperature
         if prev_target is not None:
             try:
                 target_changed = (
-                    abs(float(inp.target_temp_C) - float(prev_target)) >= 0.05
+                    abs(float(inp.target_temperature) - float(prev_target)) >= 0.05
                 )
             except TypeError, ValueError:
                 target_changed = False
-        state.last_target_C = inp.target_temp_C
+        state.last_target_temperature = inp.target_temperature
 
     # update frequency limiter
     too_soon = (now - state.last_update_ts) < params.min_update_interval_s
@@ -1841,10 +1848,10 @@ def _post_process_percent(
         too_soon = False
 
     # compute delta_kelvin if missing
-    if inp.target_temp_C is not None and inp.current_temp_C is not None:
+    if inp.target_temperature is not None and inp.room_temperature is not None:
         try:
             if delta_kelvin is None:
-                delta_kelvin = inp.target_temp_C - inp.current_temp_C
+                delta_kelvin = inp.target_temperature - inp.room_temperature
         except TypeError, ValueError:
             delta_kelvin = None
 
@@ -1913,15 +1920,15 @@ def _post_process_percent(
     temp_delta: float | None = None
     time_delta: float | None = None
 
-    if inp.trv_temp_C is None:
+    if inp.trv_temperature is None:
         state.last_trv_temp = None
         state.last_trv_temp_ts = 0.0
         state.dead_zone_hits = 0
     elif state.last_trv_temp is None or state.last_trv_temp_ts == 0.0:
-        state.last_trv_temp = inp.trv_temp_C
+        state.last_trv_temp = inp.trv_temperature
         state.last_trv_temp_ts = now
     else:
-        temp_delta = inp.trv_temp_C - state.last_trv_temp
+        temp_delta = inp.trv_temperature - state.last_trv_temp
         time_delta = now - state.last_trv_temp_ts
         eval_after = max(params.deadzone_time_s, 1.0)
 
@@ -2025,7 +2032,7 @@ def _post_process_percent(
             # while the TRV responds to it.
             _decay_min_effective_percent(state, params, temp_delta, name, entity)
 
-        state.last_trv_temp = inp.trv_temp_C
+        state.last_trv_temp = inp.trv_temperature
         state.last_trv_temp_ts = now
     # 7) DEBUG INFO
     debug: dict[str, object] = {

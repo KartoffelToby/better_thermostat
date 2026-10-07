@@ -263,6 +263,14 @@ def _make_json_safe(obj: Any) -> Any:
 _STORED_ROOM_TEMPERATURE_EMA = "external_temp_ema"
 _STORED_TEMPERATURE_SLOPE = "temp_slope"
 
+# Store keys of the ``MpcState`` fields whose stored name differs from the
+# field name. The other fields are stored under their own names.
+_STORED_MPC_KEYS = {
+    "last_target_temperature": "last_target_C",
+    "last_sensor_temperature": "last_sensor_temp_C",
+    "last_room_temperature": "last_room_temp_C",
+}
+
 # Store keys of the ``MpcV2ReidData`` fields whose stored name differs from
 # the field name. The other fields are stored under their own names.
 _STORED_MPC_V2_REID_KEYS = {
@@ -281,9 +289,13 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     filters = data["filters"]
     filters[_STORED_ROOM_TEMPERATURE_EMA] = filters.pop("room_temperature_ema")
     filters[_STORED_TEMPERATURE_SLOPE] = filters.pop("temperature_slope")
-    for entry in data["mpc_v2_reid"].values():
-        for attr, stored in _STORED_MPC_V2_REID_KEYS.items():
-            entry[stored] = entry.pop(attr)
+    for section, stored_keys in (
+        ("mpc", _STORED_MPC_KEYS),
+        ("mpc_v2_reid", _STORED_MPC_V2_REID_KEYS),
+    ):
+        for entry in data[section].values():
+            for attr, stored in stored_keys.items():
+                entry[stored] = entry.pop(attr)
     return _make_json_safe(data)
 
 
@@ -364,7 +376,9 @@ def finite_or_none(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
+def _null_or_poison(
+    attr: str, nullable: frozenset[str], *, stored: str | None = None
+) -> None:
     """Let a stored null through, unless the declared type forbids one.
 
     A null where a number is declared is how a non-finite value gets back
@@ -376,10 +390,14 @@ def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
     *nullable* names the fields whose declared type admits a ``None``. An
     empty set means the caller is parsing a place no ``None`` may reach at
     all, such as an element of a collection declared to hold numbers.
+    *stored* is the key the field is stored under where that differs from
+    *attr*; the report names the key the file holds.
     """
     if attr in nullable:
         return
-    raise _PoisonedStateError(f"{attr} is null, which its declared type cannot hold")
+    raise _PoisonedStateError(
+        f"{stored or attr} is null, which its declared type cannot hold"
+    )
 
 
 def _finite_or_poison(value: Any, attr: str) -> float:
@@ -499,9 +517,10 @@ def deserialize_mpc(
     """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
-        if attr not in raw:
+        stored = _STORED_MPC_KEYS.get(attr, attr)
+        if stored not in raw:
             continue
-        value = raw[attr]
+        value = raw[stored]
         try:
             if value is None:
                 _null_or_poison(attr, _MPC_NULLABLE_FIELDS)
@@ -530,12 +549,12 @@ def deserialize_mpc(
             elif attr in _STR_FIELDS:
                 setattr(state, attr, str(value))
             else:
-                setattr(state, attr, _finite_or_poison(value, attr))
+                setattr(state, attr, _finite_or_poison(value, stored))
         except _PoisonedStateError as error:
             _discard_poisoned_entry(error, "mpc", key, poisoned)
             return MpcState()
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "mpc", key)
+            _report_unreadable_field(stored, "mpc", key)
             continue
     return state
 
@@ -658,7 +677,7 @@ def deserialize_mpc_v2_reid(
         value = raw[stored]
         try:
             if value is None:
-                _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS)
+                _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS, stored=stored)
                 setattr(state, attr, None)
             elif attr == "n_segments":
                 setattr(state, attr, _stored_count(value))

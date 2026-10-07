@@ -37,7 +37,7 @@ def _equivalent_single_plant(params: MultiTrvPlantParams) -> PlantParams:
         tau_rad_min=params.tau_rad_min,
         gain_heater=sum(params.gain_heaters),
         coupling_rad_room=sum(params.coupling_rad_room),
-        T_water_C=params.T_water_C,
+        T_water=params.T_water,
     )
 
 
@@ -79,11 +79,11 @@ def _stabilise_multi_trv(
         ctx = BenchmarkContext(
             t=0.0,
             dt=step_s,
-            target_temp_C=pre_setpoint,
-            current_temp_C=plant.state.T_room_C,
-            raw_room_temp_C=plant.state.T_room_C,
-            trv_temp_C=sum(plant.state.T_rads_C) / plant.params.n_trvs,
-            outdoor_temp_C=pre_outdoor,
+            target_temperature=pre_setpoint,
+            room_temperature=plant.state.T_room,
+            raw_room_temperature=plant.state.T_room,
+            trv_temperature=sum(plant.state.T_rads) / plant.params.n_trvs,
+            outdoor_temperature=pre_outdoor,
         )
         out = oracle.step(ctx)
         u_total = (out.valve_percent or 0.0) / 100.0
@@ -109,19 +109,19 @@ class _MultiTrvFacade:
         self._plant = plant
 
     @property
-    def T_room_C(self) -> float:
-        return self._plant.state.T_room_C
+    def T_room(self) -> float:
+        return self._plant.state.T_room
 
     @property
-    def T_rad_C(self) -> float:
+    def T_rad(self) -> float:
         # Single-radiator view = mean over the parallel radiators.
-        return sum(self._plant.state.T_rads_C) / self._plant.params.n_trvs
+        return sum(self._plant.state.T_rads) / self._plant.params.n_trvs
 
     def apply(
-        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
         u_per_trv = _distribute(valve_percent, self._plant)
-        self._plant.step(dt_s, u_per_trv, T_outdoor_C, Q_K_per_min=Q_K_per_min)
+        self._plant.step(dt_s, u_per_trv, T_outdoor, Q_K_per_min=Q_K_per_min)
 
 
 def run_multi_trv_scenario(

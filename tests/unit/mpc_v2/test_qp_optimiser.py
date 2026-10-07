@@ -27,7 +27,7 @@ def test_cold_room_commands_heat() -> None:
     """A cold room below target commands a substantial heat call."""
     opt = _make_optimiser()
     x_pred = np.array([18.0, 18.0])
-    u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=5.0, u_last=0.0)
+    u = opt.solve(x_pred, T_sp=22.0, T_outdoor=5.0, u_last=0.0)
     assert u > 0.1, f"expected substantial heat call, got u={u}"
 
 
@@ -44,7 +44,7 @@ def test_cold_room_below_a_setpoint_beyond_the_water_still_commands_heat(
     plant_params = PlantParams(tau_room_min=720.0)
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
-    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target - 3.0, target - 3.0]), target, -16.0, u_last=0.0)
 
@@ -66,7 +66,7 @@ def test_warm_room_above_a_setpoint_beyond_the_water_backs_the_valve_off(
     opt = QpOptimiser(PlantModelRC2(plant_params, dt_s=300.0), QpParams())
     target = target_temperature
     hottest = opt.plant.hottest_radiator_temp(target)
-    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water_C
+    assert opt.plant.steady_radiator_temp(target, -16.0) > plant_params.T_water
 
     u = opt.solve(np.array([target + 2.0, hottest]), target, -16.0, u_last=0.5)
 
@@ -77,7 +77,7 @@ def test_warm_room_above_target_commands_zero() -> None:
     """A room above target commands little to no heat."""
     opt = _make_optimiser()
     x_pred = np.array([24.0, 35.0])
-    u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=5.0, u_last=0.5)
+    u = opt.solve(x_pred, T_sp=22.0, T_outdoor=5.0, u_last=0.5)
     assert u < 0.2
 
 
@@ -85,7 +85,7 @@ def test_delta_u_constraint_clamps_first_step() -> None:
     """The delta-u constraint clamps how far the first command can move."""
     opt = _make_optimiser(delta_u_max=0.05)
     x_pred = np.array([15.0, 15.0])
-    u = opt.solve(x_pred, T_sp=22.0, T_outdoor_C=-10.0, u_last=0.0)
+    u = opt.solve(x_pred, T_sp=22.0, T_outdoor=-10.0, u_last=0.0)
     assert 0.0 <= u <= 0.05 + 1e-6
 
 
@@ -130,7 +130,7 @@ def test_box_constraint_bounds_the_whole_horizon(monkeypatch, solver) -> None:
 
     plant = PlantModelRC2(PlantParams(), dt_s=300.0)
     opt = QpOptimiser(plant, QpParams(delta_u_max=1.0, u_max=0.6))
-    opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=5.0, u_last=0.6)
+    opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=5.0, u_last=0.6)
 
     assert len(plans) == 1
     plan = plans[0]
@@ -199,7 +199,7 @@ def test_numpy_fallback_obeys_constraints(monkeypatch) -> None:
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     monkeypatch.setattr(qp_optimiser, "_daqp", None)
     opt = _make_optimiser(delta_u_max=0.05)
-    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.0)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.0)
     assert 0.0 <= u <= 0.05 + 1e-6
     assert u > 0.0
 
@@ -275,7 +275,7 @@ def test_missing_daqp_is_logged_once_per_optimiser(monkeypatch, caplog) -> None:
     caplog.set_level("INFO", logger=qp_optimiser.__name__)
     opt = _make_optimiser()
     for _ in range(3):
-        opt.solve(np.array([19.0, 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.3)
+        opt.solve(np.array([19.0, 30.0]), T_sp=21.0, T_outdoor=0.0, u_last=0.3)
 
     notes = [r for r in caplog.records if "daqp" in r.getMessage()]
     assert len(notes) == 1
@@ -308,13 +308,13 @@ def test_a_failing_daqp_solve_is_logged_once_and_the_plan_still_comes(
     caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
     opt = _make_optimiser()
     commands = [
-        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
         for _ in range(3)
     ]
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     portable = _make_optimiser().solve(
-        np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3
+        np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3
     )
 
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
@@ -331,9 +331,7 @@ def test_portable_solver_holds_the_valve_on_a_non_finite_objective(monkeypatch) 
 
     monkeypatch.setattr(qp_optimiser, "DAQP_AVAILABLE", False)
     opt = _make_optimiser(delta_u_max=0.45)
-    u = opt.solve(
-        np.array([float("nan"), 30.0]), T_sp=21.0, T_outdoor_C=0.0, u_last=0.4
-    )
+    u = opt.solve(np.array([float("nan"), 30.0]), T_sp=21.0, T_outdoor=0.0, u_last=0.4)
     assert u == pytest.approx(0.4)
 
 
@@ -386,7 +384,7 @@ def test_portable_solver_plans_feasibly_and_like_daqp_for_any_plant_and_weights(
                 tau_rad_min=float(rng.uniform(2.0, 60.0)),
                 gain_heater=float(rng.uniform(0.2, 8.0)),
                 coupling_rad_room=float(rng.uniform(0.2, 3.0)),
-                T_water_C=float(rng.uniform(35.0, 80.0)),
+                T_water=float(rng.uniform(35.0, 80.0)),
             ),
             dt_s=300.0,
         )
@@ -477,7 +475,7 @@ def test_portable_solver_plans_flat_and_says_so_when_it_does_not_converge(
 
     monkeypatch.setattr(qp_optimiser.QpOptimiser, "_solve_portable", _recording)
     opt = _make_optimiser(delta_u_max=0.2)
-    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
 
     (plan,) = plans
     assert np.all(plan == plan[0])
@@ -664,7 +662,7 @@ def test_portable_solver_never_returns_an_infeasible_plan(monkeypatch, caplog) -
     caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
     opt = _make_optimiser(delta_u_max=0.2)
 
-    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+    u = opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
 
     assert u == pytest.approx(0.5)
     assert any("planning flat" in r.getMessage() for r in caplog.records)
@@ -691,7 +689,7 @@ def test_portable_solver_finishes_a_plan_whose_last_newton_matrix_breaks_down(
             tau_rad_min=8.027735022147063,
             gain_heater=0.05,
             coupling_rad_room=10.0,
-            T_water_C=25.0,
+            T_water=25.0,
         ),
         300.0,
     )
@@ -732,7 +730,7 @@ _NON_FINITE_STATES = {
     "room-nan": {"x_pred": np.array([float("nan"), 30.0])},
     "radiator-inf": {"x_pred": np.array([19.0, float("inf")])},
     "setpoint-nan": {"T_sp": float("nan")},
-    "outdoor-nan": {"T_outdoor_C": float("nan")},
+    "outdoor-nan": {"T_outdoor": float("nan")},
     "disturbance-inf": {"D_hat_K_per_min": float("inf")},
 }
 
@@ -755,7 +753,7 @@ def test_a_non_finite_plan_holds_the_last_command(
     arguments = {
         "x_pred": np.array([19.0, 30.0]),
         "T_sp": 21.0,
-        "T_outdoor_C": 0.0,
+        "T_outdoor": 0.0,
         "u_last": 0.4,
         "D_hat_K_per_min": 0.0,
     }
@@ -775,7 +773,7 @@ def test_a_repeated_flat_fallback_warns_once(monkeypatch, caplog) -> None:
     caplog.set_level("DEBUG", logger=qp_optimiser.__name__)
     opt = _make_optimiser(delta_u_max=0.2)
     for _ in range(3):
-        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3)
+        opt.solve(np.array([15.0, 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3)
 
     flat = [r for r in caplog.records if "planning flat" in r.getMessage()]
     assert [r.levelname for r in flat] == ["WARNING", "DEBUG", "DEBUG"]
@@ -798,7 +796,7 @@ def test_a_non_finite_objective_holds_the_command_and_warns_once(
     opt = _make_optimiser(delta_u_max=0.2)
     commands = [
         opt.solve(
-            np.array([float("nan"), 15.0]), T_sp=22.0, T_outdoor_C=-10.0, u_last=0.3
+            np.array([float("nan"), 15.0]), T_sp=22.0, T_outdoor=-10.0, u_last=0.3
         )
         for _ in range(3)
     ]

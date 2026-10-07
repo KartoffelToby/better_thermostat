@@ -56,11 +56,11 @@ def _adapter_valve_pct(temp_diff_K: float, heating_power: float) -> float:
     ctx = BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=20.0 + temp_diff_K,
-        current_temp_C=20.0,
-        raw_room_temp_C=20.0,
-        trv_temp_C=None,
-        outdoor_temp_C=5.0,
+        target_temperature=20.0 + temp_diff_K,
+        room_temperature=20.0,
+        raw_room_temperature=20.0,
+        trv_temperature=None,
+        outdoor_temperature=5.0,
     )
     return adapter._compute_valve_percent(ctx)
 

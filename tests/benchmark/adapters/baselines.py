@@ -49,8 +49,8 @@ class BangBangAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Toggle between on/off based on the hysteresis band."""
-        sp = ctx.target_temp_C
-        cur = ctx.current_temp_C
+        sp = ctx.target_temperature
+        cur = ctx.room_temperature
         p = self._params
         if cur < sp - p.band_K:
             self._state_on = True
@@ -92,7 +92,7 @@ class LinearPAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Output ``kp * (setpoint - measured)`` clamped to the saturation band."""
         p = self._params
-        error_K = ctx.target_temp_C - ctx.current_temp_C
+        error_K = ctx.target_temperature - ctx.room_temperature
         raw = p.kp * error_K
         clamped = max(p.clamp_min_pct, min(p.clamp_max_pct, raw))
         return BenchmarkOutput(
@@ -108,7 +108,7 @@ class LinearPAdapter:
 class IdealOracleAdapter:
     """Oracle controller with steady-state plant inversion and aggressive feedback.
 
-    Knows the plant's parameters (``gain_heater``, ``T_water_C`` etc.) and
+    Knows the plant's parameters (``gain_heater``, ``T_water`` etc.) and
     computes the steady-state valve percent that would hold the current
     setpoint asymptotically. Adds a strong proportional feedback term
     that compensates for transients and small modelling errors.
@@ -152,8 +152,8 @@ class IdealOracleAdapter:
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Return steady-state valve percent plus aggressive feedback correction."""
         p = self._plant
-        sp = ctx.target_temp_C
-        T_out = ctx.outdoor_temp_C
+        sp = ctx.target_temperature
+        T_out = ctx.outdoor_temperature
 
         # Steady-state inversion of the lumped-RC plant. Room balance:
         #   coupling * (T_rad_ss - sp) = loss_ss
@@ -170,7 +170,7 @@ class IdealOracleAdapter:
         else:
             loss_ss = sp - T_out
         T_rad_ss = sp + loss_ss / coupling
-        denom = p.gain_heater * (p.T_water_C - T_rad_ss)
+        denom = p.gain_heater * (p.T_water - T_rad_ss)
         if denom <= 0.0:
             u_ff_pct = 100.0  # cannot reach setpoint with this water temp
         else:
@@ -179,7 +179,7 @@ class IdealOracleAdapter:
         # Aggressive P-feedback so the oracle reacts to transients quickly.
         # Feed back on the plant truth: the oracle is the perfect-knowledge
         # upper bound, so sensor lag/noise must not depress its ceiling.
-        error_K = sp - ctx.raw_room_temp_C
+        error_K = sp - ctx.raw_room_temperature
         u_fb_pct = max(
             -self._feedback_clamp,
             min(self._feedback_clamp, error_K * self._feedback_gain),

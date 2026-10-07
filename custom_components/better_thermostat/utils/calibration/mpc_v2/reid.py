@@ -39,10 +39,10 @@ class ReidSample:
     """One per-cycle observation of the room/TRV/valve state."""
 
     t_s: float
-    T_room_C: float
+    T_room: float
     u_frac: float
-    T_outdoor_C: float | None = None
-    T_trv_C: float | None = None
+    T_outdoor: float | None = None
+    T_trv: float | None = None
     window_open: bool = False
 
 
@@ -62,10 +62,10 @@ class ReidBuffer:
 
     def append(self, sample: ReidSample) -> bool:
         """Add a sample; returns ``False`` when deduped or non-finite."""
-        for value in (sample.t_s, sample.T_room_C, sample.u_frac):
+        for value in (sample.t_s, sample.T_room, sample.u_frac):
             if not math.isfinite(value):
                 return False
-        for optional in (sample.T_outdoor_C, sample.T_trv_C):
+        for optional in (sample.T_outdoor, sample.T_trv):
             if optional is not None and not math.isfinite(optional):
                 return False
         if self.samples and sample.t_s - self.samples[-1].t_s < self.min_spacing_s:
@@ -154,17 +154,17 @@ def extract_segments(samples: list[ReidSample], config: ReidConfig) -> list[Segm
         if len(run) >= config.min_samples and (
             run[-1].t_s - run[0].t_s >= config.min_duration_s
         ):
-            delta = run[-1].T_room_C - run[0].T_room_C
+            delta = run[-1].T_room - run[0].T_room
             if run_class == "heating" and delta >= config.min_heatup_rise_K:
                 segments.append(Segment(kind="heatup", samples=list(run)))
             elif run_class == "idle" and -delta >= config.min_cooldown_drop_K:
-                outdoor = [s.T_outdoor_C for s in run if s.T_outdoor_C is not None]
-                if outdoor and (sum(outdoor) / len(outdoor)) < run[-1].T_room_C:
+                outdoor = [s.T_outdoor for s in run if s.T_outdoor is not None]
+                if outdoor and (sum(outdoor) / len(outdoor)) < run[-1].T_room:
                     segments.append(Segment(kind="cooldown", samples=list(run)))
         run = []
 
     for sample in samples:
-        if sample.window_open or sample.T_outdoor_C is None:
+        if sample.window_open or sample.T_outdoor is None:
             _flush()
             run_class = ""
             continue
@@ -191,18 +191,18 @@ def _simulate_room(
     TRV reading when available, otherwise from the room temperature.
     """
     first = segment.samples[0]
-    T_room = first.T_room_C
-    T_rad = first.T_trv_C if first.T_trv_C is not None else first.T_room_C
+    T_room = first.T_room
+    T_rad = first.T_trv if first.T_trv is not None else first.T_room
     out: list[float] = [T_room]
     for prev, cur in zip(segment.samples, segment.samples[1:]):
         dt_s = cur.t_s - prev.t_s
         n_sub = max(1, math.ceil(dt_s / substep_s))
         h_min = (dt_s / n_sub) / 60.0
         u = max(0.0, min(1.0, prev.u_frac))
-        T_outdoor = prev.T_outdoor_C if prev.T_outdoor_C is not None else T_room
+        T_outdoor = prev.T_outdoor if prev.T_outdoor is not None else T_room
         for _ in range(n_sub):
             dT_rad = (
-                params.gain_heater * u * (params.T_water_C - T_rad) - (T_rad - T_room)
+                params.gain_heater * u * (params.T_water - T_rad) - (T_rad - T_room)
             ) / params.tau_rad_min
             dT_room = (
                 params.coupling_rad_room * (T_rad - T_room) - (T_room - T_outdoor)
@@ -218,7 +218,7 @@ def _sse(params: PlantParams, segments: list[Segment], config: ReidConfig) -> fl
     for segment in segments:
         simulated = _simulate_room(params, segment, config.substep_s)
         for sim, sample in zip(simulated[1:], segment.samples[1:]):
-            err = sim - sample.T_room_C
+            err = sim - sample.T_room
             total += err * err
     return total
 

@@ -27,8 +27,8 @@ class TestTpiController:
         state = TpiState()
         inp = TpiInput(
             key="test",
-            current_temp_C=20.0,
-            target_temp_C=22.0,
+            room_temperature=20.0,
+            target_temperature=22.0,
             window_open=True,
             heating_allowed=True,
         )
@@ -46,13 +46,13 @@ class TestTpiController:
         """Test behavior when temperatures are missing."""
         params = TpiParams()
         state = TpiState()
-        inp = TpiInput(key="test", current_temp_C=None, target_temp_C=22.0)
+        inp = TpiInput(key="test", room_temperature=None, target_temperature=22.0)
         result, state = compute_tpi(inp, params, state=state)
         assert result.duty_cycle_pct == 0.0  # No last_percent, so 0
         assert result.debug["reason"] == "missing_temps"
 
         # Now with last_percent
-        inp.current_temp_C = 20.0
+        inp.room_temperature = 20.0
         result, state = compute_tpi(inp, params, state=state)
         # Should calculate normally, clamped to 100
         assert result.duty_cycle_pct == 100.0
@@ -62,7 +62,10 @@ class TestTpiController:
         params = TpiParams(coef_int=0.5, coef_ext=0.02)
         state = TpiState()
         inp = TpiInput(
-            key="test", current_temp_C=20.0, target_temp_C=22.0, outdoor_temp_C=15.0
+            key="test",
+            room_temperature=20.0,
+            target_temperature=22.0,
+            outdoor_temperature=15.0,
         )
         result, state = compute_tpi(inp, params, state=state)
         assert result.duty_cycle_pct == 100.0  # clamped
@@ -75,8 +78,8 @@ class TestTpiController:
         state = TpiState()
         inp = TpiInput(
             key="test",
-            current_temp_C=22.6,
-            target_temp_C=22.0,  # error = -0.6
+            room_temperature=22.6,
+            target_temperature=22.0,  # error = -0.6
         )
         result, state = compute_tpi(inp, params, state=state)
         assert result.duty_cycle_pct == 0.0
@@ -88,13 +91,13 @@ class TestTpiController:
         state = TpiState()
         inp = TpiInput(
             key="test",
-            current_temp_C=20.0,
-            target_temp_C=25.0,  # error=5, duty=500, clamped to 90
+            room_temperature=20.0,
+            target_temperature=25.0,  # error=5, duty=500, clamped to 90
         )
         result, state = compute_tpi(inp, params, state=state)
         assert result.duty_cycle_pct == 90.0
 
-        inp.target_temp_C = 19.0  # error=-1, duty=-100, clamped to 10
+        inp.target_temperature = 19.0  # error=-1, duty=-100, clamped to 10
         result, state = compute_tpi(inp, params, state=state)
         assert result.duty_cycle_pct == 10.0
 
@@ -124,8 +127,8 @@ class TestTpiTimeHandling:
         state = TpiState()
         inp = TpiInput(
             key="k",
-            current_temp_C=20.0,
-            target_temp_C=22.0,
+            room_temperature=20.0,
+            target_temperature=22.0,
             window_open=False,
             heating_allowed=True,
         )
@@ -164,9 +167,9 @@ class TestTpiOverManyCycles:
             delta_outdoor_kelvin = 8.0 + rng.random() * 16.0
             inp = TpiInput(
                 key="k",
-                current_temp_C=heat_target_temperature - error_kelvin,
-                target_temp_C=heat_target_temperature,
-                outdoor_temp_C=heat_target_temperature - delta_outdoor_kelvin,
+                room_temperature=heat_target_temperature - error_kelvin,
+                target_temperature=heat_target_temperature,
+                outdoor_temperature=heat_target_temperature - delta_outdoor_kelvin,
             )
             carried, state = compute_tpi(inp, params, state=state, now=float(cycle))
             fresh, _ = compute_tpi(inp, params, state=TpiState(), now=float(cycle))
@@ -191,7 +194,10 @@ class TestTpiOverManyCycles:
         params = TpiParams(coef_int=0.6, coef_ext=0.01)
         state = TpiState()
         inp = TpiInput(
-            key="k", current_temp_C=21.8, target_temp_C=22.0, outdoor_temp_C=5.0
+            key="k",
+            room_temperature=21.8,
+            target_temperature=22.0,
+            outdoor_temperature=5.0,
         )
         expected_pct = 100.0 * (
             params.coef_int * (22.0 - 21.8) + params.coef_ext * (22.0 - 5.0)
@@ -216,10 +222,16 @@ class TestTpiOverManyCycles:
         params = TpiParams()
         state = TpiState()
         reading = TpiInput(
-            key="k", current_temp_C=21.7, target_temp_C=22.0, outdoor_temp_C=5.0
+            key="k",
+            room_temperature=21.7,
+            target_temperature=22.0,
+            outdoor_temperature=5.0,
         )
         gap = TpiInput(
-            key="k", current_temp_C=None, target_temp_C=22.0, outdoor_temp_C=5.0
+            key="k",
+            room_temperature=None,
+            target_temperature=22.0,
+            outdoor_temperature=5.0,
         )
 
         warm, state = compute_tpi(reading, params, state=state, now=0.0)
@@ -232,7 +244,10 @@ class TestTpiOverManyCycles:
             assert result.duty_cycle_pct == held_pct
 
         colder = TpiInput(
-            key="k", current_temp_C=21.0, target_temp_C=22.0, outdoor_temp_C=5.0
+            key="k",
+            room_temperature=21.0,
+            target_temperature=22.0,
+            outdoor_temperature=5.0,
         )
         after_gap, _ = compute_tpi(colder, params, state=state, now=200.0)
         fresh, _ = compute_tpi(colder, params, state=TpiState(), now=200.0)

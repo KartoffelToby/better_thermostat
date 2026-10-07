@@ -99,8 +99,8 @@ def test_mpc_discards_the_interval_but_keeps_the_model():
     )
     inp = MpcInput(
         key="t",
-        target_temp_C=21.0,
-        current_temp_C=19.0,
+        target_temperature=21.0,
+        room_temperature=19.0,
         window_open=True,
         bt_name="Test BT",
         entity_id=ENTITY_ID,
@@ -118,8 +118,8 @@ def test_tpi_emits_zero_during_an_open_window():
     """TPI is integrator-free; standby simply emits no duty."""
     inp = TpiInput(
         key="t",
-        target_temp_C=21.0,
-        current_temp_C=19.0,
+        target_temperature=21.0,
+        room_temperature=19.0,
         window_open=True,
         bt_name="Test BT",
         entity_id=ENTITY_ID,

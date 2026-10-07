@@ -58,9 +58,9 @@ def _warm(mgr: StateManager, key: str, params: MpcV2Params) -> None:
     _out, state = compute_mpc_v2(
         MpcV2Input(
             key=key,
-            target_temp_C=22.0,
-            current_temp_C=19.0,
-            outdoor_temp_C=5.0,
+            target_temperature=22.0,
+            room_temperature=19.0,
+            outdoor_temperature=5.0,
             heating_allowed=True,
             window_open=False,
         ),
@@ -245,7 +245,7 @@ def test_dispatch_records_reid_samples_under_auto() -> None:
     runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
     assert len(runtime.buffer.samples) == 1
     sample = runtime.buffer.samples[0]
-    assert sample.T_room_C == 19.5
+    assert sample.T_room == 19.5
     assert sample.u_frac == 0.37
     assert sample.window_open is False
 
@@ -318,7 +318,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
     for i in range(10):
         samples.append(
             ReidSample(
-                t_s=i * spacing, T_room_C=19.0 + 0.2 * i, u_frac=0.8, T_outdoor_C=5.0
+                t_s=i * spacing, T_room=19.0 + 0.2 * i, u_frac=0.8, T_outdoor=5.0
             )
         )
     # Degraded episode: no samples for longer than the gap threshold.
@@ -329,9 +329,9 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
         samples.append(
             ReidSample(
                 t_s=resume + i * spacing,
-                T_room_C=20.0 + 0.2 * i,
+                T_room=20.0 + 0.2 * i,
                 u_frac=0.8,
-                T_outdoor_C=5.0,
+                T_outdoor=5.0,
             )
         )
 
@@ -340,9 +340,7 @@ def test_fallback_episode_gap_splits_reid_segments() -> None:
     assert all(s.kind == "heatup" for s in segments)
     # Without the gap the same samples form one contiguous run.
     contiguous = [
-        ReidSample(
-            t_s=i * spacing, T_room_C=19.0 + 0.1 * i, u_frac=0.8, T_outdoor_C=5.0
-        )
+        ReidSample(t_s=i * spacing, T_room=19.0 + 0.1 * i, u_frac=0.8, T_outdoor=5.0)
         for i in range(20)
     ]
     assert len(extract_segments(contiguous, config)) == 1
@@ -401,7 +399,7 @@ def test_fit_scheduling_adopts_accepted_outcome(monkeypatch) -> None:
     # mixed time bases would trip the buffer's spacing dedupe.
     runtime.buffer.samples.clear()
     for i in range(300):
-        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room_C=20.0, u_frac=0.5))
+        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room=20.0, u_frac=0.5))
     runtime.last_fit_attempt_ts = 0.0
 
     calls: list[int] = []
@@ -453,7 +451,7 @@ def test_accepted_fit_is_stamped_on_the_wall_clock(monkeypatch) -> None:
     runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
     runtime.buffer.samples.clear()
     for i in range(300):
-        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room_C=20.0, u_frac=0.5))
+        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room=20.0, u_frac=0.5))
     runtime.last_fit_attempt_ts = 0.0
     monkeypatch.setattr(
         cal,
@@ -661,7 +659,7 @@ def _due_fit(bt: Any) -> tuple[str, Any]:
     runtime = bt.state_mgr.get_mpc_v2_reid_runtime(key)
     runtime.buffer.samples.clear()
     for i in range(300):
-        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room_C=20.0, u_frac=0.5))
+        runtime.buffer.append(ReidSample(t_s=float(i * 300), T_room=20.0, u_frac=0.5))
     runtime.last_fit_attempt_ts = 0.0
     return key, runtime
 

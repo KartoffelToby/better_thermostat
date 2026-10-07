@@ -17,11 +17,11 @@ def _ctx(
     return BenchmarkContext(
         t=t,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 

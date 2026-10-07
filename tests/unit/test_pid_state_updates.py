@@ -50,9 +50,9 @@ class _RefusesSlopeWrite(PIDState):
 def _compute(params: PIDParams, state: PIDState, **overrides):
     """Run one cycle with a fixed clock and a rising-temperature default."""
     kwargs = {
-        "inp_target_temp_C": 21.0,
-        "inp_current_temp_C": 20.0,
-        "inp_trv_temp_C": 20.0,
+        "inp_target_temperature": 21.0,
+        "inp_room_temperature": 20.0,
+        "inp_trv_temperature": 20.0,
         "inp_temp_slope_K_per_min": 0.02,
         "key": "bt:climate.trv",
     }
@@ -100,7 +100,11 @@ class TestIntegratorRelief:
     def _flip_cycle(self, params: PIDParams, state: PIDState, **overrides):
         """Run a cycle whose error is small and negative."""
         return _compute(
-            params, state, inp_target_temp_C=20.0, inp_current_temp_C=20.05, **overrides
+            params,
+            state,
+            inp_target_temperature=20.0,
+            inp_room_temperature=20.05,
+            **overrides,
         )
 
     def test_relief_applies_on_a_sign_flip(self):
@@ -142,7 +146,10 @@ class TestErrorSign:
     def test_sign_recorded(self, target, current, expected):
         """A positive, negative, and zero error each store their sign."""
         _, _, state = _compute(
-            _PARAMS, PIDState(), inp_target_temp_C=target, inp_current_temp_C=current
+            _PARAMS,
+            PIDState(),
+            inp_target_temperature=target,
+            inp_room_temperature=current,
         )
         assert state.last_error_sign == expected
 

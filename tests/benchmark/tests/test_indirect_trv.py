@@ -56,11 +56,11 @@ def _ctx(target: float = 21.0, current: float = 20.0) -> BenchmarkContext:
     return BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 
@@ -74,9 +74,9 @@ def test_reset_clears_internal_caches():
     """Reset clears internal caches."""
     adapter = IndirectTrvAdapter(PidAdapter(), TADO_PARAMS)
     adapter.step(_ctx(target=22.0, current=18.0))
-    assert adapter._last_quantised_setpoint_C is not None
+    assert adapter._last_quantised_setpoint is not None
     adapter.reset()
-    assert adapter._last_quantised_setpoint_C is None
+    assert adapter._last_quantised_setpoint is None
     assert adapter._pending_setpoints == []
 
 
@@ -92,7 +92,7 @@ def test_diagnostics_include_indirect_keys():
     """Diagnostics include indirect keys."""
     adapter = IndirectTrvAdapter(PidAdapter(), TADO_PARAMS)
     out = adapter.step(_ctx(target=21.0, current=20.0))
-    assert "indirect_setpoint_C" in out.diagnostics
+    assert "indirect_setpoint" in out.diagnostics
     assert "indirect_quantised_diff_K" in out.diagnostics
 
 
@@ -102,15 +102,15 @@ def test_export_state_includes_inner_and_setpoint():
     adapter.step(_ctx(target=22.0, current=18.0))
     snapshot = adapter.export_state()
     assert "inner" in snapshot
-    assert "last_quantised_setpoint_C" in snapshot
-    assert snapshot["last_quantised_setpoint_C"] is not None
+    assert "last_quantised_setpoint" in snapshot
+    assert snapshot["last_quantised_setpoint"] is not None
 
 
 def test_quantisation_to_setpoint_step():
     """Tuya params (1 K step) should produce integer-K setpoints."""
     adapter = IndirectTrvAdapter(PidAdapter(), TUYA_PARAMS)
     out = adapter.step(_ctx(target=21.0, current=18.0))
-    sp = out.diagnostics["indirect_setpoint_C"]
+    sp = out.diagnostics["indirect_setpoint"]
     # 1 K quantisation → setpoint is an integer.
     assert abs(sp - round(sp)) < 1e-6
 
@@ -127,13 +127,13 @@ def test_hysteresis_holds_old_setpoint_inside_band():
     )
     adapter = IndirectTrvAdapter(PidAdapter(), params)
     adapter.step(_ctx(target=22.0, current=18.0))  # big jump first
-    first_sp = adapter._last_quantised_setpoint_C
+    first_sp = adapter._last_quantised_setpoint
     # A slightly different target shifts the raw quantised setpoint, but the
     # hysteresis band (2.0 K) must still hold the previous setpoint. Without
     # hysteresis this second call would change the setpoint, so the assertion
     # only passes when the internal hysteresis logic is actually exercised.
     adapter.step(_ctx(target=23.0, current=18.0))
-    assert adapter._last_quantised_setpoint_C == first_sp
+    assert adapter._last_quantised_setpoint == first_sp
 
 
 def test_command_latency_delays_setpoint_change():
@@ -151,16 +151,16 @@ def test_command_latency_delays_setpoint_change():
     out = adapter.step(_ctx(target=22.0, current=18.0))
     for _ in range(4):
         out = adapter.step(_ctx(target=22.0, current=18.0))
-    old_sp = out.diagnostics["indirect_setpoint_C"]
+    old_sp = out.diagnostics["indirect_setpoint"]
     assert old_sp == pytest.approx(22.0)
 
     # Inner controller now demands full heat → new setpoint target+headroom.
     inner.pct = 100.0
     for _ in range(params.command_latency_steps):
         out = adapter.step(_ctx(target=22.0, current=18.0))
-        assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(old_sp)
+        assert out.diagnostics["indirect_setpoint"] == pytest.approx(old_sp)
     out = adapter.step(_ctx(target=22.0, current=18.0))
-    assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(
+    assert out.diagnostics["indirect_setpoint"] == pytest.approx(
         22.0 + params.max_calibration_headroom_K
     )
     assert len(adapter._pending_setpoints) <= params.command_latency_steps + 1
@@ -178,7 +178,7 @@ def test_inversion_mapping_uses_current_temp():
     out = adapter.step(_ctx(target=21.0, current=19.0))
     # Inversion ⇒ setpoint = current + bt_u/p_gain. Should be in a
     # plausible range above current_temp.
-    sp = out.diagnostics["indirect_setpoint_C"]
+    sp = out.diagnostics["indirect_setpoint"]
     assert sp >= 19.0
 
 
@@ -193,7 +193,7 @@ def test_heuristic_mapping_uses_target_temp():
     )
     adapter = IndirectTrvAdapter(PidAdapter(), params)
     out = adapter.step(_ctx(target=21.0, current=19.0))
-    sp = out.diagnostics["indirect_setpoint_C"]
+    sp = out.diagnostics["indirect_setpoint"]
     # Heuristic ⇒ setpoint = target + headroom · u/100 ∈ [target, target+headroom].
     assert 21.0 - 0.5 <= sp <= 21.0 + 5.0 + 0.5
 
@@ -244,12 +244,12 @@ def test_reset_restores_exported_state():
     assert snapshot["last_inner_valve_pct"] == 100.0
 
     adapter.reset(snapshot)
-    assert adapter._last_quantised_setpoint_C == snapshot["last_quantised_setpoint_C"]
+    assert adapter._last_quantised_setpoint == snapshot["last_quantised_setpoint"]
     assert adapter._pending_setpoints == snapshot["pending_setpoints"]
     assert adapter._last_inner_valve_pct == 100.0
 
     adapter.reset()
-    assert adapter._last_quantised_setpoint_C is None
+    assert adapter._last_quantised_setpoint is None
     assert adapter._pending_setpoints == []
     assert adapter._last_inner_valve_pct == 0.0
 
@@ -326,11 +326,11 @@ def _plant_ctx(
     return BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=room,
-        raw_room_temp_C=room,
-        trv_temp_C=rad,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=room,
+        raw_room_temperature=room,
+        trv_temperature=rad,
+        outdoor_temperature=5.0,
         last_valve_percent=last_valve,
     )
 
@@ -339,21 +339,21 @@ def test_production_trv_reads_a_share_of_the_radiator_excess():
     """The TRV reads room + fraction·(radiator − room), and the inner controller sees it."""
     inner = _RecordingValveAdapter(50.0)
     IndirectTrvAdapter(inner, _PRODUCTION).step(_plant_ctx(room=20.0, rad=40.0))
-    assert inner.seen[0].trv_temp_C == pytest.approx(22.0)
+    assert inner.seen[0].trv_temperature == pytest.approx(22.0)
 
 
 def test_production_trv_reads_the_room_without_a_radiator_temperature():
     """A plant without a radiator state leaves the TRV reading the room."""
     inner = _RecordingValveAdapter(50.0)
     IndirectTrvAdapter(inner, _PRODUCTION).step(_plant_ctx(room=20.0, rad=None))
-    assert inner.seen[0].trv_temp_C == pytest.approx(20.0)
+    assert inner.seen[0].trv_temperature == pytest.approx(20.0)
 
 
 def test_production_full_demand_sends_the_maximum_setpoint():
     """u = 100 % scales the setpoint all the way to the TRV's maximum."""
     adapter = IndirectTrvAdapter(_FakeValveAdapter(100.0), _PRODUCTION)
     out = adapter.step(_plant_ctx())
-    assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(30.0)
+    assert out.diagnostics["indirect_setpoint"] == pytest.approx(30.0)
     assert out.valve_percent == 100.0
 
 
@@ -362,7 +362,7 @@ def test_production_partial_demand_scales_between_reading_and_maximum():
     # Reading 22.0; 22.0 + (30.0 - 22.0)·0.33 = 24.64 → rounded up to 25.0.
     adapter = IndirectTrvAdapter(_FakeValveAdapter(33.0), _PRODUCTION)
     out = adapter.step(_plant_ctx(room=20.0, rad=40.0))
-    assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(25.0)
+    assert out.diagnostics["indirect_setpoint"] == pytest.approx(25.0)
     assert out.valve_percent == pytest.approx(30.0 * (25.0 - 22.0))
 
 
@@ -371,7 +371,7 @@ def test_production_zero_demand_pushes_the_setpoint_below_the_reading():
     # Reading 22.2 → 22.2 - 0.5 = 21.7 → rounded down to 21.5.
     adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0), _PRODUCTION)
     out = adapter.step(_plant_ctx(target=21.0, room=20.0, rad=42.0))
-    assert out.diagnostics["indirect_setpoint_C"] == pytest.approx(21.5)
+    assert out.diagnostics["indirect_setpoint"] == pytest.approx(21.5)
     assert out.valve_percent == 0.0
 
 
@@ -381,11 +381,11 @@ def test_production_zero_demand_backs_off_further_with_overshoot():
     small = adapter.step(_plant_ctx(target=21.0, room=21.0, rad=21.0))
     adapter.reset()
     large = adapter.step(_plant_ctx(target=21.0, room=23.0, rad=23.0))
-    small_gap = 21.0 - small.diagnostics["indirect_setpoint_C"]
-    large_gap = 23.0 - large.diagnostics["indirect_setpoint_C"]
+    small_gap = 21.0 - small.diagnostics["indirect_setpoint"]
+    large_gap = 23.0 - large.diagnostics["indirect_setpoint"]
     assert small_gap == pytest.approx(0.5)
     # max_offset = 23 - 5 = 18; 18·(1 - e^-1) = 11.38 → 23 - 11.38 rounded down.
-    assert large.diagnostics["indirect_setpoint_C"] == pytest.approx(11.5)
+    assert large.diagnostics["indirect_setpoint"] == pytest.approx(11.5)
     assert large_gap > small_gap
 
 
@@ -397,7 +397,7 @@ def test_production_setpoint_stays_inside_the_trv_range():
     )
     adapter = IndirectTrvAdapter(_FakeValveAdapter(0.0), params)
     out = adapter.step(_plant_ctx(target=6.0, room=20.0, rad=20.0))
-    assert out.diagnostics["indirect_setpoint_C"] >= 4.8
+    assert out.diagnostics["indirect_setpoint"] >= 4.8
 
 
 @pytest.mark.parametrize(
@@ -416,7 +416,7 @@ def test_production_setpoint_holds_an_off_grid_range_edge(
     params = replace(_PRODUCTION, min_setpoint=low, max_setpoint=high)
     adapter = IndirectTrvAdapter(_FakeValveAdapter(demand), params)
     out = adapter.step(_plant_ctx(target=6.0, room=20.0, rad=20.0))
-    setpoint = out.diagnostics["indirect_setpoint_C"]
+    setpoint = out.diagnostics["indirect_setpoint"]
     assert params.min_setpoint <= setpoint <= params.max_setpoint
     assert setpoint == pytest.approx(expected)
 
@@ -478,11 +478,11 @@ def test_inner_early_exit_keeps_the_trv_setpoint_cache():
     inner = _FakeValveAdapter(50.0)
     adapter = IndirectTrvAdapter(inner, BOSCH_PARAMS)
     adapter.step(_ctx(target=22.0, current=18.0))
-    last = adapter._last_quantised_setpoint_C
+    last = adapter._last_quantised_setpoint
     pending = list(adapter._pending_setpoints)
     inner.early_exit = True
     adapter.step(_ctx(target=22.0, current=18.0))
-    assert adapter._last_quantised_setpoint_C == last
+    assert adapter._last_quantised_setpoint == last
     assert adapter._pending_setpoints == pending
 
 

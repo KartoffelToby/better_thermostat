@@ -4,7 +4,7 @@ PID's signature differs from the others (positional args, no Input dataclass).
 This adapter normalises it to the common protocol shape.
 
 Deliberate simplifications relative to the production call site: the raw
-sensor reading is passed as ``inp_current_temp_ema_C`` (production feeds
+sensor reading is passed as ``inp_room_temperature_filtered`` (production feeds
 its maintained EMA ``room_temperature_filtered``), and the temperature slope is a
 two-point finite difference (production passes its own ``temperature_slope``).
 Both stand-ins converge on the production values for the noise-free,
@@ -72,14 +72,14 @@ class PidAdapter:
 
     def _estimate_slope(self, ctx: BenchmarkContext) -> float | None:
         if self._prev_temp is None or self._prev_t is None:
-            self._prev_temp = ctx.current_temp_C
+            self._prev_temp = ctx.room_temperature
             self._prev_t = ctx.t
             return None
         dt_min = (ctx.t - self._prev_t) / 60.0
         slope: float | None = None
         if dt_min > 0.0:
-            slope = (ctx.current_temp_C - self._prev_temp) / dt_min
-        self._prev_temp = ctx.current_temp_C
+            slope = (ctx.room_temperature - self._prev_temp) / dt_min
+        self._prev_temp = ctx.room_temperature
         self._prev_t = ctx.t
         return slope
 
@@ -91,12 +91,12 @@ class PidAdapter:
         try:
             percent, debug, self._state = compute_pid(
                 params=self._params,
-                inp_target_temp_C=ctx.target_temp_C,
-                inp_current_temp_C=ctx.current_temp_C,
-                inp_trv_temp_C=ctx.trv_temp_C,
+                inp_target_temperature=ctx.target_temperature,
+                inp_room_temperature=ctx.room_temperature,
+                inp_trv_temperature=ctx.trv_temperature,
                 inp_temp_slope_K_per_min=slope,
                 key=self._key,
-                inp_current_temp_ema_C=ctx.current_temp_C,
+                inp_room_temperature_filtered=ctx.room_temperature,
                 state=self._state,
             )
         finally:

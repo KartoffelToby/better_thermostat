@@ -47,8 +47,8 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2_internals.plan
 CYCLE_S = 300.0
 ROOM_STEP_S = 30.0
 HOURS = 16.0
-SETPOINT_C = 21.0
-STEP_FROM_C = 18.0
+SETPOINT = 21.0
+STEP_FROM_SETPOINT = 18.0
 STEP_AT_H = 4.0
 WINDOW_OPEN_H = (6.0, 6.25)
 # An open window cools the room by about 1.2 K over the quarter hour.
@@ -59,7 +59,7 @@ MEAN_ERROR_BOUND_K = 0.1
 OVERSHOOT_BOUND_K = 0.1
 
 FREE_HEAT_K_PER_MIN = (0.0, 0.02, 0.03)
-OUTDOOR_C = (0.0, -10.0, -16.0)
+OUTDOOR_TEMPERATURES = (0.0, -10.0, -16.0)
 
 
 @dataclass(frozen=True)
@@ -112,10 +112,10 @@ def _simulate(
         out, state = compute_mpc_v2(
             MpcV2Input(
                 key="closed-loop",
-                target_temp_C=setpoint,
-                current_temp_C=float(x[0]),
-                trv_temp_C=float(x[1]),
-                outdoor_temp_C=outdoor,
+                target_temperature=setpoint,
+                room_temperature=float(x[0]),
+                trv_temperature=float(x[1]),
+                outdoor_temperature=outdoor,
                 window_open=is_open,
                 applied_valve_pct=None if applied_pct is None else float(applied_pct),
             ),
@@ -155,7 +155,7 @@ def _ceiling(plant: PlantParams, outdoor: float, free_heat: float) -> float:
     ``gain·(T_water − T_rad)`` and loses ``T_rad − T_room``, which the room
     passes on as ``coupling·(T_rad − T_room) = T_room − T_out − D·tau_room``.
     """
-    g, c, water = plant.gain_heater, plant.coupling_rad_room, plant.T_water_C
+    g, c, water = plant.gain_heater, plant.coupling_rad_room, plant.T_water
     k = (g + 1.0) / c
     return (g * water + k * (outdoor + free_heat * plant.tau_room_min)) / (g + k)
 
@@ -167,31 +167,31 @@ def _start_temp(outdoor: float, free_heat: float, setpoint: float) -> float:
 
 @cache
 def _step_run(outdoor: float, free_heat: float) -> _Trace:
-    """Settle on a lower setpoint, then step up to ``SETPOINT_C``."""
+    """Settle on a lower setpoint, then step up to ``SETPOINT``."""
     return _simulate(
         plant=PlantParams(),
         outdoor=outdoor,
         free_heat_k_per_min=free_heat,
-        setpoint_at=lambda h: STEP_FROM_C if h < STEP_AT_H else SETPOINT_C,
-        start=_start_temp(outdoor, free_heat, STEP_FROM_C),
+        setpoint_at=lambda h: STEP_FROM_SETPOINT if h < STEP_AT_H else SETPOINT,
+        start=_start_temp(outdoor, free_heat, STEP_FROM_SETPOINT),
     )
 
 
 @cache
 def _gap_run(outdoor: float, free_heat: float) -> _Trace:
-    """Hold ``SETPOINT_C`` with a quarter hour of open window in between."""
+    """Hold ``SETPOINT`` with a quarter hour of open window in between."""
     return _simulate(
         plant=PlantParams(),
         outdoor=outdoor,
         free_heat_k_per_min=free_heat,
-        setpoint_at=lambda h: SETPOINT_C,
-        start=_start_temp(outdoor, free_heat, SETPOINT_C),
+        setpoint_at=lambda h: SETPOINT,
+        start=_start_temp(outdoor, free_heat, SETPOINT),
         window_open_h=WINDOW_OPEN_H,
     )
 
 
 def _reachable(outdoor: float, free_heat: float) -> bool:
-    return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT_C + 0.5
+    return _ceiling(PlantParams(), outdoor, free_heat) >= SETPOINT + 0.5
 
 
 def _cells() -> list:
@@ -200,7 +200,7 @@ def _cells() -> list:
         pytest.param(
             outdoor, free_heat, id=f"outdoor{outdoor:+.0f}-free_heat{free_heat:.2f}"
         )
-        for outdoor in OUTDOOR_C
+        for outdoor in OUTDOOR_TEMPERATURES
         for free_heat in FREE_HEAT_K_PER_MIN
     ]
 
@@ -213,7 +213,7 @@ def test_grid_holds_reachable_and_unreachable_cells() -> None:
     """
     unreachable = {
         (outdoor, free_heat)
-        for outdoor in OUTDOOR_C
+        for outdoor in OUTDOOR_TEMPERATURES
         for free_heat in FREE_HEAT_K_PER_MIN
         if not _reachable(outdoor, free_heat)
     }
@@ -273,7 +273,7 @@ def _assert_recovery_without_overshoot(
 
     recovery = [i for i in after if trace.hours[i] < event_end_h + 2.0]
     rail_cycles = valves.count(100)
-    overshoot = max(trace.room[i] - SETPOINT_C for i in after)
+    overshoot = max(trace.room[i] - SETPOINT for i in after)
     assert rail_cycles >= 1
     assert len({round(trace.room[i], 2) for i in recovery}) >= len(recovery) // 2
     assert overshoot <= OVERSHOOT_BOUND_K, (
@@ -287,7 +287,7 @@ def test_setpoint_step_is_reached_without_overshoot(
 ) -> None:
     """A setpoint raised by 3 K is approached from below and not overshot."""
     trace = _step_run(outdoor, free_heat)
-    assert trace.setpoint[trace.indices_from(STEP_AT_H)[0] - 1] == STEP_FROM_C
+    assert trace.setpoint[trace.indices_from(STEP_AT_H)[0] - 1] == STEP_FROM_SETPOINT
     _assert_recovery_without_overshoot(trace, STEP_AT_H, outdoor, free_heat)
 
 
@@ -314,8 +314,8 @@ def test_ventilation_gap_is_recovered_without_overshoot(
 # A setpoint the large-room radiator reaches only with free heat on a -16 °C
 # day: 2·25 + 16 = 66 exceeds the 65 °C water, so the radiator temperature the
 # setpoint needs without free heat lies above the water temperature.
-HARD_OUTDOOR_C = -16.0
-HARD_SETPOINT_C = 25.0
+HARD_OUTDOOR_TEMPERATURE = -16.0
+HARD_SETPOINT = 25.0
 
 
 @pytest.mark.parametrize(
@@ -337,13 +337,13 @@ def test_cold_room_below_a_high_setpoint_keeps_heating(free_heat: float) -> None
     plant = replace(PLANT_PRESETS["large_room"])
     trace = _simulate(
         plant=plant,
-        outdoor=HARD_OUTDOOR_C,
+        outdoor=HARD_OUTDOOR_TEMPERATURE,
         free_heat_k_per_min=free_heat,
-        setpoint_at=lambda h: HARD_SETPOINT_C,
+        setpoint_at=lambda h: HARD_SETPOINT,
         start=22.0,
     )
-    target = min(HARD_SETPOINT_C, _ceiling(plant, HARD_OUTDOOR_C, free_heat))
-    cold = [i for i in trace.indices_from(1.0) if trace.room[i] < HARD_SETPOINT_C - 0.5]
+    target = min(HARD_SETPOINT, _ceiling(plant, HARD_OUTDOOR_TEMPERATURE, free_heat))
+    cold = [i for i in trace.indices_from(1.0) if trace.room[i] < HARD_SETPOINT - 0.5]
     closed_while_cold = [
         (round(trace.hours[i], 2), round(trace.room[i], 2))
         for i in cold
@@ -387,11 +387,7 @@ def test_disturbance_estimate_matches_a_standing_heat_gain(
     estimates: list[float] = []
     for _ in range(int(24 * 3600.0 / cycle_s)):
         controller.step(
-            t_s=t_s,
-            T_room_C=float(x[0]),
-            T_target_C=21.0,
-            T_outdoor_C=0.0,
-            T_rad_C=float(x[1]),
+            t_s=t_s, T_room=float(x[0]), T_target=21.0, T_outdoor=0.0, T_rad=float(x[1])
         )
         controller.set_applied_u(0.3)
         estimates.append(controller.dob.D_hat_K_per_min)
@@ -432,14 +428,14 @@ def test_radiator_estimate_stays_below_the_water_temperature_across_a_gap(
     valve did and however long the observer has to propagate between two
     room readings.
     """
-    water = PlantParams().T_water_C
+    water = PlantParams().T_water
     controller = MpcV2Controller(MpcV2Params())
-    controller.step(t_s=1_000.0, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0)
+    controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=5.0)
     controller.set_applied_u(1.0)
     before = float(controller.kalman.x_hat[1])
 
     _, diag = controller.step(
-        t_s=1_000.0 + gap_s, T_room_C=21.0, T_target_C=21.0, T_outdoor_C=5.0
+        t_s=1_000.0 + gap_s, T_room=21.0, T_target=21.0, T_outdoor=5.0
     )
 
     # The open valve has to heat the estimate noticeably for the bound to bite.
@@ -496,14 +492,14 @@ def test_passing_sun_neither_overheats_the_room_nor_leaves_it_cold(
         plant=PlantParams(),
         outdoor=0.0,
         free_heat_k_per_min=_sun(peak_k_per_min),
-        setpoint_at=lambda h: SETPOINT_C,
-        start=SETPOINT_C,
+        setpoint_at=lambda h: SETPOINT,
+        start=SETPOINT,
     )
     during = trace.indices_from(SUN_ON_H)
     sun_end_h = SUN_ON_H + 2.0 * SUN_RAMP_H + SUN_HOLD_H
     after = trace.indices_from(sun_end_h)
-    overshoot = max(trace.room[i] - SETPOINT_C for i in during)
-    dip = max(SETPOINT_C - trace.room[i] for i in after)
+    overshoot = max(trace.room[i] - SETPOINT for i in during)
+    dip = max(SETPOINT - trace.room[i] for i in after)
     # The run has to extend well past sunset for the dip to be seen.
     assert trace.hours[-1] - sun_end_h >= 5.0
     # The valve has to throttle well below its pre-sun opening, or the gain

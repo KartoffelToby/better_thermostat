@@ -122,7 +122,7 @@ class HeatingPowerAdapter:
 
     def _compute_valve_percent(self, ctx: BenchmarkContext) -> float:
         """Heating-power → valve-position formula, mirroring ``utils/helpers.py``."""
-        temp_diff = ctx.target_temp_C - ctx.current_temp_C
+        temp_diff = ctx.target_temperature - ctx.room_temperature
         if temp_diff <= 0.0:
             return 0.0
         hp = max(MIN_HEATING_POWER, min(MAX_HEATING_POWER, self.heating_power))
@@ -156,19 +156,19 @@ class HeatingPowerAdapter:
                 and self._cycle_peak_t is not None
             ):
                 self._finalize_cycle(ctx)
-            self._cycle_start_temp = ctx.current_temp_C
+            self._cycle_start_temp = ctx.room_temperature
             self._cycle_start_t = ctx.t
             self._cycle_peak_temp = None
             self._cycle_peak_t = None
         elif not is_heating and self._was_heating:
-            self._cycle_peak_temp = ctx.current_temp_C
+            self._cycle_peak_temp = ctx.room_temperature
             self._cycle_peak_t = ctx.t
         elif (
             not is_heating
             and self._cycle_peak_temp is not None
-            and ctx.current_temp_C > self._cycle_peak_temp
+            and ctx.room_temperature > self._cycle_peak_temp
         ):
-            self._cycle_peak_temp = ctx.current_temp_C
+            self._cycle_peak_temp = ctx.room_temperature
             self._cycle_peak_t = ctx.t
 
         if (
@@ -179,15 +179,15 @@ class HeatingPowerAdapter:
         ):
             elapsed_since_peak_min = (ctx.t - self._cycle_peak_t) / 60.0
             if (
-                ctx.current_temp_C < self._cycle_peak_temp
+                ctx.room_temperature < self._cycle_peak_temp
                 or elapsed_since_peak_min >= _FINALIZE_TIMEOUT_MIN
             ):
                 self._finalize_cycle(ctx)
 
         # Widen the observed target range after the finalize check, in the
         # same order as ``HeatingPowerTracker.update``.
-        self._min_target = min(self._min_target, ctx.target_temp_C)
-        self._max_target = max(self._max_target, ctx.target_temp_C)
+        self._min_target = min(self._min_target, ctx.target_temperature)
+        self._max_target = max(self._max_target, ctx.target_temperature)
 
         self._was_heating = is_heating
 
@@ -207,9 +207,11 @@ class HeatingPowerAdapter:
         if duration_min >= _MIN_CYCLE_DURATION and temp_diff_K > 0.0:
             heating_rate = round(temp_diff_K / duration_min, 4)
             weight_factor = compute_weight_factor(
-                ctx.target_temp_C, self._min_target, self._max_target
+                ctx.target_temperature, self._min_target, self._max_target
             )
-            env_factor = compute_env_factor(ctx.outdoor_temp_C, ctx.target_temp_C)
+            env_factor = compute_env_factor(
+                ctx.outdoor_temperature, ctx.target_temperature
+            )
             alpha = clamp(
                 _BASE_ALPHA * weight_factor * env_factor, _ALPHA_MIN, _ALPHA_MAX
             )

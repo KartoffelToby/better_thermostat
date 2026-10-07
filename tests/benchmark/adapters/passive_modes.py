@@ -72,7 +72,7 @@ class DefaultCalibrationAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Output ``p_gain · (target - external)`` clamped to [0, 100] %."""
-        error_K = ctx.target_temp_C - ctx.current_temp_C
+        error_K = ctx.target_temperature - ctx.room_temperature
         valve = _proportional(error_K, self._params)
         return BenchmarkOutput(
             valve_percent=valve,
@@ -105,7 +105,7 @@ class AggressiveCalibrationAdapter:
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Add ``p_gain · 2.5`` to the proportional output while heating."""
-        error_K = ctx.target_temp_C - ctx.current_temp_C
+        error_K = ctx.target_temperature - ctx.room_temperature
         # The boost is active whenever BT considers itself "heating" — we
         # use ``error_K > 0`` (room below target) as the proxy for the
         # production ``HVACAction.HEATING`` trigger.
@@ -128,7 +128,7 @@ class NoCalibrationAdapter:
     """``CalibrationMode.NO_CALIBRATION`` — TRV tracks its own internal sensor.
 
     BT pushes ``bt_target`` straight through with no offset. The TRV's
-    P-loop closes against ``trv_temp_C`` (the radiator-mounted sensor),
+    P-loop closes against ``trv_temperature`` (the radiator-mounted sensor),
     not against the room sensor — so the controller's error reference is
     whatever the TRV body is reading, not what the room actually is.
     """
@@ -147,14 +147,18 @@ class NoCalibrationAdapter:
         """Output ``p_gain · (target - trv_internal)``, clamped."""
         # Fall back to the external sensor only when the scenario lacks
         # an explicit TRV temperature (sensorless plant variants).
-        trv_T = ctx.trv_temp_C if ctx.trv_temp_C is not None else ctx.current_temp_C
-        error_K = ctx.target_temp_C - trv_T
+        trv_T = (
+            ctx.trv_temperature
+            if ctx.trv_temperature is not None
+            else ctx.room_temperature
+        )
+        error_K = ctx.target_temperature - trv_T
         valve = _proportional(error_K, self._params)
         return BenchmarkOutput(
             valve_percent=valve,
             diagnostics={
                 "error_K": round(error_K, 3),
-                "trv_temp_used_C": round(trv_T, 3),
+                "trv_temperature_used": round(trv_T, 3),
             },
         )
 

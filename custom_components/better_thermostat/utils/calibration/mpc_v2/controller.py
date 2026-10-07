@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 import logging
 import math
 from typing import Any
@@ -35,13 +35,19 @@ SNAPSHOT_VERSION = 2
 MIN_STEP_DT_S = 1.0
 
 
+# Store key of ``ControllerSnapshot.rg_v``. The stores on disk carry the
+# governor state under this name, so it is the key read and written.
+_STORED_RG_V = "rg_v_C"
+
+
 @dataclass
 class ControllerSnapshot:
     """Typed, JSON-round-trippable snapshot of the full controller state.
 
-    Field names are the persisted JSON keys; ``asdict`` produces the stored
-    mapping and :meth:`from_mapping` rebuilds it defensively on load. Arrays are
-    plain lists so the HA Store round-trips them unchanged.
+    Field names are the persisted JSON keys, except ``rg_v``, which is stored
+    as ``rg_v_C``. :meth:`to_mapping` produces the stored mapping and
+    :meth:`from_mapping` rebuilds it defensively on load. Arrays are plain lists
+    so the HA Store round-trips them unchanged.
     """
 
     v: int
@@ -51,13 +57,19 @@ class ControllerSnapshot:
     last_u: float
     e_integral_K_min: float
     u_history: list[float]
-    rg_v_C: float | None
+    rg_v: float | None
     last_t_s: float
     next_mpc_t_s: float
     last_mpc_t_s: float = -1.0
     # ``None`` for a snapshot written before the planning reading existed;
     # the restore then starts it from zero.
     planning_disturbance: float | None = None
+
+    def to_mapping(self) -> dict[str, Any]:
+        """Return the mapping the HA Store persists."""
+        data = asdict(self)
+        data[_STORED_RG_V] = data.pop("rg_v")
+        return data
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -90,7 +102,9 @@ class ControllerSnapshot:
                 last_u=float(raw.get("last_u", 0.0)),
                 e_integral_K_min=float(raw.get("e_integral_K_min", 0.0)),
                 u_history=[float(x) for x in raw.get("u_history", [])],
-                rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
+                rg_v=None
+                if raw.get(_STORED_RG_V) is None
+                else float(raw[_STORED_RG_V]),
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
                 last_mpc_t_s=float(raw.get("last_mpc_t_s", -1.0)),
@@ -111,7 +125,7 @@ class ControllerSnapshot:
             snapshot.last_t_s,
             snapshot.next_mpc_t_s,
             snapshot.last_mpc_t_s,
-            *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
+            *([] if snapshot.rg_v is None else [snapshot.rg_v]),
             *(
                 []
                 if snapshot.planning_disturbance is None
@@ -179,10 +193,10 @@ class MpcV2Controller:
     def step(
         self,
         t_s: float,
-        T_room_C: float,
-        T_target_C: float,
-        T_outdoor_C: float,
-        T_rad_C: float | None = None,
+        T_room: float,
+        T_target: float,
+        T_outdoor: float,
+        T_rad: float | None = None,
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -191,20 +205,20 @@ class MpcV2Controller:
         t_s : float
             Wall-clock timestamp of this cycle in seconds; drives the dt used
             by the disturbance observer and the MPC re-plan cadence.
-        T_room_C : float
+        T_room : float
             Measured room temperature — the sole Kalman measurement.
-        T_target_C : float
+        T_target : float
             Setpoint handed to the reference governor and QP.
-        T_outdoor_C : float
+        T_outdoor : float
             Outdoor temperature for the loss term and feed-forward.
-        T_rad_C : float | None, optional
+        T_rad : float | None, optional
             Measured radiator temperature. Used only to seed the initial
             Kalman estimate on the very first cycle (falling back to
-            ``T_room_C`` when ``None``); ignored on every subsequent cycle.
+            ``T_room`` when ``None``); ignored on every subsequent cycle.
         """
         if not self._initialised:
-            T_rad_init = T_rad_C if T_rad_C is not None else T_room_C
-            self.kalman.initialise(np.array([T_room_C, T_rad_init]))
+            T_rad_init = T_rad if T_rad is not None else T_room
+            self.kalman.initialise(np.array([T_room, T_rad_init]))
             self._next_mpc_t_s = t_s
             self._initialised = True
 
@@ -222,7 +236,7 @@ class MpcV2Controller:
         # remains on its fixed coarse planning grid; mixing those two time
         # bases was the source of large artificial DOB excursions on sparse
         # (typically five-minute) Home Assistant updates.
-        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C, dt_s=dt_s)
+        x_hat = self.kalman.update(T_room, self._last_u, T_outdoor, dt_s=dt_s)
         # The disturbance observer takes the share of the residual the filter
         # moved its room estimate by, not the raw innovation.
         self.dob.update(self.kalman.room_correction, dt_s)
@@ -232,9 +246,9 @@ class MpcV2Controller:
         # ``planning_rate`` instead, which lags too far for that judgement: a
         # setpoint out of reach would keep the valve off its rail.
         sp_for_opt = self.governor.update(
-            T_sp=T_target_C,
-            T_outdoor_C=T_outdoor_C,
-            T_room_now=T_room_C,
+            T_sp=T_target,
+            T_outdoor=T_outdoor,
+            T_room_now=T_room,
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
         )
 
@@ -243,7 +257,7 @@ class MpcV2Controller:
 
         plant_delay_s = self.params.plant.valve_command_delay_s
         x_pred = self.smith.predict(
-            x_hat, list(self._u_history), T_outdoor_C, plant_delay_s
+            x_hat, list(self._u_history), T_outdoor, plant_delay_s
         )
 
         # Hand over the time since the previous plan; the optimiser counts at
@@ -251,7 +265,7 @@ class MpcV2Controller:
         # control interval.
         if self._last_mpc_t_s >= 0.0:
             self.optimiser.update_integral(
-                T_room=T_room_C,
+                T_room=T_room,
                 T_sp=sp_for_opt,
                 u_applied=self._last_u,
                 dt_s=max(0.0, t_s - self._last_mpc_t_s),
@@ -260,7 +274,7 @@ class MpcV2Controller:
         u = self.optimiser.solve(
             x_pred=x_pred,
             T_sp=sp_for_opt,
-            T_outdoor_C=T_outdoor_C,
+            T_outdoor=T_outdoor,
             u_last=self._last_u,
             D_hat_K_per_min=self.dob.planning_rate,
         )
@@ -302,7 +316,7 @@ class MpcV2Controller:
             last_u=self._last_u,
             e_integral_K_min=self.optimiser.e_integral_K_min,
             u_history=[float(u) for u in self._u_history],
-            rg_v_C=self.governor.state(),
+            rg_v=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
             last_mpc_t_s=self._last_mpc_t_s,
@@ -335,7 +349,7 @@ class MpcV2Controller:
         self._last_u = snap.last_u
         for u in snap.u_history:
             self._u_history.append(u)
-        self.governor.restore(snap.rg_v_C)
+        self.governor.restore(snap.rg_v)
         self._last_t_s = snap.last_t_s
         self._next_mpc_t_s = snap.next_mpc_t_s
         self._last_mpc_t_s = snap.last_mpc_t_s
