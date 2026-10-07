@@ -13,7 +13,7 @@ import json
 import logging
 import math
 from random import randint
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -773,6 +773,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self._loss_tracker.cycles
 
     @property
+    @override
     def device_info(self) -> DeviceInfo:
         """Return device info."""
         info = DeviceInfo(
@@ -1224,6 +1225,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         """
         self._spawn_owned(coro_fn(now), name=f"{name}_{self.device_name}")
 
+    @override
     async def async_added_to_hass(self):
         """Run when entity about to be added.
 
@@ -3685,6 +3687,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return bool(self.window_open) or bool(self.door_open)
 
     @property
+    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the device specific state attributes.
 
@@ -3761,6 +3764,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return dev_specific
 
     @property
+    @override
     def available(self):
         """Return if thermostat is available.
 
@@ -3778,6 +3782,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
     @property
+    @override
     def should_poll(self):
         """Return the polling state.
 
@@ -3789,6 +3794,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return False
 
     @property
+    @override
     def unique_id(self):
         """Return the unique id of this thermostat.
 
@@ -3800,6 +3806,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self._unique_id
 
     @property
+    @override
     def precision(self):
         """Return the precision the entity's temperatures are published with.
 
@@ -3819,6 +3826,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return PRECISION_TENTHS
 
     @property
+    @override
     def target_temperature_step(self) -> float | None:
         """Return the supported step of target temperature, in the system unit.
 
@@ -3849,16 +3857,19 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return PRECISION_TENTHS
 
     @property
+    @override
     def temperature_unit(self) -> str:
         """Return the unit of measurement."""
         return UnitOfTemperature.CELSIUS
 
     @property
+    @override
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self.room_temperature
 
     @property
+    @override
     def current_humidity(self) -> float | None:
         """Return the current humidity if supported."""
         return self._current_humidity
@@ -3877,6 +3888,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
     @property
+    @override
     def hvac_mode(self) -> HVACMode | None:
         """Return current operation."""
         # Fallback if None
@@ -3905,11 +3917,13 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return result
 
     @property
+    @override
     def hvac_modes(self) -> list[HVACMode]:
         """Return the list of available operation modes."""
         return self._hvac_list
 
     @property
+    @override
     def hvac_action(self):
         """Return the current HVAC action.
 
@@ -4013,6 +4027,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._hysteresis.hold_active = result.new_hold_active
 
     @property
+    @override
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach.
 
@@ -4034,6 +4049,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.heat_target_temperature
 
     @property
+    @override
     def target_temperature_low(self) -> float | None:
         """Return the low target temperature."""
         if self.cooler_entity_id is None:
@@ -4041,12 +4057,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         return self.heat_target_temperature
 
     @property
+    @override
     def target_temperature_high(self) -> float | None:
         """Return the high target temperature."""
         if self.cooler_entity_id is None:
             return None
         return self.cool_target_temperature
 
+    @override
     async def async_set_hvac_mode(self, hvac_mode: HVACMode | str) -> None:
         """Set hvac mode.
 
@@ -4513,6 +4531,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         on_grid = self._onto_target_grid(in_range)
         return min(highest, max(lowest, in_range if on_grid is None else on_grid))
 
+    @override
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
         _LOGGER.debug(
@@ -4706,10 +4725,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 return
             request_control_cycle(self)
 
+    @override
     async def async_turn_off(self) -> None:
         """Turn the entity off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
 
+    @override
     async def async_turn_on(self) -> None:
         """Turn the entity on."""
         await self.async_set_hvac_mode(HVACMode.HEAT)
@@ -4753,6 +4774,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             ) from err
 
     @property
+    @override
     def min_temp(self):
         """Return the minimum temperature.
 
@@ -4770,6 +4792,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
     @property
+    @override
     def max_temp(self):
         """Return the maximum temperature.
 
@@ -4783,6 +4806,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
     @property
+    @override
     def supported_features(self):
         """Return the list of supported features.
 
@@ -4806,10 +4830,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
     @property
+    @override
     def preset_mode(self):
         """Return the current preset mode."""
         return self.preset_mgr.mode
 
+    @override
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode (HA async API).
 
@@ -4903,6 +4929,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     # The synchronous half of the ClimateEntity preset API. Home Assistant core
     # calls `async_set_preset_mode`, so this entry point serves callers outside
     # core and hands the work to the async method.
+    @override
     def set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode (HA sync API).
 
@@ -4918,6 +4945,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
     @property
+    @override
     def preset_modes(self):
         """Return the available preset modes."""
         return self.preset_mgr.available_modes
@@ -5088,6 +5116,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 self.device_name,
             )
 
+    @override
     async def async_will_remove_from_hass(self):
         """Run when entity will be removed from hass."""
         # Terminate the startup retry loop so an entity whose dependencies

@@ -180,7 +180,7 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/climate.py"
-errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-type-argument = false, implicit-any-empty-container = false, missing-override-decorator = false }
+errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-type-argument = false, implicit-any-empty-container = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/number.py"
