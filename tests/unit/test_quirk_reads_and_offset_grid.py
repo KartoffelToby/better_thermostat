@@ -147,6 +147,44 @@ class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
         )
 
 
+class TestTheEurotronicStartsInTheModeOfItsCalibrationType:
+    """SPZB0001 starts in valve mode only for direct valve calibration."""
+
+    @pytest.mark.parametrize(
+        ("advanced", "goal"),
+        [
+            ({"calibration": CalibrationOutput.DIRECT_VALVE_BASED}, "1"),
+            ({"calibration": CalibrationOutput.TARGET_TEMP_BASED}, "2"),
+            ({"calibration": CalibrationOutput.LOCAL_BASED}, "2"),
+            ({}, "2"),
+        ],
+        ids=["direct-valve", "target-temp", "offset", "no-type"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_start_mode_follows_the_type(self, advanced, goal):
+        """Only a valve-driven TRV is put into its valve mode at startup."""
+        host = _host(advanced=advanced)
+
+        with patch.object(
+            SPZB0001, "check_operation_mode", autospec=True, return_value=True
+        ) as check:
+            await SPZB0001.initial_tweak(host, ENTITY_ID)
+
+        check.assert_awaited_once_with(host, ENTITY_ID, goal=goal)
+
+    @pytest.mark.parametrize(
+        ("calibration_offset", "written"), [(7.0, 5), (-7.0, -5), (2.5, 2.5)]
+    )
+    def test_the_offset_stays_within_the_device_range(
+        self, calibration_offset, written
+    ):
+        """The device accepts offsets from -5 to 5 K."""
+        assert (
+            SPZB0001.fix_local_calibration(_host(), ENTITY_ID, calibration_offset)
+            == written
+        )
+
+
 def _spirit_host(state):
     return _host(
         state=State(ENTITY_ID, state),
