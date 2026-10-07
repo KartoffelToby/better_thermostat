@@ -29,6 +29,7 @@ from .entity import (
 
 # Import tracking variables from sensor.py
 from .sensor import _ACTIVE_SWITCH_ENTITIES
+from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
     build_pid_key,
@@ -282,7 +283,7 @@ class BetterThermostatChildLockSwitch(
         """Return the child-lock option the config entry holds for the TRV."""
         for trv_config in self._bt_climate.all_trvs or []:
             if trv_config.get("trv") == self._trv_entity_id:
-                return bool((trv_config.get("advanced") or {}).get(CONF_CHILD_LOCK))
+                return advanced_flag(trv_config.get("advanced"), CONF_CHILD_LOCK)
         return False
 
     @override
@@ -318,7 +319,7 @@ class BetterThermostatChildLockSwitch(
         )
         if restored is None:
             return
-        held = bool(trv.advanced.get(CONF_CHILD_LOCK))
+        held = advanced_flag(trv.advanced, CONF_CHILD_LOCK)
         trv.advanced[CONF_CHILD_LOCK] = restored
         if restored != held:
             # The device may still report the state from before a command
@@ -338,7 +339,7 @@ class BetterThermostatChildLockSwitch(
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
         if trv is None:
             return False
-        return (trv.advanced or {}).get("child_lock", False)
+        return advanced_flag(trv.advanced, CONF_CHILD_LOCK)
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -357,7 +358,7 @@ class BetterThermostatChildLockSwitch(
         trv = self._bt_climate.real_trvs.get(self._trv_entity_id)
         if trv is None:
             return
-        trv.advanced["child_lock"] = state
+        trv.advanced[CONF_CHILD_LOCK] = state
         self.async_write_ha_state()
 
     async def _set_child_lock(self, state: bool, *, force: bool = False):

@@ -24,6 +24,8 @@ from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     quirk_writes_valve,
 )
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
+from custom_components.better_thermostat.utils.const import CONF_NO_OFF_SYSTEM_MODE
 from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 if TYPE_CHECKING:
@@ -412,7 +414,7 @@ class Trv:
         no_off = (
             self.hvac_modes is None
             or not device_offers_mode(self.hvac_modes, HVACMode.OFF)
-            or (self.advanced or {}).get("no_off_system_mode", False) is True
+            or advanced_flag(self.advanced, CONF_NO_OFF_SYSTEM_MODE)
         )
         return TrvCapabilities(
             supports_offset_write=offset_write,

@@ -14,6 +14,8 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
+from ..utils.advanced_flags import as_bool
+from ..utils.const import CONF_CHILD_LOCK
 from ..utils.helpers import find_device_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,8 +110,9 @@ async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
                 )
 
         # 2. Child lock sync setting
-        child_lock_setting = self.real_trvs[entity_id].advanced.get("child_lock")
-        if child_lock_setting is not None:
+        stored_child_lock = self.real_trvs[entity_id].advanced.get(CONF_CHILD_LOCK)
+        if stored_child_lock is not None:
+            child_lock_setting = as_bool(stored_child_lock)
             # Look for switch (Z2M) or lock
             cl_entity = find_entity(
                 ["switch", "lock"], ["child_lock", "child lock", "lock"]

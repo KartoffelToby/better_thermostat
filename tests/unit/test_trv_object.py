@@ -405,6 +405,22 @@ class TestTrvCapabilities:
         trv.advanced = {"no_off_system_mode": True}
         assert trv.capabilities().supports_off_mode is False
 
+    @pytest.mark.parametrize("stored", ["true", "True", 1])
+    def test_a_stored_true_spelling_disables_off(self, stored):
+        """An older entry's ``"true"`` reads as the options flow saves it."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "off"]
+        trv.advanced = {"no_off_system_mode": stored}
+        assert trv.capabilities().supports_off_mode is False
+
+    @pytest.mark.parametrize("stored", ["false", 0, None])
+    def test_a_stored_false_spelling_keeps_off(self, stored):
+        """A false spelling leaves the mode list to decide."""
+        trv = _make()
+        trv.hvac_modes = ["heat", "off"]
+        trv.advanced = {"no_off_system_mode": stored}
+        assert trv.capabilities().supports_off_mode is True
+
     def test_valve_capability_from_quirk_override(self):
         """A quirk-provided override_set_valve enables valve writes."""
 

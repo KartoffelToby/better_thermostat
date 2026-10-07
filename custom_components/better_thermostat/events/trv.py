@@ -29,9 +29,12 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     load_model_quirks,
     trv_report_is_unreadable,
 )
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
+    CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
+    CONF_NO_OFF_SYSTEM_MODE,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -85,12 +88,7 @@ class OutboundTrvPayload(TypedDict):
 
 
 def accepts_user_setpoint(
-    trv: Trv,
-    *,
-    is_echo: bool,
-    child_lock: bool | None,
-    contact_open: bool,
-    was_off: bool,
+    trv: Trv, *, is_echo: bool, child_lock: bool, contact_open: bool, was_off: bool
 ) -> bool:
     """Decide whether a setpoint a TRV reports is a user press to adopt.
 
@@ -105,8 +103,7 @@ def accepts_user_setpoint(
         Whether the reported value is a BT write coming back.
     child_lock
         Whether the device is configured as child-locked, so a press on
-        its knob does not speak for the user. ``None`` is an unset
-        option and reads as not locked.
+        its knob does not speak for the user.
     contact_open
         Whether a window or door contact of the room is open.
     was_off
@@ -376,9 +373,9 @@ async def trigger_trv_change(
     advanced = trv.advanced or {}
     # A missing flag counts as unlocked, and it can be missing: nothing
     # backfills the key, so an entry that has not been through the options flow
-    # carries none. The config flow, the child lock switch and both guards
-    # below read an absent flag the same way.
-    child_lock = advanced.get("child_lock")
+    # carries none, and an older one may hold a string. The config flow, the
+    # child lock switch and both guards below read the flag the same way.
+    child_lock = advanced_flag(advanced, CONF_CHILD_LOCK)
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
@@ -454,7 +451,7 @@ async def trigger_trv_change(
     # window. Both the interval and the stamp it is measured against belong to
     # the device this event came from, so a duty-cycle limit on one valve does
     # not hold back the internal temperature of the other valves in the room.
-    _time_diff = 600 if advanced.get(CONF_HOMEMATICIP) else 5
+    _time_diff = 600 if advanced_flag(advanced, CONF_HOMEMATICIP) else 5
     _last_internal_change = trv.last_internal_sensor_change
     if _reports_no_temp:
         # A report without an internal temperature leaves no live value to
@@ -680,7 +677,7 @@ async def trigger_trv_change(
         # A report the cooling channel owns is bounded by the cooling range.
         cooling=_cooling_owns,
     )
-    _is_no_off_device = advanced.get("no_off_system_mode", False)
+    _is_no_off_device = advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE)
     # An AUTO the mode decoding ignores says nothing about the room, so the
     # setpoint it carries, typically the device's own schedule, is not adopted
     # either. A swapped device decodes AUTO as HEAT and never matches. The
@@ -862,7 +859,7 @@ async def trigger_trv_change(
                 _step,
             )
 
-        if advanced.get("no_off_system_mode", False):
+        if advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE):
             # The setpoint of a device without an off mode carries the room's
             # mode, so a report is a control change only where it moves it.
             _room_before = (self.bt_hvac_mode, self.cool_target_temperature)
@@ -1019,7 +1016,7 @@ def convert_outbound_states(
                 _system_modes is not None
                 and not device_offers_mode(_system_modes, HVACMode.OFF)
             )
-            or advanced.get("no_off_system_mode")
+            or advanced_flag(advanced, CONF_NO_OFF_SYSTEM_MODE)
         ):
             _min_temp = self.real_trvs[entity_id].min_temp
             _LOGGER.debug(

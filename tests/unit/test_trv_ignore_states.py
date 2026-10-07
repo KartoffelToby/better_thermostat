@@ -13,6 +13,7 @@ import pytest
 
 from custom_components.better_thermostat.events.trv import accepts_user_setpoint
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
@@ -50,7 +51,7 @@ def _adopts(trv, *, was_off=False):
     return accepts_user_setpoint(
         trv,
         is_echo=False,
-        child_lock=trv.advanced.get("child_lock"),
+        child_lock=advanced_flag(trv.advanced, "child_lock"),
         contact_open=False,
         was_off=was_off,
     )
