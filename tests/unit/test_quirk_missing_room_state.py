@@ -20,6 +20,10 @@ import pytest
 
 from custom_components.better_thermostat.model_fixes import TS0601, TS0601_thermostat
 from custom_components.better_thermostat.trv import Trv
+from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION_MODE,
+    CalibrationMode,
+)
 from tests.factories import ThermostatStandIn
 
 # Two of the modules carry a hyphen in the device name they are called
@@ -68,6 +72,31 @@ def test_conditional_nudge_adjusts_with_both_readings(quirk):
     bt = _thermostat(room_temperature=21.0, heat_target_temperature=20.0)
 
     assert quirk.fix_local_calibration(bt, ENTITY_ID, 1.3) == 1.8
+
+
+@pytest.mark.parametrize(
+    ("room_temperature", "calibration_offset"),
+    [(20.6, pytest.approx(-1.2)), (20.4, 1.3)],
+    ids=["within_half_a_kelvin", "further_below"],
+)
+@pytest.mark.parametrize("quirk", CONDITIONAL_NUDGE_QUIRKS)
+def test_conditional_nudge_lowers_the_offset_just_below_the_setpoint(
+    quirk, room_temperature, calibration_offset
+):
+    """Half a kelvin below the setpoint the offset drops by 2.5; further below not."""
+    bt = _thermostat(room_temperature=room_temperature, heat_target_temperature=21.0)
+
+    assert quirk.fix_local_calibration(bt, ENTITY_ID, 1.3) == calibration_offset
+
+
+def test_sea801_leaves_the_offset_to_mpc():
+    """Under MPC calibration the controller's offset reaches the device as is."""
+    bt = _thermostat(room_temperature=21.0, heat_target_temperature=20.0)
+    bt.real_trvs[ENTITY_ID].advanced = {
+        CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION
+    }
+
+    assert SEA801.fix_local_calibration(bt, ENTITY_ID, 1.3) == 1.3
 
 
 @pytest.mark.parametrize(
