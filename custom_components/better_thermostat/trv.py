@@ -26,6 +26,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 )
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import CONF_NO_OFF_SYSTEM_MODE
+from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
 from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 if TYPE_CHECKING:
@@ -105,7 +106,7 @@ class Trv:
     # A model-quirk module satisfying the ModelQuirks surface, loaded
     # dynamically like the adapter and therefore typed as the module.
     model_quirks: ModuleType | None = None
-    advanced: dict[str, Any] = field(default_factory=dict)
+    advanced: TrvAdvanced = field(default_factory=TrvAdvanced)
 
     # -- Reported device state -------------------------------------------
     valve_position: float | None = None
