@@ -833,13 +833,9 @@ def compute_mpc(
             state.last_sensor_temperature = sensor_temp
 
         # DELTA T USING VIRTUAL TEMPERATURE
-        if (
-            use_virtual_temp
-            and state.virtual_temp is not None
-            and inp.target_temperature is not None
-        ):
+        if use_virtual_temp and state.virtual_temp is not None:
             delta_kelvin = inp.target_temperature - state.virtual_temp
-        elif inp.target_temperature is not None and inp.room_temperature is not None:
+        else:
             delta_kelvin = inp.target_temperature - inp.room_temperature
         initial_delta_kelvin = delta_kelvin
 
@@ -858,36 +854,35 @@ def compute_mpc(
         # "Hybrid Learning": Use random forced calibration to get high-confidence loss samples.
         # Trigger: current >= target. Probability: decays with number of samples.
         # Action: Force valve closed until current < target - hysteresis.
-        if inp.room_temperature is not None and inp.target_temperature is not None:
-            calib_hysteresis = 0.2
-            if state.is_calibration_active:
-                if inp.room_temperature <= (inp.target_temperature - calib_hysteresis):
-                    state.is_calibration_active = False
-                    _LOGGER.info(
-                        "better_thermostat %s: Calibration finished (temp reached target - %.1fvK). Resuming control.",
-                        name,
-                        calib_hysteresis,
-                    )
-                else:
+        calib_hysteresis = 0.2
+        if state.is_calibration_active:
+            if inp.room_temperature <= (inp.target_temperature - calib_hysteresis):
+                state.is_calibration_active = False
+                _LOGGER.info(
+                    "better_thermostat %s: Calibration finished (temp reached target - %.1fvK). Resuming control.",
+                    name,
+                    calib_hysteresis,
+                )
+            else:
+                percent = 0.0
+                extra_debug["calib_active"] = True
+
+        else:
+            # Trigger condition: Overheated/Reached target
+            # Check random chance if we have "enough" heat (delta_kelvin <= 0 means we are at/above target)
+            if inp.room_temperature >= inp.target_temperature:
+                # Chance decays with experience: 1 (100%), 0.5, ... but min 5%
+                chance = max(0.05, 1.0 / (state.loss_learn_count + 1))
+                if random.random() < chance:
+                    state.is_calibration_active = True
                     percent = 0.0
                     extra_debug["calib_active"] = True
-
-            elif not state.is_calibration_active:
-                # Trigger condition: Overheated/Reached target
-                # Check random chance if we have "enough" heat (delta_kelvin <= 0 means we are at/above target)
-                if inp.room_temperature >= inp.target_temperature:
-                    # Chance decays with experience: 1 (100%), 0.5, ... but min 5%
-                    chance = max(0.05, 1.0 / (state.loss_learn_count + 1))
-                    if random.random() < chance:
-                        state.is_calibration_active = True
-                        percent = 0.0
-                        extra_debug["calib_active"] = True
-                        _LOGGER.info(
-                            "better_thermostat %s: Starting forced calibration (chance %.2f, count %d). Forcing 0%% valve.",
-                            name,
-                            chance,
-                            state.loss_learn_count,
-                        )
+                    _LOGGER.info(
+                        "better_thermostat %s: Starting forced calibration (chance %.2f, count %d). Forcing 0%% valve.",
+                        name,
+                        chance,
+                        state.loss_learn_count,
+                    )
 
         _LOGGER.debug(
             "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
@@ -970,10 +965,7 @@ def _compute_predictive_percent(
     - adaptation moves the gain and loss estimates by EMA, in °C/min
     """
 
-    # Defensive checks
-    if inp.room_temperature is None or inp.target_temperature is None:
-        return 0.0, {"error": "missing temps"}
-
+    # compute_mpc calls this only with both temperatures present.
     assert inp.room_temperature is not None
     assert inp.target_temperature is not None
 
@@ -1082,8 +1074,6 @@ def _compute_predictive_percent(
             u_last = max(0.0, min(100.0, float(u_avg_pct))) / 100.0
 
             dt_min = dt_last / 60.0
-            if dt_min <= 0:
-                dt_min = 0.0
 
             # measured temperature change (fallback) and rate estimate
             observed_delta_kelvin = float(cost_room_temperature) - float(
@@ -1290,20 +1280,19 @@ def _compute_predictive_percent(
                         state.consecutive_insufficient_heat += 1
 
                         # INSUFFICIENT HEAT BOOST
-                        # If we have insufficient heat repeatedly, decrease Gain to boost u0 (and thus valve)
-                        if state.consecutive_insufficient_heat >= 1:
-                            # Use aggressive alpha for this correction
-                            alpha_boost = max(0.1, base_adapt_alpha * 2.0)
-                            # Reduce gain towards a lower target (e.g. 80% of current)
-                            target_gain = gain_est * 0.8
-                            target_gain = max(target_gain, params.mpc_gain_min)
+                        # On insufficient heat, decrease Gain to boost u0 (and thus valve)
+                        # Use aggressive alpha for this correction
+                        alpha_boost = max(0.1, base_adapt_alpha * 2.0)
+                        # Reduce gain towards a lower target (e.g. 80% of current)
+                        target_gain = gain_est * 0.8
+                        target_gain = max(target_gain, params.mpc_gain_min)
 
-                            state.gain_est = (
-                                1.0 - alpha_boost
-                            ) * gain_est + alpha_boost * target_gain
-                            updated_gain = True
-                            gain_method = "insufficient_heat_boost"
-                            adapt_debug["gain_boosted_insuff"] = True
+                        state.gain_est = (
+                            1.0 - alpha_boost
+                        ) * gain_est + alpha_boost * target_gain
+                        updated_gain = True
+                        gain_method = "insufficient_heat_boost"
+                        adapt_debug["gain_boosted_insuff"] = True
 
             # --- LOSS learning (warming with low valve): ---
             # If we are below u0 but the room is warming, loss is overestimated.
@@ -1689,9 +1678,6 @@ def _detect_trv_profile(
     if percent_out <= 0 or expected_temp_rise <= 0:
         return
 
-    if expected_temp_rise <= 0:
-        return
-
     response_ratio = temp_delta / expected_temp_rise
     state.profile_samples += 1
 
@@ -1738,21 +1724,16 @@ def _detect_trv_profile(
 
 
 def _apply_profile_adjustments(state: _MpcState, params: MpcParams) -> None:
-    if state.trv_profile == "threshold":
-        # Do not directly force a permanent min opening here.
-        # A threshold-like TRV should be handled by dead-zone learning (raise/decay)
-        # so it can adapt and revert if conditions change.
+    # Only an exponential TRV adjusts the model. A threshold-like TRV is
+    # handled by dead-zone learning (raise/decay) so it can adapt and revert
+    # if conditions change, and a linear TRV leaves the learned min opening
+    # to dead-zone decay.
+    if state.trv_profile != "exponential":
         return
-
-    elif state.trv_profile == "exponential":
-        if state.gain_est is None:
-            state.gain_est = params.mpc_thermal_gain
-        state.gain_est *= 1.1
-        state.gain_est = min(params.mpc_gain_max, state.gain_est)
-
-    elif state.trv_profile == "linear":
-        # Don't wipe learned min opening unconditionally; let dead-zone decay handle it.
-        return
+    if state.gain_est is None:
+        state.gain_est = params.mpc_thermal_gain
+    state.gain_est *= 1.1
+    state.gain_est = min(params.mpc_gain_max, state.gain_est)
 
 
 def _room_rise_over(
