@@ -6,7 +6,8 @@ from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import copy
 import logging
-from typing import Any
+from types import ModuleType
+from typing import Any, override
 
 from homeassistant import config_entries
 from homeassistant.components.climate.const import (
@@ -280,10 +281,10 @@ async def _load_adapter_info(
     integration: str | None,
     entity_id: str | None,
     *,
-    existing_adapter: Any | None = None,
-) -> tuple[Any | None, dict[str, Any]]:
+    existing_adapter: ModuleType | None = None,
+) -> tuple[ModuleType | None, dict[str, bool]]:
     adapter = existing_adapter
-    info: dict[str, Any] = {}
+    info: dict[str, bool] = {}
 
     if integration and entity_id:
         if adapter is None:
@@ -311,7 +312,7 @@ async def _load_adapter_info(
     return adapter, info
 
 
-def _default_calibration_from_info(info: dict[str, Any]) -> str:
+def _default_calibration_from_info(info: Mapping[str, bool]) -> str:
     if info.get("support_offset", False):
         return "local_calibration_based"
     if info.get("support_valve", False):
@@ -325,7 +326,7 @@ def _trv_supports_auto(
     if not entity_id:
         return False
     trv_state = flow.hass.states.get(entity_id)
-    if not trv_state or not hasattr(trv_state, "attributes"):
+    if not trv_state:
         return False
     hvac_modes = trv_state.attributes.get("hvac_modes") or []
     return device_offers_mode(hvac_modes, HVACMode.AUTO)
@@ -339,7 +340,7 @@ def _build_advanced_fields(
     has_auto: bool,
     support_valve: bool = False,
     support_offset: bool = False,
-) -> OrderedDict:
+) -> OrderedDict[vol.Marker, Any]:
     # Migrate old balance_mode to calibration_mode
     sources_list = list(sources)
     for source in sources_list:
@@ -390,7 +391,7 @@ def _build_advanced_fields(
             translation_key="calibration_output",
         )
     )
-    ordered: OrderedDict = OrderedDict()
+    ordered: OrderedDict[vol.Marker, Any] = OrderedDict()
 
     # 1) Calibration + protection flags
     ordered[vol.Required(CONF_CALIBRATION, default=calib_default)] = calib_selector
@@ -499,10 +500,10 @@ def _build_user_fields(
     current: Mapping[str, Any],
     user_input: dict[str, Any] | None = None,
     system_unit: str | None = None,
-) -> OrderedDict:
+) -> OrderedDict[vol.Marker, Any]:
     user_input = user_input or {}
     is_create = mode == "create"
-    fields: OrderedDict = OrderedDict()
+    fields: OrderedDict[vol.Marker, Any] = OrderedDict()
 
     def resolve(key: str, fallback: Any = None) -> Any:
         """Resolve field value from user input, current config, or defaults."""
@@ -697,6 +698,7 @@ def _normalize_user_submission(
     normalized[CONF_NAME] = user_input.get(CONF_NAME, normalized.get(CONF_NAME, ""))
 
     heaters_value = user_input.get(CONF_THERMOSTAT, normalized.get(CONF_THERMOSTAT, []))
+    heaters_list: list[Any]
     if isinstance(heaters_value, list):
         heaters_list = heaters_value
     elif heaters_value is None:
@@ -756,7 +758,8 @@ def _normalize_user_submission(
     if CONF_PRESETS in user_input:
         normalized[CONF_PRESETS] = user_input[CONF_PRESETS]
     elif mode == "create" and CONF_PRESETS not in normalized:
-        normalized[CONF_PRESETS] = []
+        no_presets: list[str] = []
+        normalized[CONF_PRESETS] = no_presets
 
     tolerance = user_input.get(
         CONF_TOLERANCE,
@@ -894,27 +897,30 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # reads the options as well.
     MINOR_VERSION = 2
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the config flow."""
         self.device_name = ""
         self.data: dict[str, Any] | None = None
-        self.model = None
-        self.trv_entity_ids = None
+        self.model: str | None = None
+        self.trv_entity_ids: list[str] | None = None
         self.trv_bundle: list[dict[str, Any]] = []
-        self.integration = None
+        self.integration: str | None = None
         self.i = 0
         self._active_trv_config: dict[str, Any] | None = None
         super().__init__()
 
     @staticmethod
     @callback
+    @override
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
         return OptionsFlowHandler(config_entry)
 
-    async def async_step_confirm(self, user_input=None, confirm_type=None):
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None, confirm_type: str | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Handle user-confirmation of discovered node."""
         errors = {}
         # The user step sets the data before any step that leads here.
@@ -953,7 +959,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"name": data.get(CONF_NAME, ""), "trv": _trvs},
         )
 
-    async def async_step_advanced(self, user_input=None, _trv_config=None):
+    async def async_step_advanced(
+        self,
+        user_input: dict[str, Any] | None = None,
+        _trv_config: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
         """Handle the advanced step of the config flow."""
         trv_config = _trv_config if isinstance(_trv_config, dict) else None
         if trv_config is None:
@@ -1002,7 +1012,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 entity_id = trv.get("trv")
                 state_obj = self.hass.states.get(entity_id) if entity_id else None
                 hvac_modes: list[str] = []
-                if state_obj and hasattr(state_obj, "attributes"):
+                if state_obj:
                     hvac_modes = state_obj.attributes.get("hvac_modes", []) or []
                 if not device_offers_mode(hvac_modes, HVACMode.OFF):
                     _has_off_mode = False
@@ -1037,7 +1047,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_user(self, user_input=None):
+    @override
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
         placeholders: dict[str, str] = {}
@@ -1128,13 +1141,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self._config_entry = config_entry
         super().__init__()
 
-    async def async_step_init(self, _user_input=None):
+    async def async_step_init(
+        self, _user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         return await self.async_step_user()
 
     async def async_step_advanced(
-        self, user_input=None, _trv_config=None, _update_config=None
-    ):
+        self,
+        user_input: dict[str, Any] | None = None,
+        _trv_config: dict[str, Any] | None = None,
+        _update_config: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
         """Manage the advanced options."""
         trv_config = _trv_config if isinstance(_trv_config, dict) else None
         if trv_config is None:
@@ -1249,7 +1267,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             },
         )
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Handle the user step."""
         errors: dict[str, str] = {}
         in_use_placeholders: dict[str, str] = {}
@@ -1390,25 +1410,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             _LOGGER.info(
                 "Better Thermostat %s: Calibration algorithms changed. Added: %s, Removed: %s",
                 self.updated_config.get(CONF_NAME, "unknown"),
-                [
-                    alg.value if hasattr(alg, "value") else str(alg)
-                    for alg in algorithms_added
-                ],
-                [
-                    alg.value if hasattr(alg, "value") else str(alg)
-                    for alg in algorithms_removed
-                ],
+                [alg.value for alg in algorithms_added],
+                [alg.value for alg in algorithms_removed],
             )
             return True
         return False
 
     @staticmethod
-    def _get_active_algorithms(config: Mapping[str, Any]) -> set:
+    def _get_active_algorithms(config: Mapping[str, Any]) -> set[CalibrationMode]:
         """Get set of calibration algorithms currently in use by any TRV."""
         if not config or CONF_THERMOSTAT not in config:
             return set()
 
-        active_algorithms = set()
+        active_algorithms: set[CalibrationMode] = set()
         for trv in config.get(CONF_THERMOSTAT, []):
             advanced = trv.get("advanced", {})
             calibration_mode = advanced.get(CONF_CALIBRATION_MODE)

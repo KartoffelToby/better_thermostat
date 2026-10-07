@@ -7,7 +7,7 @@ from functools import partial
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -709,6 +709,7 @@ class _BtSensorBase(SensorEntity):
         self._attr_unique_id = f"{bt_climate.unique_id}_{self._unique_id_suffix}"
         self._attr_device_info = bt_climate.device_info
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Register callbacks."""
         if self._bt_climate.entity_id:
@@ -747,6 +748,7 @@ class _BtMpcSensorBase(_BtSensorBase):
     _debug_key: str
 
     @property
+    @override
     def available(self) -> bool:
         """Return if entity is available.
 
@@ -761,6 +763,7 @@ class _BtMpcSensorBase(_BtSensorBase):
             return False
         return True
 
+    @override
     def _update_state(self) -> None:
         """Update state from calibration_balance debug data."""
         value = None
@@ -788,12 +791,13 @@ class _BtSimpleAttributeSensor(_BtSensorBase):
     _climate_attr: str
     _rounding: int | None = None
 
+    @override
     def _update_state(self) -> None:
         """Update state from a climate entity attribute."""
-        value: object = getattr(self._bt_climate, self._climate_attr, None)
+        value: float | None = getattr(self._bt_climate, self._climate_attr, None)
         if value is not None:
             try:
-                fval = float(value)  # type: ignore[arg-type]
+                fval = float(value)
                 self._attr_native_value = (
                     round(fval, self._rounding) if self._rounding is not None else fval
                 )
@@ -814,6 +818,7 @@ class BetterThermostatExternalTempSensor(_BtSensorBase):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _unique_id_suffix = "external_temp_ema"
 
+    @override
     def _update_state(self) -> None:
         """Update state from climate entity."""
         value = _get_filtered_temp(self._bt_climate)
@@ -858,6 +863,7 @@ class BetterThermostatExternalTemp1hEMASensor(_BtSensorBase):
         self._ema_value = ema
         self._last_update_ts = now
 
+    @override
     def _update_state(self) -> None:
         """Update state from internal EMA."""
         value = _get_filtered_temp(self._bt_climate)
@@ -963,6 +969,7 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
     _v2_debug_key: str
     _shared_unique_id_suffix: str
 
+    @override
     def _update_state(self) -> None:
         """Update state from the MPC v2 debug payload."""
         value = None
@@ -1088,6 +1095,7 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _unique_id_suffix = "solar_intensity"
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Follow the weather entity as well as the thermostat.
 
@@ -1103,6 +1111,7 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
                 )
             )
 
+    @override
     def _update_state(self) -> None:
         """Update state using utility function."""
         value = _get_current_solar_intensity(self._bt_climate)
