@@ -7,10 +7,10 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 import logging
 import math
-from typing import Any
 
 import numpy as np
 
+from ...stored_values import stored_float
 from ..mpc_v2_internals.dob import DisturbanceObserver
 from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
@@ -40,6 +40,33 @@ MIN_STEP_DT_S = 1.0
 _STORED_RG_V = "rg_v_C"
 
 
+def _stored_version(value: object) -> int:
+    """Return a stored snapshot version, with ``int()`` semantics on JSON scalars.
+
+    Raises ``TypeError`` for a null, a list or an object, which drops the
+    snapshot like any other value that is not a number.
+    """
+    if isinstance(value, int | float | str):
+        return int(value)
+    raise TypeError(f"snapshot version is not a number: {value!r}")
+
+
+def _stored_floats(value: object, name: str) -> list[float]:
+    """Return a stored list of numbers as floats.
+
+    Anything other than a list raises ``TypeError``, and so does an element
+    that is not a number, so the caller drops the snapshot.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{name} is not a list")
+    return [stored_float(x) for x in value]
+
+
+def _optional_float(value: object) -> float | None:
+    """Return a stored nullable number, ``None`` for a stored null."""
+    return None if value is None else stored_float(value)
+
+
 @dataclass
 class ControllerSnapshot:
     """Typed, JSON-round-trippable snapshot of the full controller state.
@@ -65,14 +92,14 @@ class ControllerSnapshot:
     # the restore then starts it from zero.
     planning_disturbance: float | None = None
 
-    def to_mapping(self) -> dict[str, Any]:
+    def to_mapping(self) -> dict[str, object]:
         """Return the mapping the HA Store persists."""
         data = asdict(self)
         data[_STORED_RG_V] = data.pop("rg_v")
         return data
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
+    def from_mapping(cls, raw: Mapping[str, object]) -> ControllerSnapshot | None:
         """Parse a persisted mapping; ``None`` for a future version or bad data.
 
         This is the single place raw (untyped) persisted data is validated and
@@ -83,10 +110,12 @@ class ControllerSnapshot:
         every later command, so the controller boots fresh instead of running on
         poisoned state. Two fields are nullable: a stored ``null`` in ``rg_v_C``
         means "no governor state", and a missing or ``null``
-        ``planning_disturbance`` means "start it from zero".
+        ``planning_disturbance`` means "start it from zero". ``x_hat``,
+        ``u_history``, ``kalman_P`` and each row of ``kalman_P`` have to be
+        lists; a value of any other shape drops the snapshot as non-numeric.
         """
         try:
-            version = int(raw.get("v", 0))
+            version = _stored_version(raw.get("v", 0))
             if version > SNAPSHOT_VERSION:
                 _LOGGER.warning(
                     "MPC v2 snapshot version %d > supported %d; ignoring",
@@ -94,23 +123,22 @@ class ControllerSnapshot:
                     SNAPSHOT_VERSION,
                 )
                 return None
+            kalman_rows = raw.get("kalman_P", [])
+            if not isinstance(kalman_rows, (list, tuple)):
+                raise TypeError("kalman_P is not a list")
             snapshot = cls(
                 v=version,
-                x_hat=[float(x) for x in raw.get("x_hat", [])],
-                kalman_P=[[float(x) for x in row] for row in raw.get("kalman_P", [])],
-                D_hat_K_per_min=float(raw.get("D_hat_K_per_min", 0.0)),
-                last_u=float(raw.get("last_u", 0.0)),
-                e_integral_K_min=float(raw.get("e_integral_K_min", 0.0)),
-                u_history=[float(x) for x in raw.get("u_history", [])],
-                rg_v=None
-                if raw.get(_STORED_RG_V) is None
-                else float(raw[_STORED_RG_V]),
-                last_t_s=float(raw.get("last_t_s", 0.0)),
-                next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
-                last_mpc_t_s=float(raw.get("last_mpc_t_s", -1.0)),
-                planning_disturbance=None
-                if raw.get("planning_disturbance") is None
-                else float(raw["planning_disturbance"]),
+                x_hat=_stored_floats(raw.get("x_hat", []), "x_hat"),
+                kalman_P=[_stored_floats(row, "kalman_P row") for row in kalman_rows],
+                D_hat_K_per_min=stored_float(raw.get("D_hat_K_per_min", 0.0)),
+                last_u=stored_float(raw.get("last_u", 0.0)),
+                e_integral_K_min=stored_float(raw.get("e_integral_K_min", 0.0)),
+                u_history=_stored_floats(raw.get("u_history", []), "u_history"),
+                rg_v=_optional_float(raw.get(_STORED_RG_V)),
+                last_t_s=stored_float(raw.get("last_t_s", 0.0)),
+                next_mpc_t_s=stored_float(raw.get("next_mpc_t_s", -1.0)),
+                last_mpc_t_s=stored_float(raw.get("last_mpc_t_s", -1.0)),
+                planning_disturbance=_optional_float(raw.get("planning_disturbance")),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
