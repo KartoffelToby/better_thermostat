@@ -9,7 +9,6 @@ relative to the simulator step.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from itertools import count
 from typing import Any
 
@@ -21,8 +20,8 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     compute_tpi,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _make_json_safe,
     deserialize_tpi,
+    write_tpi_state,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -98,4 +97,4 @@ class TpiAdapter:
 
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the wrapped TPI state."""
-        return _make_json_safe(asdict(self._state))
+        return dict(write_tpi_state(self._state))

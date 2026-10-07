@@ -13,7 +13,6 @@ fixed-step scenarios the benchmark runs.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from itertools import count
 from typing import Any
 
@@ -24,8 +23,8 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     compute_pid,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _make_json_safe,
     deserialize_pid,
+    write_pid_state,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -108,4 +107,4 @@ class PidAdapter:
 
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the wrapped PID state."""
-        return _make_json_safe(asdict(self._state))
+        return dict(write_pid_state(self._state))

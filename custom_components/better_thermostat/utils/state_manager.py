@@ -34,12 +34,12 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 import logging
 import math
 from time import monotonic
-from typing import Any, get_args, get_type_hints
+from typing import get_args, get_type_hints
 
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -70,6 +70,16 @@ from .const import (
     MAX_HEATING_POWER,
     MIN_HEAT_LOSS,
     MIN_HEATING_POWER,
+)
+from .stored_state import (
+    StoredFilterState,
+    StoredMpcState,
+    StoredMpcV2Reid,
+    StoredMpcV2State,
+    StoredPidState,
+    StoredRuntimeState,
+    StoredThermalStats,
+    StoredTpiState,
 )
 from .stored_values import (
     MAX_STORED_INT,
@@ -255,20 +265,18 @@ _PID_NULLABLE_FIELDS = _nullable_fields(PIDState)
 _TPI_NULLABLE_FIELDS = _nullable_fields(TpiState)
 
 
-def _make_json_safe(obj: Any) -> Any:
-    """Recursively convert non-JSON-serializable types.
+def _copy_stored_tree(value: object) -> object:
+    """Return a copy of *value* with every container rebuilt as JSON shapes.
 
-    ``dataclasses.asdict`` does **not** convert ``deque`` to ``list``,
-    so we walk the resulting dict and fix up anything that ``json.dumps``
-    would choke on.
+    Mappings become new dicts and sequences (including ``deque`` and
+    ``tuple``) become new lists, so the payload handed to the Store shares no
+    container with the live state. Other values are returned as they are.
     """
-    if isinstance(obj, deque):
-        return [_make_json_safe(v) for v in obj]
-    if isinstance(obj, dict):
-        return {k: _make_json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_make_json_safe(v) for v in obj]
-    return obj
+    if isinstance(value, dict):
+        return {key: _copy_stored_tree(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, deque)):
+        return [_copy_stored_tree(item) for item in value]
+    return value
 
 
 # Store keys of the ``FilterState`` fields. The stores on disk carry the
@@ -292,24 +300,150 @@ _STORED_MPC_V2_REID_KEYS = {
 }
 
 
-def _serialize(state: RuntimeState) -> dict[str, Any]:
-    """Convert RuntimeState to a JSON-serializable dict.
+def write_mpc_state(state: MpcState) -> StoredMpcState:
+    """Return the stored form of one MPC state.
 
-    The ``deque`` used by MPC's ``recent_errors`` is converted to a plain
-    list so that ``json.dumps`` can handle it.
+    The fields with a legacy store name (:data:`_STORED_MPC_KEYS`) come last.
     """
-    data = asdict(state)
-    filters = data["filters"]
-    filters[_STORED_ROOM_TEMPERATURE_EMA] = filters.pop("room_temperature_ema")
-    filters[_STORED_TEMPERATURE_SLOPE] = filters.pop("temperature_slope")
-    for section, stored_keys in (
-        ("mpc", _STORED_MPC_KEYS),
-        ("mpc_v2_reid", _STORED_MPC_V2_REID_KEYS),
-    ):
-        for entry in data[section].values():
-            for attr, stored in stored_keys.items():
-                entry[stored] = entry.pop(attr)
-    return _make_json_safe(data)
+    return {
+        "last_percent": state.last_percent,
+        "last_update_ts": state.last_update_ts,
+        "ema_slope": state.ema_slope,
+        "gain_est": state.gain_est,
+        "loss_est": state.loss_est,
+        "ka_est": state.ka_est,
+        "solar_gain_est": state.solar_gain_est,
+        "last_temp": state.last_temp,
+        "last_time": state.last_time,
+        "last_trv_temp": state.last_trv_temp,
+        "last_trv_temp_ts": state.last_trv_temp_ts,
+        "last_window_open_ts": state.last_window_open_ts,
+        "dead_zone_hits": state.dead_zone_hits,
+        "min_effective_percent": state.min_effective_percent,
+        "last_learn_time": state.last_learn_time,
+        "last_learn_temp": state.last_learn_temp,
+        "last_residual_time": state.last_residual_time,
+        "virtual_temp": state.virtual_temp,
+        "virtual_temp_ts": state.virtual_temp_ts,
+        "last_room_temp_ts": state.last_room_temp_ts,
+        "perf_curve": {
+            curve: dict(points) for curve, points in state.perf_curve.items()
+        },
+        "trv_profile": state.trv_profile,
+        "profile_confidence": state.profile_confidence,
+        "profile_samples": state.profile_samples,
+        "u_integral": state.u_integral,
+        "time_integral": state.time_integral,
+        "last_integration_ts": state.last_integration_ts,
+        "created_ts": state.created_ts,
+        "loss_learn_count": state.loss_learn_count,
+        "gain_learn_count": state.gain_learn_count,
+        "is_calibration_active": state.is_calibration_active,
+        "recent_errors": list(state.recent_errors),
+        "regime_boost_active": state.regime_boost_active,
+        "consecutive_insufficient_heat": state.consecutive_insufficient_heat,
+        "kalman_P": state.kalman_P,
+        "tolerance_hold_active": state.tolerance_hold_active,
+        "last_target_C": state.last_target_temperature,
+        "last_sensor_temp_C": state.last_sensor_temperature,
+        "last_room_temp_C": state.last_room_temperature,
+    }
+
+
+def write_mpc_v2_state(data: MpcV2StateData) -> StoredMpcV2State:
+    """Return the stored form of one persisted MPC v2 entry.
+
+    The snapshot is copied as held, whatever version it carries.
+    """
+    return {
+        "last_percent": data.last_percent,
+        "last_compute_ts": data.last_compute_ts,
+        "created_ts": data.created_ts,
+        "outdoor_fallback_logged": data.outdoor_fallback_logged,
+        "snapshot": {
+            key: _copy_stored_tree(value) for key, value in data.snapshot.items()
+        },
+    }
+
+
+def write_mpc_v2_reid(data: MpcV2ReidData) -> StoredMpcV2Reid:
+    """Return the stored form of one accepted re-identification.
+
+    The fields with a legacy store name (:data:`_STORED_MPC_V2_REID_KEYS`)
+    come last.
+    """
+    return {
+        "tau_room_min": data.tau_room_min,
+        "gain_heater": data.gain_heater,
+        "fitted_ts": data.fitted_ts,
+        "n_segments": data.n_segments,
+        "rmse_prior_K": data.rmse_prior_kelvin,
+        "rmse_fit_K": data.rmse_fit_kelvin,
+    }
+
+
+def write_pid_state(state: PIDState) -> StoredPidState:
+    """Return the stored form of one PID state."""
+    return {
+        "pid_integral": state.pid_integral,
+        "pid_last_meas": state.pid_last_meas,
+        "pid_last_error": state.pid_last_error,
+        "pid_last_time": state.pid_last_time,
+        "pid_kp": state.pid_kp,
+        "pid_ki": state.pid_ki,
+        "pid_kd": state.pid_kd,
+        "auto_tune": state.auto_tune,
+        "last_tune_ts": state.last_tune_ts,
+        "last_delta_sign": state.last_delta_sign,
+        "last_error_sign": state.last_error_sign,
+        "previous_abs_error": state.previous_abs_error,
+        "last_abs_error": state.last_abs_error,
+        "ema_slope": state.ema_slope,
+        "last_percent": state.last_percent,
+        "last_output_change_ts": state.last_output_change_ts,
+        "last_target_temp": state.last_target_temp,
+    }
+
+
+def write_tpi_state(state: TpiState) -> StoredTpiState:
+    """Return the stored form of one TPI state."""
+    return {"last_percent": state.last_percent, "last_update_ts": state.last_update_ts}
+
+
+def write_thermal(stats: ThermalStats) -> StoredThermalStats:
+    """Return the stored form of the learned thermal characteristics."""
+    return {
+        "heating_power": stats.heating_power,
+        "heat_loss_rate": stats.heat_loss_rate,
+    }
+
+
+def write_filters(filters: FilterState) -> StoredFilterState:
+    """Return the stored form of the filter state, under its legacy store keys."""
+    return {
+        "external_temp_ema": filters.room_temperature_ema,
+        "temp_slope": filters.temperature_slope,
+    }
+
+
+def _serialize(state: RuntimeState) -> StoredRuntimeState:
+    """Return the payload the Store writes for *state*.
+
+    Every container is a fresh copy, so the live state can change while
+    the Store still holds the payload.
+    """
+    return {
+        "version": state.version,
+        "mpc": {key: write_mpc_state(mpc) for key, mpc in state.mpc.items()},
+        "mpc_v2": {key: write_mpc_v2_state(data) for key, data in state.mpc_v2.items()},
+        "mpc_v2_reid": {
+            key: write_mpc_v2_reid(data) for key, data in state.mpc_v2_reid.items()
+        },
+        "pid": {key: write_pid_state(pid) for key, pid in state.pid.items()},
+        "tpi": {key: write_tpi_state(tpi) for key, tpi in state.tpi.items()},
+        "thermal": write_thermal(state.thermal),
+        "filters": write_filters(state.filters),
+    }
 
 
 class _PoisonedStateError(ValueError):
@@ -1347,7 +1481,7 @@ class StateManager:
         self._held_save = None
         self._delay_save_pending = True
 
-        def _data_to_save() -> dict[str, Any]:
+        def _data_to_save() -> StoredRuntimeState:
             self._delay_save_pending = False
             pre_save_failed = False
             if pre_save is not None:
