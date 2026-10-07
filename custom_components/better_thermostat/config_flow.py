@@ -72,9 +72,11 @@ from .utils.const import (
 )
 from .utils.helpers import (
     device_offers_mode,
+    entry_name,
     entry_settings,
     get_device_model,
     get_trv_intigration,
+    stored_trv_configs,
 )
 from .utils.preset_manager import DEFAULT_ENABLED_PRESETS
 
@@ -843,10 +845,7 @@ def _in_use_placeholders(
             continue
         owners = other_entries_controlling(hass, trv_entity_id, entry_id)
         if owners:
-            return {
-                "trv": trv_entity_id,
-                "entry": entry_settings(owners[0]).get(CONF_NAME, owners[0].title),
-            }
+            return {"trv": trv_entity_id, "entry": entry_name(owners[0])}
     return None
 
 
@@ -1293,10 +1292,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Create a map of existing TRV configs by TRV ID
                 existing_trvs = {
                     trv.get("trv"): trv
-                    for trv in entry_settings(self._config_entry).get(
-                        CONF_THERMOSTAT, []
-                    )
-                    if isinstance(trv, dict) and trv.get("trv")
+                    for trv in stored_trv_configs(entry_settings(self._config_entry))
+                    if trv.get("trv")
                 }
 
                 # The submission is normalised to a list of entity ids.

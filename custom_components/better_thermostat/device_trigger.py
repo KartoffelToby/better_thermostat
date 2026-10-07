@@ -55,7 +55,7 @@ import voluptuous as vol
 
 from . import DOMAIN
 from .utils.const import CONF_HUMIDITY_SENSOR
-from .utils.helpers import entry_settings, is_bt_climate_entity
+from .utils.helpers import entry_settings, is_bt_climate_entity, setting_str
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -157,10 +157,8 @@ async def async_get_triggers(
             if entry.config_entry_id
             else None
         )
-        watches_humidity = bool(
-            (entry_settings(config_entry) if config_entry else {}).get(
-                CONF_HUMIDITY_SENSOR
-            )
+        watches_humidity = config_entry is not None and bool(
+            setting_str(entry_settings(config_entry), CONF_HUMIDITY_SENSOR)
         )
 
         # Purpose-specific triggers (primary – shown first in the UI)
