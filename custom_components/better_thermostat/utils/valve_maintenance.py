@@ -19,6 +19,7 @@ from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
 from ..trv import Trv
+from .advanced_flags import advanced_flag
 from .const import CONF_VALVE_MAINTENANCE, CalibrationOutput
 from .helpers import device_offers_mode
 
@@ -135,7 +136,7 @@ def collect_maintenance_trvs(real_trvs: TrvMap) -> list[str]:
     result: list[str] = []
     for entity_id, info in real_trvs.items():
         adv = _get_advanced(info)
-        if bool(adv.get(CONF_VALVE_MAINTENANCE, False)):
+        if advanced_flag(adv, CONF_VALVE_MAINTENANCE):
             result.append(entity_id)
     return result
 

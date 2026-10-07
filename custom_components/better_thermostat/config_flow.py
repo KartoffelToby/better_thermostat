@@ -34,6 +34,7 @@ import voluptuous as vol
 from . import DOMAIN, other_entries_controlling, trv_entity_ids
 from .adapters.delegate import load_adapter
 from .model_fixes.model_quirks import load_model_quirks, quirk_writes_valve
+from .utils.advanced_flags import as_bool as _as_bool
 from .utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -228,20 +229,6 @@ def _off_temperature_default(system_unit: str | None) -> int:
             )
         )
     return _OFF_TEMPERATURE_DEFAULT_CELSIUS
-
-
-def _as_bool(value: bool | str | int | None, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        lowered = value.strip().lower()
-        if lowered in {"true", "yes", "1", "on"}:
-            return True
-        if lowered in {"false", "no", "0", "off"}:
-            return False
-    return bool(value)
 
 
 async def _quirk_valve_support(
