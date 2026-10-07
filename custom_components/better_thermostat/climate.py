@@ -458,20 +458,23 @@ def _configured_delay(value: str | float | None, device_name: str, field: str) -
     """Return a configured contact delay in seconds.
 
     The flows store a whole number of seconds; no delay, or one that does not
-    read as a number, is no delay at all.
+    read as a finite number, is no delay at all.
     """
     if not value:
         return 0.0
     try:
-        return float(value)
+        delay = float(value)
     except ValueError:
-        _LOGGER.warning(
-            "better_thermostat %s: invalid %s '%s', using no delay",
-            device_name,
-            field,
-            value,
-        )
-        return 0.0
+        delay = math.nan
+    if math.isfinite(delay):
+        return delay
+    _LOGGER.warning(
+        "better_thermostat %s: invalid %s '%s', using no delay",
+        device_name,
+        field,
+        value,
+    )
+    return 0.0
 
 
 def _configured_temperature_bound(

@@ -95,9 +95,9 @@ def test_a_configured_delay_reads_as_seconds(stored, seconds):
     assert isinstance(delay, float)
 
 
-@pytest.mark.parametrize("stored", ["", "soon"])
+@pytest.mark.parametrize("stored", ["", "soon", "inf", "-inf", "nan"])
 def test_an_unreadable_delay_reads_as_no_delay(stored, caplog):
-    """A delay no number can be read from leaves the contact undelayed."""
+    """A delay no finite number can be read from leaves the contact undelayed."""
     with caplog.at_level(logging.WARNING):
         delay = _configured_delay(stored, "Test BT", CONF_WINDOW_OFF_DELAY)
 
