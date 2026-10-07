@@ -785,12 +785,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         )
 
         if self.hass and self.all_trvs:
-            main_trv_id = None
-            if isinstance(self.all_trvs, list) and len(self.all_trvs) > 0:
-                main_trv_id = self.all_trvs[0].get("trv")
-            elif isinstance(self.all_trvs, str):
-                main_trv_id = self.all_trvs
-
+            main_trv_id = self.all_trvs[0].get("trv")
             if main_trv_id:
                 ent_reg = er.async_get(self.hass)
                 dev_reg = dr.async_get(self.hass)
@@ -845,12 +840,11 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         ----------
         name : str
             Display name of the thermostat.
-        trv_configs : list[dict] | str
+        trv_configs : list[dict[str, Any]]
             TRV configuration entries controlled by this thermostat. Config
-            entries written before 1.0.0-Beta36 carry a single entity id
-            string here instead; that shape reaches ``async_added_to_hass``
-            and stops there with an error asking the user to re-add the
-            device.
+            entries written before 1.0.0-Beta36 carried a single entity id
+            string here instead; ``async_migrate_entry`` rejects them, so
+            that shape never reaches the entity.
         sensor_entity_id : str | None
             External temperature sensor entity id.
         humidity_sensor_entity_id : str | None
@@ -1221,12 +1215,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         -------
         None
         """
-        if isinstance(self.all_trvs, str):
-            return _LOGGER.error(
-                "You updated from version before 1.0.0-Beta36 of the Better Thermostat integration, "
-                "you need to remove the BT devices (integration) and add it again."
-            )
-
         # Home Assistant writes its restore cache once it has started and
         # drops the saved state of every entity that already publishes one,
         # so the saved state is read now and not in the startup, which waits
