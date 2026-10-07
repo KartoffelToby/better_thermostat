@@ -520,7 +520,9 @@ def _build_mpc_v2_reid_key(self: BetterThermostat) -> str:
     return f"{uid}:reid"
 
 
-def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str) -> MpcV2ReidData | None:
+def _lookup_mpc_v2_reid(
+    self: BetterThermostat, reid_key: str, mpc_key: str
+) -> MpcV2ReidData | None:
     """Return the adopted re-ID result, preferring the shared key.
 
     Results persisted under per-target-bucket keys (``uid:entity:tX.X`` or
@@ -528,13 +530,16 @@ def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str) -> MpcV2ReidData | No
     shared key yet, the freshest bucket entry for this entity (or group)
     still seeds the prior until a fit is adopted under the shared key.
     """
-    result = self.state_mgr.get_mpc_v2_reid(reid_key)
+    state_mgr = self.state_mgr
+    if state_mgr is None:
+        return None
+    result = state_mgr.get_mpc_v2_reid(reid_key)
     if result is not None:
         return result
     uid_entity = mpc_key.rsplit(":", 1)[0]
     candidates = [
         data
-        for key, data in self.state_mgr.state.mpc_v2_reid.items()
+        for key, data in state_mgr.state.mpc_v2_reid.items()
         if key.rsplit(":", 1)[0] == uid_entity
     ]
     if not candidates:
@@ -543,7 +548,7 @@ def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str) -> MpcV2ReidData | No
 
 
 def _record_mpc_v2_reid_sample(
-    self,
+    self: BetterThermostat,
     reid_key: str,
     *,
     applied_valve_pct: float | None,
@@ -569,10 +574,13 @@ def _record_mpc_v2_reid_sample(
     """
     if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
         return
-    try:
-        t_room = float(self.room_temperature)
-    except TypeError, ValueError:
+    state_mgr = self.state_mgr
+    if state_mgr is None:
         return
+    room_temperature = self.room_temperature
+    if room_temperature is None:
+        return
+    t_room = float(room_temperature)
     if applied_valve_pct is None:
         # A current MPC proposal is not evidence of a physical valve input:
         # the write can still be deferred, clamped, or fail.
@@ -581,7 +589,7 @@ def _record_mpc_v2_reid_sample(
     if not math.isfinite(u_frac):
         return
     u_frac = max(0.0, min(1.0, u_frac))
-    runtime = self.state_mgr.get_mpc_v2_reid_runtime(reid_key)
+    runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
     runtime.buffer.append(
         ReidSample(
             t_s=self.clock.monotonic(),
@@ -616,7 +624,9 @@ def _confirmed_valve_pct(trv_state: Trv | None) -> float | None:
     return None
 
 
-def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) -> None:
+def _maybe_start_mpc_v2_reid_fit(
+    self: BetterThermostat, reid_key: str, v2_params: MpcV2Params
+) -> None:
     """Kick off an offline re-identification fit in the executor when due.
 
     At most one attempt per key per ``_MPC_V2_REID_INTERVAL_S``, only once
@@ -631,6 +641,8 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
     if hass is None:
         return
     state_mgr = self.state_mgr
+    if state_mgr is None:
+        return
     runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
     # Monotonic for the cadence gate and buffer timing (immune to wall-clock
     # jumps); a separate wall-clock stamp records *when* an accepted fit
@@ -723,7 +735,9 @@ def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) ->
     future.add_done_callback(_on_fit_done)
 
 
-def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, bool]:
+def _compute_mpc_v2_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[MpcV2Output | None, bool]:
     """Run the MPC v2 (QP + Kalman) balance algorithm.
 
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
@@ -1224,7 +1238,7 @@ def _balance_calibrator(
     return calibrator
 
 
-def calculate_calibration_local(self, entity_id: str) -> float | None:
+def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float | None:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
     This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
@@ -1245,7 +1259,7 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
     _context = "_calculate_calibration_local()"
 
     def _convert_to_float(value: str | int | float | None) -> float | None:
-        return convert_to_float(value, self.name, _context)
+        return convert_to_float(value, self.device_name, _context)
 
     _calibration_mode = normalize_calibration_mode(
         self.real_trvs[entity_id].advanced.get(
@@ -1264,7 +1278,7 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
 
     _cur_target_temp = self.heat_target_temperature
 
-    if traits.uses_tolerance_band:
+    if traits.uses_tolerance_band and _cur_target_temp is not None:
         # Add tolerance check – use asymmetric band [target - tol, target]
         # so the TRV stops receiving a heating-promoting calibration once
         # the room reaches the set temperature (not target + tolerance).
@@ -1310,8 +1324,6 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
         return None
 
     _cur_external_temp = float(_cur_external_temp)
-    if traits.needs_target:
-        _cur_target_temp = float(_cur_target_temp)
     _cur_trv_temp_f = float(_cur_trv_temp_f)
     _current_trv_calibration = float(_current_trv_calibration)
     _calibration_step = float(_calibration_step)
@@ -1329,7 +1341,7 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
         _percent, _use_valve = _calibrator.cached()
         if _use_valve:
             _new_trv_calibration = _current_trv_calibration
-        elif _percent is not None:
+        elif _percent is not None and _cur_target_temp is not None:
             _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
             if _max_temp is not None:
                 _valve_fraction = max(0.0, min(1.0, _percent / 100.0))
@@ -1396,7 +1408,7 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
 
         # Overheating protection only ever closes the valve: the term counts
         # from heating target + tolerance and is zero below that line.
-        if _overheating_protection is True:
+        if _overheating_protection is True and _cur_target_temp is not None:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
                     _new_trv_calibration += (
@@ -1455,7 +1467,9 @@ def calculate_calibration_local(self, entity_id: str) -> float | None:
     return _new_trv_calibration
 
 
-def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
+def calculate_calibration_setpoint(
+    self: BetterThermostat, entity_id: str
+) -> float | None:
     """Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
 
     This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
@@ -1476,7 +1490,7 @@ def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
     _context = "_calculate_calibration_setpoint()"
 
     def _convert_to_float(value: str | int | float | None) -> float | None:
-        return convert_to_float(value, self.name, _context)
+        return convert_to_float(value, self.device_name, _context)
 
     _calibration_mode = normalize_calibration_mode(
         self.real_trvs[entity_id].advanced.get(
