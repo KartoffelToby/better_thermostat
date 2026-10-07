@@ -8,6 +8,14 @@ import logging
 from typing import Any, Literal, Protocol, TypedDict
 
 from custom_components.better_thermostat.utils.const import (
+    ATTR_MPC_V2_DISTURBANCE,
+    ATTR_MPC_V2_GROUP_VALVE,
+    ATTR_MPC_V2_REID_TAU_ROOM,
+    ATTR_MPC_V2_TAU_ROOM,
+    ATTR_PID_DT,
+    ATTR_PID_ERROR,
+    ATTR_PID_MEASUREMENT_FILTERED,
+    ATTR_PID_MEASUREMENT_SLOPE,
     ATTR_STATE_HEAT_LOSS_STATS,
     ATTR_STATE_TEMPERATURE_SLOPE,
 )
@@ -206,7 +214,7 @@ type PIDScalarKey = Literal[
 
 # (PIDDebugInfo key, output key, decimals).
 _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
-    ("e_K", "pid_e_K", 4),
+    ("e_K", ATTR_PID_ERROR, 4),
     ("p", "pid_P", 4),
     ("i", "pid_I", 4),
     ("d", "pid_D", 4),
@@ -214,8 +222,8 @@ _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
     ("kp", "pid_kp", 6),
     ("ki", "pid_ki", 6),
     ("kd", "pid_kd", 6),
-    ("meas_smooth_C", "pid_meas_smooth_C", 3),
-    ("dt_s", "pid_dt_s", 3),
+    ("meas_smooth_C", ATTR_PID_MEASUREMENT_FILTERED, 3),
+    ("dt_s", ATTR_PID_DT, 3),
 )
 
 
@@ -261,7 +269,7 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
 
     # d_meas_per_s is K/s; expose as K/min for readability
     if (d_per_s := _to_float(pid.get("d_meas_per_s"))) is not None:
-        out["pid_d_meas_K_per_min"] = round(d_per_s * 60.0, 4)
+        out[ATTR_PID_MEASUREMENT_SLOPE] = round(d_per_s * 60.0, 4)
 
     return out
 
@@ -270,11 +278,11 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
 _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
     ("T_room_hat", "mpc_v2_T_room_hat", 3),
     ("T_rad_hat", "mpc_v2_T_rad_hat", 3),
-    ("D_hat_K_per_min", "mpc_v2_D_hat_K_per_min", 4),
-    ("tau_room_min", "mpc_v2_tau_room_min", 1),
+    ("D_hat_K_per_min", ATTR_MPC_V2_DISTURBANCE, 4),
+    ("tau_room_min", ATTR_MPC_V2_TAU_ROOM, 1),
     ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
-    ("group_valve_pct", "mpc_v2_group_valve_pct", 1),
-    ("reid_tau_room", "mpc_v2_reid_tau_room", 1),
+    ("group_valve_pct", ATTR_MPC_V2_GROUP_VALVE, 1),
+    ("reid_tau_room", ATTR_MPC_V2_REID_TAU_ROOM, 1),
     ("reid_gain", "mpc_v2_reid_gain", 2),
 )
 
@@ -327,7 +335,7 @@ TELEMETRY_ATTRIBUTES: frozenset[str] = frozenset(
         "heating_power_norm",
         ATTR_STATE_TEMPERATURE_SLOPE,
         "calibration_balance",
-        "pid_d_meas_K_per_min",
+        ATTR_PID_MEASUREMENT_SLOPE,
         *(dst_key for _, dst_key, _ in _PID_SCALAR_FIELDS),
         *(dst_key for _, dst_key, _ in _MPC_V2_FIELDS),
     }

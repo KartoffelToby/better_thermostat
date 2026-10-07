@@ -30,7 +30,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 from custom_components.better_thermostat.events.temperature import (
     _commit_pending_after,
     _commit_temperature_update,
-    _update_external_temp_ema,
+    _update_room_temperature_ema,
     temperature_filter_lock,
     trigger_temperature_change,
 )
@@ -63,9 +63,9 @@ def mock_bt():
     bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
 
     # EMA state
-    bt.external_temp_ema_tau_s = 300.0
-    bt._external_temp_ema_ts = None
-    bt.external_temp_ema = None
+    bt.room_temperature_ema_tau_seconds = 300.0
+    bt._room_temperature_ema_monotonic = None
+    bt.room_temperature_ema = None
     bt.room_temperature_filtered = None
 
     # Accumulation state
@@ -120,14 +120,14 @@ async def _commit_in_turn(bt, new_temp):
 
 
 class TestUpdateExternalTempEma:
-    """Tests for _update_external_temp_ema()."""
+    """Tests for _update_room_temperature_ema()."""
 
     def test_first_call_returns_input(self, mock_bt):
         """Return the input value when no previous EMA exists."""
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        result = _update_external_temp_ema(mock_bt, 21.5)
+        result = _update_room_temperature_ema(mock_bt, 21.5)
 
         assert result == 21.5
 
@@ -135,42 +135,42 @@ class TestUpdateExternalTempEma:
         """Blend old and new values when a previous EMA exists."""
         from time import monotonic
 
-        mock_bt._external_temp_ema_ts = monotonic() - 60.0
-        mock_bt.external_temp_ema = 20.0
+        mock_bt._room_temperature_ema_monotonic = monotonic() - 60.0
+        mock_bt.room_temperature_ema = 20.0
 
-        result = _update_external_temp_ema(mock_bt, 22.0)
+        result = _update_room_temperature_ema(mock_bt, 22.0)
 
         assert 20.0 < result < 22.0
 
     def test_zero_tau_defaults_to_300(self, mock_bt):
         """Fall back to tau=300 when tau_s is zero."""
-        mock_bt.external_temp_ema_tau_s = 0.0
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        mock_bt.room_temperature_ema_tau_seconds = 0.0
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        result = _update_external_temp_ema(mock_bt, 21.0)
+        result = _update_room_temperature_ema(mock_bt, 21.0)
 
         assert result == 21.0
 
     def test_none_tau_defaults_to_300(self, mock_bt):
         """Fall back to tau=300 when tau_s is None."""
-        mock_bt.external_temp_ema_tau_s = None
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        mock_bt.room_temperature_ema_tau_seconds = None
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        result = _update_external_temp_ema(mock_bt, 21.0)
+        result = _update_room_temperature_ema(mock_bt, 21.0)
 
         assert result == 21.0
 
     def test_updates_all_state_attributes(self, mock_bt):
-        """Set _external_temp_ema_ts, external_temp_ema, and room_temperature_filtered."""
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        """Set _room_temperature_ema_monotonic, room_temperature_ema, and room_temperature_filtered."""
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        _update_external_temp_ema(mock_bt, 21.5)
+        _update_room_temperature_ema(mock_bt, 21.5)
 
-        assert mock_bt._external_temp_ema_ts is not None
-        assert mock_bt.external_temp_ema == 21.5
+        assert mock_bt._room_temperature_ema_monotonic is not None
+        assert mock_bt.room_temperature_ema == 21.5
         assert mock_bt.room_temperature_filtered == 21.5
 
 
@@ -413,8 +413,8 @@ class TestReturningRoomSensor:
             KernelState(), control_mode=ControlModeState(mode=rung)
         )
         mock_bt.room_temperature = 18.0
-        mock_bt.external_temp_ema = 18.0
-        mock_bt._external_temp_ema_ts = monotonic() - 60.0
+        mock_bt.room_temperature_ema = 18.0
+        mock_bt._room_temperature_ema_monotonic = monotonic() - 60.0
         event = MagicMock()
         event.data = {
             "old_state": previous_state,
@@ -956,7 +956,7 @@ class TestEdgeCasesAndRobustness:
         """EMA calculation failure should not prevent temperature update."""
         mock_bt.room_temperature = None
         # Force EMA to fail by making tau_s non-numeric
-        mock_bt.external_temp_ema_tau_s = "invalid"
+        mock_bt.room_temperature_ema_tau_seconds = "invalid"
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
