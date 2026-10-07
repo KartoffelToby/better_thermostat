@@ -231,6 +231,7 @@ from .utils.restore import (
     clamp_heat_loss,
     clamp_heating_power,
     mean_trv_target,
+    restore_cooling_target,
     restore_target_temperature,
     saved_cooling_target,
     saved_heating_target,
@@ -238,6 +239,7 @@ from .utils.restore import (
 from .utils.retry import command_cancellation_as_disconnect
 from .utils.scheduler import request_control_cycle
 from .utils.state_manager import StateManager
+from .utils.stored_values import stored_float
 from .utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
@@ -424,7 +426,7 @@ def _room_sensor_missing(sensor_state: State | None) -> bool:
     )
 
 
-def _restored_attribute(old_state: State, name: str) -> Any:
+def _restored_attribute(old_state: State, name: str) -> object:
     """Return an attribute of a restored state under its current or deprecated name.
 
     A state 1.9 wrote carries only the name in `DEPRECATED_STATE_ATTRIBUTES`.
@@ -2226,7 +2228,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 )
             ) is not None:
                 try:
-                    _restored_ema = float(stored_ema)
+                    _restored_ema = stored_float(stored_ema)
                     self.room_temperature_ema = _restored_ema
                     self.room_temperature_filtered = round(_restored_ema, 2)
                     # Reset timestamp to now so the next delta is calculated from restart time
@@ -2247,7 +2249,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 )
             ) is not None:
                 try:
-                    _restored_slope = float(stored_slope)
+                    _restored_slope = stored_float(stored_slope)
                     self.temperature_slope = _restored_slope
                     _LOGGER.debug(
                         "better_thermostat %s: restored temperature_slope from state: %.4f",
@@ -2284,10 +2286,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             # still unknown from the cooler's own setpoint: a target the user
             # chose outranks the one the device happens to sit on.
             if self.cooler_entity_id is not None:
-                _restored_cool_target = convert_to_float_celsius(
+                _restored_cool_target = restore_cooling_target(
                     saved_cooling_target(old_state.attributes),
                     self.device_name,
-                    "startup()",
                     self.hass.config.units.temperature_unit,
                 )
                 if _restored_cool_target is not None:

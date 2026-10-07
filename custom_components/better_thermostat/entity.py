@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 import logging
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, override
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
@@ -44,7 +44,7 @@ LAST_AVAILABLE_STATE = "last_available_state"
 
 
 def last_available_state(
-    saved: State | None, extra: Mapping[str, Any] | None
+    saved: State | None, extra: Mapping[str, object] | None
 ) -> State | None:
     """Return the state a restart restores from ``saved`` and its extra data.
 
@@ -228,7 +228,7 @@ class RestoresLastAvailableState(RestoreEntity):
         if published is not None and published.state != STATE_UNAVAILABLE:
             self._last_available_state = published
 
-    def _extra_restore_data(self) -> dict[str, Any]:
+    def _extra_restore_data(self) -> dict[str, object]:
         """Return what is saved next to the state; an entity may add to it."""
         if self._last_available_state is None:
             return {}

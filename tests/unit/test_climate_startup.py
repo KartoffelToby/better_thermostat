@@ -3888,3 +3888,91 @@ async def _report_from(bt, entity_id, order, *, in_maintenance=False):
         ),
     ):
         await BetterThermostat._trigger_trv_change(bt, event)
+
+
+_NON_SCALAR_ATTRIBUTES = [
+    pytest.param([20.5], id="list"),
+    pytest.param({"value": 20.5}, id="dict"),
+]
+
+
+class TestRestoreStateFromNonScalarAttributes:
+    """A restored attribute holding a list or an object restores nothing."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raw", _NON_SCALAR_ATTRIBUTES)
+    async def test_filter_state_is_left_unset(self, bt, raw):
+        """A non-scalar filtered reading or slope is skipped."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            "room_temperature_filtered": raw,
+            "temperature_slope_kelvin_per_min": raw,
+            ATTR_TEMPERATURE: 21.0,
+        }
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {}
+        bt.room_temperature_ema = None
+        bt.temperature_slope = None
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.room_temperature_ema is None
+        assert bt.room_temperature_filtered is None
+        assert bt.temperature_slope is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raw", _NON_SCALAR_ATTRIBUTES)
+    async def test_heating_target_falls_back_to_the_trv_mean(self, bt, raw):
+        """A non-scalar saved heating target takes the TRV mean instead."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TEMPERATURE: raw}
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {}
+
+        states = [
+            _make_trv_state(attrs={ATTR_TEMPERATURE: 20.0}),
+            _make_trv_state(attrs={ATTR_TEMPERATURE: 24.0}),
+        ]
+        await BetterThermostat._restore_state(bt, states)
+
+        assert bt.heat_target_temperature == 22.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raw", _NON_SCALAR_ATTRIBUTES)
+    async def test_cooling_target_stays_unknown(self, bt, raw):
+        """A non-scalar saved cooling target leaves the cooling target unknown."""
+        bt.cooler_entity_id = COOLER_ID
+        bt.bt_target_temperature_step = 0.5
+        bt._preset_cool_temperature = None
+        bt.preset_mgr.temperatures = {}
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {ATTR_TARGET_TEMP_LOW: 20.0, ATTR_TARGET_TEMP_HIGH: raw}
+        bt._saved_state = old
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.heat_target_temperature == 20.0
+        assert bt.cool_target_temperature is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("raw", _NON_SCALAR_ATTRIBUTES)
+    async def test_learned_rates_degrade(self, bt, raw):
+        """A non-scalar heating power takes the default; a heat loss is kept."""
+        old = MagicMock()
+        old.state = "heat"
+        old.attributes = {
+            ATTR_TEMPERATURE: 21.0,
+            ATTR_STATE_HEATING_POWER: raw,
+            ATTR_STATE_HEAT_LOSS: raw,
+        }
+        bt._saved_state = old
+        bt.preset_mgr.temperatures = {}
+        bt.heat_loss_rate = 0.01
+
+        await BetterThermostat._restore_state(bt, [_make_trv_state()])
+
+        assert bt.heating_power == 0.01
+        assert bt.heat_loss_rate == 0.01

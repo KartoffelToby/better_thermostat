@@ -287,7 +287,7 @@ class BetterThermostatChildLockSwitch(
         return False
 
     @override
-    def _extra_restore_data(self) -> dict[str, Any]:
+    def _extra_restore_data(self) -> dict[str, object]:
         """Record the configured option next to the switch state.
 
         A restore compares it with the option then configured; a difference
