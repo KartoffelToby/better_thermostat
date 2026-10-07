@@ -138,9 +138,9 @@ def bt():
     mock.bt_hvac_mode = None
     mock.room_temperature = None
     mock.room_temperature_filtered = None
-    mock.external_temp_ema = None
-    mock._external_temp_ema_ts = None
-    mock.external_temp_ema_tau_s = 300.0
+    mock.room_temperature_ema = None
+    mock._room_temperature_ema_monotonic = None
+    mock.room_temperature_ema_tau_seconds = 300.0
     mock.temp_slope = None
     mock.last_known_external_temp = None
     mock._current_humidity = None
@@ -1316,7 +1316,7 @@ class TestInitializeSensors:
         """The EMA starts from the room temperature."""
         sensor = _make_sensor_state("21.5")
         with patch(
-            "custom_components.better_thermostat.climate._update_external_temp_ema"
+            "custom_components.better_thermostat.climate._update_room_temperature_ema"
         ):
             BetterThermostat._initialize_sensors(bt, sensor)
         assert bt.last_known_external_temp is not None
@@ -1924,7 +1924,7 @@ class TestRestoreState:
         states = [_make_trv_state()]
         await BetterThermostat._restore_state(bt, states)
 
-        assert bt.external_temp_ema == 20.5
+        assert bt.room_temperature_ema == 20.5
         assert bt.room_temperature_filtered == 20.5
         assert bt.temp_slope == 0.0012
 
@@ -2557,10 +2557,7 @@ class _AdvancingClock:
 
 def _trv_refusing_every_write(attempts: list[str]):
     """A thermostat whose only TRV raises on every setpoint write."""
-    trv = MagicMock(spec=Trv)
-    trv.target_temp_step = 0.5
-    trv.min_temp = 5.0
-    trv.max_temp = 30.0
+    trv = Trv(entity_id=TRV_ID, target_temp_step=0.5, min_temp=5.0, max_temp=30.0)
 
     async def refuse(_self, entity_id, _temperature):
         """Record the attempt and fail it the way an unreachable TRV does."""

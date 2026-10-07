@@ -110,6 +110,14 @@ ATTR_STATE_HEATING_STATS: Final = "heating_stats"
 ATTR_STATE_ERRORS: Final = "errors"
 ATTR_STATE_BATTERIES: Final = "batteries"
 ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
+ATTR_PID_ERROR: Final = "pid_error_kelvin"
+ATTR_PID_MEASUREMENT_FILTERED: Final = "pid_measurement_filtered"
+ATTR_PID_MEASUREMENT_SLOPE: Final = "pid_measurement_slope_kelvin_per_min"
+ATTR_PID_DT: Final = "pid_dt_seconds"
+ATTR_MPC_V2_DISTURBANCE: Final = "mpc_v2_disturbance_kelvin_per_min"
+ATTR_MPC_V2_TAU_ROOM: Final = "mpc_v2_tau_room_minutes"
+ATTR_MPC_V2_GROUP_VALVE: Final = "mpc_v2_group_valve_percent"
+ATTR_MPC_V2_REID_TAU_ROOM: Final = "mpc_v2_reid_tau_room_minutes"
 
 # DEPRECATED, remove in 3.0: state attributes under the names 1.9 published,
 # keyed by the current name. The entity publishes each value under
@@ -122,6 +130,13 @@ DEPRECATED_STATE_ATTRIBUTES: Final[dict[str, str]] = {
     ATTR_STATE_PRESET_HEAT_TEMPERATURES: "bt_preset_heat_temperatures",
     ATTR_STATE_ROOM_TEMPERATURE_FILTERED: "external_temp_ema",
     ATTR_STATE_TEMPERATURE_SLOPE: "temp_slope_K_min",
+    ATTR_PID_ERROR: "pid_e_K",
+    ATTR_PID_MEASUREMENT_FILTERED: "pid_meas_smooth_C",
+    ATTR_PID_MEASUREMENT_SLOPE: "pid_d_meas_K_per_min",
+    ATTR_PID_DT: "pid_dt_s",
+    ATTR_MPC_V2_DISTURBANCE: "mpc_v2_D_hat_K_per_min",
+    ATTR_MPC_V2_TAU_ROOM: "mpc_v2_tau_room_min",
+    ATTR_MPC_V2_GROUP_VALVE: "mpc_v2_group_valve_pct",
 }
 
 SERVICE_RESET_HEATING_POWER: Final = "reset_heating_power"

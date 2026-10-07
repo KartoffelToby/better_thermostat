@@ -169,6 +169,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
         outdoor_sensor_entity_id=None,
         weather_entity_id=None,
         hass=None,
+        unique_id=None,
         state_mgr=_make_manager(),
         clock=FakeClock(monotonic_value=1_000_000.0),
         schedule_save_state=MagicMock(),

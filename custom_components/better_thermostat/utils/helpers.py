@@ -54,7 +54,10 @@ from custom_components.better_thermostat.utils.const import (
 if TYPE_CHECKING:
     from homeassistant.core import Event, EventStateChangedData
 
-    from custom_components.better_thermostat.adapters.types import AdapterProbeHost
+    from custom_components.better_thermostat.adapters.types import (
+        AdapterHost,
+        AdapterProbeHost,
+    )
     from custom_components.better_thermostat.climate import BetterThermostat
     from custom_components.better_thermostat.trv import Trv
 
@@ -165,7 +168,7 @@ def _report_disabled_sibling(
 
 
 def sibling_disabled_at_write(
-    self: BetterThermostat, trv_entity_id: str, sibling_entity_id: str, role: str
+    self: AdapterHost, trv_entity_id: str, sibling_entity_id: str, role: str
 ) -> bool:
     """Whether a helper entity adopted for a TRV is disabled right now.
 

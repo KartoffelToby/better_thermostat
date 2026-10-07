@@ -14,7 +14,7 @@ from custom_components.better_thermostat.core.clock import FakeClock
 from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
-_EMA = f"{_CLIMATE}._update_external_temp_ema"
+_EMA = f"{_CLIMATE}._update_room_temperature_ema"
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def bt():
     mock.device_name = "Test BT"
     mock.startup_running = False
     mock.last_known_external_temp = 20.0
-    mock.external_temp_ema = None
+    mock.room_temperature_ema = None
     mock._slope_periodic_last_ts = None
     mock.temp_slope = None
     mock.async_write_ha_state = MagicMock()
@@ -55,7 +55,7 @@ async def test_skips_without_last_known_temp(bt):
 @pytest.mark.asyncio
 async def test_updates_ema_and_writes_state_without_slope(bt):
     """First run (no previous EMA) updates the filter and writes state, no slope."""
-    bt.external_temp_ema = None
+    bt.room_temperature_ema = None
     bt._slope_periodic_last_ts = None
     bt.clock = FakeClock(monotonic_value=1000.0)
     with patch(_EMA, MagicMock(return_value=20.5)):
@@ -68,7 +68,7 @@ async def test_updates_ema_and_writes_state_without_slope(bt):
 @pytest.mark.asyncio
 async def test_computes_slope_from_ema_change(bt):
     """With a previous EMA and timestamp, the slope is (Δema / Δt_min)."""
-    bt.external_temp_ema = 20.0
+    bt.room_temperature_ema = 20.0
     bt._slope_periodic_last_ts = 1000.0  # 600 s before "now"
     bt.clock = FakeClock(monotonic_value=1600.0)
     with patch(_EMA, MagicMock(return_value=21.0)):
@@ -81,7 +81,7 @@ async def test_computes_slope_from_ema_change(bt):
 @pytest.mark.asyncio
 async def test_tiny_interval_skips_slope(bt):
     """A sub-0.1-minute interval does not produce a slope (avoids noise/div issues)."""
-    bt.external_temp_ema = 20.0
+    bt.room_temperature_ema = 20.0
     bt._slope_periodic_last_ts = 1599.0  # 1 s before "now"
     bt.clock = FakeClock(monotonic_value=1600.0)
     with patch(_EMA, MagicMock(return_value=21.0)):
@@ -93,7 +93,7 @@ async def test_tiny_interval_skips_slope(bt):
 @pytest.mark.asyncio
 async def test_ema_error_is_caught(bt):
     """An error from the EMA update is swallowed (tick must not crash)."""
-    bt.external_temp_ema = 20.0
+    bt.room_temperature_ema = 20.0
     bt._slope_periodic_last_ts = 1000.0
     bt.clock = FakeClock(monotonic_value=1600.0)
     with patch(_EMA, MagicMock(side_effect=RuntimeError("boom"))):

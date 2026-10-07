@@ -179,10 +179,6 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 # held by tests/gates/test_type_strictness_exemptions.py.
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/delegate.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/calibration.py"
 errors = { implicit-any-parameter = false }
 
@@ -196,14 +192,6 @@ errors = { bad-override-mutable-attribute = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/utils/helpers.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/scheduler.py"
-errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/snapshot.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]

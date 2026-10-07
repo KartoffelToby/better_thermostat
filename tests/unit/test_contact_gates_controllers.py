@@ -124,7 +124,7 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
         outdoor_sensor_entity_id=None,
         weather_entity_id=None,
         hass=None,
-        _unique_id="bt_contact_gate",
+        unique_id="bt_contact_gate",
         device_id="bt_contact_gate_device",
         entry_id="bt_contact_gate_entry",
         state_mgr=_InMemoryStateManager(),
