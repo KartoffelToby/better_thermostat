@@ -3,9 +3,8 @@
 Swapping the configured thermostat of an existing entry to an entity without a
 device-registry device (a ``generic_thermostat``, for example) sends the
 options flow down the "new TRV" branch, where the model has to be resolved from
-scratch. Model resolution falls back to the flow's own ``model`` attribute, so
-the options flow must carry one and ``get_device_model`` must tolerate callers
-that do not.
+scratch. Neither flow carries a ``model`` attribute, so ``get_device_model``
+must treat that fallback as optional.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -141,12 +140,6 @@ async def test_config_flow_swap_to_generic_thermostat_resolves_generic_model():
     assert result["type"] == "form"
     assert result["step_id"] == "advanced"
     assert flow.trv_bundle[0]["model"] == "generic"
-
-
-def test_options_flow_handler_starts_without_a_model():
-    """The options flow exposes the same initial model attribute as the config flow."""
-    assert OptionsFlowHandler(_make_config_entry()).model is None
-    assert ConfigFlow().model is None
 
 
 @pytest.mark.asyncio
