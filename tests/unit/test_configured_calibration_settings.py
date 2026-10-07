@@ -1,9 +1,21 @@
-"""One reading of a TRV's calibration settings per key."""
+"""One reading of a TRV's calibration settings, shared by every reader.
+
+The calibration mode and the calibration type are read in the climate
+entity, the calibration, the control cycle, the outbound conversion and the
+number, switch and sensor platforms. Each one reads them through
+``configured_calibration_mode`` and ``configured_calibration_output``, so a
+stored value means the same thing wherever it is read.
+"""
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
+from homeassistant.components.climate import HVACMode
 import pytest
 
+from custom_components.better_thermostat.events.trv import convert_outbound_states
+from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -15,6 +27,7 @@ from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
     configured_calibration_output,
 )
+from tests.factories import ThermostatStandIn
 
 _MISSING = object()
 
@@ -98,3 +111,75 @@ def test_the_calibration_type_reading(stored, expected):
 def test_no_advanced_settings_select_no_calibration_type():
     """A TRV record without advanced settings selects no calibration type."""
     assert configured_calibration_output(None) is None
+
+
+def _outbound_bt(advanced: dict[str, object]) -> ThermostatStandIn:
+    """A thermostat whose one TRV carries ``advanced``."""
+    bt = ThermostatStandIn()
+    bt.hass = MagicMock()
+    bt.device_name = "Test Thermostat"
+    bt.bt_hvac_mode = HVACMode.HEAT
+    bt.heat_target_temperature = 21.0
+    bt.room_temperature = 20.0
+    bt.window_open = False
+    bt.real_trvs = {
+        "climate.trv": Trv.from_legacy_dict(
+            "climate.trv",
+            {
+                "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],
+                "min_temp": 5.0,
+                "max_temp": 30.0,
+                "current_temperature": 20.0,
+                "temperature": 21.0,
+                "advanced": advanced,
+            },
+        )
+    }
+    return bt
+
+
+@pytest.mark.parametrize(
+    "stored_mode", ["no_calibration", "No_Calibration", " NO_CALIBRATION"]
+)
+def test_no_calibration_sends_the_room_target_however_it_is_spelled(stored_mode):
+    """Every spelling the calibration reads as no calibration sends the plain target.
+
+    The calibration and the control cycle match the mode regardless of case,
+    so the setpoint written to the TRV has to follow the same reading; a
+    calibrated setpoint next to a calibration that runs no correction would
+    write a value nothing computed for it.
+    """
+    bt = _outbound_bt(
+        {
+            CONF_CALIBRATION: CalibrationOutput.TARGET_TEMP_BASED.value,
+            CONF_CALIBRATION_MODE: stored_mode,
+        }
+    )
+
+    with patch(
+        "custom_components.better_thermostat.events.trv.calculate_calibration_setpoint",
+        return_value=25.0,
+    ):
+        payload = convert_outbound_states(bt, "climate.trv", HVACMode.HEAT)
+
+    assert payload is not None
+    assert payload["temperature"] == 21.0
+
+
+@pytest.mark.parametrize("stored_type", [_MISSING, None, "a type from another version"])
+def test_no_known_calibration_type_sends_the_room_target(stored_type):
+    """A setting that selects no calibration type writes the plain room target."""
+    bt = _outbound_bt(
+        _advanced(CONF_CALIBRATION, stored_type)
+        | {CONF_CALIBRATION_MODE: CalibrationMode.PID_CALIBRATION.value}
+    )
+
+    with patch(
+        "custom_components.better_thermostat.events.trv.calculate_calibration_setpoint",
+        return_value=25.0,
+    ):
+        payload = convert_outbound_states(bt, "climate.trv", HVACMode.HEAT)
+
+    assert payload is not None
+    assert payload["temperature"] == 21.0
+    assert payload.get("local_temperature_calibration") is None

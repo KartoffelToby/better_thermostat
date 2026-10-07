@@ -30,6 +30,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION,
     CONF_HOMEMATICIP,
     CalibrationMode,
     CalibrationOutput,
@@ -38,6 +39,8 @@ from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
     adopt_reported_hvac_modes,
     attr_to_celsius,
+    configured_calibration_mode,
+    configured_calibration_output,
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_report,
@@ -948,19 +951,10 @@ def convert_outbound_states(
     advanced = self.real_trvs[entity_id].advanced or {}
 
     try:
-        _calibration_output = advanced.get("calibration")
-        _calibration_mode = advanced.get("calibration_mode")
+        _calibration_output = configured_calibration_output(advanced)
+        _calibration_mode = configured_calibration_mode(advanced)
 
-        if _calibration_output is None:
-            _LOGGER.warning(
-                "better_thermostat %s: no calibration type found in device config, talking to the TRV using fallback mode",
-                self.device_name,
-            )
-            # Fallback: do not apply local calibration, only set the target temperature
-            _new_heating_setpoint = self.heat_target_temperature
-            _new_local_calibration = None
-
-        elif _calibration_output == CalibrationOutput.LOCAL_BASED:
+        if _calibration_output == CalibrationOutput.LOCAL_BASED:
             _new_local_calibration = calculate_calibration_local(self, entity_id)
             _new_heating_setpoint = self.heat_target_temperature
 
@@ -975,11 +969,13 @@ def convert_outbound_states(
             _new_local_calibration = None
 
         else:
-            # Unknown calibration type - use fallback
+            # Fallback: do not apply local calibration, only set the target
+            # temperature.
             _LOGGER.warning(
-                "better_thermostat %s: unknown calibration type %s, using fallback mode",
+                "better_thermostat %s: no known calibration type in device "
+                "config (%s), talking to the TRV using fallback mode",
                 self.device_name,
-                _calibration_output,
+                advanced.get(CONF_CALIBRATION),
             )
             _new_heating_setpoint = self.heat_target_temperature
             _new_local_calibration = None

@@ -65,7 +65,6 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
-    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -74,6 +73,8 @@ from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
     attr_to_celsius,
     clamp_valve_percent,
+    configured_calibration_mode,
+    configured_calibration_output,
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_device,
@@ -393,8 +394,8 @@ def _get_valve_control(
     self: BetterThermostat,
     snapshot: WorldSnapshot,
     entity_id: str,
-    calibration_mode: CalibrationMode | str,
-    calibration_output: CalibrationOutput | str,
+    calibration_mode: CalibrationMode | None,
+    calibration_output: CalibrationOutput | None,
 ) -> tuple[ValveCommand | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
@@ -426,14 +427,16 @@ def _get_valve_control(
         and cal_bal.get("apply_valve")
         and cal_bal.get("valve_percent") is not None
     ):
-        source_map: dict[CalibrationMode | str, str] = {
+        source_map: dict[CalibrationMode, str] = {
             CalibrationMode.MPC_CALIBRATION: "mpc_calibration",
             CalibrationMode.MPC_V2_CALIBRATION: "mpc_v2_calibration",
             CalibrationMode.TPI_CALIBRATION: "tpi_calibration",
             CalibrationMode.PID_CALIBRATION: "pid_calibration",
             CalibrationMode.HEATING_POWER_CALIBRATION: "heating_power_calibration",
         }
-        source = source_map.get(calibration_mode)
+        source = (
+            source_map.get(calibration_mode) if calibration_mode is not None else None
+        )
         if source:
             return cal_bal, source
 
@@ -2109,12 +2112,9 @@ async def control_trv(
             _temperature = _remapped_states.get("temperature", None)
             _calibration = _remapped_states.get("local_temperature_calibration", None)
 
-            _calibration_mode = self.real_trvs[entity_id].advanced.get(
-                "calibration_mode", DEFAULT_CALIBRATION_MODE
-            )
-            _calibration_output = self.real_trvs[entity_id].advanced.get(
-                "calibration", CalibrationOutput.TARGET_TEMP_BASED
-            )
+            _advanced = self.real_trvs[entity_id].advanced
+            _calibration_mode = configured_calibration_mode(_advanced)
+            _calibration_output = configured_calibration_output(_advanced)
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (

@@ -57,6 +57,7 @@ from custom_components.better_thermostat.sensor import (
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION_MODE,
+    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
@@ -758,8 +759,8 @@ class TestGetActiveAlgorithms:
             CalibrationMode.PID_CALIBRATION,
         }
 
-    def test_none_calibration_mode_skipped(self):
-        """None calibration mode skipped."""
+    def test_none_calibration_mode_reports_the_default_mode(self):
+        """A stored ``None`` runs the default mode, so that mode is active."""
         bt = _make_bt_climate(
             real_trvs={
                 "trv_1": Trv.from_legacy_dict(
@@ -768,13 +769,25 @@ class TestGetActiveAlgorithms:
             }
         )
         result = _get_active_algorithms(bt)
-        assert result == set()
+        assert result == {DEFAULT_CALIBRATION_MODE}
 
-    def test_missing_advanced_key_skipped(self):
-        """Missing advanced key skipped."""
+    def test_missing_advanced_key_reports_the_default_mode(self):
+        """A TRV without advanced settings runs the default mode."""
         bt = _make_bt_climate(real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {})})
         result = _get_active_algorithms(bt)
-        assert result == set()
+        assert result == {DEFAULT_CALIBRATION_MODE}
+
+    def test_a_mis_cased_mode_is_the_mode_the_calibration_runs(self):
+        """A mis-cased mode name brings the sensors of the mode the calibration runs."""
+        bt = _make_bt_climate(
+            real_trvs={
+                "trv_1": Trv.from_legacy_dict(
+                    "trv_1", {"advanced": {CONF_CALIBRATION_MODE: "MPC_Calibration"}}
+                )
+            }
+        )
+        result = _get_active_algorithms(bt)
+        assert result == {CalibrationMode.MPC_CALIBRATION}
 
     def test_real_trvs_none_returns_empty_and_returns_set(self):
         """Real trvs none returns empty and returns set."""
@@ -1752,12 +1765,12 @@ class TestEdgeCasesAndPotentialBugs:
 
     @pytest.mark.asyncio
     async def test_get_active_algorithms_with_empty_advanced(self):
-        """TRV with empty advanced dict should return no algorithms."""
+        """A TRV with empty advanced settings runs the default mode."""
         bt = _make_bt_climate(
             real_trvs={"trv_1": Trv.from_legacy_dict("trv_1", {"advanced": {}})}
         )
         result = _get_active_algorithms(bt)
-        assert result == set()
+        assert result == {DEFAULT_CALIBRATION_MODE}
 
     def test_external_temp_sensor_with_nan(self):
         """NaN as temperature value should be handled."""

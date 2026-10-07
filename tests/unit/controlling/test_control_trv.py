@@ -1203,6 +1203,59 @@ class TestControlTrvAvailablePath:
         assert mock_self.real_trvs["climate.trv1"].system_mode_received is True
 
     @pytest.mark.asyncio
+    async def test_a_mis_cased_controller_mode_still_writes_its_valve(self):
+        """The valve write reads the mode the way the calibration does.
+
+        The calibration matches ``MPC_Calibration`` as MPC and computes the
+        valve balance for it, so the cycle writes that balance to the valve.
+        """
+        mock_self = _make_mock_self(
+            trv_state=HVACMode.HEAT,
+            trv_attrs={"temperature": 20.0},
+            real_trvs={
+                "climate.trv1": _with_valve_channel(
+                    _default_trv_config(
+                        system_mode_received=True,
+                        advanced={
+                            "calibration_mode": "MPC_Calibration",
+                            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
+                            "no_off_system_mode": False,
+                        },
+                    )
+                )
+            },
+        )
+        mock_self.real_trvs["climate.trv1"].calibration_balance = {
+            "apply_valve": True,
+            "valve_percent": 80,
+        }
+
+        with (
+            patch(_PATCHES["convert_outbound_states"]) as mock_convert,
+            patch(
+                _PATCHES["set_valve"], autospec=True, return_value=True
+            ) as mock_set_valve,
+            patch(
+                _PATCHES["override_set_hvac_mode"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_hvac_mode"], autospec=True),
+            patch(
+                _PATCHES["override_set_temperature"], autospec=True, return_value=False
+            ),
+            patch(_PATCHES["set_temperature"], autospec=True),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            mock_convert.return_value = {
+                "temperature": 20.0,
+                "system_mode": HVACMode.HEAT,
+            }
+
+            await control_trv(mock_self, "climate.trv1")
+
+        mock_set_valve.assert_awaited_once()
+        assert mock_set_valve.call_args[0][2] == 80
+
+    @pytest.mark.asyncio
     async def test_lock_usage(self):
         """Test that _temp_lock is acquired during TRV control.
 

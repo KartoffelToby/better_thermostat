@@ -41,14 +41,11 @@ from .utils.calibration.pid import (
     DEFAULT_PID_KP,
     build_pid_key,
 )
-from .utils.const import (
-    CONF_CALIBRATION,
-    CONF_CALIBRATION_MODE,
-    CalibrationMode,
-    CalibrationOutput,
-)
+from .utils.const import CalibrationMode, CalibrationOutput
 from .utils.helpers import (
     async_normalize_bt_entity_ids,
+    configured_calibration_mode,
+    configured_calibration_output,
     convert_to_float_celsius,
     get_cool_temperature_range,
     get_heat_temperature_range,
@@ -148,22 +145,9 @@ async def async_setup_entry(
         if not trv_entity_id:
             continue
 
-        advanced = trv_config.get("advanced", {})
-        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-        calibration_output = advanced.get(CONF_CALIBRATION)
-
-        # Normalize string values to CalibrationMode enum
-        try:
-            if isinstance(calibration_mode, str):
-                calibration_mode = CalibrationMode(calibration_mode)
-        except ValueError, TypeError:
-            calibration_mode = None
-
-        try:
-            if isinstance(calibration_output, str):
-                calibration_output = CalibrationOutput(calibration_output)
-        except ValueError, TypeError:
-            calibration_output = None
+        advanced = trv_config.get("advanced")
+        calibration_mode = configured_calibration_mode(advanced)
+        calibration_output = configured_calibration_output(advanced)
 
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
             for param in ["kp", "ki", "kd"]:

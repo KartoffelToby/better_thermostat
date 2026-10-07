@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
@@ -13,7 +13,7 @@ import json
 import logging
 import math
 from random import randint
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, Any, Final, override
 
 # Home Assistant imports
 from homeassistant.components.climate import ClimateEntity
@@ -192,6 +192,8 @@ from .utils.helpers import (
     async_fire_logbook_entry,
     async_normalize_bt_entity_ids,
     attr_to_celsius,
+    configured_calibration_mode,
+    configured_calibration_output,
     convert_to_float,
     convert_to_float_celsius,
     device_setpoint_step,
@@ -270,6 +272,13 @@ from .utils.watcher import (
 from .utils.weather import check_ambient_air_temperature, check_weather
 
 _LOGGER = logging.getLogger(__name__)
+
+# The code each calibration type is stored under on the TRV record.
+_CALIBRATION_TYPE_CODES: Final[Mapping[CalibrationOutput, int]] = {
+    CalibrationOutput.TARGET_TEMP_BASED: 0,
+    CalibrationOutput.DIRECT_VALVE_BASED: 2,
+    CalibrationOutput.LOCAL_BASED: 3,
+}
 
 # Every entity is pushed and none polls; actions are not limited per platform.
 PARALLEL_UPDATES = 0
@@ -1262,15 +1271,14 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         ]
 
         for trv in self.all_trvs:
-            _calibration = 1
             _advanced = trv.get("advanced", {})
-            _calibration_output = _advanced.get("calibration")
-            if _calibration_output == CalibrationOutput.TARGET_TEMP_BASED:
-                _calibration = 0
-            if _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
-                _calibration = 2
-            if _calibration_output == CalibrationOutput.LOCAL_BASED:
-                _calibration = 3
+            _calibration_output = configured_calibration_output(_advanced)
+            # 1 stands for a configuration that selects no calibration type.
+            _calibration = (
+                1
+                if _calibration_output is None
+                else _CALIBRATION_TYPE_CODES[_calibration_output]
+            )
             _adapter = await load_adapter(self, trv["integration"], trv["trv"])
             # Resolve/refresh model dynamically at startup to ensure correct quirks
             resolved_model = trv.get("model")
@@ -3066,17 +3074,15 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                     if balance_mode in balance_modes:
                         active_balance_modes.add(balance_mode)
 
-                calibration_value = advanced.get("calibration_mode", "")
-                if isinstance(calibration_value, str):
-                    calibration_mode = calibration_value.lower()
-                    if calibration_mode in (
-                        CalibrationMode.DEFAULT.value,
-                        CalibrationMode.MPC_CALIBRATION.value,
-                        CalibrationMode.MPC_V2_CALIBRATION.value,
-                        CalibrationMode.TPI_CALIBRATION.value,
-                        CalibrationMode.PID_CALIBRATION.value,
-                    ):
-                        active_calibration_modes.add(calibration_mode)
+                calibration_mode = configured_calibration_mode(advanced)
+                if calibration_mode is not None and calibration_mode in (
+                    CalibrationMode.DEFAULT,
+                    CalibrationMode.MPC_CALIBRATION,
+                    CalibrationMode.MPC_V2_CALIBRATION,
+                    CalibrationMode.TPI_CALIBRATION,
+                    CalibrationMode.PID_CALIBRATION,
+                ):
+                    active_calibration_modes.add(calibration_mode.value)
         except Exception:
             # The ladder tick below does not depend on these modes; a failed
             # read costs only the recompute tick.

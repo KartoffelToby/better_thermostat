@@ -399,7 +399,9 @@ def entity_uses_calibration_mode(
 
     try:
         _trv = bt.real_trvs.get(entity_id)
-        advanced: Mapping[str, Any] = (_trv.advanced if _trv is not None else {}) or {}
+        advanced: Mapping[str, object] = (
+            _trv.advanced if _trv is not None else {}
+        ) or {}
     except AttributeError:
         return False
     return configured_calibration_mode(advanced) == expected

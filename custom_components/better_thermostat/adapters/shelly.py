@@ -17,7 +17,7 @@ import logging
 from homeassistant.helpers import entity_registry as er
 
 from ..utils.const import CalibrationOutput
-from ..utils.helpers import find_valve_entity
+from ..utils.helpers import configured_calibration_output, find_valve_entity
 from .base import AdapterCapabilities
 from .generic import (
     discover_calibration_entity,
@@ -135,7 +135,8 @@ async def set_temperature(
     state = self.hass.states.get(entity_id)
     if (
         trv is not None
-        and trv.advanced.get("calibration") == CalibrationOutput.DIRECT_VALVE_BASED
+        and configured_calibration_output(trv.advanced)
+        == CalibrationOutput.DIRECT_VALVE_BASED
         and trv.valve_position_entity
         and trv.valve_position_writable is True
         and state is not None
