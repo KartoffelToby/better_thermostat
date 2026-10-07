@@ -1,6 +1,6 @@
 """What a quirk module may define, and what it must.
 
-Twelve modules extend Better Thermostat for one device family each, and
+Fourteen modules extend Better Thermostat for one device family each, and
 the shell reaches them through a duck-typed dispatch: an attribute lookup
 on whichever module ``load_model_quirks`` imported. Nothing checks the
 result. A module that spells a name wrong either crashes the calibration
@@ -34,9 +34,13 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.core import State
 import pytest
 
-from custom_components.better_thermostat.model_fixes import default as default_quirk
+from custom_components.better_thermostat.model_fixes import (
+    default as default_quirk,
+    model_quirks,
+)
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
 QUIRKS_DIR = Path(default_quirk.__file__).parent
 PRODUCTION_ROOT = QUIRKS_DIR.parent
@@ -58,7 +62,9 @@ OPTIONAL = (
     "fix_valve_calibration",
     "override_set_valve",
     "initial_tweak",
+    "lowest_setpoint",
     "maybe_set_external_temperature",
+    "trv_state_unknown_as_available",
 )
 SURFACE = REQUIRED + OPTIONAL
 
@@ -72,6 +78,8 @@ CALL_CONTRACT = {
     "override_set_temperature": ((21.0,), bool),
     "override_set_valve": ((50,), bool),
     "initial_tweak": ((), type(None)),
+    "lowest_setpoint": ((4.0,), float),
+    "trv_state_unknown_as_available": ((), bool),
 }
 
 
@@ -108,11 +116,12 @@ def _host():
     the promised shape, so a quirk that trips over one is tripping over
     the contract and not over the fixture.
     """
-    host = MagicMock()
+    host = ThermostatStandIn()
     host.device_name = "Test BT"
     host.context = None
-    host.cur_temp = 19.5
-    host.bt_target_temp = 21.0
+    host.room_temperature = 19.5
+    host.heat_target_temperature = 21.0
+    host.in_maintenance = False
     host.hass = MagicMock()
     host.hass.services.async_call = AsyncMock()
     host.hass.states.get = lambda requested: State(
@@ -135,7 +144,7 @@ def _host():
     trv.local_calibration_min = -10.0
     trv.local_calibration_max = 10.0
     trv.last_hvac_mode = "heat"
-    trv.last_temperature = 20.0
+    trv.commanded_setpoint = 20.0
     host.real_trvs = {ENTITY_ID: trv}
     return host
 
@@ -190,9 +199,9 @@ def _is_a_quirk_module(node, holders=frozenset()):
 
     Only the wrappers the shell actually puts around one are unwrapped:
     an ``await``, a guard against a missing TRV, a fallback chain. What
-    a quirk function *returns* is not a quirk module, so a call only
-    counts when it is the loader, and a bare name only when it was bound
-    from one of these in the first place.
+    a quirk function *returns* is not a quirk module, so a call counts
+    only when it is the loader or the attribute lookup itself, and a bare
+    name only when it was bound from one of these in the first place.
     """
     if isinstance(node, ast.Await):
         return _is_a_quirk_module(node.value, holders)
@@ -213,7 +222,18 @@ def _is_a_quirk_module(node, holders=frozenset()):
             if isinstance(called, ast.Attribute)
             else getattr(called, "id", None)
         )
-        return name == QUIRK_LOADER
+        if name == QUIRK_LOADER:
+            return True
+        # ``getattr(trv, "model_quirks", None)`` reaches the same attribute as
+        # ``trv.model_quirks``; the shell spells it that way wherever the
+        # record it reads from may be absent, and the dispatch that writes the
+        # valve is one of those places.
+        return (
+            name == "getattr"
+            and len(node.args) > 1
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == QUIRK_ATTRIBUTE
+        )
     return False
 
 
@@ -498,16 +518,57 @@ class TestTheDispatchAlwaysFindsWhatItReachesFor:
             return
         assert _dispatched_from_the_shell(name), f"{name} is dispatched from nowhere"
 
+    @pytest.mark.parametrize(
+        ("name", "argument"),
+        [
+            ("fix_local_calibration", 0.5),
+            ("fix_target_temperature_calibration", 21.0),
+            ("override_set_hvac_mode", "heat"),
+            ("override_set_temperature", 21.0),
+        ],
+    )
+    def test_a_trv_without_a_loaded_module_is_named(self, name, argument):
+        """Before ``load_model_quirks`` ran there is nothing to dispatch to.
 
-class TestAnImplementationMatchesTheDefault:
-    """A model's version is callable wherever the default one is."""
+        The shim says which TRV it was reaching for, instead of an
+        attribute error on ``None``.
+        """
+        host = _host()
+        assert host.real_trvs[ENTITY_ID].model_quirks is None
+        shim = getattr(model_quirks, name)
+        with pytest.raises(AttributeError, match=ENTITY_ID):
+            result = shim(host, ENTITY_ID, argument)
+            if inspect.isawaitable(result):
+                asyncio.run(result)
+
+
+def _reference_for(name):
+    """The implementation every other one of that name has to match.
+
+    ``default.py`` is it wherever it carries the function. An optional
+    one it leaves out has no such anchor, so the models implementing it
+    are each other's: the dispatch reaches all of them through the same
+    call, so they all have to answer it the same way.
+    """
+    reference = getattr(default_quirk, name, None)
+    if reference is not None:
+        return reference
+    implementers = [
+        getattr(MODEL_MODULES[model], name)
+        for model in MODEL_IDS
+        if hasattr(MODEL_MODULES[model], name)
+    ]
+    return implementers[0] if implementers else None
+
+
+class TestAnImplementationMatchesTheReference:
+    """A model's version is callable wherever the reference one is."""
 
     @pytest.mark.parametrize(("model", "name"), IMPLEMENTED, ids=IMPLEMENTED_IDS)
     def test_the_signature_and_kind_match(self, model, name):
         """The dispatch awaits some of these and calls others plainly."""
-        reference = getattr(default_quirk, name, None)
-        if reference is None:
-            pytest.skip(f"{name} has no counterpart in default.py")
+        reference = _reference_for(name)
+        assert reference is not None, f"{name} has no implementation to match"
         assert _signature(getattr(MODEL_MODULES[model], name)) == _signature(reference)
 
 
@@ -550,7 +611,7 @@ class TestAQuirkOnlyReadsWhatTheHostPromises:
 
 
 class TestEveryImplementationSurvivesBeingCalled:
-    """Six of the twelve modules have no test of their own."""
+    """Six of the fourteen modules have no test of their own."""
 
     @pytest.mark.parametrize(("model", "name"), CALLABLE_PAIRS, ids=CALLABLE_IDS)
     def test_it_returns_what_its_contract_declares(self, model, name):

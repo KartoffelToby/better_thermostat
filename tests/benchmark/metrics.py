@@ -19,7 +19,7 @@ class TimeSeries:
     t_s: Sequence[float]
     T_room_C: Sequence[float]
     T_setpoint_C: Sequence[float]
-    valve_pct: Sequence[float]
+    valve_percent: Sequence[float]
 
     def __post_init__(self) -> None:
         """Validate the parallel-array invariants every metric relies on.
@@ -34,11 +34,11 @@ class TimeSeries:
             len(self.t_s),
             len(self.T_room_C),
             len(self.T_setpoint_C),
-            len(self.valve_pct),
+            len(self.valve_percent),
         }
         if len(lengths) != 1:
             raise ValueError("TimeSeries fields must have the same length")
-        for name in ("t_s", "T_room_C", "T_setpoint_C", "valve_pct"):
+        for name in ("t_s", "T_room_C", "T_setpoint_C", "valve_percent"):
             if any(not math.isfinite(v) for v in getattr(self, name)):
                 raise ValueError(f"TimeSeries.{name} must contain only finite values")
         if any(t2 <= t1 for t1, t2 in zip(self.t_s, self.t_s[1:])):
@@ -153,8 +153,8 @@ def _compute_valve_cycles(series: TimeSeries) -> int:
     """Count valve-direction reversals across the run."""
     cycles = 0
     last_direction = 0
-    for i in range(1, len(series.valve_pct)):
-        delta = series.valve_pct[i] - series.valve_pct[i - 1]
+    for i in range(1, len(series.valve_percent)):
+        delta = series.valve_percent[i] - series.valve_percent[i - 1]
         direction = 1 if delta > 0.5 else (-1 if delta < -0.5 else 0)
         if direction != 0 and last_direction not in (0, direction):
             cycles += 1
@@ -164,13 +164,13 @@ def _compute_valve_cycles(series: TimeSeries) -> int:
 
 
 def _compute_integral_valve(series: TimeSeries) -> float:
-    """Trapezoidal integral of valve_pct over time (units: pct·min)."""
+    """Trapezoidal integral of valve_percent over time (units: pct·min)."""
     if len(series.t_s) < 2:
         return 0.0
     total = 0.0
     for i in range(1, len(series.t_s)):
         dt_min = (series.t_s[i] - series.t_s[i - 1]) / 60.0
-        avg_pct = (series.valve_pct[i] + series.valve_pct[i - 1]) / 2.0
+        avg_pct = (series.valve_percent[i] + series.valve_percent[i - 1]) / 2.0
         total += avg_pct * dt_min
     return total
 
@@ -202,19 +202,19 @@ def _compute_valve_sweet_spot_residency(
     series: TimeSeries, low_pct: float = 40.0, high_pct: float = 60.0
 ) -> float:
     """Fraction of run time the commanded valve sits inside [low, high] %."""
-    if not series.valve_pct:
+    if not series.valve_percent:
         return 0.0
-    inside = sum(1 for v in series.valve_pct if low_pct <= v <= high_pct)
-    return 100.0 * inside / len(series.valve_pct)
+    inside = sum(1 for v in series.valve_percent if low_pct <= v <= high_pct)
+    return 100.0 * inside / len(series.valve_percent)
 
 
 def _compute_total_valve_travel(series: TimeSeries) -> float:
     """Σ|Δu_pct| over the whole run — actuator-wear/battery proxy."""
-    if len(series.valve_pct) < 2:
+    if len(series.valve_percent) < 2:
         return 0.0
     return sum(
-        abs(series.valve_pct[i] - series.valve_pct[i - 1])
-        for i in range(1, len(series.valve_pct))
+        abs(series.valve_percent[i] - series.valve_percent[i - 1])
+        for i in range(1, len(series.valve_percent))
     )
 
 

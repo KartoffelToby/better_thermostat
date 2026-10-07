@@ -14,14 +14,20 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.exceptions import HomeAssistantError
 import pytest
 
+from custom_components.better_thermostat.adapters.delegate import (
+    set_temperature as delegate_set_temperature,
+)
+from custom_components.better_thermostat.model_fixes import default as default_quirk
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.valve_maintenance import (
     MaintenanceTrvInfo,
@@ -37,6 +43,9 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     run_valve_maintenance,
     wake_step,
 )
+from tests.factories import ThermostatStandIn
+
+_MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenance"
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -48,6 +57,7 @@ def _trv(
     min_temp: float = 5,
     quirks: object | None = None,
     valve_entity: str | None = None,
+    valve_writable: bool = True,
     calibration: str | None = None,
 ) -> Trv:
     """Build a ``real_trvs[entity_id]`` entry for testing."""
@@ -59,6 +69,7 @@ def _trv(
             "min_temp": min_temp,
             "model_quirks": quirks,
             "valve_position_entity": valve_entity,
+            "valve_position_writable": valve_writable,
         },
     )
 
@@ -106,7 +117,7 @@ def _reports_a_moved_mode(infos: list[MaintenanceTrvInfo]):
 def _info(
     entity_id: str = "climate.trv1",
     cur_mode: str = "heat",
-    cur_temp: float | None = 21.0,
+    setpoint: float | None = 21.0,
     use_direct_valve: bool = False,
     max_temp: float = 30,
     min_temp: float = 5,
@@ -116,12 +127,17 @@ def _info(
     return MaintenanceTrvInfo(
         entity_id=entity_id,
         cur_mode=cur_mode,
-        cur_temp=cur_temp,
+        setpoint=setpoint,
         use_direct_valve=use_direct_valve,
         max_temp=max_temp,
         min_temp=min_temp,
         wake_mode=wake_mode,
     )
+
+
+def _setpoint_on_a_celsius_system(state) -> float | None:
+    """Read a TRV's setpoint as a Celsius system publishes it: unconverted."""
+    return state.attributes.get("temperature")
 
 
 def _ha_state(
@@ -259,7 +275,13 @@ class TestBuildTrvSnapshots:
     def test_state_none_skipped(self):
         """Test State none skipped."""
         trvs = {"trv1": _trv(maintenance=True)}
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: None, "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: None,
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result == []
 
     def test_basic_snapshot(self):
@@ -269,14 +291,39 @@ class TestBuildTrvSnapshots:
         def get_state(eid):
             return _ha_state("heat", 22.0)
 
-        result = build_trv_snapshots(trvs, ["trv1"], get_state, "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            get_state,
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert len(result) == 1
         assert result[0].entity_id == "trv1"
         assert result[0].cur_mode == "heat"
-        assert result[0].cur_temp == 22.0
+        assert result[0].setpoint == 22.0
         assert result[0].max_temp == 28
         assert result[0].min_temp == 6
         assert result[0].use_direct_valve is False
+
+    def test_the_setpoint_to_restore_is_the_one_the_reader_returns(self):
+        """The snapshot holds the setpoint in Celsius, as the reader converts it.
+
+        A TRV state carries its setpoint in the system unit, and the restore
+        writes the snapshot back as Celsius, so the snapshot takes the
+        reader's value, not the raw attribute: 68 °F is restored as 20 °C.
+        """
+        trvs = {"trv1": _trv(maintenance=True)}
+
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state("heat", 68.0),
+            "Test",
+            read_setpoint=lambda state: (state.attributes["temperature"] - 32) / 1.8,
+        )
+
+        assert result[0].setpoint == pytest.approx(20.0)
 
     def test_direct_valve_detection(self):
         """Test Direct valve detection."""
@@ -286,8 +333,36 @@ class TestBuildTrvSnapshots:
                 maintenance=True, quirks=quirks, calibration="direct_valve_based"
             )
         }
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].use_direct_valve is True
+
+    def test_a_model_without_a_valve_quirk_is_not_direct(self):
+        """A model with no quirk file of its own runs on the default one.
+
+        Direct valve mode makes a maintenance cycle write valve
+        percentages and skip the setpoint sweep altogether, so a device
+        that has no valve channel would sit through a run that commands
+        nothing at all.
+        """
+        trvs = {
+            "trv1": _trv(
+                maintenance=True, quirks=default_quirk, calibration="direct_valve_based"
+            )
+        }
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
+        assert result[0].use_direct_valve is False
 
     def test_valve_entity_direct(self):
         """Test Valve entity direct."""
@@ -298,7 +373,13 @@ class TestBuildTrvSnapshots:
                 calibration="direct_valve_based",
             )
         }
-        result = build_trv_snapshots(trvs, ["trv1"], lambda _: _ha_state(), "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].use_direct_valve is True
 
     def test_wake_mode_from_enum_repr_capabilities(self):
@@ -308,7 +389,13 @@ class TestBuildTrvSnapshots:
         def get_state(_):
             return _ha_state("off", 21.0, ["HVACMode.OFF", "HVACMode.HEAT"])
 
-        result = build_trv_snapshots(trvs, ["trv1"], get_state, "Test")
+        result = build_trv_snapshots(
+            trvs,
+            ["trv1"],
+            get_state,
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
         assert result[0].wake_mode == HVACMode.HEAT
 
 
@@ -398,7 +485,7 @@ class TestRestoreOne:
         """Test Restores temp and mode."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
-        info = _info(cur_temp=22.5, cur_mode="heat")
+        info = _info(setpoint=22.5, cur_mode="heat")
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -409,11 +496,11 @@ class TestRestoreOne:
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
 
     @pytest.mark.asyncio
-    async def test_cur_temp_none_skips_temperature(self):
-        """Test Cur temp none skips temperature."""
+    async def test_no_setpoint_skips_the_setpoint_restore(self):
+        """Without a recorded setpoint nothing is written back."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
-        info = _info(cur_temp=None)
+        info = _info(setpoint=None)
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -428,7 +515,7 @@ class TestRestoreOne:
         """Test Temp exception still sets mode."""
         temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
         mode_fn = AsyncMock()
-        info = _info(cur_temp=20.0, cur_mode="heat")
+        info = _info(setpoint=20.0, cur_mode="heat")
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -436,6 +523,36 @@ class TestRestoreOne:
             get_state=_reports_a_moved_mode([info]),
         )
         mode_fn.assert_awaited_once_with("climate.trv1", "heat")
+
+    @pytest.mark.asyncio
+    async def test_failed_restores_are_traced(self, caplog):
+        """Both restore writes report the TRV they could not reach."""
+        temp_fn = AsyncMock(side_effect=RuntimeError("fail"))
+        mode_fn = AsyncMock(side_effect=HomeAssistantError("fail"))
+        info = _info(setpoint=20.0, cur_mode="heat")
+        with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
+            await restore_one(
+                info,
+                set_temperature_fn=temp_fn,
+                set_hvac_mode_fn=mode_fn,
+                get_state=_reports_a_moved_mode([info]),
+            )
+        assert "restoring the setpoint of climate.trv1 failed" in caplog.text
+        assert "restoring the HVAC mode of climate.trv1 failed" in caplog.text
+        assert all(record.exc_info for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_successful_restore_is_not_traced(self, caplog):
+        """A restore that lands reports nothing."""
+        info = _info(setpoint=20.0, cur_mode="heat")
+        with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
+            await restore_one(
+                info,
+                set_temperature_fn=AsyncMock(),
+                set_hvac_mode_fn=AsyncMock(),
+                get_state=_reports_a_moved_mode([info]),
+            )
+        assert "failed" not in caplog.text
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -468,6 +585,43 @@ class TestRunValveMaintenance:
         assert valve_fn.await_count == 4
         calls = [c.args for c in valve_fn.await_args_list]
         assert calls == [("trv1", 100), ("trv1", 0), ("trv1", 100), ("trv1", 0)]
+
+    @pytest.mark.asyncio
+    async def test_the_writes_of_a_run_are_not_remembered_as_echoes(self):
+        """A maintenance run leaves the setpoints a report may echo alone.
+
+        The run drives a setpoint-controlled TRV to its maximum, its minimum
+        and back to the restored target through the delegate, and no
+        watchdog confirms any of those writes. Were they remembered, a knob
+        turned down to the device minimum afterwards would read as an echo.
+        """
+        bt = ThermostatStandIn()
+        bt.device_name = "Test"
+        bt.bt_target_temperature_step = 0.5
+        trv = Trv(entity_id="climate.trv1", min_temp=5.0, max_temp=30.0)
+        trv.adapter = MagicMock()
+        trv.adapter.set_temperature = AsyncMock(return_value=True)
+        trv.remember_setpoint_written(21.0)
+        bt.real_trvs = {"climate.trv1": trv}
+
+        async def write_through_the_delegate(entity_id: str, temp: float) -> None:
+            await delegate_set_temperature(bt, entity_id, temp)
+
+        infos = [_info(entity_id="climate.trv1", setpoint=21.0)]
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=write_through_the_delegate,
+            set_hvac_mode_fn=AsyncMock(),
+            get_state=_reports_a_moved_mode(infos),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        sent = [c.args[2] for c in trv.adapter.set_temperature.await_args_list]
+        assert sent == [30.0, 5.0, 30.0, 5.0, 21.0]
+        assert trv.commanded_setpoint == 21.0
+        assert trv.echo_setpoint_values() == [21.0]
 
     @pytest.mark.asyncio
     async def test_multiple_trvs(self):
@@ -525,7 +679,7 @@ class TestRunValveMaintenance:
         mode_fn = AsyncMock()
         infos = [
             _info(
-                entity_id="trv1", cur_temp=22.0, cur_mode="heat", use_direct_valve=True
+                entity_id="trv1", setpoint=22.0, cur_mode="heat", use_direct_valve=True
             )
         ]
 
@@ -575,7 +729,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode=None,
             )
         ]
@@ -605,7 +759,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 max_temp=30.0,
                 min_temp=5.0,
                 wake_mode="heat",
@@ -653,7 +807,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 max_temp=30.0,
                 min_temp=5.0,
                 wake_mode="heat",
@@ -662,7 +816,7 @@ class TestRunValveMaintenance:
                 entity_id="trv2",
                 cur_mode="heat",
                 use_direct_valve=False,
-                cur_temp=21.0,
+                setpoint=21.0,
                 max_temp=30.0,
                 min_temp=5.0,
             ),
@@ -712,7 +866,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode="heat",
             )
         ]
@@ -748,7 +902,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=False,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode=None,
             )
         ]
@@ -801,7 +955,7 @@ class TestRunValveMaintenance:
                 entity_id="trv1",
                 cur_mode="off",
                 use_direct_valve=True,
-                cur_temp=20.0,
+                setpoint=20.0,
                 wake_mode=None,
             )
         ]
@@ -988,7 +1142,7 @@ class TestRestoreLeavesAnUnmovedModeAlone:
         """A single-mode TRV gets its setpoint back and no mode write."""
         temp_fn = AsyncMock()
         mode_fn = AsyncMock()
-        info = _info(cur_temp=21.5, cur_mode="heat", wake_mode=None)
+        info = _info(setpoint=21.5, cur_mode="heat", wake_mode=None)
         await restore_one(
             info,
             set_temperature_fn=temp_fn,
@@ -1017,3 +1171,188 @@ class TestRestoreLeavesAnUnmovedModeAlone:
             cycle_sleep=0,
         )
         mode_fn.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRVs whose state cannot be read
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _unreadable_ha_state(state: str):
+    """A TRV state carrying no attributes, as an offline device publishes."""
+    return SimpleNamespace(state=state, attributes={})
+
+
+class TestUnreadableTrvStates:
+    """A TRV reporting ``unavailable`` or ``unknown`` names nothing to restore."""
+
+    @pytest.mark.parametrize("reported", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    def test_the_snapshot_leaves_it_out(self, reported, caplog):
+        """No snapshot is taken, and the skip says which state caused it."""
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        with caplog.at_level(logging.DEBUG, logger=_MAINTENANCE_LOGGER):
+            result = build_trv_snapshots(
+                trvs,
+                ["climate.trv1"],
+                lambda _: _unreadable_ha_state(reported),
+                "Test",
+                read_setpoint=_setpoint_on_a_celsius_system,
+            )
+        assert result == []
+        assert f"maintenance skip climate.trv1 (reports {reported}" in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reported", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+    async def test_a_full_run_writes_nothing_to_it(self, reported):
+        """It is neither driven nor restored, so nothing is written to it.
+
+        The run writes back what a snapshot names, and a TRV without a
+        readable state names neither a mode nor a setpoint.
+        """
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        infos = build_trv_snapshots(
+            trvs,
+            ["climate.trv1"],
+            lambda _: _unreadable_ha_state(reported),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
+        valve_fn = AsyncMock(return_value=True)
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=valve_fn,
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        valve_fn.assert_not_awaited()
+        temp_fn.assert_not_awaited()
+        mode_fn.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_trv_that_drops_out_mid_run_gets_its_snapshot_state_back(self):
+        """A TRV readable at the snapshot is restored to what it reported then.
+
+        Going offline during the cycle changes nothing about the target:
+        the snapshot names a real mode and a real setpoint, and both are
+        written back.
+        """
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        infos = build_trv_snapshots(
+            trvs,
+            ["climate.trv1"],
+            lambda _: _ha_state("heat", 21.0),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports(STATE_UNAVAILABLE),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
+        mode_fn.assert_awaited_once_with("climate.trv1", "heat")
+
+    @pytest.mark.asyncio
+    async def test_a_trv_that_comes_back_before_the_restore_keeps_its_mode(self):
+        """Back in the mode the snapshot was taken in, only the setpoint moves."""
+        trvs = {"climate.trv1": _trv(maintenance=True)}
+        infos = build_trv_snapshots(
+            trvs,
+            ["climate.trv1"],
+            lambda _: _ha_state("heat", 21.0),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        assert temp_fn.await_args_list[-1].args == ("climate.trv1", 21.0)
+        mode_fn.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TRVs that are not set up yet
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _not_set_up(**kwargs) -> Trv:
+    """A TRV startup went ahead without and whose setup has not completed."""
+    trv = _trv(maintenance=True, **kwargs)
+    trv.awaiting_initialization = True
+    return trv
+
+
+class TestATrvThatIsNotSetUpYet:
+    """A TRV still awaiting its setup is left to that setup, not exercised.
+
+    Its range, calibration and valve channel are unknown until it is set up,
+    and the setup is what brings it into the room. Maintenance leaves it
+    alone; it is exercised on the first run after it has been set up.
+    """
+
+    def test_the_snapshot_leaves_it_out(self):
+        """Only the TRVs that are set up get a snapshot."""
+        trvs = {"climate.trv1": _trv(maintenance=True), "climate.trv2": _not_set_up()}
+        result = build_trv_snapshots(
+            trvs,
+            ["climate.trv1", "climate.trv2"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
+        assert [info.entity_id for info in result] == ["climate.trv1"]
+
+    @pytest.mark.asyncio
+    async def test_a_full_run_writes_nothing_to_it(self):
+        """It is neither driven nor restored, while the other TRV is exercised."""
+        trvs = {"climate.trv1": _trv(maintenance=True), "climate.trv2": _not_set_up()}
+        infos = build_trv_snapshots(
+            trvs,
+            ["climate.trv1", "climate.trv2"],
+            lambda _: _ha_state(),
+            "Test",
+            read_setpoint=_setpoint_on_a_celsius_system,
+        )
+        temp_fn = AsyncMock()
+        mode_fn = AsyncMock()
+
+        await run_valve_maintenance(
+            infos,
+            set_valve_fn=AsyncMock(return_value=True),
+            set_temperature_fn=temp_fn,
+            set_hvac_mode_fn=mode_fn,
+            get_state=_reports("heat"),
+            device_name="Test",
+            cycle_sleep=0,
+        )
+
+        written = {
+            call.args[0]
+            for call in (*temp_fn.await_args_list, *mode_fn.await_args_list)
+        }
+        assert written == {"climate.trv1"}

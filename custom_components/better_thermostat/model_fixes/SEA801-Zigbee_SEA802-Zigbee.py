@@ -10,17 +10,22 @@ import logging
 
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 from custom_components.better_thermostat.utils.helpers import (
+    convert_to_float_celsius,
     entity_uses_mpc_calibration,
+    state_temperature_unit,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Adjust the local calibration offset for SEA801/SEA802 devices.
 
     The function applies small adjustments based on the external and target
-    temperatures to avoid incorrect temperature behavior.
+    temperatures to avoid incorrect temperature behavior; without either of
+    them the offset is returned unchanged.
 
     Parameters
     ----------
@@ -28,7 +33,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV the offset belongs to.
-    offset : float
+    calibration_offset : float
         Local calibration offset reported by the device.
 
     Returns
@@ -37,16 +42,19 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         The adjusted local calibration offset.
     """
     if entity_uses_mpc_calibration(self, entity_id):
-        return offset
-    _cur_external_temp = self.cur_temp
-    _target_temp = self.bt_target_temp
+        return calibration_offset
+    _cur_external_temp = self.room_temperature
+    _heat_target_temperature = self.heat_target_temperature
 
-    if (_cur_external_temp + 0.1) >= _target_temp:
-        offset = round(offset + 0.5, 1)
-    elif (_cur_external_temp + 0.5) >= _target_temp:
-        offset -= 2.5
+    if _cur_external_temp is None or _heat_target_temperature is None:
+        return calibration_offset
 
-    return offset
+    if (_cur_external_temp + 0.1) >= _heat_target_temperature:
+        calibration_offset = round(calibration_offset + 0.5, 1)
+    elif (_cur_external_temp + 0.5) >= _heat_target_temperature:
+        calibration_offset -= 2.5
+
+    return calibration_offset
 
 
 def fix_target_temperature_calibration(
@@ -73,15 +81,22 @@ def fix_target_temperature_calibration(
     """
     _state = self.hass.states.get(entity_id)
     _cur_trv_temp = None
-    if _state is not None:
-        _cur_trv_temp = _state.attributes.get("current_temperature")
+    if _state is not None and _state.attributes.get("current_temperature") is not None:
+        # A climate entity reports in the system unit; the setpoint is °C.
+        _cur_trv_temp = convert_to_float_celsius(
+            _state.attributes.get("current_temperature"),
+            self.device_name,
+            "fix_target_temperature_calibration",
+            state_temperature_unit(
+                _state.attributes, self.hass.config.units.temperature_unit
+            ),
+        )
     if _cur_trv_temp is None:
         return temperature
 
     if entity_uses_mpc_calibration(self, entity_id):
         return temperature
 
-    _cur_trv_temp = float(_cur_trv_temp)
     if (
         round(temperature, 1) > round(_cur_trv_temp, 1)
         and temperature - _cur_trv_temp < 1.5

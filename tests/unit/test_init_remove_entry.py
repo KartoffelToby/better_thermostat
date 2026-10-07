@@ -13,12 +13,15 @@ from homeassistant.const import CONF_NAME
 import pytest
 
 from custom_components.better_thermostat import DOMAIN, RELOAD_LOCKS, async_remove_entry
+from custom_components.better_thermostat.events.contact import DOOR, WINDOW
 from custom_components.better_thermostat.utils.const import (
-    CONF_HEATER,
-    CONF_HUMIDITY,
+    CONF_COOLER,
+    CONF_DOOR_SENSORS,
+    CONF_HUMIDITY_SENSOR,
     CONF_OUTDOOR_SENSOR,
-    CONF_SENSOR,
-    CONF_SENSOR_WINDOW,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
+    CONF_WINDOW_SENSORS,
 )
 
 
@@ -28,8 +31,8 @@ def _make_entry(**overrides):
     entry.title = "Kinderzimmer"
     data = {
         CONF_NAME: "Kinderzimmer",
-        CONF_HEATER: [{"trv": "climate.fritz_kinderzimmer", "advanced": {}}],
-        CONF_SENSOR: "sensor.kinderzimmer_temperature",
+        CONF_THERMOSTAT: [{"trv": "climate.fritz_kinderzimmer", "advanced": {}}],
+        CONF_TEMPERATURE_SENSOR: "sensor.kinderzimmer_temperature",
     }
     data.update(overrides)
     entry.data = data
@@ -39,13 +42,32 @@ def _make_entry(**overrides):
 def _make_hass():
     """Return a Home Assistant double whose ``data`` is a real mapping.
 
-    ``async_remove_entry`` reads ``hass.data`` synchronously. An AsyncMock
-    answers every attribute with a coroutine, so the shared store has to be a
-    real dict for the removal to reach what is in it.
+    ``async_remove_entry`` reads ``hass.data`` and the config entries
+    synchronously. An AsyncMock answers every attribute with a coroutine, so
+    both have to be real for the removal to reach what is in them.
     """
     hass = AsyncMock()
     hass.data = {}
+    # The removal asks which other entries control the same thermostats.
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries.return_value = []
     return hass
+
+
+@pytest.fixture(autouse=True)
+def patched_remove_store():
+    """Keep the state store out of the repair-issue assertions.
+
+    Removing the store is a separate concern that reaches for the config
+    directory; the Home Assistant double here has none, and answers the
+    lookup with a coroutine nobody awaits.
+    """
+    with patch(
+        "custom_components.better_thermostat.utils.state_manager"
+        ".StateManager.async_remove_store",
+        new_callable=AsyncMock,
+    ):
+        yield
 
 
 @pytest.fixture
@@ -71,6 +93,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
         assert "invalid_external_temperature_Kinderzimmer" in called_ids
         assert "invalid_window_state_Kinderzimmer" in called_ids
+        assert "invalid_door_state_Kinderzimmer" in called_ids
         assert "degraded_mode_Kinderzimmer" in called_ids
 
     @pytest.mark.asyncio
@@ -79,7 +102,7 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         hass = _make_hass()
         entry = _make_entry(
             **{
-                CONF_HEATER: [
+                CONF_THERMOSTAT: [
                     {"trv": "climate.trv_one", "advanced": {}},
                     {"trv": "climate.trv_two", "advanced": {}},
                 ]
@@ -93,6 +116,23 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         assert "missing_entity_climate.trv_two" in called_ids
 
     @pytest.mark.asyncio
+    async def test_an_entry_whose_heater_is_a_bare_string_is_removed(
+        self, patched_delete_issue
+    ):
+        """An entry migration refused, holding one entity id as a string, still goes.
+
+        The removal reads the thermostats the same way the migration does, so
+        the string is the one entity id, not a sequence of characters.
+        """
+        hass = _make_hass()
+        entry = _make_entry(**{CONF_THERMOSTAT: "climate.trv_one"})
+
+        await async_remove_entry(hass, entry)
+
+        called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
+        assert "missing_entity_climate.trv_one" in called_ids
+
+    @pytest.mark.asyncio
     async def test_deletes_missing_entity_for_optional_sensors(
         self, patched_delete_issue
     ):
@@ -100,8 +140,8 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         hass = _make_hass()
         entry = _make_entry(
             **{
-                CONF_HUMIDITY: "sensor.humidity",
-                CONF_SENSOR_WINDOW: "binary_sensor.window",
+                CONF_HUMIDITY_SENSOR: "sensor.humidity",
+                CONF_WINDOW_SENSORS: "binary_sensor.window",
                 CONF_OUTDOOR_SENSOR: "sensor.outdoor",
             }
         )
@@ -113,6 +153,45 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         assert "missing_entity_sensor.humidity" in called_ids
         assert "missing_entity_binary_sensor.window" in called_ids
         assert "missing_entity_sensor.outdoor" in called_ids
+
+    @pytest.mark.asyncio
+    async def test_deletes_every_issue_a_fully_wired_thermostat_can_raise(
+        self, patched_delete_issue
+    ):
+        """No repair issue of a removed thermostat outlives it.
+
+        The runtime raises one issue per contact role and one per watched
+        entity; every device the entry wires is watched, the door sensor and
+        the cooler included.
+        """
+        hass = _make_hass()
+        entry = _make_entry(
+            **{
+                CONF_HUMIDITY_SENSOR: "sensor.humidity",
+                CONF_WINDOW_SENSORS: "binary_sensor.window",
+                CONF_DOOR_SENSORS: "binary_sensor.door",
+                CONF_OUTDOOR_SENSOR: "sensor.outdoor",
+                CONF_COOLER: "climate.ac",
+            }
+        )
+
+        await async_remove_entry(hass, entry)
+
+        called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
+        raised_by_the_runtime = {
+            "invalid_external_temperature_Kinderzimmer",
+            f"{WINDOW.issue_translation_key}_Kinderzimmer",
+            f"{DOOR.issue_translation_key}_Kinderzimmer",
+            "degraded_mode_Kinderzimmer",
+            "missing_entity_climate.fritz_kinderzimmer",
+            "missing_entity_sensor.kinderzimmer_temperature",
+            "missing_entity_sensor.humidity",
+            "missing_entity_binary_sensor.window",
+            "missing_entity_binary_sensor.door",
+            "missing_entity_sensor.outdoor",
+            "missing_entity_climate.ac",
+        }
+        assert raised_by_the_runtime - called_ids == set()
 
     @pytest.mark.asyncio
     async def test_skips_unconfigured_optional_sensors(self, patched_delete_issue):

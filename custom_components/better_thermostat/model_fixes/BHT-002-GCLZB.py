@@ -12,12 +12,15 @@ import math
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Sanitize and normalize a reported calibration offset.
 
     Rounds to the nearest integer (towards ceiling if the room is heating)
     to recover from the erroneous float values produced by some Zigbee
-    integrations.
+    integrations. Without a room temperature or a setpoint the heating
+    direction is unknown and the offset rounds down.
 
     Parameters
     ----------
@@ -25,7 +28,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV the offset belongs to.
-    offset : float
+    calibration_offset : float
         Local calibration offset reported by the device.
 
     Returns
@@ -33,12 +36,19 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     float
         The normalized integer-valued calibration offset.
     """
-    if self.cur_temp < self.bt_target_temp:
-        offset = float(math.ceil(offset))
-    else:
-        offset = float(math.floor(offset))
+    _room_temperature = self.room_temperature
+    _heat_target_temperature = self.heat_target_temperature
 
-    return offset
+    if (
+        _room_temperature is not None
+        and _heat_target_temperature is not None
+        and _room_temperature < _heat_target_temperature
+    ):
+        calibration_offset = float(math.ceil(calibration_offset))
+    else:
+        calibration_offset = float(math.floor(calibration_offset))
+
+    return calibration_offset
 
 
 def fix_target_temperature_calibration(

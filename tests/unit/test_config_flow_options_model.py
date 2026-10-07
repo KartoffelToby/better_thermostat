@@ -18,8 +18,12 @@ from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
 )
-from custom_components.better_thermostat.utils.const import CONF_HEATER, CONF_SENSOR
+from custom_components.better_thermostat.utils.const import (
+    CONF_TEMPERATURE_SENSOR,
+    CONF_THERMOSTAT,
+)
 from custom_components.better_thermostat.utils.helpers import get_device_model
+from tests.factories import make_entity_registry
 
 GENERIC_TRV = "climate.generic_thermostat"
 STORED_TRV = "climate.stored_trv"
@@ -45,10 +49,10 @@ def _make_config_entry():
     entry = MagicMock()
     entry.data = {
         CONF_NAME: "Living Room",
-        CONF_HEATER: [
+        CONF_THERMOSTAT: [
             {"trv": STORED_TRV, "integration": "mqtt", "model": "TRVZB", "advanced": {}}
         ],
-        CONF_SENSOR: "sensor.living_room_temperature",
+        CONF_TEMPERATURE_SENSOR: "sensor.living_room_temperature",
     }
     return entry
 
@@ -71,8 +75,7 @@ def _make_adapter():
 
 def _patch_empty_registries():
     """Patch both registries so the entity resolves to no device."""
-    entity_registry = MagicMock()
-    entity_registry.async_get.return_value = None
+    entity_registry = make_entity_registry()
     return (
         patch(
             "custom_components.better_thermostat.utils.helpers.er.async_get",
@@ -88,8 +91,8 @@ def _patch_empty_registries():
 def _submission():
     return {
         CONF_NAME: "Living Room",
-        CONF_HEATER: [GENERIC_TRV],
-        CONF_SENSOR: "sensor.living_room_temperature",
+        CONF_THERMOSTAT: [GENERIC_TRV],
+        CONF_TEMPERATURE_SENSOR: "sensor.living_room_temperature",
     }
 
 
@@ -105,7 +108,8 @@ async def test_options_flow_swap_to_generic_thermostat_resolves_generic_model():
         patch_dr,
         patch(
             "custom_components.better_thermostat.config_flow.load_adapter",
-            AsyncMock(return_value=_make_adapter()),
+            autospec=True,
+            return_value=_make_adapter(),
         ),
     ):
         result = await flow.async_step_user(_submission())
@@ -128,7 +132,8 @@ async def test_config_flow_swap_to_generic_thermostat_resolves_generic_model():
         patch_dr,
         patch(
             "custom_components.better_thermostat.config_flow.load_adapter",
-            AsyncMock(return_value=_make_adapter()),
+            autospec=True,
+            return_value=_make_adapter(),
         ),
     ):
         result = await flow.async_step_user(_submission())

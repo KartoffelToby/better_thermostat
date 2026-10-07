@@ -8,8 +8,10 @@ so the periodic re-send is what holds such a device on the external
 value while the room is settled.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import (
@@ -17,66 +19,31 @@ from custom_components.better_thermostat.climate import (
     BetterThermostat,
 )
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn
 
-_CLIMATE = "custom_components.better_thermostat.climate"
 TRV_ID = "climate.trv"
 TRV_ID_2 = "climate.trv2"
+ROOM_TEMPERATURE = 21.4
 
 
-def _startup_bt():
-    """Minimal BetterThermostat stand-in for _finalize_startup."""
-    mock = MagicMock(spec=BetterThermostat)
-    mock.hass = MagicMock()
-    mock.device_name = "Test BT"
-    mock.is_removed = False
-    mock.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, advanced={})}
-    mock.all_trvs = None
-    mock.all_entities = []
-    mock.entity_ids = [TRV_ID]
-    mock.sensor_entity_id = "sensor.room_temp"
-    mock.humidity_sensor_entity_id = None
-    mock.window_id = None
-    mock.door_id = None
-    mock.cooler_entity_id = None
-    mock.outdoor_sensor = None
-    mock._async_unsub_state_changed = None
-    # Plain MagicMocks so the un-awaited coroutines handed to the background
-    # task mock do not raise "coroutine was never awaited" warnings.
-    mock._post_grace_recheck = MagicMock()
-    mock._external_temperature_keepalive = MagicMock()
-    return mock
+def _bt_with_two_trvs(quirks):
+    """A BT stand-in holding a room reading and two TRVs carrying quirks."""
+    bt = ThermostatStandIn()
+    bt.device_name = "Test BT"
+    bt.room_temperature = ROOM_TEMPERATURE
+    bt.real_trvs = {
+        TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
+        TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
+    }
+    bt._temperature_filter_lock = None
+    return bt
 
 
-async def _registered_intervals(bt):
-    """The (callback, interval) pairs _finalize_startup registers."""
-    with (
-        patch(f"{_CLIMATE}.await_critical_entities", AsyncMock()),
-        patch(f"{_CLIMATE}.check_critical_entities", AsyncMock(return_value=True)),
-        patch(f"{_CLIMATE}.await_optional_sensors", AsyncMock()),
-        patch(f"{_CLIMATE}.check_and_update_degraded_mode", AsyncMock()),
-        patch(f"{_CLIMATE}.asyncio.sleep", AsyncMock()),
-        patch(f"{_CLIMATE}.async_track_time_interval") as track_interval,
-        patch(f"{_CLIMATE}.async_track_state_change_event"),
-        patch(f"{_CLIMATE}.async_track_time_change"),
-    ):
-        await BetterThermostat._finalize_startup(bt)
-    return [(call.args[1], call.args[2]) for call in track_interval.call_args_list]
-
-
-@pytest.mark.asyncio
-async def test_the_keepalive_is_registered_as_a_periodic_tick():
-    """Startup leaves a repeating timer behind.
-
-    The task created at the end of startup writes once and covers the
-    first interval; every write after that is the timer's, because a
-    settled room produces no sensor change to drive one.
-    """
-    bt = _startup_bt()
-    intervals = await _registered_intervals(bt)
-    assert (
-        bt._external_temperature_keepalive,
-        EXTERNAL_TEMPERATURE_KEEPALIVE_INTERVAL,
-    ) in intervals
+def _written_values(quirks):
+    """The (TRV, value) pairs the tick handed to the quirk."""
+    return [
+        call.args[1:] for call in quirks.maybe_set_external_temperature.await_args_list
+    ]
 
 
 @pytest.mark.asyncio
@@ -94,29 +61,41 @@ async def test_the_interval_stays_inside_the_shortest_known_fallback():
 @pytest.mark.asyncio
 async def test_the_tick_writes_the_room_temperature_to_every_trv():
     """Each TRV with the quirk gets the temperature BT is regulating on."""
-    bt = MagicMock()
-    bt.device_name = "Test BT"
-    bt.cur_temp = 21.4
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
-    bt.real_trvs = {
-        TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
-        TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
-    }
+    bt = _bt_with_two_trvs(quirks)
 
     await BetterThermostat._external_temperature_keepalive(bt)
 
-    assert [
-        call.args[1:] for call in quirks.maybe_set_external_temperature.await_args_list
-    ] == [(TRV_ID, 21.4), (TRV_ID_2, 21.4)]
+    assert _written_values(quirks) == [
+        (TRV_ID, ROOM_TEMPERATURE),
+        (TRV_ID_2, ROOM_TEMPERATURE),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_tick_skips_a_trv_that_still_awaits_its_initialization():
+    """A TRV startup went on without is written to once it is initialized.
+
+    Until then its quirk state is not set up, so the tick leaves it out and
+    still reaches the other TRV.
+    """
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(return_value=True)
+    bt = _bt_with_two_trvs(quirks)
+    bt.real_trvs[TRV_ID].awaiting_initialization = True
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [(TRV_ID_2, ROOM_TEMPERATURE)]
 
 
 @pytest.mark.asyncio
 async def test_the_tick_writes_nothing_without_a_room_temperature():
     """No reading means no value to keep alive."""
-    bt = MagicMock()
+    bt = ThermostatStandIn()
     bt.device_name = "Test BT"
-    bt.cur_temp = None
+    bt.room_temperature = None
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = AsyncMock()
     bt.real_trvs = {TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks)}
@@ -124,3 +103,65 @@ async def test_the_tick_writes_nothing_without_a_room_temperature():
     await BetterThermostat._external_temperature_keepalive(bt)
 
     quirks.maybe_set_external_temperature.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        HomeAssistantError("device did not answer"),
+        ServiceValidationError("value is out of range"),
+        OSError("connection reset"),
+    ],
+    ids=["unreachable", "out_of_range", "transport"],
+)
+@pytest.mark.asyncio
+async def test_a_trv_that_refuses_the_write_does_not_cost_the_others_their_tick(
+    refusal,
+):
+    """The tick serves every TRV, whatever the one before it answered.
+
+    A refused write is the normal answer of a device that is asleep or
+    whose integration is reloading, and it says nothing about the TRVs
+    further down the list. Letting it end the tick would drop them back
+    onto their internal sensors for a full interval.
+    """
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = AsyncMock(side_effect=[refusal, True])
+    bt = _bt_with_two_trvs(quirks)
+
+    await BetterThermostat._external_temperature_keepalive(bt)
+
+    assert _written_values(quirks) == [
+        (TRV_ID, ROOM_TEMPERATURE),
+        (TRV_ID_2, ROOM_TEMPERATURE),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_trv_that_never_answers_does_not_hold_the_tick():
+    """A write that does not return in time is given up, and the next TRV is served.
+
+    The tick holds the filter lock while it writes, so an unbounded wait on
+    one device would also hold back every later room reading.
+    """
+    written = []
+
+    async def _write(_bt, entity_id, value):
+        if entity_id == TRV_ID:
+            await asyncio.Event().wait()
+        written.append((entity_id, value))
+        return True
+
+    quirks = MagicMock()
+    quirks.maybe_set_external_temperature = _write
+    bt = _bt_with_two_trvs(quirks)
+
+    with patch(
+        "custom_components.better_thermostat.climate.EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S",
+        0.01,
+    ):
+        await asyncio.wait_for(
+            BetterThermostat._external_temperature_keepalive(bt), timeout=5
+        )
+
+    assert written == [(TRV_ID_2, ROOM_TEMPERATURE)]

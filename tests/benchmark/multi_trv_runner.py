@@ -118,9 +118,9 @@ class _MultiTrvFacade:
         return sum(self._plant.state.T_rads_C) / self._plant.params.n_trvs
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
     ) -> None:
-        u_per_trv = _distribute(valve_pct, self._plant)
+        u_per_trv = _distribute(valve_percent, self._plant)
         self._plant.step(dt_s, u_per_trv, T_outdoor_C, Q_K_per_min=Q_K_per_min)
 
 

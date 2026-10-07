@@ -18,9 +18,12 @@ from dataclasses import dataclass
 import logging
 import math
 from time import monotonic
-from typing import Protocol, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict
 
-from .types import CalibrationHost
+from ...core.calibrator import CalibratorHealth
+
+if TYPE_CHECKING:
+    from ...climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -108,7 +111,7 @@ class PIDParams:
     kp: float = DEFAULT_PID_KP
     ki: float = DEFAULT_PID_KI
     kd: float = DEFAULT_PID_KD
-    # Integrator-Klammer (Anti-Windup) in %-Punkten
+    # Integrator clamp (anti-windup) in percentage points
     i_min: float = -100.0
     i_max: float = 100.0
     # Derivative on measurement
@@ -139,12 +142,79 @@ class PIDParams:
 # --- Helper Functions -----------------------------------------------
 
 
-def _r(val: float | None, decimals: int = 2) -> float | None:
+def _r(value: float | None, decimals: int = 2) -> float | None:
     """Round to decimals if not None."""
-    return round(val, decimals) if val is not None else None
+    return round(value, decimals) if value is not None else None
 
 
 # --- PID Computation -----------------------------------------------
+
+
+def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
+    """Drop the stored stamps when they lie ahead of this cycle's clock.
+
+    The stamps are read from the monotonic clock, which counts from the
+    host's boot and survives a restart of Home Assistant alone. After a
+    host reboot the stored stamps lie ahead of it, and every interval
+    measured against them comes out negative: the hold time and the tuning
+    interval would not elapse until the new uptime passes the old one.
+    How long the host was down is unknown, so the stamps and the
+    measurements they belong to restart as on a first cycle, the error
+    and its sign that auto-tune and the integrator relief compare between
+    consecutive cycles among them. The integral
+    and the learned gains are kept.
+    """
+    latest = max(state.pid_last_time, state.last_output_change_ts, state.last_tune_ts)
+    if latest <= now:
+        return
+    state.pid_last_time = 0.0
+    state.last_output_change_ts = 0.0
+    state.last_tune_ts = 0.0
+    state.pid_last_meas = None
+    state.pid_last_error = None
+    state.last_abs_error = None
+    state.previous_abs_error = None
+    state.last_error_sign = None
+
+
+def observe_standby(
+    params: PIDParams,
+    state: PIDState,
+    inp_current_temp_C: float | None,
+    now: float,
+    inp_current_temp_ema_C: float | None = None,
+) -> PIDState:
+    """Track the measurement chain while actuation is suppressed.
+
+    Bumpless transfer: during window-open or OFF the controller emits
+    nothing, but ``pid_last_meas`` (the D-channel's smoothed measurement)
+    and ``pid_last_time`` keep following the room. The first cycle after
+    control resumes then sees a fresh measurement and a small ``dt`` —
+    no derivative kick and no one-step integral jump computed from an
+    hours-old timestamp. The integral itself stays frozen.
+    """
+    room_temperature = inp_current_temp_C
+    if inp_current_temp_ema_C is not None:
+        room_temperature = inp_current_temp_ema_C
+    if room_temperature is None:
+        return state
+
+    _forget_stamps_from_a_previous_uptime(state, now)
+    if params.d_on_measurement:
+        try:
+            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
+        except TypeError, ValueError:
+            a = 0.5
+        prev = state.pid_last_meas
+        state.pid_last_meas = (
+            room_temperature
+            if prev is None
+            else ((1.0 - a) * prev + a * room_temperature)
+        )
+    else:
+        state.pid_last_meas = room_temperature
+    state.pid_last_time = now
+    return state
 
 
 def compute_pid(
@@ -158,6 +228,7 @@ def compute_pid(
     max_opening_pct: float | None = None,
     *,
     state: PIDState,
+    now: float | None = None,
 ) -> tuple[float, PIDDebugInfo, PIDState]:
     """Compute PID-based valve opening percentage.
 
@@ -183,21 +254,25 @@ def compute_pid(
         Mutable controller state, owned by the caller (typically read from
         and written back to the ``StateManager``).  It is mutated in place
         and returned.
+    now:
+        Monotonic timestamp of this cycle; defaults to ``time.monotonic()``.
+        Callers with an injected clock pass their own reading so the
+        controller shares the entity's time source.
 
     Returns
     -------
     tuple[float, PIDDebugInfo, PIDState]
         ``(percent_open, debug_info, updated_state)``.
+
+    The integration step ``dt`` derived from ``now - pid_last_time`` is
+    clamped to :data:`MAX_DT_S` so a stale timestamp cannot produce one
+    oversized integral step.
     """
-    now = monotonic()
+    if now is None:
+        now = monotonic()
 
     st = state
-
-    st, pathology = sanitize_pid_state(st, params)
-    if pathology is not None:
-        _LOGGER.warning(
-            "better_thermostat: healed poisoned PID state for %s (%s)", key, pathology
-        )
+    _forget_stamps_from_a_previous_uptime(st, now)
 
     max_opening = 100.0
     if isinstance(max_opening_pct, (int, float)):
@@ -216,23 +291,23 @@ def compute_pid(
     )
 
     # Determine effective current temperature (prefer EMA)
-    current_temp = inp_current_temp_C
+    room_temperature = inp_current_temp_C
     if inp_current_temp_ema_C is not None:
-        current_temp = inp_current_temp_ema_C
+        room_temperature = inp_current_temp_ema_C
 
     # Delta T
-    if inp_target_temp_C is None or current_temp is None:
+    if inp_target_temp_C is None or room_temperature is None:
         # Without temperatures we can only keep the previous value
         percent = 0.0
         pid_dbg: PIDDebugInfo = {"mode": "pid", "error": "no_temps"}
         return percent, pid_dbg, st
 
-    delta_T = inp_target_temp_C - current_temp
-    e = delta_T
+    delta_kelvin = inp_target_temp_C - room_temperature
+    e = delta_kelvin
 
     # Update previous_abs_error before setting current
     st.previous_abs_error = st.last_abs_error
-    st.last_abs_error = abs(delta_T)
+    st.last_abs_error = abs(delta_kelvin)
 
     # Time difference, bounded to [1.0, MAX_DT_S] seconds. A stale
     # pid_last_time (calibrator switched away and back hours later) would
@@ -264,7 +339,7 @@ def compute_pid(
     if params.d_on_measurement:
         if dt > 0:
             # Use effective current temperature (EMA) for derivative
-            meas_now = current_temp
+            meas_now = room_temperature
             if meas_now is not None:
                 # EMA smoothing for the D channel only
                 try:
@@ -294,8 +369,10 @@ def compute_pid(
                 st.ema_slope = s_in
             else:
                 st.ema_slope = 0.6 * st.ema_slope + 0.4 * s_in
-    except Exception:
-        pass
+    except TypeError:
+        _LOGGER.debug(
+            "better_thermostat PID: slope EMA update skipped for %s", key, exc_info=True
+        )
 
     # Proportional term
     p_term = float(st.pid_kp) * e
@@ -332,13 +409,17 @@ def compute_pid(
             st.last_error_sign is not None
             and st.last_error_sign != 0
             and cur_sign not in (0, st.last_error_sign)
-            and abs(delta_T or 0.0) <= params.steady_state_band_K
+            and abs(delta_kelvin or 0.0) <= params.steady_state_band_K
         ):
             decay = 0.8  # 20% relief
             i_term *= decay
             i_relief = True
-    except Exception:
-        pass
+    except TypeError:
+        _LOGGER.debug(
+            "better_thermostat PID: integrator relief skipped for %s",
+            key,
+            exc_info=True,
+        )
 
     # Final control output
     u = p_term + i_term + d_term  # PID
@@ -400,7 +481,7 @@ def compute_pid(
 
     # Update PID state (store the measurement for the D term)
     if params.d_on_measurement:
-        base = current_temp
+        base = room_temperature
         try:
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
         except TypeError, ValueError:
@@ -409,7 +490,7 @@ def compute_pid(
             prev = st.pid_last_meas
             st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
-        st.pid_last_meas = current_temp
+        st.pid_last_meas = room_temperature
     # Refresh the last error together with pid_last_time on every cycle,
     # regardless of the derivative mode. Otherwise a switch back to
     # derivative-on-error would pair a stale error with a fresh timestamp and
@@ -418,15 +499,12 @@ def compute_pid(
     st.pid_last_time = now
 
     # Remember the error sign for the next cycle
-    try:
-        st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
-    except Exception:
-        pass
+    st.last_error_sign = 1 if e > 0 else (-1 if e < 0 else 0)
 
     # Optional auto-tuning (conservative)
     if params.auto_tune:
         _auto_tune_pid(
-            params, st, percent, delta_T, inp_temp_slope_K_per_min or 0.0, now
+            params, st, percent, delta_kelvin, inp_temp_slope_K_per_min or 0.0, now
         )
 
     # Store debug values
@@ -450,7 +528,7 @@ def compute_pid(
             "slope_in": _r(inp_temp_slope_K_per_min, 3),
             "slope_ema": _r(st.ema_slope, 3),
             # Measurements
-            "meas_current_used": _r(current_temp, 2),
+            "meas_current_used": _r(room_temperature, 2),
             "meas_external_raw": _r(inp_current_temp_C, 2),
             "meas_trv_C": _r(inp_trv_temp_C, 2),
             "meas_smooth_C": _r(smoothed, 2),
@@ -461,7 +539,7 @@ def compute_pid(
                 else 0
             ),
         }
-    except Exception:
+    except TypeError, ValueError, OverflowError:
         pid_dbg = {"mode": "pid", "error": "debug_failed"}
 
     _LOGGER.debug(
@@ -481,7 +559,7 @@ def _auto_tune_pid(
     params: PIDParams,
     st: PIDState,
     percent: float,
-    delta_T: float | None,
+    delta_kelvin: float | None,
     slope: float,
     now_ts: float,
 ) -> None:
@@ -494,18 +572,18 @@ def _auto_tune_pid(
     - Minimum interval between adjustments (tune_min_interval_s), clamp the gains within limits.
     """
     try:
-        if delta_T is None:
+        if delta_kelvin is None:
             return
         # Minimum interval
         if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
             return
-        sign = 1 if delta_T > 0 else (-1 if delta_T < 0 else 0)
+        sign = 1 if delta_kelvin > 0 else (-1 if delta_kelvin < 0 else 0)
         overshoot = False
         # Harden overshoot detection: only when previous abs(error) > band and new abs(error) < band
         if (
             st.previous_abs_error is not None
             and st.previous_abs_error > params.steady_state_band_K
-            and abs(delta_T) < params.steady_state_band_K
+            and abs(delta_kelvin) < params.steady_state_band_K
         ):
             overshoot = True
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
@@ -526,7 +604,7 @@ def _auto_tune_pid(
         # Use EMA slope if available for more stable tuning
         check_slope = st.ema_slope if st.ema_slope is not None else slope
         if (
-            delta_T > params.steady_state_band_K
+            delta_kelvin > params.steady_state_band_K
             and abs(check_slope) < params.sluggish_slope_threshold_K_min
             and percent < 95.0
         ):
@@ -535,7 +613,7 @@ def _auto_tune_pid(
             tuned = True
 
         # 3) Quasi-steady state: |ΔT| < steady_state_band and small control output -> Ki slightly down
-        if abs(delta_T) < params.steady_state_band_K and percent < 20.0:
+        if abs(delta_kelvin) < params.steady_state_band_K and percent < 20.0:
             ki = max(params.ki_min, min(params.ki_max, ki * params.ki_step_mul_down))
             tuned = True
 
@@ -551,32 +629,31 @@ def _auto_tune_pid(
 
 def sanitize_pid_state(
     state: PIDState, params: PIDParams
-) -> tuple[PIDState, str | None]:
-    """Heal a (possibly poisoned) PID state before computing.
+) -> tuple[PIDState, CalibratorHealth]:
+    """Self-heal a (possibly poisoned) PID state before computing.
 
-    Non-finite values fall back to their defaults, runaway gains return
-    to the configured defaults, and a wound-up integrator is reset. All
-    pathologies are healed in one pass; the returned pathology names the
-    most severe finding, or None.
+    Non-finite values are dropped back to defaults, runaway gains return
+    to the configured defaults, and a wound-up integrator is reset. The
+    returned health grade reports the worst pathology found.
     """
-    pathology: str | None = None
+    health = CalibratorHealth.HEALTHY
 
     def _finite(value: float | None) -> bool:
         return value is None or math.isfinite(value)
 
     if not _finite(state.pid_integral):
         state.pid_integral = 0.0
-        pathology = "non-finite state"
+        health = CalibratorHealth.NON_FINITE
     if not _finite(state.pid_last_meas):
         state.pid_last_meas = None
-        pathology = "non-finite state"
+        health = CalibratorHealth.NON_FINITE
     if not _finite(state.pid_last_error):
         state.pid_last_error = None
-        pathology = "non-finite state"
+        health = CalibratorHealth.NON_FINITE
     for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
         if not _finite(getattr(state, gain_attr)):
             setattr(state, gain_attr, None)
-            pathology = "non-finite state"
+            health = CalibratorHealth.NON_FINITE
 
     runaway = (
         (
@@ -596,13 +673,16 @@ def sanitize_pid_state(
         state.pid_kp = None
         state.pid_ki = None
         state.pid_kd = None
-        pathology = pathology or "runaway gains"
+        if health == CalibratorHealth.HEALTHY:
+            health = CalibratorHealth.RUNAWAY_GAINS
 
-    if not (params.i_min <= state.pid_integral <= params.i_max):
+    windup = not params.i_min <= state.pid_integral <= params.i_max
+    if windup:
         state.pid_integral = 0.0
-        pathology = pathology or "integrator windup"
+        if health == CalibratorHealth.HEALTHY:
+            health = CalibratorHealth.WINDUP_SUSPECT
 
-    return state, pathology
+    return state, health
 
 
 # --- Key Builder Helper -----------------------------------------------
@@ -618,10 +698,10 @@ class _HasUniqueId(Protocol):
 def resolve_unique_id(obj: _HasUniqueId) -> str:
     """Return the id used to key per-entity persistent state.
 
-    Prefers the public ``unique_id`` property, falls back to ``_unique_id`` and
-    finally ``"bt"``, so every site keys state the same way.
+    An entity without a unique id keys its state under ``"bt"``, so every
+    site keys state the same way.
     """
-    return getattr(obj, "unique_id", None) or getattr(obj, "_unique_id", None) or "bt"
+    return obj.unique_id or "bt"
 
 
 def round_to_bucket(temp: float) -> float:
@@ -634,14 +714,14 @@ def format_bucket(bucket: float) -> str:
     return f"t{bucket:.1f}"
 
 
-def build_pid_key(self: CalibrationHost, entity_id: str) -> str:
+def build_pid_key(self: BetterThermostat, entity_id: str) -> str:
     """Build consistent PID state key across all modules.
 
     Format: {unique_id}:{entity_id}:t{target_temp:.1f}
     where target_temp is rounded to 0.5°C buckets.
 
     Args:
-        self: BetterThermostat instance with unique_id and bt_target_temp
+        self: BetterThermostat instance with unique_id and heat_target_temperature
         entity_id: TRV entity ID
 
     Returns
@@ -649,13 +729,13 @@ def build_pid_key(self: CalibrationHost, entity_id: str) -> str:
         PID key string
     """
     try:
-        tcur = self.bt_target_temp
+        tcur = self.heat_target_temperature
         bucket_tag = (
             format_bucket(round_to_bucket(tcur))
             if isinstance(tcur, (int, float))
             else "tunknown"
         )
-    except Exception:
+    except ValueError, OverflowError:
         bucket_tag = "tunknown"
 
     return f"{resolve_unique_id(self)}:{entity_id}:{bucket_tag}"

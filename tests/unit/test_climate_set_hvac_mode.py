@@ -4,12 +4,15 @@ Pins the supported-mode handling, the rejection of unsupported modes, and the
 maintenance defer that must not enqueue a control action mid-exercise.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.climate.const import HVACMode
+from homeassistant.exceptions import ServiceValidationError
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
+from custom_components.better_thermostat.core.clock import FakeClock
+from tests.factories import ThermostatStandIn
 
 _CLIMATE = "custom_components.better_thermostat.climate"
 
@@ -17,13 +20,15 @@ _CLIMATE = "custom_components.better_thermostat.climate"
 @pytest.fixture
 def bt():
     """Minimal BetterThermostat mock for setting the HVAC mode."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.bt_hvac_mode = HVACMode.HEAT
+    mock.hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     mock.in_maintenance = False
     mock._control_needed_after_maintenance = False
+    mock.clock = FakeClock()
     mock.async_write_ha_state = MagicMock()
-    mock.control_queue_task = AsyncMock()
+    mock.control_queue_task = MagicMock()
     return mock
 
 
@@ -33,24 +38,38 @@ def _identity_mode():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", [HVACMode.HEAT, HVACMode.HEAT_COOL, HVACMode.OFF])
-async def test_supported_mode_is_applied_and_queued(bt, mode):
-    """A supported mode is stored, state is written, and control is queued."""
-    with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
-        await BetterThermostat.async_set_hvac_mode(bt, mode)
-    assert bt.bt_hvac_mode == mode
+@pytest.mark.parametrize(
+    ("mode", "held"),
+    [
+        (HVACMode.HEAT, HVACMode.HEAT),
+        (HVACMode.HEAT_COOL, HVACMode.HEAT),
+        (HVACMode.OFF, HVACMode.OFF),
+    ],
+)
+async def test_supported_mode_is_applied_and_queued(bt, mode, held):
+    """A supported mode is stored as the room's intent, and control is queued.
+
+    Both spellings of "on" are held as HEAT.
+    """
+    await BetterThermostat.async_set_hvac_mode(bt, mode)
+    assert bt.bt_hvac_mode == held
     bt.async_write_ha_state.assert_called_once()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.control_queue_task.put_nowait.assert_called_once_with(bt)
 
 
 @pytest.mark.asyncio
 async def test_unsupported_mode_is_rejected(bt):
-    """An unsupported mode leaves bt_hvac_mode untouched but still queues control."""
+    """An unsupported mode raises to the service caller and changes nothing.
+
+    No state write, no control cycle.
+    """
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()) as mapper:
-        await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
+        with pytest.raises(ServiceValidationError):
+            await BetterThermostat.async_set_hvac_mode(bt, HVACMode.COOL)
     assert bt.bt_hvac_mode == HVACMode.HEAT  # unchanged
     mapper.assert_not_called()
-    bt.control_queue_task.put.assert_awaited_once_with(bt)
+    bt.async_write_ha_state.assert_not_called()
+    bt.control_queue_task.put_nowait.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -60,4 +79,13 @@ async def test_maintenance_defers_control(bt):
     with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
         await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
     assert bt._control_needed_after_maintenance is True
-    bt.control_queue_task.put.assert_not_awaited()
+    bt.control_queue_task.put_nowait.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_mode_change_is_stamped_as_a_user_change(bt):
+    """Switching the mode marks the moment as the user's change of the room."""
+    bt.clock = FakeClock(monotonic_value=123.0)
+    with patch(f"{_CLIMATE}.get_hvac_bt_mode", _identity_mode()):
+        await BetterThermostat.async_set_hvac_mode(bt, HVACMode.HEAT)
+    assert bt.last_user_change_monotonic == 123.0

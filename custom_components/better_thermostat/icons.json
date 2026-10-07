@@ -1,0 +1,88 @@
+{
+  "entity": {
+    "sensor": {
+      "temp_slope": {
+        "default": "mdi:chart-line"
+      },
+      "heating_power": {
+        "default": "mdi:thermometer-plus"
+      },
+      "heat_loss": {
+        "default": "mdi:thermometer-minus"
+      },
+      "virtual_temp": {
+        "default": "mdi:thermometer-auto"
+      },
+      "mpc_gain": {
+        "default": "mdi:thermometer-plus"
+      },
+      "mpc_loss": {
+        "default": "mdi:thermometer-minus"
+      },
+      "mpc_ka": {
+        "default": "mdi:home-thermometer-outline"
+      },
+      "mpc_v2_virtual_temp": {
+        "default": "mdi:thermometer-auto"
+      },
+      "mpc_v2_coupling": {
+        "default": "mdi:heat-wave"
+      },
+      "mpc_v2_disturbance": {
+        "default": "mdi:thermometer-minus"
+      },
+      "mpc_v2_room_time_constant": {
+        "default": "mdi:home-clock-outline"
+      },
+      "pid_kp": {
+        "default": "mdi:alpha-p-circle-outline"
+      },
+      "pid_ki": {
+        "default": "mdi:alpha-i-circle-outline"
+      },
+      "pid_kd": {
+        "default": "mdi:alpha-d-circle-outline"
+      },
+      "pid_output": {
+        "default": "mdi:valve"
+      },
+      "pid_error": {
+        "default": "mdi:thermometer-alert"
+      },
+      "solar_intensity": {
+        "default": "mdi:solar-power"
+      }
+    },
+    "switch": {
+      "child_lock": {
+        "default": "mdi:account-lock",
+        "state": {
+          "off": "mdi:account-lock-open"
+        }
+      },
+      "child_lock_no_trv": {
+        "default": "mdi:account-lock",
+        "state": {
+          "off": "mdi:account-lock-open"
+        }
+      },
+      "pid_auto_tune": {
+        "default": "mdi:magic-staff"
+      },
+      "pid_auto_tune_no_trv": {
+        "default": "mdi:magic-staff"
+      }
+    }
+  },
+  "services": {
+    "reset_heating_power": {
+      "service": "mdi:restore"
+    },
+    "reset_pid_learnings": {
+      "service": "mdi:restore"
+    },
+    "run_valve_maintenance": {
+      "service": "mdi:valve"
+    }
+  }
+}

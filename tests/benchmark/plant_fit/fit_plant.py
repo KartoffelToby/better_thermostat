@@ -44,7 +44,7 @@ class TimeSeries:
     """Parallel arrays of timestamp + value."""
 
     ts: list[float]
-    val: list[float]
+    value: list[float]
 
 
 def _load_csv(path: str) -> dict[str, TimeSeries]:
@@ -60,13 +60,13 @@ def _load_csv(path: str) -> dict[str, TimeSeries]:
             t_str, val_str, eid = row[0], row[1], row[2]
             try:
                 ts = datetime.fromisoformat(t_str).timestamp()
-                val = float(val_str)
+                value = float(val_str)
             except ValueError, TypeError:
                 continue
-            if not math.isfinite(val):
+            if not math.isfinite(value):
                 continue
             per_entity[eid].ts.append(ts)
-            per_entity[eid].val.append(val)
+            per_entity[eid].value.append(value)
     return dict(per_entity)
 
 
@@ -74,9 +74,9 @@ def _align(
     series_a: TimeSeries, series_b: TimeSeries
 ) -> list[tuple[float, float, float]]:
     """Align two series by timestamp (assumed to be the same hourly grid)."""
-    b_map = {round(t, 0): v for t, v in zip(series_b.ts, series_b.val)}
+    b_map = {round(t, 0): v for t, v in zip(series_b.ts, series_b.value)}
     out: list[tuple[float, float, float]] = []
-    for t, a in zip(series_a.ts, series_a.val):
+    for t, a in zip(series_a.ts, series_a.value):
         if round(t, 0) in b_map:
             out.append((t, a, b_map[round(t, 0)]))
     return out
@@ -119,11 +119,11 @@ def _fit_tau_room(window: list[tuple[float, float, float]]) -> float | None:
     xs = []
     ys = []
     for t_s, T, _ in window:
-        dT = T - T_out
-        dT0 = T0 - T_out
-        if dT * dT0 <= 0:
+        delta_kelvin = T - T_out
+        initial_delta_kelvin = T0 - T_out
+        if delta_kelvin * initial_delta_kelvin <= 0:
             continue  # Sign flip, skip
-        ratio = dT / dT0
+        ratio = delta_kelvin / initial_delta_kelvin
         if ratio <= 0:
             continue
         xs.append((t_s - t0_s) / 60.0)  # minutes
@@ -238,8 +238,8 @@ def main(path: str | None = None) -> int:
     outdoor = data[outdoor_id]
     print(f"Outdoor proxy: {outdoor_id} ({len(outdoor.ts)} samples)")
     print(
-        f"  range {min(outdoor.val):.1f} .. {max(outdoor.val):.1f} °C, "
-        f"mean {sum(outdoor.val) / len(outdoor.val):.1f} °C"
+        f"  range {min(outdoor.value):.1f} .. {max(outdoor.value):.1f} °C, "
+        f"mean {sum(outdoor.value) / len(outdoor.value):.1f} °C"
     )
 
     for room_name, sensor_id in rooms.items():

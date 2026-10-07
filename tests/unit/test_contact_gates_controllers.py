@@ -15,7 +15,6 @@ the valve is what reaches the device either way.
 
 from __future__ import annotations
 
-import importlib.util
 from types import SimpleNamespace
 from typing import Any
 
@@ -27,6 +26,8 @@ from custom_components.better_thermostat.calibration import (
     _compute_mpc_v2_balance,
     _compute_tpi_balance,
 )
+from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import MpcState
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
@@ -36,11 +37,10 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
 from custom_components.better_thermostat.utils.calibration.tpi import TpiState
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
-
-_HAS_DAQP = importlib.util.find_spec("daqp") is not None
+from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
 
 
 class _InMemoryStateManager:
@@ -51,7 +51,8 @@ class _InMemoryStateManager:
         self._mpc: dict[str, MpcState] = {}
         self._mpc_v2: dict[str, MpcV2State] = {}
         self._tpi: dict[str, TpiState] = {}
-        self.state = SimpleNamespace(mpc=self._mpc)
+        self._mpc_v2_reid: dict[str, MpcV2ReidRuntime] = {}
+        self.state = SimpleNamespace(mpc=self._mpc, mpc_v2_reid={})
 
     def get_mpc(self, key: str) -> MpcState:
         """Return the MPC v1 state for key, creating it on first use."""
@@ -69,6 +70,14 @@ class _InMemoryStateManager:
         """Store the live MPC v2 state for key."""
         self._mpc_v2[key] = state
 
+    def get_mpc_v2_reid(self, key: str) -> None:
+        """Report no persisted re-identification result."""
+        return None
+
+    def get_mpc_v2_reid_runtime(self, key: str) -> MpcV2ReidRuntime:
+        """Return the re-ID collection state for key, creating it on first use."""
+        return self._mpc_v2_reid.setdefault(key, MpcV2ReidRuntime())
+
     def get_tpi(self, key: str) -> TpiState:
         """Return the TPI state for key, creating it on first use."""
         return self._tpi.setdefault(key, TpiState())
@@ -85,7 +94,7 @@ def _valve_trv(entity_id: str, mode: CalibrationMode) -> Trv:
         current_temperature=19.0,
         valve_max_opening=100.0,
         advanced={
-            "calibration": CalibrationType.DIRECT_VALVE_BASED,
+            "calibration": CalibrationOutput.DIRECT_VALVE_BASED,
             "calibration_mode": mode,
             "mpc_v2_plant_preset": MpcV2PlantPreset.AUTO,
         },
@@ -100,9 +109,9 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
     """Build a BT-shaped stand-in with a cold room asking for heat."""
     return SimpleNamespace(
         real_trvs=real_trvs,
-        bt_target_temp=21.0,
-        cur_temp=19.0,
-        cur_temp_filtered=None,
+        heat_target_temperature=21.0,
+        room_temperature=19.0,
+        room_temperature_filtered=None,
         tolerance=0.0,
         temp_slope=None,
         window_open=window_open,
@@ -112,14 +121,18 @@ def _bt(real_trvs: dict[str, Trv], *, window_open: bool, door_open: bool) -> Any
         bt_hvac_mode=HVACMode.HEAT,
         heating_power=0.04,
         heat_loss_rate=0.02,
-        outdoor_sensor=None,
-        weather_entity=None,
+        outdoor_sensor_entity_id=None,
+        weather_entity_id=None,
         hass=None,
-        _unique_id="bt_contact_gate",
+        unique_id="bt_contact_gate",
         device_id="bt_contact_gate_device",
         entry_id="bt_contact_gate_entry",
         state_mgr=_InMemoryStateManager(),
         schedule_save_state=lambda: None,
+        kernel_state=SimpleNamespace(
+            control_mode=SimpleNamespace(mode=ControlMode.OPTIMAL)
+        ),
+        clock=FakeClock(monotonic_value=1_000_000.0),
     )
 
 
@@ -144,10 +157,7 @@ CONTROLLERS = [
     pytest.param(CalibrationMode.MPC_CALIBRATION, _compute_mpc_balance, id="mpc"),
     pytest.param(CalibrationMode.TPI_CALIBRATION, _compute_tpi_balance, id="tpi"),
     pytest.param(
-        CalibrationMode.MPC_V2_CALIBRATION,
-        _compute_mpc_v2_balance,
-        id="mpc_v2",
-        marks=pytest.mark.skipif(not _HAS_DAQP, reason="MPC v2 needs the daqp solver"),
+        CalibrationMode.MPC_V2_CALIBRATION, _compute_mpc_v2_balance, id="mpc_v2"
     ),
 ]
 

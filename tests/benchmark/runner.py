@@ -28,6 +28,7 @@ from .adapters.indirect_trv import (
     IndirectTrvAdapter,
 )
 from .adapters.mpc_adapter import MpcAdapter
+from .adapters.mpc_v2_adapter import MpcV2Adapter
 from .adapters.passive_modes import (
     AggressiveCalibrationAdapter,
     DefaultCalibrationAdapter,
@@ -69,6 +70,7 @@ from .sensor import Sensor, SensorParams
 
 ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     "mpc": MpcAdapter,
+    "mpc_v2": MpcV2Adapter,
     "tpi": TpiAdapter,
     "pid": PidAdapter,
     "heating_power": HeatingPowerAdapter,
@@ -85,6 +87,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # live in adapters/indirect_trv.py.
     "pid+indirect_tado": lambda: IndirectTrvAdapter(PidAdapter(), TADO_PARAMS),
     "mpc+indirect_tado": lambda: IndirectTrvAdapter(MpcAdapter(), TADO_PARAMS),
+    "mpc_v2+indirect_tado": lambda: IndirectTrvAdapter(MpcV2Adapter(), TADO_PARAMS),
     "tpi+indirect_tado": lambda: IndirectTrvAdapter(TpiAdapter(), TADO_PARAMS),
     "heating_power+indirect_tado": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), TADO_PARAMS
@@ -92,6 +95,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # Bosch BTH-RA — wider hysteresis + command latency.
     "pid+indirect_bosch": lambda: IndirectTrvAdapter(PidAdapter(), BOSCH_PARAMS),
     "mpc+indirect_bosch": lambda: IndirectTrvAdapter(MpcAdapter(), BOSCH_PARAMS),
+    "mpc_v2+indirect_bosch": lambda: IndirectTrvAdapter(MpcV2Adapter(), BOSCH_PARAMS),
     "tpi+indirect_bosch": lambda: IndirectTrvAdapter(TpiAdapter(), BOSCH_PARAMS),
     "heating_power+indirect_bosch": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), BOSCH_PARAMS
@@ -99,6 +103,7 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     # Tuya TS0601 family — 1 K setpoint quantisation.
     "pid+indirect_tuya": lambda: IndirectTrvAdapter(PidAdapter(), TUYA_PARAMS),
     "mpc+indirect_tuya": lambda: IndirectTrvAdapter(MpcAdapter(), TUYA_PARAMS),
+    "mpc_v2+indirect_tuya": lambda: IndirectTrvAdapter(MpcV2Adapter(), TUYA_PARAMS),
     "tpi+indirect_tuya": lambda: IndirectTrvAdapter(TpiAdapter(), TUYA_PARAMS),
     "heating_power+indirect_tuya": lambda: IndirectTrvAdapter(
         HeatingPowerAdapter(), TUYA_PARAMS
@@ -109,6 +114,9 @@ ADAPTER_FACTORIES: dict[str, Callable[[], ControllerAdapter]] = {
     ),
     "mpc+indirect_sonoff": lambda: IndirectTrvAdapter(
         MpcAdapter(), SONOFF_TRVZB_PARAMS
+    ),
+    "mpc_v2+indirect_sonoff": lambda: IndirectTrvAdapter(
+        MpcV2Adapter(), SONOFF_TRVZB_PARAMS
     ),
     "tpi+indirect_sonoff": lambda: IndirectTrvAdapter(
         TpiAdapter(), SONOFF_TRVZB_PARAMS
@@ -195,7 +203,7 @@ class PlantFacade(Protocol):
     The benchmark drives both single-TRV (``TwoStatePlant``) and
     multi-TRV (``MultiTrvPlant``) simulators through the same loop. The
     facade adapts each plant's native shape (scalar valve vs. vector
-    valves) to the loop's uniform "apply one valve_pct, see one room and
+    valves) to the loop's uniform "apply one valve_percent, see one room and
     one radiator temperature" view.
     """
 
@@ -210,7 +218,7 @@ class PlantFacade(Protocol):
         ...
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
     ) -> None:
         """Step the plant forward by ``dt_s`` seconds under the given valve and outdoor inputs."""
         ...
@@ -232,9 +240,9 @@ class _SingleTrvFacade:
         return self._plant.state.T_rad_C
 
     def apply(
-        self, dt_s: float, valve_pct: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
     ) -> None:
-        u = self._actuator.apply(valve_pct)
+        u = self._actuator.apply(valve_percent)
         self._plant.step(dt_s, u, T_outdoor_C, Q_K_per_min=Q_K_per_min)
 
 
@@ -263,10 +271,10 @@ def _drive_adapter(
     t_s_list: list[float] = []
     T_room_list: list[float] = []
     T_setpoint_list: list[float] = []
-    valve_pct_list: list[float] = []
+    valve_percent_list: list[float] = []
 
     t = 0.0
-    last_valve_pct = 0.0
+    last_valve_percent = 0.0
     last_measured_temp = facade.T_room_C
     restart_fired = False
 
@@ -326,28 +334,34 @@ def _drive_adapter(
             outdoor_temp_C=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
-            last_valve_percent=last_valve_pct,
+            last_valve_percent=last_valve_percent,
         )
 
         out = adapter.step(ctx)
-        valve_pct = out.valve_percent if out.valve_percent is not None else 0.0
-        last_valve_pct = valve_pct
+        # Better Thermostat turns every TRV off while a window is open,
+        # whatever the calibration mode: the kernel's window region decides
+        # that above the controller. The controller still runs and sees the
+        # open window, but the plant gets a closed valve.
+        valve_percent = (
+            0.0 if window_open or out.valve_percent is None else out.valve_percent
+        )
+        last_valve_percent = valve_percent
 
         t_s_list.append(t)
         T_room_list.append(facade.T_room_C)
         T_setpoint_list.append(target)
-        valve_pct_list.append(valve_pct)
+        valve_percent_list.append(valve_percent)
 
         Q_solar = solar_intensity * scenario.solar_max_K_per_min
         Q_window = -scenario.window_loss_K_per_min if window_open else 0.0
-        facade.apply(step_s, valve_pct, T_outdoor, Q_K_per_min=Q_solar + Q_window)
+        facade.apply(step_s, valve_percent, T_outdoor, Q_K_per_min=Q_solar + Q_window)
         t += step_s
 
     return TimeSeries(
         t_s=t_s_list,
         T_room_C=T_room_list,
         T_setpoint_C=T_setpoint_list,
-        valve_pct=valve_pct_list,
+        valve_percent=valve_percent_list,
     )
 
 

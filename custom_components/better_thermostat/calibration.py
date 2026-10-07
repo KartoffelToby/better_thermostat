@@ -2,28 +2,41 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, replace
 import logging
 import math
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
 )
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
+    MpcOutput,
     MpcParams,
     build_mpc_group_key,
     build_mpc_key,
     compute_mpc,
     distribute_valve_percent,
+    sanitize_mpc_state,
 )
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     MpcV2Input,
+    MpcV2Output,
     MpcV2Params,
+    PlantParams,
+    ReidOutcome,
+    ReidSample,
     compute_mpc_v2,
     make_plant_prior,
+    run_reid_fit,
 )
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
@@ -33,35 +46,58 @@ from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     build_pid_key,
     compute_pid,
+    observe_standby as pid_observe_standby,
+    resolve_unique_id,
+    sanitize_pid_state,
+)
+from custom_components.better_thermostat.utils.calibration.strategies import (
+    BalanceCalibrator,
+    BalanceStrategy,
+    ChannelAdjustment,
+    ModeTraits,
+    annunciate_health,
+    build_strategy_registry,
 )
 from custom_components.better_thermostat.utils.calibration.tpi import (
     TpiInput,
+    TpiOutput,
     TpiParams,
     build_tpi_key,
     compute_tpi,
+    sanitize_tpi_state,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
     MpcV2PlantPreset,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    Rounding,
+    clamp_valve_percent,
     convert_to_float,
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_calibration_mode,
+    normalize_step,
     round_by_step,
-    rounding,
 )
+from custom_components.better_thermostat.utils.state_manager import MpcV2ReidData
+from custom_components.better_thermostat.utils.watcher import reachable_trv_temperature
+
+if TYPE_CHECKING:
+    from custom_components.better_thermostat.climate import BetterThermostat
+    from custom_components.better_thermostat.trv import Trv
 
 _LOGGER = logging.getLogger(__name__)
 
-# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
-# per-cycle dispatch from repeating it when the daqp import keeps failing.
-_MPC_V2_IMPORT_WARNED: set[str] = set()
+# Offline re-identification cadence: at most one fit attempt per key in this
+# interval, and only once the sample buffer holds enough history to plausibly
+# contain full transients (240 samples ≈ 4-20 h depending on cycle rate).
+_MPC_V2_REID_INTERVAL_S = 6 * 3600.0
+_MPC_V2_REID_MIN_SAMPLES = 240
 
 # Post-adjustment gates that fire because Better Thermostat is not calling for
 # heat take the same arm while the cooler runs: a TRV valve that opens works
@@ -70,7 +106,7 @@ _IDLE_OR_COOLING = (HVACAction.IDLE, HVACAction.COOLING)
 
 
 def _compute_zero_open_offset(
-    self,
+    self: BetterThermostat,
     entity_id: str,
     _cur_trv_temp: float,
     _cur_external_temp: float,
@@ -80,7 +116,7 @@ def _compute_zero_open_offset(
     """Compute the offset to push setpoint below TRV temp when valve fraction is zero.
 
     Returns the offset so that callers can set:
-        _calibrated_setpoint = _cur_trv_temp - offset
+        _calibrated_setpoint = _cur_trv_temp - setpoint_drop
     """
     _overshoot = max(0.0, _cur_external_temp - _cur_target_temp)
     _t_min = convert_to_float(
@@ -88,16 +124,49 @@ def _compute_zero_open_offset(
         self.device_name,
         "_compute_zero_open_offset()",
     )
-    _max_offset = max(1.0, _cur_trv_temp - float(_t_min)) if _t_min is not None else 8.0
-    _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
-    _offset = max(_trv_temp_step, _offset)
-    return _offset
+    _max_setpoint_drop = (
+        max(1.0, _cur_trv_temp - float(_t_min)) if _t_min is not None else 8.0
+    )
+    _setpoint_drop = _max_setpoint_drop * (1.0 - math.exp(-0.5 * _overshoot))
+    _setpoint_drop = max(_trv_temp_step, _setpoint_drop)
+    return _setpoint_drop
 
 
-def _get_current_outdoor_temp(self) -> float | None:
+def effective_room_temp(self: BetterThermostat) -> float | None:
+    """Room temperature for the control law, honoring the fail-soft ladder.
+
+    Under SENSOR_FALLBACK the mean of the internal temperatures of the
+    reachable TRVs substitutes the (dead) room sensor — completing the
+    fallback that the watcher has always announced. On every other rung
+    this is simply the current room temperature.
+
+    Parameters
+    ----------
+    self :
+        BetterThermostat entity instance.
+
+    Returns
+    -------
+    float | None
+        Effective room temperature, or ``None`` when no usable reading
+        exists.
+    """
+    mode = self.kernel_state.control_mode.mode
+    if mode == ControlMode.SENSOR_FALLBACK:
+        temps = [
+            value
+            for entity_id in self.real_trvs
+            if (value := reachable_trv_temperature(self, entity_id)) is not None
+        ]
+        if temps:
+            return sum(temps) / len(temps)
+    return self.room_temperature
+
+
+def _get_current_outdoor_temp(self: BetterThermostat) -> float | None:
     """Get current outdoor temperature from outdoor sensor or weather entity."""
-    if self.outdoor_sensor is not None:
-        state = self.hass.states.get(self.outdoor_sensor)
+    if self.outdoor_sensor_entity_id is not None:
+        state = self.hass.states.get(self.outdoor_sensor_entity_id)
         if state:
             return convert_to_float_celsius(
                 state.state,
@@ -106,8 +175,8 @@ def _get_current_outdoor_temp(self) -> float | None:
                 unit_of_measurement=state.attributes.get("unit_of_measurement"),
             )
 
-    if self.weather_entity is not None:
-        state = self.hass.states.get(self.weather_entity)
+    if self.weather_entity_id is not None:
+        state = self.hass.states.get(self.weather_entity_id)
         if state and state.attributes:
             return convert_to_float_celsius(
                 state.attributes.get("temperature"),
@@ -119,16 +188,26 @@ def _get_current_outdoor_temp(self) -> float | None:
     return None
 
 
-def _get_current_solar_intensity(self) -> float:
+def _get_solar_context(self: BetterThermostat) -> tuple[bool, float]:
+    """Daylight flag plus current solar intensity (0.0 below the horizon)."""
+    is_day = True
+    if self.hass is not None:
+        sun = self.hass.states.get("sun.sun")
+        if sun is not None and sun.state == "below_horizon":
+            is_day = False
+    return is_day, (_get_current_solar_intensity(self) if is_day else 0.0)
+
+
+def _get_current_solar_intensity(self: BetterThermostat) -> float:
     """Estimate solar intensity (0.0 to 1.0) based on weather entity data."""
-    if self.weather_entity is None:
+    if self.weather_entity_id is None:
         return 0.0
 
-    state = self.hass.states.get(self.weather_entity)
+    state = self.hass.states.get(self.weather_entity_id)
     if not state or not state.attributes:
         return 0.0
 
-    def _get_val(data, key):
+    def _get_val(data: object, key: str) -> float | int | str | None:
         if not isinstance(data, dict):
             return None
         return data.get(key)
@@ -149,7 +228,7 @@ def _get_current_solar_intensity(self) -> float:
             try:
                 # 0% clouds = 1.0 intensity, 100% clouds = 0.0 intensity
                 return max(0.0, min(1.0, (100.0 - float(cc)) / 100.0))
-            except ValueError, TypeError:
+            except ValueError, TypeError, OverflowError:
                 pass
 
     # 2. UV Index (0-10+) -> Higher is better
@@ -159,7 +238,7 @@ def _get_current_solar_intensity(self) -> float:
             try:
                 # Normalize UV index (approx 0-10 range)
                 return max(0.0, min(1.0, float(uv) / 10.0))
-            except ValueError, TypeError:
+            except ValueError, TypeError, OverflowError:
                 pass
 
     # 3. Weather condition mapping
@@ -181,43 +260,78 @@ def _get_current_solar_intensity(self) -> float:
     return 0.1  # Default low for rain/snow/fog etc
 
 
-def _supports_direct_valve_control(self, entity_id: str) -> bool:
+def _supports_direct_valve_control(self: BetterThermostat, entity_id: str) -> bool:
     """Return True if the TRV supports writing a valve percentage."""
 
-    _calibration_type = self.real_trvs[entity_id].advanced.get(
-        "calibration", CalibrationType.TARGET_TEMP_BASED
+    trv = self.real_trvs[entity_id]
+    _calibration_output = trv.advanced.get(
+        "calibration", CalibrationOutput.TARGET_TEMP_BASED
     )
-    if _calibration_type != CalibrationType.DIRECT_VALVE_BASED:
+    if _calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
         return False
-
-    trv_data = self.real_trvs.get(entity_id)
-    if trv_data is None:
-        return False
-    valve_entity = trv_data.valve_position_entity
-    writable_flag = trv_data.valve_position_writable
-    if valve_entity and writable_flag is True:
-        return True
-
-    quirks = trv_data.model_quirks
-    _override_set_valve = getattr(quirks, "override_set_valve", None)
-    if callable(_override_set_valve):
-        return True
-
-    return False
+    return trv.capabilities().supports_valve_write
 
 
-def _get_trv_max_opening(self, entity_id: str) -> float | None:
-    """Return the user-defined max opening percent for a TRV, if any."""
+def _get_trv_max_opening(self: BetterThermostat, entity_id: str) -> float:
+    """Return the user-defined max opening percent for a TRV."""
+    return max(0.0, min(100.0, float(self.real_trvs[entity_id].valve_max_opening)))
 
-    trv_state = self.real_trvs.get(entity_id)
-    max_opening = trv_state.valve_max_opening if trv_state is not None else None
-    if isinstance(max_opening, (int, float)):
-        return max(0.0, min(100.0, float(max_opening)))
-    return None
+
+def _heating_power_adjustment(
+    self: BetterThermostat,
+    entity_id: str,
+    current_value: float,
+    *,
+    hold_value: float,
+    legacy_fallback: Callable[[float], float],
+) -> tuple[float, bool]:
+    """Shared HEATING_POWER machinery for both calibration channels.
+
+    When direct valve control is available, publish the valve intent
+    (closed while not heating, the heating-power position otherwise) and
+    hold the channel value so the calibration does not counteract the
+    valve command. Without valve support, fall back to the channel's
+    legacy valve-position math. Without a room temperature or a target
+    the valve cannot be sized, and the channel keeps ``current_value``.
+
+    Returns ``(value, skip_post_adjustments)``.
+    """
+    trv = self.real_trvs[entity_id]
+
+    if self.hvac_action != HVACAction.HEATING:
+        if _supports_direct_valve_control(self, entity_id):
+            trv.calibration_balance = {
+                "valve_percent": 0,
+                "apply_valve": True,
+                "debug": {"source": "heating_power_calibration"},
+            }
+            return hold_value, True
+        trv.calibration_balance = None
+        return current_value, False
+
+    # The position is bounded to 0..1, so the percentage is always finite.
+    _valve_position = heating_power_valve_position(
+        self, entity_id, effective_room_temp(self)
+    )
+    if _valve_position is None:
+        # Without a room temperature or a target there is no demand to size
+        # the valve from, so the channel keeps its base calibration.
+        trv.calibration_balance = None
+        return current_value, False
+    if _supports_direct_valve_control(self, entity_id):
+        trv.calibration_balance = {
+            "valve_percent": clamp_valve_percent(_valve_position * 100.0),
+            "apply_valve": True,
+            "debug": {"source": "heating_power_calibration"},
+        }
+        return hold_value, True
+
+    trv.calibration_balance = None
+    return legacy_fallback(_valve_position), False
 
 
 def _collect_trv_temps_and_warmest(
-    real_trvs, fallback_id: str
+    real_trvs: Mapping[str, Trv], fallback_id: str
 ) -> tuple[dict[str, float | None], str]:
     """Return per-TRV temperatures and the id of the warmest TRV.
 
@@ -232,11 +346,7 @@ def _collect_trv_temps_and_warmest(
         if _t is None:
             trv_temps[eid] = None
             continue
-        try:
-            temp_val = float(_t)
-        except TypeError, ValueError:
-            trv_temps[eid] = None
-            continue
+        temp_val = float(_t)
         trv_temps[eid] = temp_val
         if warmest_temp is None or temp_val > warmest_temp:
             warmest_temp = temp_val
@@ -244,7 +354,9 @@ def _collect_trv_temps_and_warmest(
     return trv_temps, warmest_trv_id
 
 
-def _compute_mpc_balance(self, entity_id: str):
+def _compute_mpc_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[MpcOutput | None, bool]:
     """Run the MPC balance algorithm for calibration purposes.
 
     When the BT instance controls **multiple TRVs**, a single shared MPC model
@@ -253,14 +365,14 @@ def _compute_mpc_balance(self, entity_id: str):
     temperature deficit.  A cold TRV (low ``current_temperature``) receives
     *more* valve opening; a warm one receives *less*.
 
-    For a **single TRV** this behaves exactly as before (no distribution step).
+    With a **single TRV** there is no distribution step: the model is keyed
+    per entity and its valve command is applied as computed.
     """
 
-    trv_state = self.real_trvs.get(entity_id)
-    if trv_state is None:
-        return None, False
+    trv_state = self.real_trvs[entity_id]
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    mpc_current_temp = effective_room_temp(self)
+    if self.heat_target_temperature is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -285,19 +397,14 @@ def _compute_mpc_balance(self, entity_id: str):
     params = MpcParams()
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
-    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
-    mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = self.cur_temp_filtered
+    # `room_temperature_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    mpc_filtered_temp = (
+        self.room_temperature_filtered
+        if mpc_current_temp is self.room_temperature
+        else None
+    )
 
-    _is_day = True
-    if self.hass:
-        _sun = self.hass.states.get("sun.sun")
-        if _sun and _sun.state == "below_horizon":
-            _is_day = False
-
-    _solar_intensity = 0.0
-    if _is_day:
-        _solar_intensity = _get_current_solar_intensity(self)
+    _is_day, _solar_intensity = _get_solar_context(self)
 
     # Use a group key for multi-TRV setups so all TRVs share one MPC model.
     if is_multi_trv:
@@ -305,18 +412,23 @@ def _compute_mpc_balance(self, entity_id: str):
     else:
         mpc_key = build_mpc_key(self, entity_id)
 
-    state_mgr = getattr(self, "state_mgr", None)
+    state_mgr = self.state_mgr
     if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
 
     mpc_state = state_mgr.get_mpc(mpc_key)
 
+    # Self-heal a poisoned state before it reaches the controller; the
+    # verdict is annunciated on the TRV.
+    mpc_state, _mpc_health = sanitize_mpc_state(mpc_state)
+    annunciate_health(self, entity_id, _mpc_health)
+
     try:
         mpc_output, mpc_state = compute_mpc(
             MpcInput(
                 key=mpc_key,
-                target_temp_C=self.bt_target_temp,
+                target_temp_C=self.heat_target_temperature,
                 current_temp_C=mpc_current_temp,
                 filtered_temp_C=mpc_filtered_temp,
                 trv_temp_C=trv_state.current_temperature,
@@ -337,6 +449,11 @@ def _compute_mpc_balance(self, entity_id: str):
         )
         state_mgr.set_mpc(mpc_key, mpc_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _mpc_health != CalibratorHealth.HEALTHY:
+            state_mgr.set_mpc(mpc_key, mpc_state)
         _LOGGER.debug(
             "better_thermostat %s: MPC calibration compute failed for %s: %s",
             self.device_name,
@@ -375,30 +492,238 @@ def _compute_mpc_balance(self, entity_id: str):
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = {
-        "valve_percent": int(round(max(0.0, min(100.0, this_trv_pct)))),
+        "valve_percent": clamp_valve_percent(this_trv_pct),
         "apply_valve": supports_valve,
         "debug": {
-            **(getattr(mpc_output, "debug", None) or {}),
+            **mpc_output.debug,
             "group_valve_pct": group_valve_pct,
             "distributed_valve_pct": this_trv_pct,
         },
     }
 
-    _schedule_mpc = getattr(self, "schedule_save_state", None)
-    if callable(_schedule_mpc):
-        _schedule_mpc()
+    self.schedule_save_state()
 
     # Return an MpcOutput-like object with the TRV-specific valve_percent
-    from dataclasses import replace as _dc_replace
-
-    trv_output = _dc_replace(
-        mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_pct))))
-    )
+    trv_output = replace(mpc_output, valve_percent=clamp_valve_percent(this_trv_pct))
 
     return trv_output, supports_valve
 
 
-def _compute_mpc_v2_balance(self, entity_id: str):
+def _build_mpc_v2_reid_key(self: BetterThermostat) -> str:
+    """Return the target-independent re-identification key for this BT.
+
+    The plant prior describes the room, not an operating point, so the
+    re-ID buffer, its fit cadence, and the adopted result are shared
+    across all target-temperature buckets and all TRVs of a group.
+    """
+    uid = resolve_unique_id(self)
+    return f"{uid}:reid"
+
+
+def _lookup_mpc_v2_reid(self, reid_key: str, mpc_key: str) -> MpcV2ReidData | None:
+    """Return the adopted re-ID result, preferring the shared key.
+
+    Results persisted under per-target-bucket keys (``uid:entity:tX.X`` or
+    ``uid:group:tX.X``) remain readable: when nothing is stored under the
+    shared key yet, the freshest bucket entry for this entity (or group)
+    still seeds the prior until a fit is adopted under the shared key.
+    """
+    result = self.state_mgr.get_mpc_v2_reid(reid_key)
+    if result is not None:
+        return result
+    uid_entity = mpc_key.rsplit(":", 1)[0]
+    candidates = [
+        data
+        for key, data in self.state_mgr.state.mpc_v2_reid.items()
+        if key.rsplit(":", 1)[0] == uid_entity
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda data: data.fitted_ts)
+
+
+def _record_mpc_v2_reid_sample(
+    self,
+    reid_key: str,
+    *,
+    applied_valve_pct: float | None,
+    trv_temp: float | None,
+    outdoor_temperature: float | None,
+) -> None:
+    """Append one observation to the re-identification buffer for a key.
+
+    The buffer's spacing floor collapses the per-TRV dispatches of a group
+    pass into a single sample, and its finiteness checks reject anything a
+    later fit could choke on. Open-contact samples (window or door) are
+    recorded on purpose: they never enter a fit but cut segments at the
+    right place.
+
+    Sampling is gated to the OPTIMAL rung of the fail-soft ladder: under
+    SENSOR_FALLBACK ``room_temperature`` freezes at the last valid reading while
+    the valve keeps moving, so a recorded sample would pair a frozen
+    temperature with live valve activity and bias the tau/gain fit (the
+    holdout is drawn from the same buffer and cannot catch this). The
+    resulting recording pause leaves a time gap that the segmenter cuts
+    on (``ReidConfig.max_gap_s``), keeping transients on either side of
+    a degraded episode separate.
+    """
+    if self.kernel_state.control_mode.mode != ControlMode.OPTIMAL:
+        return
+    try:
+        t_room = float(self.room_temperature)
+    except TypeError, ValueError:
+        return
+    if applied_valve_pct is None:
+        # A current MPC proposal is not evidence of a physical valve input:
+        # the write can still be deferred, clamped, or fail.
+        return
+    u_frac = applied_valve_pct / 100.0
+    if not math.isfinite(u_frac):
+        return
+    u_frac = max(0.0, min(1.0, u_frac))
+    runtime = self.state_mgr.get_mpc_v2_reid_runtime(reid_key)
+    runtime.buffer.append(
+        ReidSample(
+            t_s=self.clock.monotonic(),
+            T_room_C=t_room,
+            u_frac=u_frac,
+            T_outdoor_C=outdoor_temperature,
+            T_trv_C=trv_temp if isinstance(trv_temp, (int, float)) else None,
+            window_open=bool(self.contact_open),
+        )
+    )
+
+
+def _confirmed_valve_pct(trv_state: Trv | None) -> float | None:
+    """Return the best known prior valve input for model feedback.
+
+    A device-reported position wins when available.  Otherwise the adapter's
+    ``last_valve_percent`` is suitable: it is updated only after its write
+    routine returned success.  No value means "unknown", not "closed".
+    """
+    for value in (
+        trv_state.valve_position if trv_state is not None else None,
+        trv_state.last_valve_percent if trv_state is not None else None,
+    ):
+        if value is None:
+            continue
+        try:
+            pct = float(value)
+        except TypeError, ValueError:
+            continue
+        if math.isfinite(pct) and 0.0 <= pct <= 100.0:
+            return pct
+    return None
+
+
+def _maybe_start_mpc_v2_reid_fit(self, reid_key: str, v2_params: MpcV2Params) -> None:
+    """Kick off an offline re-identification fit in the executor when due.
+
+    At most one attempt per key per ``_MPC_V2_REID_INTERVAL_S``, only once
+    the buffer plausibly contains full transients, and never concurrently.
+    The fit itself is pure CPU work; an accepted result is adopted through
+    the state manager's bumpless path on the completion callback, so the
+    event loop never blocks on the optimisation. Adoption bumplessly
+    transfers every cached live controller; the result itself is stored
+    under ``reid_key``.
+    """
+    hass = self.hass
+    if hass is None:
+        return
+    state_mgr = self.state_mgr
+    runtime = state_mgr.get_mpc_v2_reid_runtime(reid_key)
+    # Monotonic for the cadence gate and buffer timing (immune to wall-clock
+    # jumps); a separate wall-clock stamp records *when* an accepted fit
+    # happened for the persisted result and diagnostics.
+    now = self.clock.monotonic()
+    if runtime.fit_inflight:
+        return
+    if now - runtime.last_fit_attempt_ts < _MPC_V2_REID_INTERVAL_S:
+        return
+    if len(runtime.buffer.samples) < _MPC_V2_REID_MIN_SAMPLES:
+        return
+    runtime.last_fit_attempt_ts = now
+    runtime.fit_inflight = True
+    fitted_wall_ts = self.clock.now().timestamp()
+    # Snapshot the buffer so the executor thread never races the event
+    # loop's appends; the current prior is the validation baseline.
+    samples = list(runtime.buffer.samples)
+    prior = v2_params.plant
+    device_name = self.device_name
+    schedule_save = self.schedule_save_state
+
+    def _on_fit_done(future: asyncio.Future[ReidOutcome]) -> None:
+        runtime.fit_inflight = False
+        try:
+            outcome = future.result()
+        except Exception as err:
+            _LOGGER.warning(
+                "better_thermostat %s: MPC v2 re-identification failed for %s: %s",
+                device_name,
+                reid_key,
+                err,
+                exc_info=True,
+            )
+            return
+        if (
+            outcome.status == "accepted"
+            and outcome.tau_room_min is not None
+            and outcome.gain_heater is not None
+        ):
+            state_mgr.adopt_mpc_v2_reid(
+                reid_key,
+                MpcV2ReidData(
+                    tau_room_min=outcome.tau_room_min,
+                    gain_heater=outcome.gain_heater,
+                    fitted_ts=fitted_wall_ts,
+                    rmse_prior_K=outcome.rmse_prior_K or 0.0,
+                    rmse_fit_K=outcome.rmse_fit_K or 0.0,
+                    n_segments=outcome.n_segments,
+                ),
+            )
+            schedule_save()
+            _LOGGER.info(
+                "better_thermostat %s: adopted re-identified MPC v2 plant prior "
+                "for %s: tau_room=%.0f min gain=%.2f (holdout RMSE %.3f -> %.3f K, "
+                "%d segments)",
+                device_name,
+                reid_key,
+                outcome.tau_room_min,
+                outcome.gain_heater,
+                outcome.rmse_prior_K or 0.0,
+                outcome.rmse_fit_K or 0.0,
+                outcome.n_segments,
+            )
+        else:
+            _LOGGER.debug(
+                "better_thermostat %s: MPC v2 re-identification for %s: %s "
+                "(segments=%d, samples=%d)",
+                device_name,
+                reid_key,
+                outcome.status,
+                outcome.n_segments,
+                outcome.n_samples,
+            )
+
+    try:
+        future = hass.async_add_executor_job(run_reid_fit, samples, prior)
+    except Exception as err:
+        # Submitting the job failed before it could run; clear the guard so a
+        # later cycle can retry instead of blocking fits forever.
+        runtime.fit_inflight = False
+        _LOGGER.warning(
+            "better_thermostat %s: could not schedule MPC v2 re-identification "
+            "for %s: %s",
+            device_name,
+            reid_key,
+            err,
+            exc_info=True,
+        )
+        return
+    future.add_done_callback(_on_fit_done)
+
+
+def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, bool]:
     """Run the MPC v2 (QP + Kalman) balance algorithm.
 
     Routes through ``compute_mpc_v2`` so the receding-horizon QP controller
@@ -406,11 +731,10 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     :func:`distribute_valve_percent` helper — the controller only ever sees
     the group-level signal.
     """
-    trv_state = self.real_trvs.get(entity_id)
-    if trv_state is None:
-        return None, False
+    trv_state = self.real_trvs[entity_id]
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    mpc_current_temp = effective_room_temp(self)
+    if self.heat_target_temperature is None or mpc_current_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -447,12 +771,42 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     except ValueError:
         preset = MpcV2PlantPreset.AUTO
 
-    v2_params = MpcV2Params(
-        plant=make_plant_prior(
-            heating_power=getattr(self, "heating_power", None),
-            heat_loss_rate=getattr(self, "heat_loss_rate", None),
+    # Plant-prior resolution: an explicit preset always wins; under AUTO a
+    # validated offline re-identification result beats the heat-loss
+    # heuristic, which remains the fallback until the first accepted fit.
+    reid_key = _build_mpc_v2_reid_key(self)
+    reid_result = (
+        _lookup_mpc_v2_reid(self, reid_key, mpc_key)
+        if preset == MpcV2PlantPreset.AUTO
+        else None
+    )
+    if reid_result is not None:
+        plant_prior = PlantParams(
+            tau_room_min=reid_result.tau_room_min, gain_heater=reid_result.gain_heater
+        )
+    else:
+        plant_prior = make_plant_prior(
+            heating_power=self.heating_power,
+            heat_loss_rate=self.heat_loss_rate,
             preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
         )
+    v2_params = MpcV2Params(plant=plant_prior)
+
+    outdoor_temperature = _get_current_outdoor_temp(self)
+    # The single-TRV path has one physical input.  A group controller's
+    # distributed outputs are intentionally not collapsed into a fictional
+    # single valve fraction; it keeps its optimistic command until group
+    # actuator aggregation has an explicit plant contract.
+    confirmed_valve_pct = None if is_multi_trv else _confirmed_valve_pct(trv_state)
+    # The controller's applied input is also its command between re-plans and
+    # the anchor of its rate limit, so it may only be an opening BT wrote
+    # itself. A TRV steered through its setpoint opens by its own regulator:
+    # fed back, that opening would become BT's next command, raise the
+    # setpoint and open the TRV further. The re-identification samples below
+    # keep the reported opening, which there is a measurement of the room's
+    # input.
+    controller_applied_pct = (
+        confirmed_valve_pct if _supports_direct_valve_control(self, entity_id) else None
     )
 
     try:
@@ -460,31 +814,20 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
-                target_temp_C=self.bt_target_temp,
-                current_temp_C=self.cur_temp,
+                target_temp_C=self.heat_target_temperature,
+                current_temp_C=mpc_current_temp,
                 trv_temp_C=trv_state.current_temperature,
-                window_open=self.contact_open,
+                window_open=bool(self.contact_open),
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
-                outdoor_temp_C=_get_current_outdoor_temp(self),
+                outdoor_temp_C=outdoor_temperature,
                 max_opening_pct=max_opening_pct,
+                applied_valve_pct=controller_applied_pct,
             ),
             v2_params,
             state=mpc_v2_state,
         )
-    except ImportError as err:
-        # Controller construction raises when the daqp wheel is missing.
-        # daqp is not a hard manifest requirement (it has no aarch64 wheel for
-        # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per thermostat instead of spamming every cycle.
-        if self.device_name not in _MPC_V2_IMPORT_WARNED:
-            _MPC_V2_IMPORT_WARNED.add(self.device_name)
-            _LOGGER.warning(
-                "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
-            )
-        trv_state.calibration_balance = None
-        return None, False
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",
@@ -496,6 +839,16 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         return None, False
 
     self.state_mgr.set_mpc_v2_live(mpc_key, mpc_v2_state)
+
+    if preset == MpcV2PlantPreset.AUTO and not is_multi_trv:
+        _record_mpc_v2_reid_sample(
+            self,
+            reid_key,
+            applied_valve_pct=confirmed_valve_pct,
+            trv_temp=trv_state.current_temperature,
+            outdoor_temperature=outdoor_temperature,
+        )
+        _maybe_start_mpc_v2_reid_fit(self, reid_key, v2_params)
 
     if mpc_output is None:
         trv_state.calibration_balance = None
@@ -515,11 +868,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     # The controller only sees the group-level cap (warmest TRV); the
     # distribution can boost a colder TRV above its own configured limit,
     # so each per-TRV command is clamped to that TRV's max opening here.
-    per_trv_max_opening = _get_trv_max_opening(self, entity_id)
-    if per_trv_max_opening is not None:
-        this_trv_pct = min(this_trv_pct, per_trv_max_opening)
-
-    from dataclasses import asdict
+    this_trv_pct = min(this_trv_pct, _get_trv_max_opening(self, entity_id))
 
     supports_valve = _supports_direct_valve_control(self, entity_id)
     trv_state.calibration_balance = {
@@ -530,29 +879,30 @@ def _compute_mpc_v2_balance(self, entity_id: str):
             "group_valve_pct": group_valve_pct,
             "distributed_valve_pct": this_trv_pct,
             "controller_version": "v2",
+            "reid_tau_room": (
+                reid_result.tau_room_min if reid_result is not None else None
+            ),
+            "reid_gain": (reid_result.gain_heater if reid_result is not None else None),
         },
     }
 
-    _schedule_save = getattr(self, "schedule_save_state", None)
-    if callable(_schedule_save):
-        _schedule_save()
+    self.schedule_save_state()
 
-    from dataclasses import replace as _dc_replace
-
-    trv_output = _dc_replace(
+    trv_output = replace(
         mpc_output, valve_percent=int(round(max(0.0, min(100.0, this_trv_pct))))
     )
     return trv_output, supports_valve
 
 
-def _compute_tpi_balance(self, entity_id: str):
+def _compute_tpi_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[TpiOutput | None, bool]:
     """Run the TPI balance algorithm for calibration purposes."""
 
-    trv_state = self.real_trvs.get(entity_id)
-    if trv_state is None:
-        return None, False
+    trv_state = self.real_trvs[entity_id]
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    _room_temperature = effective_room_temp(self)
+    if self.heat_target_temperature is None or _room_temperature is None:
         trv_state.calibration_balance = None
         return None, False
 
@@ -565,18 +915,20 @@ def _compute_tpi_balance(self, entity_id: str):
     params = TpiParams()
 
     key = build_tpi_key(self, entity_id)
-    state_mgr = getattr(self, "state_mgr", None)
+    state_mgr = self.state_mgr
     if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
     tpi_state = state_mgr.get_tpi(key)
+    tpi_state, _tpi_health = sanitize_tpi_state(tpi_state)
+    annunciate_health(self, entity_id, _tpi_health)
 
     try:
         tpi_output, tpi_state = compute_tpi(
             TpiInput(
                 key=key,
-                current_temp_C=self.cur_temp,
-                target_temp_C=self.bt_target_temp,
+                current_temp_C=_room_temperature,
+                target_temp_C=self.heat_target_temperature,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 window_open=self.contact_open,
                 heating_allowed=True,
@@ -585,9 +937,15 @@ def _compute_tpi_balance(self, entity_id: str):
             ),
             params,
             state=tpi_state,
+            now=self.clock.monotonic(),
         )
         state_mgr.set_tpi(key, tpi_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _tpi_health != CalibratorHealth.HEALTHY:
+            state_mgr.set_tpi(key, tpi_state)
         _LOGGER.debug(
             "better_thermostat %s: TPI calibration compute failed for %s: %s",
             self.device_name,
@@ -605,42 +963,61 @@ def _compute_tpi_balance(self, entity_id: str):
     trv_state.calibration_balance = {
         "valve_percent": tpi_output.duty_cycle_pct,
         "apply_valve": supports_valve,
-        "debug": getattr(tpi_output, "debug", None),
+        "debug": tpi_output.debug,
     }
 
-    if callable(getattr(self, "schedule_save_state", None)):
-        self.schedule_save_state()
+    self.schedule_save_state()
 
     return tpi_output, supports_valve
 
 
-def _compute_pid_balance(self, entity_id: str):
+def _compute_pid_balance(
+    self: BetterThermostat, entity_id: str
+) -> tuple[float | None, bool]:
     """Run the PID balance algorithm for calibration purposes."""
 
-    trv_state = self.real_trvs.get(entity_id)
-    if trv_state is None:
-        return None, False
+    trv_state = self.real_trvs[entity_id]
 
-    if self.bt_target_temp is None or self.cur_temp is None:
+    _pid_room_temp = effective_room_temp(self)
+    if self.heat_target_temperature is None or _pid_room_temp is None:
         trv_state.calibration_balance = None
         return None, False
 
-    if self.contact_open is True:
+    state_mgr = self.state_mgr
+    if state_mgr is None:
         trv_state.calibration_balance = None
         return None, False
 
-    hvac_mode = self.bt_hvac_mode
-    if hvac_mode == HVACMode.OFF:
+    if self.contact_open is True or self.bt_hvac_mode == HVACMode.OFF:
+        # Standby: no actuation, but the measurement chain keeps
+        # following the room so control resumes bump-free (the first
+        # post-standby cycle sees a fresh measurement and a small dt
+        # instead of an hours-old timestamp).
+        key = build_pid_key(self, entity_id)
+        pid_state = state_mgr.get_pid(key)
+        pid_state = pid_observe_standby(
+            PIDParams(),
+            pid_state,
+            _pid_room_temp,
+            self.clock.monotonic(),
+            inp_current_temp_ema_C=(
+                self.room_temperature_filtered
+                if _pid_room_temp is self.room_temperature
+                else None
+            ),
+        )
+        state_mgr.set_pid(key, pid_state)
         trv_state.calibration_balance = None
         return None, False
 
     # Build PID params from config and learned values
     key = build_pid_key(self, entity_id)
-    state_mgr = getattr(self, "state_mgr", None)
-    if state_mgr is None:
-        trv_state.calibration_balance = None
-        return None, False
     pid_state = state_mgr.get_pid(key)
+
+    # Self-heal a poisoned state (non-finite values, runaway gains,
+    # wound-up integrator) before it reaches the controller.
+    pid_state, _pid_health = sanitize_pid_state(pid_state, PIDParams())
+    annunciate_health(self, entity_id, _pid_health)
 
     # Use learned gains if available, otherwise from config, otherwise defaults
     params = PIDParams(
@@ -675,17 +1052,27 @@ def _compute_pid_balance(self, entity_id: str):
     try:
         percent, debug, pid_state = compute_pid(
             params,
-            self.bt_target_temp,
-            self.cur_temp,
+            self.heat_target_temperature,
+            _pid_room_temp,
             trv_state.current_temperature,
             self.temp_slope,
             key,
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=(
+                self.room_temperature_filtered
+                if _pid_room_temp is self.room_temperature
+                else None
+            ),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
+            now=self.clock.monotonic(),
         )
         state_mgr.set_pid(key, pid_state)
     except (ValueError, TypeError, ZeroDivisionError) as err:
+        # A healed (sanitized) state must reach the store even when the
+        # compute fails, otherwise the poisoned version stays on disk and
+        # is re-healed every cycle.
+        if _pid_health != CalibratorHealth.HEALTHY:
+            state_mgr.set_pid(key, pid_state)
         _LOGGER.debug(
             "better_thermostat %s: PID calibration compute failed for %s: %s",
             self.device_name,
@@ -708,20 +1095,131 @@ def _compute_pid_balance(self, entity_id: str):
 
     _LOGGER.debug(
         "better_thermostat %s: PID calibration for %s: valve_percent=%.1f%%, apply_valve=%s, debug=%s",
-        getattr(self, "device_name", "unknown"),
+        self.device_name,
         entity_id,
         percent,
         supports_valve,
         debug,
     )
 
-    if callable(getattr(self, "schedule_save_state", None)):
-        self.schedule_save_state()
+    self.schedule_save_state()
 
     return percent, supports_valve
 
 
-def calculate_calibration_local(self, entity_id) -> float | None:
+BALANCE_STRATEGIES = build_strategy_registry(
+    _compute_mpc_balance,
+    _compute_mpc_v2_balance,
+    _compute_tpi_balance,
+    _compute_pid_balance,
+)
+
+
+def _aggressive_adjust(
+    self: BetterThermostat,
+    entity_id: str,
+    value: float,
+    skip_post: bool,
+    ctx: ChannelAdjustment,
+) -> tuple[float, bool]:
+    """Boost the heating-promoting direction while actively heating.
+
+    The boost only tops the value up to 2.5 past the channel's neutral
+    reference; a value already past that point stays untouched.
+    """
+    if self.hvac_action == HVACAction.HEATING:
+        if ctx.boost_sign * (value - ctx.boost_neutral) < 2.5:
+            value += ctx.boost_sign * 2.5
+    return value, skip_post
+
+
+def _heating_power_adjust(
+    self: BetterThermostat,
+    entity_id: str,
+    value: float,
+    skip_post: bool,
+    ctx: ChannelAdjustment,
+) -> tuple[float, bool]:
+    """Derive the channel value from the learned heating power."""
+    return _heating_power_adjustment(
+        self,
+        entity_id,
+        value,
+        hold_value=ctx.hold_value,
+        legacy_fallback=ctx.legacy_fallback,
+    )
+
+
+# Any unknown mode runs the plain cascade: no controller, tolerance
+# band, post adjustments including the delay.
+_PASSIVE_TRAITS = ModeTraits()
+
+MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
+    # Pure offset from external sensor vs TRV temperature; no
+    # controller, no tolerance/overheating heuristics.
+    CalibrationMode.DEFAULT: ModeTraits(
+        needs_target=False, uses_tolerance_band=False, skip_post_adjustments=True
+    ),
+    CalibrationMode.MPC_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.MPC_V2_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.MPC_V2_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.TPI_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.TPI_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    CalibrationMode.PID_CALIBRATION: ModeTraits(
+        balance=BALANCE_STRATEGIES[CalibrationMode.PID_CALIBRATION],
+        skip_post_adjustments=True,
+    ),
+    # Aggressive starts heating faster: it boosts the channel value and
+    # skips the tolerance delay, but keeps overheating protection.
+    CalibrationMode.AGGRESSIVE_CALIBRATION: ModeTraits(
+        tolerance_delay=False, adjust=_aggressive_adjust
+    ),
+    # Heating power decides per TRV whether it holds the channel (direct
+    # valve control) or derives a value — including the skip flag.
+    CalibrationMode.HEATING_POWER_CALIBRATION: ModeTraits(adjust=_heating_power_adjust),
+    CalibrationMode.NO_CALIBRATION: _PASSIVE_TRAITS,
+}
+
+
+def _traits_for(mode: CalibrationMode | str) -> ModeTraits:
+    """Resolve the traits for a (possibly raw-string) calibration mode.
+
+    A string that names a known :class:`CalibrationMode` resolves to that
+    mode's traits; any unknown mode falls back to the passive cascade.
+    """
+    if not isinstance(mode, CalibrationMode):
+        try:
+            mode = CalibrationMode(mode)
+        except ValueError:
+            return _PASSIVE_TRAITS
+    return MODE_TRAITS.get(mode, _PASSIVE_TRAITS)
+
+
+def _balance_calibrator(
+    self: BetterThermostat, entity_id: str, strategy: BalanceStrategy
+) -> BalanceCalibrator:
+    """Return the TRV's calibrator, rebuilding it when the mode changed.
+
+    The calibrator is the live protocol seam: the dispatch calls
+    ``observe`` every cycle and reads the result through
+    ``is_ready``/``cached`` — never the strategy directly.
+    """
+    trv = self.real_trvs[entity_id]
+    calibrator = trv.calibrator
+    if calibrator is None or calibrator.strategy is not strategy:
+        calibrator = BalanceCalibrator(self, entity_id, strategy)
+        trv.calibrator = calibrator
+    return calibrator
+
+
+def calculate_calibration_local(self, entity_id: str) -> float | None:
     """Calculate local delta to adjust the setpoint of the TRV based on the air temperature of the external sensor.
 
     This calibration is for devices with local calibration option, it syncs the current temperature of the TRV to the target temperature of
@@ -741,7 +1239,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_local()"
 
-    def _convert_to_float(value):
+    def _convert_to_float(value: str | int | float | None) -> float | None:
         return convert_to_float(value, self.name, _context)
 
     _calibration_mode = normalize_calibration_mode(
@@ -751,19 +1249,17 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     )
     if _calibration_mode is None:
         _calibration_mode = DEFAULT_CALIBRATION_MODE
+    traits = _traits_for(_calibration_mode)
 
-    # DEFAULT: compute a pure offset from external sensor vs TRV temperature.
-    # No predictive/controller modes, no tolerance/overheating heuristics.
-    if _calibration_mode == CalibrationMode.DEFAULT:
-        if self.cur_temp is None:
-            return None
-    elif self.cur_temp is None or self.bt_target_temp is None:
+    _cur_external_temp = effective_room_temp(self)
+    if _cur_external_temp is None:
+        return None
+    if traits.needs_target and self.heat_target_temperature is None:
         return None
 
-    _cur_external_temp = self.cur_temp
-    _cur_target_temp = self.bt_target_temp
+    _cur_target_temp = self.heat_target_temperature
 
-    if _calibration_mode != CalibrationMode.DEFAULT:
+    if traits.uses_tolerance_band:
         # Add tolerance check – use asymmetric band [target - tol, target]
         # so the TRV stops receiving a heating-promoting calibration once
         # the room reaches the set temperature (not target + tolerance).
@@ -773,15 +1269,10 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         )
 
         if _within_tolerance:
-            # When within tolerance, don't adjust calibration but keep MPC/TPI/PID valve data fresh
-            if _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-                _compute_mpc_balance(self, entity_id)
-            elif _calibration_mode == CalibrationMode.MPC_V2_CALIBRATION:
-                _compute_mpc_v2_balance(self, entity_id)
-            elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-                _compute_tpi_balance(self, entity_id)
-            elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-                _compute_pid_balance(self, entity_id)
+            # Within tolerance the calibration holds, but a controller
+            # keeps its valve data fresh.
+            if traits.balance is not None:
+                traits.balance.compute(self, entity_id)
             else:
                 self.real_trvs[entity_id].calibration_balance = None
             return self.real_trvs[entity_id].last_calibration
@@ -814,7 +1305,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return None
 
     _cur_external_temp = float(_cur_external_temp)
-    if _calibration_mode != CalibrationMode.DEFAULT:
+    if traits.needs_target:
         _cur_target_temp = float(_cur_target_temp)
     _cur_trv_temp_f = float(_cur_trv_temp_f)
     _current_trv_calibration = float(_current_trv_calibration)
@@ -824,207 +1315,69 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         _cur_external_temp - _cur_trv_temp_f
     ) + _current_trv_calibration
 
-    _mpc_result = None
-    _mpc_use_valve = False
-    if _calibration_mode == CalibrationMode.DEFAULT:
-        # Ensure no valve/controller data is carried over.
+    if traits.balance is None:
+        # DEFAULT and non-controller modes carry no valve/controller data.
         self.real_trvs[entity_id].calibration_balance = None
-    elif _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-        _mpc_result, _mpc_use_valve = _compute_mpc_balance(self, entity_id)
-        if _mpc_use_valve:
-            _new_trv_calibration = _current_trv_calibration
-        elif _mpc_result is not None:
-            _mpc_percent = getattr(_mpc_result, "valve_percent", None)
-            if isinstance(_mpc_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _valve_fraction = max(0.0, min(1.0, float(_mpc_percent) / 100.0))
-                    _desired_trv_setpoint = _cur_trv_temp_f + (
-                        (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
-                    )
-                    if (
-                        _valve_fraction == 0.0
-                        and _desired_trv_setpoint >= _cur_trv_temp_f
-                    ):
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp_f,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _calibration_step,
-                        )
-                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
-                    _new_trv_calibration = _current_trv_calibration - (
-                        _desired_trv_setpoint - _cur_target_temp
-                    )
-    elif _calibration_mode == CalibrationMode.MPC_V2_CALIBRATION:
-        _v2_result, _v2_use_valve = _compute_mpc_v2_balance(self, entity_id)
-        if _v2_use_valve:
-            _new_trv_calibration = _current_trv_calibration
-        elif _v2_result is not None:
-            _v2_percent = getattr(_v2_result, "valve_percent", None)
-            if isinstance(_v2_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _valve_fraction = max(0.0, min(1.0, float(_v2_percent) / 100.0))
-                    _desired_trv_setpoint = _cur_trv_temp_f + (
-                        (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
-                    )
-                    if (
-                        _valve_fraction == 0.0
-                        and _desired_trv_setpoint >= _cur_trv_temp_f
-                    ):
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp_f,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _calibration_step,
-                        )
-                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
-                    _new_trv_calibration = _current_trv_calibration - (
-                        _desired_trv_setpoint - _cur_target_temp
-                    )
-    elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-        _tpi_result, _tpi_use_valve = _compute_tpi_balance(self, entity_id)
-        if _tpi_use_valve:
-            _new_trv_calibration = _current_trv_calibration
-        elif _tpi_result is not None:
-            _tpi_percent = getattr(_tpi_result, "duty_cycle_pct", None)
-            if isinstance(_tpi_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _valve_fraction = max(0.0, min(1.0, float(_tpi_percent) / 100.0))
-                    _desired_trv_setpoint = _cur_trv_temp_f + (
-                        (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
-                    )
-                    if (
-                        _valve_fraction == 0.0
-                        and _desired_trv_setpoint >= _cur_trv_temp_f
-                    ):
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp_f,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _calibration_step,
-                        )
-                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
-                    _new_trv_calibration = _current_trv_calibration - (
-                        _desired_trv_setpoint - _cur_target_temp
-                    )
-    elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-        _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
-        if _pid_use_valve:
-            _new_trv_calibration = _current_trv_calibration
-        elif _pid_result is not None:
-            _pid_percent = _pid_result
-            if isinstance(_pid_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _valve_fraction = max(0.0, min(1.0, float(_pid_percent) / 100.0))
-                    _desired_trv_setpoint = _cur_trv_temp_f + (
-                        (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
-                    )
-                    if (
-                        _valve_fraction == 0.0
-                        and _desired_trv_setpoint >= _cur_trv_temp_f
-                    ):
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp_f,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _calibration_step,
-                        )
-                        _desired_trv_setpoint = _cur_trv_temp_f - _offset
-                    _new_trv_calibration = _current_trv_calibration - (
-                        _desired_trv_setpoint - _cur_target_temp
-                    )
     else:
-        self.real_trvs[entity_id].calibration_balance = None
+        _calibrator = _balance_calibrator(self, entity_id, traits.balance)
+        _calibrator.observe(None, self.clock.monotonic())
+        _percent, _use_valve = _calibrator.cached()
+        if _use_valve:
+            _new_trv_calibration = _current_trv_calibration
+        elif _percent is not None:
+            _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+            if _max_temp is not None:
+                _valve_fraction = max(0.0, min(1.0, _percent / 100.0))
+                _desired_trv_setpoint = _cur_trv_temp_f + (
+                    (float(_max_temp) - _cur_trv_temp_f) * _valve_fraction
+                )
+                if _valve_fraction == 0.0 and _desired_trv_setpoint >= _cur_trv_temp_f:
+                    _setpoint_drop = _compute_zero_open_offset(
+                        self,
+                        entity_id,
+                        _cur_trv_temp_f,
+                        _cur_external_temp,
+                        _cur_target_temp,
+                        _calibration_step,
+                    )
+                    _desired_trv_setpoint = _cur_trv_temp_f - _setpoint_drop
+                _new_trv_calibration = _current_trv_calibration - (
+                    _desired_trv_setpoint - _cur_target_temp
+                )
 
-    if _new_trv_calibration is None:
-        return None
-
-    _skip_post_adjustments = _calibration_mode in (
-        CalibrationMode.DEFAULT,
-        CalibrationMode.MPC_CALIBRATION,
-        CalibrationMode.MPC_V2_CALIBRATION,
-        CalibrationMode.TPI_CALIBRATION,
-        CalibrationMode.PID_CALIBRATION,
-    )
+    _skip_post_adjustments = traits.skip_post_adjustments
 
     _new_trv_calibration = float(_new_trv_calibration)
 
-    if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        if self.hvac_action == HVACAction.HEATING:
-            if _new_trv_calibration > -2.5:
-                _new_trv_calibration -= 2.5
+    if traits.adjust is not None:
 
-    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-        _supports_valve = _supports_direct_valve_control(self, entity_id)
-        if self.hvac_action != HVACAction.HEATING:
-            if _supports_valve:
-                self.real_trvs[entity_id].calibration_balance = {
-                    "valve_percent": 0,
-                    "apply_valve": True,
-                    "debug": {"source": "heating_power_calibration"},
-                }
-                # Keep TRV calibration at BT target when we control valve directly
-                _new_trv_calibration = _current_trv_calibration
-                _skip_post_adjustments = True
+        def _legacy_offset(valve_position: float) -> float:
+            return _current_trv_calibration - (
+                (self.real_trvs[entity_id].local_calibration_min + _cur_trv_temp_f)
+                * valve_position
+            )
 
-        elif self.hvac_action == HVACAction.HEATING:
-            _valve_position = heating_power_valve_position(self, entity_id)
+        _new_trv_calibration, _skip_post_adjustments = traits.adjust(
+            self,
+            entity_id,
+            _new_trv_calibration,
+            _skip_post_adjustments,
+            ChannelAdjustment(
+                # Keep the TRV calibration unchanged when the valve is
+                # controlled directly.
+                hold_value=_current_trv_calibration,
+                legacy_fallback=_legacy_offset,
+                boost_sign=-1.0,
+                boost_neutral=0.0,
+            ),
+        )
 
-            if _supports_valve and isinstance(_valve_position, (int, float)):
-                try:
-                    _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
-                except TypeError, ValueError:
-                    _pct = None
-
-                if _pct is not None:
-                    # Publish valve intent so controlling layer can execute set_valve
-                    self.real_trvs[entity_id].calibration_balance = {
-                        "valve_percent": _pct,
-                        "apply_valve": True,
-                        "debug": {"source": "heating_power_calibration"},
-                    }
-                    # Keep local calibration unchanged when we control via valve
-                    _new_trv_calibration = _current_trv_calibration
-                    # Skip post adjustments to avoid counteracting direct valve control
-                    _skip_post_adjustments = True
-                else:
-                    # Fallback to legacy behavior
-                    _new_trv_calibration = _current_trv_calibration - (
-                        (
-                            self.real_trvs[entity_id].local_calibration_min
-                            + _cur_trv_temp_f
-                        )
-                        * _valve_position
-                    )
-            else:
-                # No direct valve support: compute calibration as before and clear any stale balance
-                self.real_trvs[entity_id].calibration_balance = None
-                _new_trv_calibration = _current_trv_calibration - (
-                    (self.real_trvs[entity_id].local_calibration_min + _cur_trv_temp_f)
-                    * _valve_position
-                )
-        else:
-            # Not heating: ensure we don't apply stale valve instructions
-            self.real_trvs[entity_id].calibration_balance = None
-
-    # Respecting tolerance in all calibration modes, delaying heat
-    # Skip tolerance delay for aggressive mode - it should start heating faster
+    # Respecting tolerance, delaying heat; modes that should start
+    # heating faster opt out of the delay via their traits.
     # The delay is sized by the heating tolerance and carries over unchanged
     # while the cooler runs, where at least as much delay is wanted.
     if not _skip_post_adjustments:
-        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+        if traits.tolerance_delay:
             if self.hvac_action in _IDLE_OR_COOLING:
                 if _new_trv_calibration < 0.0:
                     _new_trv_calibration += self.tolerance * 2.0
@@ -1036,12 +1389,14 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _new_trv_calibration += (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already add 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _new_trv_calibration += (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
 
     # Direction-aware rounding for local calibration offset.
     # Calibration offset works inversely to setpoint: a positive offset makes
@@ -1050,11 +1405,11 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     # Idle and cooling round the offset UP to ensure the valve closes.
     # When HEATING, round offset DOWN to ensure the valve opens.
     if self.hvac_action in _IDLE_OR_COOLING:
-        _cal_rounding = rounding.up
+        _cal_rounding = Rounding.up
     elif self.hvac_action == HVACAction.HEATING:
-        _cal_rounding = rounding.down
+        _cal_rounding = Rounding.down
     else:
-        _cal_rounding = rounding.nearest
+        _cal_rounding = Rounding.nearest
     _rounded_calibration = round_by_step(
         _new_trv_calibration, _calibration_step, _cal_rounding
     )
@@ -1062,15 +1417,8 @@ def calculate_calibration_local(self, entity_id) -> float | None:
         return None
     _new_trv_calibration = _rounded_calibration
 
-    # limit new setpoint within min/max of the TRV's range
-    t_min = _convert_to_float(self.real_trvs[entity_id].local_calibration_min)
-    t_max = _convert_to_float(self.real_trvs[entity_id].local_calibration_max)
-    if t_min is None or t_max is None:
-        return _new_trv_calibration
-    t_min = float(t_min)
-    t_max = float(t_max)
-    _new_trv_calibration = max(t_min, min(_new_trv_calibration, t_max))
-
+    # The device's calibration range is enforced by the safety hull at
+    # the command boundary (core/safety.py).
     _new_trv_calibration = _convert_to_float(_new_trv_calibration)
     if _new_trv_calibration is None:
         return None
@@ -1102,7 +1450,7 @@ def calculate_calibration_local(self, entity_id) -> float | None:
     return _new_trv_calibration
 
 
-def calculate_calibration_setpoint(self, entity_id) -> float | None:
+def calculate_calibration_setpoint(self, entity_id: str) -> float | None:
     """Calculate new setpoint for the TRV based on its own temperature measurement and the air temperature of the external sensor.
 
     This calibration is for devices with no local calibration option, it syncs the target temperature of the TRV to a new target
@@ -1122,7 +1470,7 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     """
     _context = "_calculate_calibration_setpoint()"
 
-    def _convert_to_float(value):
+    def _convert_to_float(value: str | int | float | None) -> float | None:
         return convert_to_float(value, self.name, _context)
 
     _calibration_mode = normalize_calibration_mode(
@@ -1132,21 +1480,28 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     )
     if _calibration_mode is None:
         _calibration_mode = DEFAULT_CALIBRATION_MODE
+    traits = _traits_for(_calibration_mode)
 
-    if self.cur_temp is None or self.bt_target_temp is None:
+    # Without a target or a room reading there is no demand, so no valve
+    # intent from an earlier cycle may outlive it.
+    if self.heat_target_temperature is None:
+        self.real_trvs[entity_id].calibration_balance = None
         return None
 
-    # Add tolerance check
-    _cur_external_temp = float(self.cur_temp)
-    _cur_target_temp = float(self.bt_target_temp)
+    _effective_room_temp = effective_room_temp(self)
+    if _effective_room_temp is None:
+        self.real_trvs[entity_id].calibration_balance = None
+        return None
+    _cur_external_temp = float(_effective_room_temp)
+    _cur_target_temp = float(self.heat_target_temperature)
 
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
 
-    _trv_temp_step_raw = self.real_trvs[entity_id].target_temp_step
-    _trv_temp_step = _convert_to_float(_trv_temp_step_raw)
-    if _trv_temp_step is None or _trv_temp_step <= 0:
-        _trv_temp_step = 0.5
+    # The step is the grid the setpoint is rounded to, so it is kept as the
+    # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
+    # drifts off whole degrees Fahrenheit within a few steps.
+    _trv_temp_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
     if _cur_trv_temp is None:
         return None
@@ -1155,21 +1510,18 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
 
     _calibrated_setpoint = (_cur_target_temp - _cur_external_temp) + _cur_trv_temp
 
-    _mpc_result = None
-    _mpc_use_valve = False
-    if _calibration_mode == CalibrationMode.DEFAULT:
+    if traits.balance is None:
+        # DEFAULT and non-controller modes carry no valve/controller data.
         self.real_trvs[entity_id].calibration_balance = None
-    elif _calibration_mode == CalibrationMode.MPC_CALIBRATION:
-        _mpc_result, _mpc_use_valve = _compute_mpc_balance(self, entity_id)
-        if _mpc_use_valve and _mpc_result is not None:
-            _mpc_valve_pct = getattr(_mpc_result, "valve_percent", None)
-            if (
-                isinstance(_mpc_valve_pct, (int, float))
-                and float(_mpc_valve_pct) == 0.0
-            ):
+    else:
+        _calibrator = _balance_calibrator(self, entity_id, traits.balance)
+        _calibrator.observe(None, self.clock.monotonic())
+        _percent, _use_valve = _calibrator.cached()
+        if _use_valve and _percent is not None:
+            if float(_percent) == 0.0:
                 # Valve closed: push setpoint below TRV's own temp so it doesn't
                 # heat by itself even though direct valve control already sent 0%.
-                _offset = _compute_zero_open_offset(
+                _setpoint_drop = _compute_zero_open_offset(
                     self,
                     entity_id,
                     _cur_trv_temp,
@@ -1177,215 +1529,61 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
                     _cur_target_temp,
                     _trv_temp_step,
                 )
-                _calibrated_setpoint = _cur_trv_temp - _offset
+                _calibrated_setpoint = _cur_trv_temp - _setpoint_drop
             else:
                 # Valve open: keep target so TRV internal logic doesn't restrict us.
                 _calibrated_setpoint = _cur_target_temp
-        elif not _mpc_use_valve and _mpc_result is not None:
-            _mpc_percent = getattr(_mpc_result, "valve_percent", None)
-            if isinstance(_mpc_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _valve_fraction = max(0.0, min(1.0, float(_mpc_percent) / 100.0))
-                    _calibrated_setpoint = _cur_trv_temp + (
-                        (float(_max_temp) - _cur_trv_temp) * _valve_fraction
-                    )
-                    if _valve_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _trv_temp_step,
-                        )
-                        _calibrated_setpoint = _cur_trv_temp - _offset
-    elif _calibration_mode == CalibrationMode.MPC_V2_CALIBRATION:
-        _v2_result, _v2_use_valve = _compute_mpc_v2_balance(self, entity_id)
-        if _v2_use_valve and _v2_result is not None:
-            _v2_valve_pct = getattr(_v2_result, "valve_percent", None)
-            if isinstance(_v2_valve_pct, (int, float)) and float(_v2_valve_pct) == 0.0:
-                _offset = _compute_zero_open_offset(
-                    self,
-                    entity_id,
-                    _cur_trv_temp,
-                    _cur_external_temp,
-                    _cur_target_temp,
-                    _trv_temp_step,
+        elif not _use_valve and _percent is not None:
+            _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+            if _max_temp is not None:
+                _valve_fraction = max(0.0, min(1.0, float(_percent) / 100.0))
+                _calibrated_setpoint = _cur_trv_temp + (
+                    (float(_max_temp) - _cur_trv_temp) * _valve_fraction
                 )
-                _calibrated_setpoint = _cur_trv_temp - _offset
-            else:
-                _calibrated_setpoint = _cur_target_temp
-        elif not _v2_use_valve and _v2_result is not None:
-            _v2_percent = getattr(_v2_result, "valve_percent", None)
-            if isinstance(_v2_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _v2_fraction = max(0.0, min(1.0, float(_v2_percent) / 100.0))
-                    _calibrated_setpoint = _cur_trv_temp + (
-                        (float(_max_temp) - _cur_trv_temp) * _v2_fraction
+                if _valve_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
+                    _setpoint_drop = _compute_zero_open_offset(
+                        self,
+                        entity_id,
+                        _cur_trv_temp,
+                        _cur_external_temp,
+                        _cur_target_temp,
+                        _trv_temp_step,
                     )
-                    if _v2_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _trv_temp_step,
-                        )
-                        _calibrated_setpoint = _cur_trv_temp - _offset
-    elif _calibration_mode == CalibrationMode.TPI_CALIBRATION:
-        _tpi_result, _tpi_use_valve = _compute_tpi_balance(self, entity_id)
-        if _tpi_use_valve and _tpi_result is not None:
-            _tpi_pct_v = getattr(_tpi_result, "duty_cycle_pct", None)
-            if isinstance(_tpi_pct_v, (int, float)) and float(_tpi_pct_v) == 0.0:
-                _offset = _compute_zero_open_offset(
-                    self,
-                    entity_id,
-                    _cur_trv_temp,
-                    _cur_external_temp,
-                    _cur_target_temp,
-                    _trv_temp_step,
-                )
-                _calibrated_setpoint = _cur_trv_temp - _offset
-            else:
-                _calibrated_setpoint = _cur_target_temp
-        elif _tpi_result is not None:
-            _tpi_percent = getattr(_tpi_result, "duty_cycle_pct", None)
-            if isinstance(_tpi_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _tpi_fraction = max(0.0, min(1.0, float(_tpi_percent) / 100.0))
-                    _calibrated_setpoint = _cur_trv_temp + (
-                        (float(_max_temp) - _cur_trv_temp) * _tpi_fraction
-                    )
-                    if _tpi_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _trv_temp_step,
-                        )
-                        _calibrated_setpoint = _cur_trv_temp - _offset
-    elif _calibration_mode == CalibrationMode.PID_CALIBRATION:
-        _pid_result, _pid_use_valve = _compute_pid_balance(self, entity_id)
-        if _pid_use_valve and _pid_result is not None:
-            _pid_pct_v = _pid_result
-            if isinstance(_pid_pct_v, (int, float)) and float(_pid_pct_v) == 0.0:
-                _offset = _compute_zero_open_offset(
-                    self,
-                    entity_id,
-                    _cur_trv_temp,
-                    _cur_external_temp,
-                    _cur_target_temp,
-                    _trv_temp_step,
-                )
-                _calibrated_setpoint = _cur_trv_temp - _offset
-            else:
-                _calibrated_setpoint = _cur_target_temp
-        elif _pid_result is not None:
-            _pid_percent = _pid_result
-            if isinstance(_pid_percent, (int, float)):
-                _max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if _max_temp is not None:
-                    _pid_fraction = max(0.0, min(1.0, float(_pid_percent) / 100.0))
-                    _calibrated_setpoint = _cur_trv_temp + (
-                        (float(_max_temp) - _cur_trv_temp) * _pid_fraction
-                    )
-                    if _pid_fraction == 0.0 and _calibrated_setpoint >= _cur_trv_temp:
-                        _offset = _compute_zero_open_offset(
-                            self,
-                            entity_id,
-                            _cur_trv_temp,
-                            _cur_external_temp,
-                            _cur_target_temp,
-                            _trv_temp_step,
-                        )
-                        _calibrated_setpoint = _cur_trv_temp - _offset
-    else:
-        self.real_trvs[entity_id].calibration_balance = None
+                    _calibrated_setpoint = _cur_trv_temp - _setpoint_drop
 
-    _skip_post_adjustments = _calibration_mode in (
-        CalibrationMode.DEFAULT,
-        CalibrationMode.MPC_CALIBRATION,
-        CalibrationMode.MPC_V2_CALIBRATION,
-        CalibrationMode.TPI_CALIBRATION,
-        CalibrationMode.PID_CALIBRATION,
-    )
+    _skip_post_adjustments = traits.skip_post_adjustments
 
-    if _calibration_mode == CalibrationMode.AGGRESIVE_CALIBRATION:
-        if self.hvac_action == HVACAction.HEATING:
-            if _calibrated_setpoint - _cur_trv_temp < 2.5:
-                _calibrated_setpoint += 2.5
+    if traits.adjust is not None:
 
-    if _calibration_mode == CalibrationMode.HEATING_POWER_CALIBRATION:
-        _supports_valve = _supports_direct_valve_control(self, entity_id)
-        if self.hvac_action != HVACAction.HEATING:
-            if _supports_valve:
-                self.real_trvs[entity_id].calibration_balance = {
-                    "valve_percent": 0,
-                    "apply_valve": True,
-                    "debug": {"source": "heating_power_calibration"},
-                }
-                # Keep TRV setpoint at BT target when we control valve directly
-                _calibrated_setpoint = _cur_target_temp
-                _skip_post_adjustments = True
-            else:
-                # Not heating: ensure we don't apply stale valve instructions
-                self.real_trvs[entity_id].calibration_balance = None
+        def _legacy_setpoint(valve_position: float) -> float:
+            max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
+            if max_temp is None:
+                return _calibrated_setpoint
+            return _cur_trv_temp + ((float(max_temp) - _cur_trv_temp) * valve_position)
 
-        elif self.hvac_action == HVACAction.HEATING:
-            _valve_position = heating_power_valve_position(self, entity_id)
-            if _supports_valve and isinstance(_valve_position, (int, float)):
-                try:
-                    _pct = int(max(0, min(100, round(float(_valve_position) * 100.0))))
-                except TypeError, ValueError:
-                    _pct = None
-
-                if _pct is not None:
-                    # Publish valve intent so controlling layer can execute set_valve
-                    self.real_trvs[entity_id].calibration_balance = {
-                        "valve_percent": _pct,
-                        "apply_valve": True,
-                        "debug": {"source": "heating_power_calibration"},
-                    }
-                    # Keep setpoint unchanged when we control via valve
-                    _calibrated_setpoint = _cur_target_temp
-                    # Skip post adjustments to avoid counteracting direct valve control
-                    _skip_post_adjustments = True
-                else:
-                    # Fallback to legacy behavior
-                    max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                    if max_temp is not None:
-                        _calibrated_setpoint = _cur_trv_temp + (
-                            (float(max_temp) - _cur_trv_temp) * _valve_position
-                        )
-            else:
-                # No direct valve support: compute setpoint as before and clear any stale balance
-                self.real_trvs[entity_id].calibration_balance = None
-                max_temp = _convert_to_float(self.real_trvs[entity_id].max_temp)
-                if max_temp is not None:
-                    _calibrated_setpoint = _cur_trv_temp + (
-                        (float(max_temp) - _cur_trv_temp) * _valve_position
-                    )
-        else:
-            # Not heating: ensure we don't apply stale valve instructions
-            self.real_trvs[entity_id].calibration_balance = None
-
-    if _calibrated_setpoint is None:
-        return None
+        _calibrated_setpoint, _skip_post_adjustments = traits.adjust(
+            self,
+            entity_id,
+            _calibrated_setpoint,
+            _skip_post_adjustments,
+            ChannelAdjustment(
+                # Keep the TRV at the BT target when the valve is
+                # controlled directly.
+                hold_value=_cur_target_temp,
+                legacy_fallback=_legacy_setpoint,
+                boost_sign=1.0,
+                boost_neutral=_cur_trv_temp,
+            ),
+        )
 
     _calibrated_setpoint = float(_calibrated_setpoint)
 
-    # Respecting tolerance in all calibration modes, delaying heat
-    # Skip tolerance delay for aggressive mode - it should start heating faster
+    # Respecting tolerance, delaying heat; modes that should start
+    # heating faster opt out of the delay via their traits.
     # The delay is sized by the heating tolerance and carries over unchanged
     # while the cooler runs, where at least as much delay is wanted.
     if not _skip_post_adjustments:
-        if _calibration_mode != CalibrationMode.AGGRESIVE_CALIBRATION:
+        if traits.tolerance_delay:
             if self.hvac_action in _IDLE_OR_COOLING:
                 if _calibrated_setpoint - _cur_trv_temp > 0.0:
                     _calibrated_setpoint -= self.tolerance * 2.0
@@ -1399,12 +1597,14 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _calibrated_setpoint -= (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _calibrated_setpoint -= (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.
@@ -1412,11 +1612,11 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     # This prevents integer-step TRVs (step=1.0) from rounding a value like
     # 19.7 up to 20.0 which would keep the valve open at the current temp.
     if self.hvac_action in _IDLE_OR_COOLING:
-        _step_rounding = rounding.down
+        _step_rounding = Rounding.down
     elif self.hvac_action == HVACAction.HEATING:
-        _step_rounding = rounding.up
+        _step_rounding = Rounding.up
     else:
-        _step_rounding = rounding.nearest
+        _step_rounding = Rounding.nearest
     _rounded_setpoint = round_by_step(
         _calibrated_setpoint, _trv_temp_step, _step_rounding
     )
@@ -1424,13 +1624,8 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
         return None
     _calibrated_setpoint = _rounded_setpoint
 
-    # limit new setpoint within min/max of the TRV's range
-    t_min = _convert_to_float(self.real_trvs[entity_id].min_temp)
-    t_max = _convert_to_float(self.real_trvs[entity_id].max_temp)
-    if t_min is not None:
-        _calibrated_setpoint = max(float(t_min), _calibrated_setpoint)
-    if t_max is not None:
-        _calibrated_setpoint = min(_calibrated_setpoint, float(t_max))
+    # The TRV's min/max range is enforced by the safety hull at the
+    # command boundary (core/safety.py).
 
     _logmsg = (
         "better_thermostat %s: %s - new setpoint calibration: %s | external_temp: %s, "

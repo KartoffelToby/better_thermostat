@@ -21,6 +21,7 @@ from custom_components.better_thermostat.utils.helpers import (
     resolve_state_change_event,
     setpoint_echo_window,
 )
+from tests.factories import ThermostatStandIn
 
 ENTITY_ID = "climate.device"
 HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
@@ -28,7 +29,7 @@ HELPERS_LOGGER = "custom_components.better_thermostat.utils.helpers"
 
 def _fake_self(unit=UnitOfTemperature.CELSIUS):
     """Create a minimal BetterThermostat mock for the inbound helpers."""
-    mock_self = Mock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.hass.config.units.temperature_unit = unit
     mock_self.bt_min_temp = 5.0
@@ -180,7 +181,7 @@ class TestDeviceSetpointStep:
     def _self(self, unit=UnitOfTemperature.CELSIUS, bt_step=0.5):
         """Build a BetterThermostat mock with a known configured step."""
         mock_self = _fake_self(unit)
-        mock_self.bt_target_temp_step = bt_step
+        mock_self.bt_target_temperature_step = bt_step
         return mock_self
 
     def test_celsius_step_is_taken_as_reported(self):

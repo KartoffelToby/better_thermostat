@@ -1,14 +1,18 @@
 """Every adapter's write paths answer to the same contract.
 
-Five modules implement the same write surface for five ecosystems, and
-the shell reaches them through a duck-typed dispatch that cannot check
-any of it. What holds them together is therefore written down here
-rather than in a base class:
+Every ecosystem's adapter module implements the same write surface, and the
+shell reaches them through a duck-typed dispatch that cannot check any of
+it. What holds them together is therefore written down here rather than
+in a base class:
 
-* a valve write lands inside the bounds the number entity itself
-  declares, whatever step grid it publishes;
-* the setpoint and mode payloads carry the same domain, service and
-  keys, in the system's temperature unit.
+* an adapter's ``CAPABILITIES`` declaration is what the delegate keys the
+  valve channel on, so the declaration and the wire have to agree — an
+  ecosystem that declares no valve channel must not be reported as having
+  taken a position;
+* a valve write lands inside the bounds the number entity itself declares,
+  whatever step grid it publishes;
+* the setpoint and mode payloads carry the same domain, service and keys,
+  in the system's temperature unit.
 
 A new adapter is covered by all of it the moment it joins ``ADAPTERS``.
 
@@ -17,48 +21,87 @@ value has not changed. No adapter does that, and none should — the shell
 already decides it, once, for every ecosystem.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant.components.climate.const import HVACMode
-from homeassistant.const import UnitOfTemperature
+from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.const import STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.adapters import (
     deconz,
+    delegate,
     generic,
     mqtt,
+    shelly,
     tado,
     zwave_js,
 )
+from custom_components.better_thermostat.adapters.valve_entity import (
+    ValveEntityUnreachableError,
+)
 from custom_components.better_thermostat.trv import Trv
+from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
 ENTITY_ID = "climate.trv"
+_RETRY = "custom_components.better_thermostat.utils.retry"
 VALVE_ENTITY = "number.trv_valve_position"
 
 ADAPTERS = {
     "deconz": deconz,
     "generic": generic,
     "mqtt": mqtt,
+    "shelly": shelly,
     "tado": tado,
     "zwave_js": zwave_js,
 }
 ADAPTER_IDS = sorted(ADAPTERS)
-# The adapters that own a valve channel: they alone ever assign
-# ``valve_position_entity``, in their own ``init``.
-VALVE_ADAPTERS = ["mqtt", "zwave_js"]
+
+
+@pytest.fixture(autouse=True)
+def _helper_entities_registered_and_enabled():
+    """The registry holds the TRV's helper entities as enabled entries."""
+    registry = make_entity_registry(make_registry_entry(VALVE_ENTITY))
+    with patch(
+        "custom_components.better_thermostat.utils.helpers.er.async_get",
+        return_value=registry,
+    ):
+        yield
+
+
+def _declares_valve_write(module):
+    """Whether the module's own declaration offers a valve channel.
+
+    Read through ``getattr`` so a module that declares nothing at all
+    fails the declaration test alone, instead of taking the rest of this
+    file down with an import-time error.
+    """
+    declared = getattr(module, "CAPABILITIES", None)
+    return declared is not None and declared.valve_write
+
+
+VALVE_ADAPTERS = sorted(
+    name for name, module in ADAPTERS.items() if _declares_valve_write(module)
+)
+NON_VALVE_ADAPTERS = sorted(set(ADAPTER_IDS) - set(VALVE_ADAPTERS))
 
 
 def _thermostat(
+    adapter=None,
     valve_entity=VALVE_ENTITY,
     valve_writable=True,
     valve_bounds=(0.0, 100.0, 1.0),
     unit=UnitOfTemperature.CELSIUS,
+    head_attributes=None,
+    valve_state="0",
 ):
     """Build a thermostat whose service calls are recorded, not executed.
 
     Parameters
     ----------
+    adapter : module or None
+        Adapter module the TRV resolved to, for delegate-level calls.
     valve_entity : str or None
         Entity ID of the discovered valve number entity, or None or the
         empty string to model a TRV for which discovery found none.
@@ -68,6 +111,11 @@ def _thermostat(
         The ``min``, ``max`` and ``step`` the number entity publishes.
     unit : UnitOfTemperature
         The system's configured temperature unit.
+    head_attributes : dict or None
+        The attributes the TRV's climate state publishes; ``None`` publishes
+        none.
+    valve_state : str
+        The state the valve number entity reports.
 
     Returns
     -------
@@ -75,7 +123,7 @@ def _thermostat(
         A stand-in for the Better Thermostat climate entity instance.
     """
     minimum, maximum, step = valve_bounds
-    thermostat = MagicMock()
+    thermostat = ThermostatStandIn()
     thermostat.device_name = "Test BT"
     thermostat.context = None
     thermostat.hass = MagicMock()
@@ -83,9 +131,9 @@ def _thermostat(
     thermostat.hass.config.units.temperature_unit = unit
     states = {
         VALVE_ENTITY: State(
-            VALVE_ENTITY, "0", {"min": minimum, "max": maximum, "step": step}
+            VALVE_ENTITY, valve_state, {"min": minimum, "max": maximum, "step": step}
         ),
-        ENTITY_ID: State(ENTITY_ID, "heat", {}),
+        ENTITY_ID: State(ENTITY_ID, "heat", head_attributes or {}),
     }
     # Anything else is an entity the state machine does not know, which is
     # what a stale discovery result looks like from in here.
@@ -93,6 +141,9 @@ def _thermostat(
     trv = Trv(entity_id=ENTITY_ID)
     trv.valve_position_entity = valve_entity
     trv.valve_position_writable = valve_writable
+    trv.adapter = adapter
+    # A quirk surface with no override, so the delegate reaches the adapter.
+    trv.model_quirks = MagicMock(spec=[])
     thermostat.real_trvs = {ENTITY_ID: trv}
     return thermostat
 
@@ -103,6 +154,126 @@ def _calls(thermostat):
         (call.args[0], call.args[1], call.args[2])
         for call in thermostat.hass.services.async_call.await_args_list
     ]
+
+
+class TestTheDeclarationIsTheContract:
+    """The delegate keys the valve channel on what the adapter declares."""
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    def test_every_adapter_declares_its_capabilities(self, name):
+        """The declaration exists, so the fallback stays a fallback."""
+        assert hasattr(ADAPTERS[name], "CAPABILITIES")
+
+    @pytest.mark.parametrize("name", NON_VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_an_undeclared_valve_channel_is_never_reported_as_written(self, name):
+        """No write goes out and none is claimed to have gone out.
+
+        Discovery can hand any adapter a valve entity; only the declaration
+        says whether the ecosystem can act on it.
+        """
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is False
+        assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_declared_valve_channel_writes_and_says_so(self, name):
+        """The answer and the wire agree the other way round too."""
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        assert len(_calls(thermostat)) == 1
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    @pytest.mark.parametrize(
+        ("valve_entity", "valve_writable"),
+        [(None, True), (VALVE_ENTITY, False), (VALVE_ENTITY, None)],
+    )
+    @pytest.mark.asyncio
+    async def test_an_unusable_valve_entity_is_never_reported_as_written(
+        self, name, valve_entity, valve_writable
+    ):
+        """A missing or read-only entity is no channel either."""
+        thermostat = _thermostat(
+            adapter=ADAPTERS[name],
+            valve_entity=valve_entity,
+            valve_writable=valve_writable,
+        )
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is False
+        assert _calls(thermostat) == []
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.parametrize(
+        ("valve_entity", "valve_state"),
+        [("number.no_longer_there", "0"), (VALVE_ENTITY, STATE_UNAVAILABLE)],
+        ids=["no-state", "unavailable"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_valve_entity_without_a_usable_state_is_never_reported_as_written(
+        self, name, valve_entity, valve_state
+    ):
+        """No position is recorded, so the next cycle sends it again."""
+        thermostat = _thermostat(
+            adapter=ADAPTERS[name], valve_entity=valve_entity, valve_state=valve_state
+        )
+
+        with patch(f"{_RETRY}.asyncio.sleep", new=AsyncMock()):
+            answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is False
+        assert _calls(thermostat) == []
+        assert thermostat.real_trvs[ENTITY_ID].last_valve_percent is None
+
+
+class TestAValveQuirkOutranksTheAdapter:
+    """A model driving its own valve is asked before the adapter is."""
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    @pytest.mark.asyncio
+    async def test_a_handled_override_is_the_whole_write(self, name):
+        """The quirk took the position, so no adapter write follows it.
+
+        This is the channel a valve capability sourced from the quirks
+        stands for, and it works for an ecosystem that declares no valve
+        channel of its own just as well.
+        """
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.model_quirks = SimpleNamespace(
+            override_set_valve=AsyncMock(return_value=True)
+        )
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        assert _calls(thermostat) == []
+        assert trv.last_valve_percent == 50
+        assert trv.last_valve_method == "override"
+
+    @pytest.mark.parametrize("name", VALVE_ADAPTERS)
+    @pytest.mark.asyncio
+    async def test_a_declined_override_leaves_the_write_to_the_adapter(self, name):
+        """A quirk that does not take this one steps out of the way."""
+        thermostat = _thermostat(adapter=ADAPTERS[name])
+        trv = thermostat.real_trvs[ENTITY_ID]
+        trv.model_quirks = SimpleNamespace(
+            override_set_valve=AsyncMock(return_value=False)
+        )
+
+        answer = await delegate.set_valve(thermostat, ENTITY_ID, 50)
+
+        assert answer is True
+        assert len(_calls(thermostat)) == 1
+        assert trv.last_valve_method == "adapter"
 
 
 # Grids a number entity can publish, including the ones where the step does
@@ -193,16 +364,25 @@ class TestTheValveWriteStaysInsideTheDeclaredBounds:
 
     @pytest.mark.parametrize("name", VALVE_ADAPTERS)
     @pytest.mark.asyncio
-    async def test_a_valve_entity_without_a_state_writes_nothing(self, name):
-        """An entity that reports nothing declares no bounds either.
+    @pytest.mark.parametrize(
+        ("valve_entity", "valve_state"),
+        [("number.no_longer_there", "0"), (VALVE_ENTITY, STATE_UNAVAILABLE)],
+        ids=["no-state", "unavailable"],
+    )
+    async def test_a_valve_entity_without_a_usable_state_takes_no_write(
+        self, name, valve_entity, valve_state
+    ):
+        """The write raises instead of going out or passing for done.
 
-        Discovery can outlive the entity it found. The bounds come from
-        the state, so without one there is no range to land the write in
-        and the percentage would go out unscaled.
+        Discovery can outlive the entity it found, and without a state there
+        is no range to land the write in. Home Assistant drops a call to an
+        unavailable entity without a word, so a write that returned would be
+        taken for one the valve received.
         """
-        thermostat = _thermostat(valve_entity="number.no_longer_there")
+        thermostat = _thermostat(valve_entity=valve_entity, valve_state=valve_state)
 
-        await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
+        with pytest.raises(ValveEntityUnreachableError):
+            await ADAPTERS[name].set_valve(thermostat, ENTITY_ID, 50)
 
         assert _calls(thermostat) == []
 
@@ -246,6 +426,109 @@ class TestTheSetpointPayloadIsTheSameEverywhere:
 
         (_domain, _service, payload) = _calls(thermostat)[0]
         assert payload["temperature"] == 68.0
+
+
+RANGE_ONLY = int(ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
+BOTH_SETPOINT_FORMS = int(
+    ClimateEntityFeature.TARGET_TEMPERATURE
+    | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+)
+
+
+class TestARangeOnlyHeadTakesTheSetpointAsItsLowerBound:
+    """A head without a single setpoint is written through its range.
+
+    Home Assistant refuses ``temperature`` for an entity that does not
+    advertise TARGET_TEMPERATURE, so a head that advertises only the range
+    gets the setpoint as ``target_temp_low`` next to the upper bound it holds.
+    """
+
+    @pytest.mark.parametrize("name", ADAPTER_IDS)
+    @pytest.mark.asyncio
+    async def test_the_upper_bound_the_head_holds_travels_along(self, name):
+        """The band's top is sent back unchanged when it sits above the setpoint."""
+        thermostat = _thermostat(
+            head_attributes={
+                "supported_features": RANGE_ONLY,
+                "target_temp_low": 18.0,
+                "target_temp_high": 25.0,
+            }
+        )
+
+        await ADAPTERS[name].set_temperature(thermostat, ENTITY_ID, 21.5)
+
+        assert _calls(thermostat) == [
+            (
+                "climate",
+                "set_temperature",
+                {
+                    "entity_id": ENTITY_ID,
+                    "target_temp_low": 21.5,
+                    "target_temp_high": 25.0,
+                },
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "high",
+        [20.0, None, "unknown"],
+        ids=["below_the_setpoint", "missing", "unreadable"],
+    )
+    @pytest.mark.asyncio
+    async def test_an_upper_bound_that_cannot_stay_becomes_the_setpoint(self, high):
+        """A top below the setpoint, or none to read, is sent as the setpoint."""
+        attributes = {"supported_features": RANGE_ONLY, "target_temp_low": 18.0}
+        if high is not None:
+            attributes["target_temp_high"] = high
+        thermostat = _thermostat(head_attributes=attributes)
+
+        await generic.set_temperature(thermostat, ENTITY_ID, 21.5)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        assert payload == {
+            "entity_id": ENTITY_ID,
+            "target_temp_low": 21.5,
+            "target_temp_high": 21.5,
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_bounds_reach_the_wire_in_the_system_unit(self):
+        """Both bounds are in the unit the head publishes them in."""
+        thermostat = _thermostat(
+            unit=UnitOfTemperature.FAHRENHEIT,
+            head_attributes={
+                "supported_features": RANGE_ONLY,
+                "target_temp_low": 64.0,
+                "target_temp_high": 77.0,
+            },
+        )
+
+        await generic.set_temperature(thermostat, ENTITY_ID, 20.0)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        assert payload["target_temp_low"] == 68.0
+        assert payload["target_temp_high"] == 77.0
+
+    @pytest.mark.parametrize(
+        "features", [BOTH_SETPOINT_FORMS, 0], ids=["both_forms", "neither_form"]
+    )
+    @pytest.mark.asyncio
+    async def test_a_head_that_is_not_range_only_keeps_the_single_setpoint(
+        self, features
+    ):
+        """Only a head without TARGET_TEMPERATURE is written through its range."""
+        thermostat = _thermostat(
+            head_attributes={
+                "supported_features": features,
+                "target_temp_low": 18.0,
+                "target_temp_high": 25.0,
+            }
+        )
+
+        await generic.set_temperature(thermostat, ENTITY_ID, 21.5)
+
+        (_domain, _service, payload) = _calls(thermostat)[0]
+        assert payload == {"entity_id": ENTITY_ID, "temperature": 21.5}
 
 
 class TestTheModePayloadIsTheSameEverywhere:

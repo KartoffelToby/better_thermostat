@@ -38,12 +38,14 @@ _HEATING_POWERS = [0.005, 0.01, 0.02, 0.035, 0.05]
 def _production_valve_pct(temp_diff_K: float, heating_power: float) -> float:
     """Run the real production formula and return valve percent (0..100)."""
     fake_entity = SimpleNamespace(
-        bt_target_temp=20.0 + temp_diff_K,
-        cur_temp=20.0,
+        heat_target_temperature=20.0 + temp_diff_K,
+        room_temperature=20.0,
         heating_power=heating_power,
         device_name="drift-guard",
     )
-    valve_fraction = heating_power_valve_position(fake_entity, "drift_guard_trv")
+    valve_fraction = heating_power_valve_position(
+        fake_entity, "drift_guard_trv", fake_entity.room_temperature
+    )
     return valve_fraction * 100.0
 
 
@@ -60,7 +62,7 @@ def _adapter_valve_pct(temp_diff_K: float, heating_power: float) -> float:
         trv_temp_C=None,
         outdoor_temp_C=5.0,
     )
-    return adapter._compute_valve_pct(ctx)
+    return adapter._compute_valve_percent(ctx)
 
 
 @pytest.mark.parametrize("temp_diff_K", _TEMP_DIFFS_K)
@@ -84,6 +86,12 @@ def test_non_heating_returns_zero_in_both() -> None:
     assert _adapter_valve_pct(0.0, 0.02) == 0.0
     # Room above target (negative diff): production short-circuits to 0.
     fake_entity = SimpleNamespace(
-        bt_target_temp=19.5, cur_temp=20.0, heating_power=0.02, device_name="drift"
+        heat_target_temperature=19.5,
+        room_temperature=20.0,
+        heating_power=0.02,
+        device_name="drift",
     )
-    assert heating_power_valve_position(fake_entity, "trv") == 0.0
+    assert (
+        heating_power_valve_position(fake_entity, "trv", fake_entity.room_temperature)
+        == 0.0
+    )

@@ -8,7 +8,6 @@
           "name": "Ad",
           "thermostat": "Gerçek termostat",
           "cooler": "Soğutma cihazı (isteğe bağlı)",
-          "min_cooler_resend_interval": "Tekrarlanan soğutucu komutları arasındaki minimum saniye (0 = devre dışı)",
           "temperature_sensor": "Sıcaklık sensörü",
           "humidity_sensor": "Nem sensörü",
           "window_sensors": "Pencere sensörü",
@@ -27,6 +26,24 @@
           "presets": "Etkin ön ayarlar"
         },
         "data_description": {
+          "name": "Bu termostatın ve cihazının Home Assistant'taki adı.",
+          "thermostat": "Bu odanın radyatör termostatları (TRV). Better Thermostat hepsini birlikte yönetir.",
+          "cooler": "İsteğe bağlı. Termostatlarla birlikte bu odayı soğutan bir klima veya başka bir iklim varlığı.",
+          "temperature_sensor": "Better Thermostat'ın göre düzenlediği oda sıcaklığı sensörü. Radyatörden uzağa yerleştirin.",
+          "humidity_sensor": "İsteğe bağlı. Değeri termostatta gösterilir ve nem tetikleyicileri tarafından kullanılır.",
+          "window_sensors": "İsteğe bağlı. Açık bir pencere bildiren sensör veya grup; bildirdiği sürece ısıtma duraklar.",
+          "door_sensors": "İsteğe bağlı. Pencere sensörü gibi çalışır, kendi gecikmeleriyle.",
+          "off_temperature": "Dış sensör veya hava durumu varlığı bundan fazlasını bildirdiği sürece ısıtma kapalı kalır.",
+          "tolerance": "Isıtma yeniden başlamadan önce odanın hedefin ne kadar altına soğuyabileceği: hedef 20 ve tolerans 0,3 ile 19,7'de yeniden ısıtır.",
+          "window_off_delay": "Isıtma duraklamadan önce bir pencerenin ne kadar açık kalması gerektiği.",
+          "window_off_delay_after": "Isıtma devam etmeden önce tüm pencerelerin ne kadar kapalı kalması gerektiği.",
+          "door_off_delay": "Isıtma duraklamadan önce bir kapının ne kadar açık kalması gerektiği.",
+          "door_off_delay_after": "Isıtma devam etmeden önce tüm kapıların ne kadar kapalı kalması gerektiği.",
+          "outdoor_sensor": "İsteğe bağlı. Dış eşik için dış sıcaklığı sağlar ve hava durumu varlığına göre önceliklidir.",
+          "weather": "İsteğe bağlı. Dış sensör seçilmediğinde dış sıcaklığı sağlar.",
+          "target_temp_min": "Ayarlayabileceğiniz en düşük hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
+          "target_temp_max": "Ayarlayabileceğiniz en yüksek hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
+          "target_temp_step": "Hedefin her adımda ne kadar değiştiği. Auto, termostatlarınızın bildirdiği en kaba adımı kullanır.",
           "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
         }
       },
@@ -40,12 +57,19 @@
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
           "calibration": "Kalibrasyon Türü",
           "calibration_mode": "Kalibrasyon modu",
-          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
-          "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Normal***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir.\n***Agresif***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir ancak daha hızlı bir artış için çok daha düşük/yüksek ayarlanır.\n***Yapay Zeka Zaman Tabanlı***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir, ancak özel bir algoritma TRV iç algoritmasını iyileştirmek için değeri hesaplar.\n***MPC Tahminli (Beta)***: Doğrudan vana kontrolü mevcut olmadığında bir vana açıklığı türetmek ve bunu ofsetlere veya ayar noktasına dönüştürmek için MPC tahminli denetleyiciyi kullanır.",
-          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
+          "heat_auto_swapped": "Isıtma modu 'auto' olarak adlandırılan bir TRV için: Better Thermostat ısıtmak için 'auto' gönderir.",
+          "child_lock": "Çocuk kilidi varsa TRV'nin düğmelerini kilitler; TRV'nin kendisinde yapılan değişiklikler yok sayılır.",
+          "homematicip": "HomematicIP cihazları duty cycle sınırında kalsın diye komutları daha seyrek gönderir.",
+          "valve_maintenance": "Vana sıkışmasın diye ara sıra açıp kapatır. Kendi bakım rutini olmayan TRV'ler için.",
+          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
         }
       },
       "confirm": {
@@ -58,13 +82,15 @@
       "no_name": "Lütfen bir ad girin.",
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
       "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
-      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
       "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
+      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin."
     },
     "abort": {
       "single_instance_allowed": "Her gerçek termostat için yalnızca tek bir Termostat'a izin verilir.",
-      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun"
+      "no_devices_found": "Termostat varlığı bulunamadı, Home Assistant'ınızda bir iklim varlığı olduğundan emin olun",
+      "already_configured": "Bu ada sahip bir Better Thermostat bu termostatları zaten kontrol ediyor.",
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir; önce oradan kaldırın."
     }
   },
   "options": {
@@ -90,14 +116,28 @@
           "target_temp_max": "Maksimum hedef sıcaklık",
           "target_temp_step": "Hedef sıcaklık adımı",
           "presets": "Etkin ön ayarlar",
-          "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
-          "calibration": "Kalibrasyon türü",
-          "heat_auto_swapped": "TRV'nizde otomatik mod ısıtma anlamına geliyorsa ve değiştirmek istiyorsanız",
-          "child_lock": "TRV üzerindeki tüm girişleri çocuk kilidi gibi yoksay",
-          "homematicip": "HomematicIP kullanıyorsanız, görev döngüsünü önlemek için istekleri yavaşlatmak amacıyla bunu etkinleştirmelisiniz"
+          "cooler": "Soğutma cihazı (isteğe bağlı)"
         },
         "data_description": {
-          "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin."
+          "name": "Bu termostatın ve cihazının Home Assistant'taki adı.",
+          "thermostat": "Bu odanın radyatör termostatları (TRV). Better Thermostat hepsini birlikte yönetir.",
+          "temperature_sensor": "Better Thermostat'ın göre düzenlediği oda sıcaklığı sensörü. Radyatörden uzağa yerleştirin.",
+          "humidity_sensor": "İsteğe bağlı. Değeri termostatta gösterilir ve nem tetikleyicileri tarafından kullanılır.",
+          "window_sensors": "İsteğe bağlı. Açık bir pencere bildiren sensör veya grup; bildirdiği sürece ısıtma duraklar.",
+          "door_sensors": "İsteğe bağlı. Pencere sensörü gibi çalışır, kendi gecikmeleriyle.",
+          "off_temperature": "Dış sensör veya hava durumu varlığı bundan fazlasını bildirdiği sürece ısıtma kapalı kalır.",
+          "tolerance": "Isıtma yeniden başlamadan önce odanın hedefin ne kadar altına soğuyabileceği: hedef 20 ve tolerans 0,3 ile 19,7'de yeniden ısıtır.",
+          "window_off_delay": "Isıtma duraklamadan önce bir pencerenin ne kadar açık kalması gerektiği.",
+          "window_off_delay_after": "Isıtma devam etmeden önce tüm pencerelerin ne kadar kapalı kalması gerektiği.",
+          "door_off_delay": "Isıtma duraklamadan önce bir kapının ne kadar açık kalması gerektiği.",
+          "door_off_delay_after": "Isıtma devam etmeden önce tüm kapıların ne kadar kapalı kalması gerektiği.",
+          "outdoor_sensor": "İsteğe bağlı. Dış eşik için dış sıcaklığı sağlar ve hava durumu varlığına göre önceliklidir.",
+          "weather": "İsteğe bağlı. Dış sensör seçilmediğinde dış sıcaklığı sağlar.",
+          "target_temp_min": "Ayarlayabileceğiniz en düşük hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
+          "target_temp_max": "Ayarlayabileceğiniz en yüksek hedef. Auto, cihazlarınızın bildirdiği aralığı kullanır.",
+          "target_temp_step": "Hedefin her adımda ne kadar değiştiği. Auto, termostatlarınızın bildirdiği en kaba adımı kullanır.",
+          "presets": "Bu termostat için kullanılabilir olmasını istediğiniz ön ayarları seçin.",
+          "cooler": "İsteğe bağlı. Termostatlarla birlikte bu odayı soğutan bir klima veya başka bir iklim varlığı."
         }
       },
       "advanced": {
@@ -110,23 +150,28 @@
           "valve_maintenance": "Termostatınızın kendi bakım modu yoksa, bunu kullanabilirsiniz",
           "calibration": "Kullanmak istediğiniz kalibrasyon türü",
           "calibration_mode": "Kalibrasyon modu",
-          "no_off_system_mode": "TRV'niz kapalı modu desteklemiyorsa, bunun yerine hedef sıcaklık 5°C kullanmak için bunu etkinleştirebilirsiniz"
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 oda boyutu"
         },
         "data_description": {
           "protect_overheating": "Bazı TRV'ler sıcaklığa ulaşıldığında vanayı tamamen kapatmaz. Veya radyatör çok fazla artık ısıya sahiptir. Bu aşırı ısınmaya neden olabilir. Bu seçenek bunu önleyebilir.",
-          "calibration_mode": "Kalibrasyonun nasıl hesaplanacağı\n***Normal***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir.\n***Agresif***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir ancak daha hızlı bir artış için çok daha düşük/yüksek ayarlanır.\n***Yapay Zeka Zaman Tabanlı***: Bu modda, TRV iç sıcaklık sensörü dış sıcaklık sensörü tarafından düzeltilir, ancak özel bir algoritma TRV iç algoritmasını iyileştirmek için değeri hesaplar.\n***MPC Tahminli (Beta)***: Doğrudan vana kontrolü mevcut olmadığında bir vana açıklığı türetmek ve bunu ofsetlere veya ayar noktasına dönüştürmek için MPC hidrolik denge algoritmasını kullanır.",
-          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula."
+          "heat_auto_swapped": "Isıtma modu 'auto' olarak adlandırılan bir TRV için: Better Thermostat ısıtmak için 'auto' gönderir.",
+          "child_lock": "Çocuk kilidi varsa TRV'nin düğmelerini kilitler; TRV'nin kendisinde yapılan değişiklikler yok sayılır.",
+          "homematicip": "HomematicIP cihazları duty cycle sınırında kalsın diye komutları daha seyrek gönderir.",
+          "valve_maintenance": "Vana sıkışmasın diye ara sıra açıp kapatır. Kendi bakım rutini olmayan TRV'ler için.",
+          "calibration": "Kalibrasyonun TRV'ye nasıl uygulanacağı (Hedef sıcaklık veya ofset)\n***Hedef Sıcaklık Tabanlı***: Kalibrasyonu hedef sıcaklığa uygula.\n***Ofset Tabanlı***: Kalibrasyonu ofsete uygula.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
         }
       }
     },
     "error": {
-      "failed": "Bir şeyler yanlış gitti.",
-      "no_name": "Lütfen bir ad girin.",
       "no_heater": "Lütfen en az bir gerçek termostat seçin.",
-      "no_off_mode": "Cihazınız çok özel ve kapalı modu yok :(\nBetter Thermostat bunun yerine minimum hedef sıcaklığı kullanacak.",
       "target_temp_min_above_max": "Minimum hedef sıcaklık, maksimum hedef sıcaklığı aşmamalıdır.",
-      "no_outside_temp": "Dış ortam sıcaklık sensörünüz yok. Better Thermostat bunun yerine hava durumu varlığını kullanacak.",
-      "no_data": "Hiçbir veri alınamadı. Lütfen tekrar deneyin."
+      "no_sensor": "Lütfen bir oda sıcaklığı sensörü seçin.",
+      "trv_in_use": "{trv} zaten Better Thermostat {entry} tarafından kontrol ediliyor. Bir termostat yalnızca bir Better Thermostat’a ait olabilir.",
+      "trv_not_found": "Home Assistant {trv} öğesini tanımıyor. Var olan bir termostat seçin."
     }
   },
   "issues": {
@@ -143,7 +188,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensör hatası: {sensors} düşük performans modunda çalışıyor",
-      "description": "Better Thermostat, bazı sensörler kullanılamadığı için düşük performans modunda çalışıyor: {sensors}\n\nTermostat azaltılmış işlevsellikle çalışmaya devam edecektir. Örneğin:\n- Oda sıcaklık sensörü kullanılamıyorsa, bunun yerine TRV'nin dahili sensörü kullanılacaktır.\n- Pencere sensörleri kullanılamıyorsa, pencereler kapalı kabul edilir.\n- Dış ortam/hava durumu sensörleri kullanılamıyorsa, ısıtma her zaman etkin olacaktır.\n\nEtkilenen cihazların pil veya bağlantı sorunları olup olmadığını kontrol edin."
+      "description": "Better Thermostat, bazı sensörler kullanılamadığı için düşük işlevli modda çalışıyor: {sensors}\n\nTermostat kontrol etmeye devam eder ve kademeli olarak işlevini azaltır:\n- Oda sıcaklık sensörü kullanılamıyorsa, yerine TRV iç sıcaklıklarının ortalaması kullanılır.\n- Ne oda sensörü ne de herhangi bir TRV sıcaklığı kullanılabilir durumdaysa, termostat ayarlamayı durdurur ve son komut verilen durumu korur; donma koruması etkin kalır.\n- Pencere sensörü kullanılamıyorsa, pencere kapalı kabul edilir ve ısıtma devam eder; kaybolan bir sensör ısıtmayı durdurmamalıdır.\n- Dış/hava durumu sensörleri kullanılamıyorsa, ısıtma etkin kalır.\n\nEtkilenen cihazlarda pil veya bağlantı sorunu olup olmadığını kontrol edin. Tüm sensörler yeniden kullanılabilir olduğunda bu sorun kendiliğinden giderilir."
     },
     "invalid_window_state": {
       "title": "BT: {name} - geçersiz pencere sensörü durumu",
@@ -156,6 +201,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - geçersiz dış ortam sıcaklığı",
       "description": "Better Thermostat {name} için dış ortam sıcaklık sensörü mantıksız bir değer bildirdi: {value}.\n\nOkunan değer makul aralığın dışındaydı ve yok sayıldı. Lütfen sıcaklık sensörü yapılandırmanızı kontrol edin."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} birden fazla Better Thermostat tarafından kontrol ediliyor",
+      "description": "{trv} termostatı şu Better Thermostat’lara ait: {entries}. Ona çakışan hedef sıcaklıklar ve modlar yazıyorlar. Ayarlarından biri hariç hepsinden kaldırın; bu sorun ardından kendiliğinden kaybolur."
     }
   },
   "services": {
@@ -317,7 +366,7 @@
         "no_calibration": "Kalibrasyon yok"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Doğrudan vana kontrolü",
         "target_temp_based": "Hedef sıcaklığa dayalı",
@@ -444,6 +493,7 @@
           "window_close": "bir pencere kapatıldığı için ısıtmaya devam edildi",
           "summer_mode_on": "dış ortam sıcaklığı çok yüksek olduğu için kapatıldı",
           "summer_mode_off": "dış ortam sıcaklığı düştüğü için ısıtmaya devam edildi",
+          "weather_forecast_missing": "hava durumu tahmini alınamadığı için ısıtmaya devam edildi",
           "degraded_mode_entered": "bazı sensörler kullanılamadığı için kısıtlı moda girildi",
           "degraded_mode_resolved": "tüm sensörler kullanılabilir olduğu için kısıtlı moddan çıkıldı",
           "door_open": "turned off because a door was opened",
@@ -476,6 +526,18 @@
       },
       "mpc_ka": {
         "name": "MPC yalıtımı (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2 sanal sıcaklık"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2 bağlaşım"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2 bozucu etki"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2 oda zaman sabiti"
       },
       "pid_kp": {
         "name": "PID Kp"
@@ -518,6 +580,32 @@
     "action_type": {
       "set_hvac_mode": "HVAC modunu ayarla",
       "set_temperature": "Hedef sıcaklığı ayarla"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name}, {mode} HVAC modunu desteklemiyor. Desteklenen modlar: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name}, {attribute} için sayı olmayan {value} değerini aldı."
+    },
+    "valve_maintenance_running": {
+      "message": "{device_name} üzerinde vana bakımı zaten çalışıyor."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} cihazında vana bakımı etkin olan bir vana yok."
+    },
+    "valve_maintenance_failed": {
+      "message": "{device_name} üzerinde vana bakımı başarısız oldu. Ayrıntılar günlükte."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} öğrenilmiş durumunu henüz yüklemedi. Başladıktan sonra tekrar deneyin."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} için PID varsayılanlarının uygulanacağı bir hedef sıcaklık yok. Hiçbir şey sıfırlanmadı."
+    },
+    "pid_reset_failed": {
+      "message": "{device_name} için PID öğrenmesinin sıfırlanması başarısız oldu. Ayrıntılar günlükte."
     }
   }
 }

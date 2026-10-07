@@ -13,7 +13,9 @@ from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 _LOGGER = logging.getLogger(__name__)
 
 
-def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> float:
+def fix_local_calibration(
+    self: ModelFixHost, entity_id: str, calibration_offset: float
+) -> float:
     """Adjust the local calibration offset for COZB0001 devices.
 
     Just invert the given offset for this model, as they seem to report it in
@@ -25,7 +27,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
         Better Thermostat host providing device state and HA access.
     entity_id : str
         Entity id of the TRV the offset belongs to.
-    offset : float
+    calibration_offset : float
         Local calibration offset reported by the device.
 
     Returns
@@ -33,7 +35,7 @@ def fix_local_calibration(self: ModelFixHost, entity_id: str, offset: float) -> 
     float
         The inverted local calibration offset.
     """
-    return -offset
+    return -calibration_offset
 
 
 def fix_target_temperature_calibration(

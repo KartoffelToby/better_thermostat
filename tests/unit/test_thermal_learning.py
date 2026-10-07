@@ -206,8 +206,8 @@ class TestHeatingPowerTrackerFinalization:
             peak_temp - 0.1,
             HVACAction.IDLE,
             _ts(duration_min + 1),
-            target_temp=target,
-            outdoor_temp=outdoor,
+            heat_target_temperature=target,
+            outdoor_temperature=outdoor,
         )
         return t, result
 
@@ -231,7 +231,7 @@ class TestHeatingPowerTrackerFinalization:
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(21.0, HVACAction.IDLE, _ts(5))
         # No temperature drop, but 31 minutes pass (>30 timeout)
-        result = t.update(21.0, HVACAction.IDLE, _ts(36), target_temp=22.0)
+        result = t.update(21.0, HVACAction.IDLE, _ts(36), heat_target_temperature=22.0)
         assert result.cycle_result is not None
 
     def test_short_cycle_discarded(self):
@@ -261,7 +261,7 @@ class TestHeatingPowerTrackerFinalization:
         # heating_rate = 2.0/10 = 0.2
         # weight_factor with target=22, min=18, max=21 (updated to max(21,22)=22)
         # Actually min_target and max_target are defaults 18 and 21,
-        # but target_temp=22 updates max_target to 22
+        # but heat_target_temperature=22 updates max_target to 22
         # So at finalize time: min=18, max=22 (already updated by first update call)
         # Actually the update to max_target happens at the END of update(), after finalize
         # Let's just verify it moved in the right direction
@@ -275,7 +275,7 @@ class TestHeatingPowerTrackerFinalization:
         # Very tiny temp rise
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(19.001, HVACAction.IDLE, _ts(10))
-        t.update(18.9, HVACAction.IDLE, _ts(11), target_temp=20.0)
+        t.update(18.9, HVACAction.IDLE, _ts(11), heat_target_temperature=20.0)
         assert t.heating_power >= MIN_HEATING_POWER
 
     def test_max_clamping(self):
@@ -286,20 +286,26 @@ class TestHeatingPowerTrackerFinalization:
         # Huge temp rise in short time
         t.update(15.0, HVACAction.HEATING, _NOW)
         t.update(30.0, HVACAction.IDLE, _ts(1.5))
-        t.update(29.0, HVACAction.IDLE, _ts(2), target_temp=25.0)
+        t.update(29.0, HVACAction.IDLE, _ts(2), heat_target_temperature=25.0)
         assert t.heating_power <= MAX_HEATING_POWER
 
     def test_outdoor_normalization(self):
-        """When outdoor_temp is provided, normalized_power should be set."""
+        """When outdoor_temperature is provided, normalized_power should be set."""
         t, _ = self._run_complete_cycle(outdoor=5.0, target=21.0)
         assert t.normalized_power is not None
 
     def test_no_outdoor_no_normalization(self):
-        """Without outdoor_temp, normalized_power stays None (or from prior)."""
+        """Without outdoor_temperature, normalized_power stays None (or from prior)."""
         t = HeatingPowerTracker()
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(21.0, HVACAction.IDLE, _ts(10))
-        t.update(20.9, HVACAction.IDLE, _ts(11), target_temp=22.0, outdoor_temp=None)
+        t.update(
+            20.9,
+            HVACAction.IDLE,
+            _ts(11),
+            heat_target_temperature=22.0,
+            outdoor_temperature=None,
+        )
         # normalized_power may be None since no outdoor provided
         # (it was set to None in __init__)
         # After a cycle with outdoor=None, it's not updated
@@ -308,9 +314,9 @@ class TestHeatingPowerTrackerFinalization:
     def test_target_range_tracking(self):
         """min_target/max_target should track the range of observed targets."""
         t = HeatingPowerTracker(min_target=20.0, max_target=20.0)
-        t.update(19.0, HVACAction.IDLE, _NOW, target_temp=18.0)
+        t.update(19.0, HVACAction.IDLE, _NOW, heat_target_temperature=18.0)
         assert t.min_target == 18.0
-        t.update(19.0, HVACAction.IDLE, _ts(1), target_temp=25.0)
+        t.update(19.0, HVACAction.IDLE, _ts(1), heat_target_temperature=25.0)
         assert t.max_target == 25.0
 
     def test_telemetry_stats_format(self):
@@ -318,7 +324,7 @@ class TestHeatingPowerTrackerFinalization:
         t, _ = self._run_complete_cycle()
         assert len(t.stats) == 1
         entry = t.stats[0]
-        assert "dT" in entry
+        assert "delta_kelvin" in entry
         assert "min" in entry
         assert "rate" in entry
         assert "alpha" in entry
@@ -335,7 +341,7 @@ class TestHeatingPowerTrackerFinalization:
         assert "end" in entry
         assert "temp_start" in entry
         assert "temp_peak" in entry
-        assert "delta_t" in entry
+        assert "delta_kelvin" in entry
         assert "minutes" in entry
         assert "rate_c_min" in entry
 
@@ -368,7 +374,7 @@ class TestHeatingPowerTrackerFinalization:
         # Cycle 1
         t.update(19.0, HVACAction.HEATING, _NOW)
         t.update(21.0, HVACAction.IDLE, _ts(10))
-        t.update(20.9, HVACAction.IDLE, _ts(11), target_temp=22.0)
+        t.update(20.9, HVACAction.IDLE, _ts(11), heat_target_temperature=22.0)
 
         power_after_1 = t.heating_power
         assert len(t.cycles) == 1
@@ -376,7 +382,7 @@ class TestHeatingPowerTrackerFinalization:
         # Cycle 2
         t.update(20.5, HVACAction.HEATING, _ts(20))
         t.update(22.0, HVACAction.IDLE, _ts(30))
-        t.update(21.9, HVACAction.IDLE, _ts(31), target_temp=22.0)
+        t.update(21.9, HVACAction.IDLE, _ts(31), heat_target_temperature=22.0)
 
         assert len(t.cycles) == 2
         # Power should have evolved further
@@ -522,7 +528,7 @@ class TestHeatLossTrackerFinalization:
         t, _ = self._run_complete_loss_cycle()
         assert len(t.stats) == 1
         entry = t.stats[0]
-        assert "dT" in entry
+        assert "delta_kelvin" in entry
         assert "min" in entry
         assert "rate" in entry
         assert "alpha" in entry

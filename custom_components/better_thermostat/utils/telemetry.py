@@ -5,10 +5,20 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import json
 import logging
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict
 
-from custom_components.better_thermostat.utils.calibration.pid import PIDDebugInfo
-from custom_components.better_thermostat.utils.const import ATTR_STATE_HEAT_LOSS_STATS
+from custom_components.better_thermostat.utils.const import (
+    ATTR_MPC_V2_DISTURBANCE,
+    ATTR_MPC_V2_GROUP_VALVE,
+    ATTR_MPC_V2_REID_TAU_ROOM,
+    ATTR_MPC_V2_TAU_ROOM,
+    ATTR_PID_DT,
+    ATTR_PID_ERROR,
+    ATTR_PID_MEASUREMENT_FILTERED,
+    ATTR_PID_MEASUREMENT_SLOPE,
+    ATTR_STATE_HEAT_LOSS_STATS,
+    ATTR_STATE_TEMPERATURE_SLOPE,
+)
 from custom_components.better_thermostat.utils.thermal_learning import (
     HeatingCycle,
     LossCycle,
@@ -87,20 +97,48 @@ class TelemetrySource(Protocol):
         ...
 
 
-def _to_float(val: object) -> float | None:
+def _to_float(value: object) -> float | None:
     """Best-effort float cast for telemetry values; no rounding."""
-    match val:
+    match value:
         case bool():
             return None
         case int() | float():
-            return float(val)
+            return float(value)
         case str():
             try:
-                return float(val)
+                return float(value)
             except ValueError:
                 return None
         case _:
             return None
+
+
+def _strict_json(payload: object, label: str) -> str | None:
+    """Serialize telemetry to strict JSON, or ``None`` when it cannot be.
+
+    ``allow_nan=False`` keeps NaN and infinity out of the result. Python's
+    encoder otherwise writes them as the bare literals ``NaN`` and
+    ``Infinity``, which no JSON parser accepts, so one non-finite sample
+    would make the whole attribute unreadable for every consumer. Omitting
+    that attribute leaves the others usable.
+
+    Parameters
+    ----------
+    payload : object
+        the telemetry to serialize
+    label : str
+        name of the attribute, used in the log line when serializing fails
+
+    Returns
+    -------
+    str | None
+        the JSON text, or None when the payload does not serialize
+    """
+    try:
+        return json.dumps(payload, allow_nan=False)
+    except TypeError, ValueError:
+        _LOGGER.exception("Error while serializing %s", label)
+        return None
 
 
 def _serialize_cycles(
@@ -108,20 +146,19 @@ def _serialize_cycles(
     count_key: str,
     last_key: str,
     label: str,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Serialize a cycle sequence to a count + last-entry JSON dict."""
     if not cycles:
         return {}
-    try:
-        return {count_key: len(cycles), last_key: json.dumps(cycles[-1])}
-    except TypeError, ValueError:
-        _LOGGER.exception("Error while serializing %s", label)
+    last = _strict_json(cycles[-1], label)
+    if last is None:
         return {}
+    return {count_key: len(cycles), last_key: last}
 
 
-def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
+def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, object]:
     """Heating/loss cycle counts, last-cycle JSON, heat-loss stats, normalized power."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     out.update(
         _serialize_cycles(
@@ -141,22 +178,21 @@ def collect_cycle_telemetry(bt: TelemetrySource) -> dict[str, Any]:
     )
 
     if bt.last_heat_loss_stats:
-        try:
-            out[ATTR_STATE_HEAT_LOSS_STATS] = json.dumps(list(bt.last_heat_loss_stats))
-        except TypeError, ValueError:
-            _LOGGER.exception("Error while serializing heat loss stats")
+        stats = _strict_json(list(bt.last_heat_loss_stats), "heat loss stats")
+        if stats is not None:
+            out[ATTR_STATE_HEAT_LOSS_STATS] = stats
 
     out["heating_power_norm"] = bt.heating_power_normalized
 
     return out
 
 
-def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
+def collect_balance_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Temperature slope plus a compact per-TRV calibration balance summary."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     if bt.temp_slope is not None:
-        out["temp_slope_K_min"] = round(bt.temp_slope, 4)
+        out[ATTR_STATE_TEMPERATURE_SLOPE] = round(bt.temp_slope, 4)
 
     bal_compact: dict[str, dict[str, float | None]] = {}
     for trv, info in bt.real_trvs.items():
@@ -165,7 +201,9 @@ def collect_balance_attrs(bt: TelemetrySource) -> dict[str, Any]:
             continue
         bal_compact[trv] = {"valve%": bal.get("valve_percent")}
     if bal_compact:
-        out["calibration_balance"] = json.dumps(bal_compact)
+        balance = _strict_json(bal_compact, "calibration balance")
+        if balance is not None:
+            out["calibration_balance"] = balance
 
     return out
 
@@ -176,7 +214,7 @@ type PIDScalarKey = Literal[
 
 # (PIDDebugInfo key, output key, decimals).
 _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
-    ("e_K", "pid_e_K", 4),
+    ("e_K", ATTR_PID_ERROR, 4),
     ("p", "pid_P", 4),
     ("i", "pid_I", 4),
     ("d", "pid_D", 4),
@@ -184,21 +222,21 @@ _PID_SCALAR_FIELDS: tuple[tuple[PIDScalarKey, str, int], ...] = (
     ("kp", "pid_kp", 6),
     ("ki", "pid_ki", 6),
     ("kd", "pid_kd", 6),
-    ("meas_smooth_C", "pid_meas_smooth_C", 3),
-    ("dt_s", "pid_dt_s", 3),
+    ("meas_smooth_C", ATTR_PID_MEASUREMENT_FILTERED, 3),
+    ("dt_s", ATTR_PID_DT, 3),
 )
 
 
 def _pick_representative_trv(real_trvs: Mapping[str, TrvInfo]) -> str | None:
     """Prefer a sonoff/trvzb TRV; else first key."""
-    for trv_id, info in real_trvs.items():
+    for entity_id, info in real_trvs.items():
         model = (info.model or "").lower()
         if "sonoff" in model or "trvzb" in model:
-            return trv_id
+            return entity_id
     return next(iter(real_trvs), None)
 
 
-def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
+def _extract_pid_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
     """Return PID debug payload when the TRV's calibration is in PID mode."""
     if info is None:
         return None
@@ -210,12 +248,12 @@ def _extract_pid_debug(info: TrvInfo | None) -> PIDDebugInfo | None:
         return None
     if str(debug.get("mode")).lower() != "pid":
         return None
-    return cast(PIDDebugInfo, debug)
+    return debug
 
 
-def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
+def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Flatten PID controller debug from a representative TRV's calibration_balance."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     rep = _pick_representative_trv(bt.real_trvs)
     if rep is None:
@@ -231,7 +269,7 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
 
     # d_meas_per_s is K/s; expose as K/min for readability
     if (d_per_s := _to_float(pid.get("d_meas_per_s"))) is not None:
-        out["pid_d_meas_K_per_min"] = round(d_per_s * 60.0, 4)
+        out[ATTR_PID_MEASUREMENT_SLOPE] = round(d_per_s * 60.0, 4)
 
     return out
 
@@ -240,10 +278,12 @@ def collect_pid_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
 _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
     ("T_room_hat", "mpc_v2_T_room_hat", 3),
     ("T_rad_hat", "mpc_v2_T_rad_hat", 3),
-    ("D_hat_K_per_min", "mpc_v2_D_hat_K_per_min", 4),
-    ("tau_room_min", "mpc_v2_tau_room_min", 1),
+    ("D_hat_K_per_min", ATTR_MPC_V2_DISTURBANCE, 4),
+    ("tau_room_min", ATTR_MPC_V2_TAU_ROOM, 1),
     ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
-    ("group_valve_pct", "mpc_v2_group_valve_pct", 1),
+    ("group_valve_pct", ATTR_MPC_V2_GROUP_VALVE, 1),
+    ("reid_tau_room", ATTR_MPC_V2_REID_TAU_ROOM, 1),
+    ("reid_gain", "mpc_v2_reid_gain", 2),
 )
 
 
@@ -262,9 +302,9 @@ def _extract_mpc_v2_debug(info: TrvInfo | None) -> Mapping[str, object] | None:
     return debug
 
 
-def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
+def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, object]:
     """Flatten MPC v2 controller diagnostics from a representative TRV."""
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
 
     rep = _pick_representative_trv(bt.real_trvs)
     if rep is None:
@@ -279,3 +319,24 @@ def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
             out[dst_key] = round(value, decimals)
 
     return out
+
+
+# Every attribute the collectors above can write. They carry controller
+# internals, several of which change on nearly every state write, so the
+# climate entity keeps them out of the recorder. The live state still shows
+# them.
+TELEMETRY_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        "heating_cycle_count",
+        "heating_cycle_last",
+        "heat_loss_cycle_count",
+        "heat_loss_cycle_last",
+        ATTR_STATE_HEAT_LOSS_STATS,
+        "heating_power_norm",
+        ATTR_STATE_TEMPERATURE_SLOPE,
+        "calibration_balance",
+        ATTR_PID_MEASUREMENT_SLOPE,
+        *(dst_key for _, dst_key, _ in _PID_SCALAR_FIELDS),
+        *(dst_key for _, dst_key, _ in _MPC_V2_FIELDS),
+    }
+)

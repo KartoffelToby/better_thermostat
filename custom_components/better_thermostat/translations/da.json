@@ -8,7 +8,6 @@
           "name": "Navn",
           "thermostat": "Den rigtige termostat",
           "cooler": "Køleenhed (valgfri)",
-          "min_cooler_resend_interval": "Minimum sekunder mellem gentagne kølekommandoer (0 = deaktiveret)",
           "temperature_sensor": "Temperatur måler",
           "humidity_sensor": "Fugtighedssensor",
           "window_sensors": "Vinduessensor",
@@ -27,6 +26,24 @@
           "presets": "Aktiverede forudindstillinger"
         },
         "data_description": {
+          "name": "Navnet på denne termostat og dens enhed i Home Assistant.",
+          "thermostat": "Radiatortermostaterne (TRV'er) i dette rum. Better Thermostat styrer dem samlet.",
+          "cooler": "Valgfri. Et klimaanlæg eller en anden klimaenhed, der køler rummet sammen med termostaterne.",
+          "temperature_sensor": "Rumtemperaturføleren, som Better Thermostat regulerer efter. Placer den væk fra radiatoren.",
+          "humidity_sensor": "Valgfri. Værdien vises på termostaten og bruges af fugtighedsudløserne.",
+          "window_sensors": "Valgfri. En sensor eller gruppe, der melder et åbent vindue; så længe den gør det, holder varmen pause.",
+          "door_sensors": "Valgfri. Virker som vinduessensoren, med sine egne forsinkelser.",
+          "off_temperature": "Så længe udendørssensoren eller vejrenheden melder mere end dette, forbliver varmen slukket.",
+          "tolerance": "Hvor meget rummet må køle under målet, før der varmes igen: mål 20 og tolerance 0,3 varmer igen ved 19,7.",
+          "window_off_delay": "Hvor længe et vindue skal være åbent, før varmen holder pause.",
+          "window_off_delay_after": "Hvor længe alle vinduer skal være lukkede, før varmen fortsætter.",
+          "door_off_delay": "Hvor længe en dør skal være åben, før varmen holder pause.",
+          "door_off_delay_after": "Hvor længe alle døre skal være lukkede, før varmen fortsætter.",
+          "outdoor_sensor": "Valgfri. Leverer udetemperaturen til udetærsklen og har forrang for vejrenheden.",
+          "weather": "Valgfri. Leverer udetemperaturen, når der ikke er valgt en udendørssensor.",
+          "target_temp_min": "Det laveste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
+          "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
+          "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
         }
       },
@@ -40,12 +57,19 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
-          "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+          "heat_auto_swapped": "Til en TRV, hvis varmetilstand hedder 'auto': Better Thermostat sender så 'auto' for at varme.",
+          "child_lock": "Låser TRV'ens knapper, hvis den har en børnesikring; ændringer på selve TRV'en ignoreres.",
+          "homematicip": "Sender kommandoer sjældnere, så HomematicIP-enheder holder sig inden for deres duty cycle.",
+          "valve_maintenance": "Åbner og lukker ventilen en gang imellem, så den ikke sætter sig fast. Til TRV'er uden egen vedligeholdelse.",
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
         }
       },
       "confirm": {
@@ -58,13 +82,15 @@
       "no_name": "Indtast venligst et navn.",
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
-      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
-      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
+      "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
+      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes."
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
-      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
+      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant",
+      "already_configured": "En Better Thermostat med dette navn styrer allerede disse termostater.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat; fjern den der først."
     }
   },
   "options": {
@@ -90,14 +116,28 @@
           "target_temp_max": "Mål maksimum temperatur",
           "target_temp_step": "Trin for måltemperatur",
           "presets": "Aktiverede forudindstillinger",
-          "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
-          "calibration": "Den slags kalibrering",
-          "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
-          "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "cooler": "Køleenhed (valgfri)"
         },
         "data_description": {
-          "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
+          "name": "Navnet på denne termostat og dens enhed i Home Assistant.",
+          "thermostat": "Radiatortermostaterne (TRV'er) i dette rum. Better Thermostat styrer dem samlet.",
+          "temperature_sensor": "Rumtemperaturføleren, som Better Thermostat regulerer efter. Placer den væk fra radiatoren.",
+          "humidity_sensor": "Valgfri. Værdien vises på termostaten og bruges af fugtighedsudløserne.",
+          "window_sensors": "Valgfri. En sensor eller gruppe, der melder et åbent vindue; så længe den gør det, holder varmen pause.",
+          "door_sensors": "Valgfri. Virker som vinduessensoren, med sine egne forsinkelser.",
+          "off_temperature": "Så længe udendørssensoren eller vejrenheden melder mere end dette, forbliver varmen slukket.",
+          "tolerance": "Hvor meget rummet må køle under målet, før der varmes igen: mål 20 og tolerance 0,3 varmer igen ved 19,7.",
+          "window_off_delay": "Hvor længe et vindue skal være åbent, før varmen holder pause.",
+          "window_off_delay_after": "Hvor længe alle vinduer skal være lukkede, før varmen fortsætter.",
+          "door_off_delay": "Hvor længe en dør skal være åben, før varmen holder pause.",
+          "door_off_delay_after": "Hvor længe alle døre skal være lukkede, før varmen fortsætter.",
+          "outdoor_sensor": "Valgfri. Leverer udetemperaturen til udetærsklen og har forrang for vejrenheden.",
+          "weather": "Valgfri. Leverer udetemperaturen, når der ikke er valgt en udendørssensor.",
+          "target_temp_min": "Det laveste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
+          "target_temp_max": "Det højeste mål, du kan indstille. Auto bruger det område, dine enheder melder.",
+          "target_temp_step": "Hvor meget målet ændres pr. trin. Auto bruger det groveste trin, dine termostater melder.",
+          "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat.",
+          "cooler": "Valgfri. Et klimaanlæg eller en anden klimaenhed, der køler rummet sammen med termostaterne."
         }
       },
       "advanced": {
@@ -110,23 +150,28 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+          "no_off_system_mode": "Use the minimum temperature instead of 'off'",
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
-          "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+          "heat_auto_swapped": "Til en TRV, hvis varmetilstand hedder 'auto': Better Thermostat sender så 'auto' for at varme.",
+          "child_lock": "Låser TRV'ens knapper, hvis den har en børnesikring; ændringer på selve TRV'en ignoreres.",
+          "homematicip": "Sender kommandoer sjældnere, så HomematicIP-enheder holder sig inden for deres duty cycle.",
+          "valve_maintenance": "Åbner og lukker ventilen en gang imellem, så den ikke sætter sig fast. Til TRV'er uden egen vedligeholdelse.",
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+          "calibration_mode": "How the calibration is calculated\n***(AI) Time Based (Default)***: Learns the heating power of your room over time and derives the calibration from it.\n***External Sensor Offset Only***: Corrects the TRV's internal sensor with your external temperature sensor. No controller runs on top.\n***MPC Predictive (Beta)***: Predicts the room temperature and calculates a valve opening from it. Learns your room's thermal behaviour.\n***(AI) MPC v2 (QP + Kalman, experimental)***: Estimates the room state with a Kalman filter and calculates a valve opening with a model predictive controller. The MPC v2 room size setting picks the room model: learned from the room (Auto) or fixed for a room size (Small, Medium, Large).\n***Aggressive***: Adds a boost to the calibration while the room is heating and skips the tolerance delay, so the TRV starts heating sooner. Useful if your room heats slowly.\n***TPI Controller***: Calculates heating duty cycles from the temperature difference.\n***PID Controller***: Calculates a valve opening from the temperature error with a proportional, integral and derivative term.\n***No Calibration***: Sends the target temperature to the TRV unchanged and applies no correction.",
+          "no_off_system_mode": "With this option, Better Thermostat sends the TRV its minimum temperature in place of 'off'. A TRV that reports its minimum temperature counts as switched off: once every TRV of the room is off and no window or door is open, the room switches off, and turning a knob up switches it back on. A TRV that offers no 'off' mode receives its minimum temperature without this option. Enable it for a TRV whose 'off' mode does not work, or for a TRV without an 'off' mode whose knob should switch Better Thermostat on and off.",
+          "mpc_v2_plant_preset": "Only used by the MPC v2 calibration mode.\n***Auto***: Derives the room model from what Better Thermostat has learned about the room, such as its heat-loss rate.\n***Small, Medium or Large room***: Starts from a fixed room model for that room size."
         }
       }
     },
     "error": {
-      "failed": "Noget gik galt.",
-      "no_name": "Indtast venligst et navn.",
       "no_heater": "Vælg venligst mindst én rigtig termostat.",
-      "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
-      "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
-      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
+      "no_sensor": "Vælg venligst en rumtemperatursensor.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat.",
+      "trv_not_found": "Home Assistant kender ikke {trv}. Vælg en termostat, der findes."
     }
   },
   "issues": {
@@ -143,7 +188,7 @@
     },
     "degraded_mode": {
       "title": "BT: {name} - sensorfejl: {sensors} kører i nedsat tilstand",
-      "description": "Better Thermostat kører i nedsat tilstand, fordi nogle sensorer ikke er tilgængelige: {sensors}\n\nTermostaten vil fortsætte med at fungere med reduceret funktionalitet. For eksempel:\n- Hvis rumtemperatursensoren ikke er tilgængelig, bruges TRV'ens interne sensor i stedet.\n- Hvis vinduesensorer ikke er tilgængelige, antages vinduer at være lukkede.\n- Hvis udendørs-/vejrsensorer ikke er tilgængelige, vil opvarmning altid være aktiveret.\n\nKontroller, om de berørte enheder har batteriproblemer eller forbindelsesproblemer."
+      "description": "Better Thermostat kører i nedsat tilstand, fordi nogle sensorer ikke er tilgængelige: {sensors}\n\nTermostaten fortsætter med at regulere og nedtrappes gradvist:\n- Hvis rumtemperatursensoren ikke er tilgængelig, erstattes den af gennemsnittet af TRV'ernes interne temperaturer.\n- Hvis hverken rumsensoren eller nogen TRV-temperatur kan bruges, stopper termostaten med at justere og bevarer den sidst kommanderede tilstand; frostbeskyttelsen forbliver aktiv.\n- Hvis vinduessensoren ikke er tilgængelig, antages vinduet at være lukket, og opvarmningen fortsætter; en mistet sensor må ikke stoppe opvarmningen.\n- Hvis udendørs-/vejrsensorer ikke er tilgængelige, forbliver opvarmningen aktiveret.\n\nKontrollér, om de berørte enheder har batteri- eller forbindelsesproblemer. Denne meddelelse forsvinder af sig selv, når alle sensorer er tilgængelige igen."
     },
     "invalid_window_state": {
       "title": "BT: {name} - ugyldig vinduesensortilstand",
@@ -156,6 +201,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ugyldig ekstern temperatur",
       "description": "Den eksterne temperaturføler for Better Thermostat {name} rapporterede en usandsynlig værdi: {value}.\n\nAflæsningen lå uden for det sandsynlige interval og blev ignoreret. Kontroller din temperaturfølerkonfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} styres af mere end én Better Thermostat",
+      "description": "Termostaten {trv} hører til disse Better Thermostats: {entries}. De skriver konkurrerende måltemperaturer og tilstande til den. Fjern den fra alle undtagen én i deres indstillinger; denne meddelelse forsvinder derefter af sig selv."
     }
   },
   "services": {
@@ -317,7 +366,7 @@
         "no_calibration": "Ingen kalibrering"
       }
     },
-    "calibration_type": {
+    "calibration_output": {
       "options": {
         "direct_valve_based": "Direkte ventilstyring",
         "target_temp_based": "Baseret på måltemperatur",
@@ -444,6 +493,7 @@
           "window_close": "genoptog opvarmning fordi et vindue blev lukket",
           "summer_mode_on": "slukket fordi udendørstemperaturen er for høj",
           "summer_mode_off": "genoptog opvarmning fordi udendørstemperaturen faldt",
+          "weather_forecast_missing": "genoptog opvarmning fordi vejrudsigten ikke er tilgængelig",
           "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
           "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige",
           "door_open": "turned off because a door was opened",
@@ -476,6 +526,18 @@
       },
       "mpc_ka": {
         "name": "MPC-isolering (Ka)"
+      },
+      "mpc_v2_virtual_temp": {
+        "name": "MPC v2-virtuel temperatur"
+      },
+      "mpc_v2_coupling": {
+        "name": "MPC v2-kobling"
+      },
+      "mpc_v2_disturbance": {
+        "name": "MPC v2-forstyrrelse"
+      },
+      "mpc_v2_room_time_constant": {
+        "name": "MPC v2-rumtidskonstant"
       },
       "pid_kp": {
         "name": "PID Kp"
@@ -518,6 +580,32 @@
     "action_type": {
       "set_hvac_mode": "Indstil HVAC-tilstand",
       "set_temperature": "Indstil måltemperatur"
+    }
+  },
+  "exceptions": {
+    "unsupported_hvac_mode": {
+      "message": "{device_name} understøtter ikke HVAC-tilstanden {mode}. Understøttede tilstande: {modes}."
+    },
+    "non_numeric_temperature": {
+      "message": "{device_name} modtog {value} for {attribute}, hvilket ikke er et tal."
+    },
+    "valve_maintenance_running": {
+      "message": "Ventilvedligeholdelse kører allerede på {device_name}."
+    },
+    "valve_maintenance_not_enabled": {
+      "message": "{device_name} har ingen ventil med ventilvedligeholdelse aktiveret."
+    },
+    "valve_maintenance_failed": {
+      "message": "Ventilvedligeholdelse på {device_name} mislykkedes. Loggen har detaljerne."
+    },
+    "pid_state_not_ready": {
+      "message": "{device_name} har endnu ikke indlæst sin lærte tilstand. Prøv igen, når den er startet."
+    },
+    "pid_defaults_without_target": {
+      "message": "{device_name} har ingen måltemperatur at anvende PID-standardværdierne på. Intet blev nulstillet."
+    },
+    "pid_reset_failed": {
+      "message": "Nulstilling af PID-læringen for {device_name} mislykkedes. Loggen har detaljerne."
     }
   }
 }

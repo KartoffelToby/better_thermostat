@@ -151,7 +151,7 @@ which is exactly a resilience signal.
 ## §5 — Metrics: what is measured and why
 
 All metrics are computed from a `TimeSeries` (`metrics.py`) of
-`(t, T_room, T_setpoint, valve_pct)`. Per dimension:
+`(t, T_room, T_setpoint, valve_percent)`. Per dimension:
 
 ### Comfort
 
@@ -267,13 +267,18 @@ against a moving load.
 
 | Scenario | Probes |
 |---|---|
-| `S09_window_open_short` (5 min) | Brief open — should not crank the valve open into the cold. |
-| `S10_window_open_long` (20 min) | Sustained open — energy waste + recovery overshoot. |
+| `S09_window_open_short` (5 min) | Brief open — recovery from a short, sharp drop. |
+| `S10_window_open_long` (20 min) | Sustained open — deep drop + recovery overshoot. |
 | `S21_stochastic_windows` (3 random, Annex-79 style) | Realistic irregular venting. |
 
 *Why:* open windows are the classic TRV failure mode (the valve opens
-fully against the cold air); a key thing BT's window handling must get
-right.
+fully against the cold air). Better Thermostat turns every TRV off while
+a window is open, whatever the calibration mode, so the runner closes
+the valve for every controller, the oracle included, for as long as the
+window is open. The controller still runs and is told the window is
+open. What these scenarios score is how each controller brings the room
+back once the window closes, and what its state carries through the
+window into that recovery.
 
 ### D — Solar gain & forecast (anticipation)
 
@@ -431,9 +436,9 @@ Read the matrix top-down with three anchors (full tables in
 
 * **Oracle = 1.0** — the ceiling. It normalises against itself, so it
   scores 1.0 on every scenario by construction.
-* **BangBang ≈ 0.57** — the noise floor. A naive on/off controller;
+* **BangBang ≈ 0.58** — the noise floor. A naive on/off controller;
   anything near it has a real problem.
-* **Production controllers ≈ 0.71–0.79** — the realistic band.
+* **Production controllers ≈ 0.71–0.80** — the realistic band.
 
 Then read *across* the dimension columns, not just `overall`:
 

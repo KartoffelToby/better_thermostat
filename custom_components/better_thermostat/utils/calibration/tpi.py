@@ -11,9 +11,13 @@ from dataclasses import dataclass, field, fields
 import logging
 import math
 from time import monotonic
-from typing import Any
+from typing import TYPE_CHECKING
 
-from .types import CalibrationHost
+from custom_components.better_thermostat.core.calibrator import CalibratorHealth
+from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
+
+if TYPE_CHECKING:
+    from ...climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +55,7 @@ class TpiOutput:
     """Output result from TPI calibration calculation."""
 
     duty_cycle_pct: float
-    debug: dict[str, Any] = field(default_factory=dict)
+    debug: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -60,8 +64,8 @@ class _TpiState:
     last_update_ts: float = 0.0
 
 
-def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, str | None]:
-    """Return a usable TPI state; a poisoned one is replaced by a fresh one.
+def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, CalibratorHealth]:
+    """Self-heal a poisoned TPI state before computing.
 
     TPI carries no learned model — a non-finite remnant is simply
     dropped and the duty cycle derives from live readings again.
@@ -69,8 +73,8 @@ def sanitize_tpi_state(state: _TpiState) -> tuple[_TpiState, str | None]:
     for f in fields(state):
         value = getattr(state, f.name)
         if isinstance(value, float) and not math.isfinite(value):
-            return _TpiState(), "non-finite state"
-    return state, None
+            return _TpiState(), CalibratorHealth.NON_FINITE
+    return state, CalibratorHealth.HEALTHY
 
 
 # Public alias so callers can reference the state type without
@@ -88,7 +92,7 @@ def _round_dbg(v: float | int | None, d: int = 3) -> float | int | None:
 
 
 def compute_tpi(
-    inp: TpiInput, params: TpiParams, *, state: _TpiState
+    inp: TpiInput, params: TpiParams, *, state: _TpiState, now: float | None = None
 ) -> tuple[TpiOutput | None, _TpiState]:
     """Compute TPI duty cycle and on/off durations.
 
@@ -102,6 +106,10 @@ def compute_tpi(
         Mutable controller state, owned by the caller (typically read from
         and written back to the ``StateManager``).  It is mutated in place
         and returned.
+    now:
+        Monotonic timestamp of this cycle; defaults to ``time.monotonic()``.
+        Callers with an injected clock pass their own reading so the
+        controller shares the entity's time source.
 
     Returns
     -------
@@ -109,16 +117,8 @@ def compute_tpi(
         The duty-cycle recommendation (or ``None`` on early exit) **and**
         the updated state object.
     """
-    now = monotonic()
-
-    # Heal a poisoned (NaN/Inf) state before it can feed the controller.
-    state, pathology = sanitize_tpi_state(state)
-    if pathology is not None:
-        _LOGGER.warning(
-            "better_thermostat: discarding poisoned TPI state for %s (%s)",
-            inp.key,
-            pathology,
-        )
+    if now is None:
+        now = monotonic()
 
     name = inp.bt_name or "BT"
     entity = inp.entity_id or "unknown"
@@ -137,7 +137,7 @@ def compute_tpi(
 
     if not inp.heating_allowed or inp.window_open:
         duty_pct = 0.0
-        debug: dict[str, Any] = {"reason": "blocked"}
+        debug: dict[str, object] = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_pct, None, debug)
 
     if inp.current_temp_C is None or inp.target_temp_C is None:
@@ -183,7 +183,7 @@ def _finalize_output(
     now: float,
     duty_pct_raw: float,
     error_K: float | None,
-    debug: dict[str, Any],
+    debug: dict[str, object],
 ) -> tuple[TpiOutput, _TpiState]:
     # Clamp
     duty_pct = max(params.clamp_min_pct, min(params.clamp_max_pct, duty_pct_raw))
@@ -211,11 +211,11 @@ def _finalize_output(
     return TpiOutput(duty_cycle_pct=duty_pct, debug=debug), state
 
 
-def build_tpi_key(bt: CalibrationHost, entity_id: str) -> str:
+def build_tpi_key(bt: BetterThermostat, entity_id: str) -> str:
     """Return a stable key for TPI state tracking (similar to MPC)."""
 
     try:
-        target = bt.bt_target_temp
+        target = bt.heat_target_temperature
         bucket = (
             f"t{round(float(target) * 2.0) / 2.0:.1f}"
             if isinstance(target, (int, float))
@@ -224,5 +224,5 @@ def build_tpi_key(bt: CalibrationHost, entity_id: str) -> str:
     except TypeError, ValueError:
         bucket = "tunknown"
 
-    uid = getattr(bt, "unique_id", None) or getattr(bt, "_unique_id", "bt")
+    uid = resolve_unique_id(bt)
     return f"{uid}:{entity_id}:{bucket}"

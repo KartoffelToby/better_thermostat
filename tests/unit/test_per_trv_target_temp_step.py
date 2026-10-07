@@ -1,6 +1,6 @@
 """The per-device setpoint step stays the device's own grid.
 
-``bt_target_temp_step`` is the coarsest step across all children — every TRV
+``bt_target_temperature_step`` is the coarsest step across all children — every TRV
 plus the cooler — and is what the integration exposes as its own
 ``target_temperature_step``. Handing that aggregate to each child would size
 the inbound echo window by the coarsest device, so a user turning a
@@ -8,13 +8,11 @@ fine-grained TRV by less than the coarse step would have the change
 classified as an echo of a Better Thermostat write and dropped.
 """
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.components.climate.const import ATTR_TARGET_TEMP_STEP, HVACMode
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import State
-from homeassistant.util import dt as dt_util
 import pytest
 
 from custom_components.better_thermostat.climate import BetterThermostat
@@ -23,8 +21,9 @@ from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
-    CalibrationType,
+    CalibrationOutput,
 )
+from tests.factories import ThermostatStandIn, make_state
 
 TRV_ID = "climate.fine_trv"
 COOLER_ID = "climate.coarse_ac"
@@ -53,7 +52,7 @@ def _child_state(
 @pytest.fixture
 def bt():
     """Mock thermostat wired to one fine TRV and one coarse cooler."""
-    mock = MagicMock()
+    mock = ThermostatStandIn()
     mock.device_name = "Test BT"
     mock.hass = MagicMock()
     mock.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
@@ -61,26 +60,26 @@ def bt():
     mock.cooler_entity_id = COOLER_ID
     mock.bt_min_temp = None
     mock.bt_max_temp = None
-    mock.bt_target_temp_min = None
-    mock.bt_target_temp_max = None
-    mock.bt_target_temp_step = None
-    mock._configured_target_temp_step = None
-    mock.bt_target_temp = 21.0
-    mock.bt_target_cooltemp = 25.0
+    mock.configured_min_temperature = None
+    mock.configured_max_temperature = None
+    mock.bt_target_temperature_step = None
+    mock._configured_temperature_step = None
+    mock.heat_target_temperature = 21.0
+    mock.cool_target_temperature = 25.0
     mock.bt_hvac_mode = HVACMode.HEAT
-    mock._clamp_inbound_heat_target = lambda v: (
-        BetterThermostat._clamp_inbound_heat_target(mock, v)
-    )
-    mock.cur_temp = 20.0
+    mock.room_temperature = 20.0
     mock.tolerance = 0.3
     mock.startup_running = False
     mock.bt_update_lock = False
     mock.ignore_states = False
     mock.contact_open = False
     mock.window_open = False
-    mock.control_queue_task = AsyncMock()
+    mock.kernel_state = make_state()
+    mock.control_queue_task = MagicMock()
     mock.context = MagicMock()
-    mock.last_internal_sensor_change = dt_util.now() - timedelta(seconds=60)
+    mock._clamp_inbound_heat_target = lambda v: (
+        BetterThermostat._clamp_inbound_heat_target(mock, v)
+    )
     mock.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
     mock.real_trvs = {
         TRV_ID: Trv(
@@ -89,9 +88,9 @@ def bt():
             model="SomeModel",
             hvac_mode=HVACMode.HEAT,
             last_hvac_mode=HVACMode.HEAT,
-            last_temperature=21.0,
+            commanded_setpoint=21.0,
             advanced={
-                "calibration": CalibrationType.TARGET_TEMP_BASED,
+                "calibration": CalibrationOutput.TARGET_TEMP_BASED,
                 "calibration_mode": CalibrationMode.DEFAULT,
                 "child_lock": False,
                 "no_off_system_mode": False,
@@ -109,8 +108,10 @@ async def _run_startup(bt, trv_state):
     )
     bt.hass.states.get.return_value = trv_state
     with (
-        patch("custom_components.better_thermostat.climate.init", AsyncMock()),
-        patch("custom_components.better_thermostat.climate.initial_tweak", AsyncMock()),
+        patch("custom_components.better_thermostat.climate.init", autospec=True),
+        patch(
+            "custom_components.better_thermostat.climate.initial_tweak", autospec=True
+        ),
         patch(
             "custom_components.better_thermostat.climate.control_trv",
             AsyncMock(return_value=True),
@@ -124,7 +125,7 @@ async def test_fine_trv_keeps_its_own_step_next_to_a_coarse_cooler(bt):
     """The TRV gets its own 0.1 step while the entity exposes the coarse 1.0."""
     await _run_startup(bt, _child_state(TRV_ID, FINE_STEP))
 
-    assert bt.bt_target_temp_step == pytest.approx(COARSE_STEP)
+    assert bt.bt_target_temperature_step == pytest.approx(COARSE_STEP)
     assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(FINE_STEP)
 
 
@@ -146,18 +147,32 @@ async def test_half_degree_user_change_on_a_fine_trv_is_adopted(bt):
     ):
         await trigger_trv_change(bt, event)
 
-    assert bt.bt_target_temp == pytest.approx(21.5)
+    assert bt.heat_target_temperature == pytest.approx(21.5)
 
 
 @pytest.mark.asyncio
-async def test_configured_step_overrides_the_device_step(bt):
-    """An explicitly configured step is the user's decision and wins."""
-    bt.bt_target_temp_step = 0.25
-    bt._configured_target_temp_step = 0.25
+@pytest.mark.parametrize(
+    ("configured", "device", "expected"),
+    [
+        pytest.param(0.25, FINE_STEP, 0.25, id="coarser_configured_step_wins"),
+        pytest.param(0.1, 0.5, 0.5, id="finer_configured_step_yields"),
+        pytest.param(0.25, None, 0.25, id="configured_step_without_device_step"),
+    ],
+)
+async def test_the_coarser_of_configured_and_device_step_is_written_on(
+    bt, configured, device, expected
+):
+    """A TRV is written on the coarser of the configured step and its own.
 
-    await _run_startup(bt, _child_state(TRV_ID, FINE_STEP))
+    A device holds every write on its own grid, so a value on a finer grid
+    comes back rounded and never as the value Better Thermostat sent.
+    """
+    bt.bt_target_temperature_step = configured
+    bt._configured_temperature_step = configured
 
-    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(0.25)
+    await _run_startup(bt, _child_state(TRV_ID, device))
+
+    assert bt.real_trvs[TRV_ID].target_temp_step == pytest.approx(expected)
 
 
 @pytest.mark.asyncio

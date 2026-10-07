@@ -5,7 +5,7 @@ This adapter normalises it to the common protocol shape.
 
 Deliberate simplifications relative to the production call site: the raw
 sensor reading is passed as ``inp_current_temp_ema_C`` (production feeds
-its maintained EMA ``cur_temp_filtered``), and the temperature slope is a
+its maintained EMA ``room_temperature_filtered``), and the temperature slope is a
 two-point finite difference (production passes its own ``temp_slope``).
 Both stand-ins converge on the production values for the noise-free,
 fixed-step scenarios the benchmark runs.
