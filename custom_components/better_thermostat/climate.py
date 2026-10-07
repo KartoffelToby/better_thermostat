@@ -96,7 +96,12 @@ from .events.temperature import (
 )
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
-from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
+from .model_fixes.model_quirks import (
+    initial_tweak,
+    load_model_quirks,
+    lowest_setpoint,
+    register_external_sensor_watch,
+)
 from .switch import restored_child_lock
 from .trv import Trv
 from .utils.calibration.pid import (
@@ -2674,6 +2679,9 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                 self.hass, self.entity_ids, self._trigger_trv_change
             )
             self.async_on_remove(self._async_unsub_state_changed)
+        for unsubscribe in register_external_sensor_watch(self):
+            self.async_on_remove(unsubscribe)
+
         # A TRV startup went ahead without may have come back before the
         # listener above existed, and a TRV that has come back does not
         # necessarily report again soon.
