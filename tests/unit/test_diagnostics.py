@@ -318,3 +318,56 @@ async def test_no_network_address_reaches_the_download(key):
 
     assert diagnostics["thermostat"]["climate.trv"]["attributes"][key] == "**REDACTED**"
     assert "192.0.2.17" not in repr(diagnostics)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored",
+    [
+        pytest.param({}, id="no-thermostat-key"),
+        pytest.param({CONF_THERMOSTAT: None}, id="thermostat-none"),
+        pytest.param({CONF_THERMOSTAT: 3}, id="thermostat-number"),
+        pytest.param({CONF_THERMOSTAT: [{"integration": "mqtt"}]}, id="no-trv-key"),
+        pytest.param({CONF_THERMOSTAT: [{"trv": 7}]}, id="trv-not-a-string"),
+        pytest.param({CONF_THERMOSTAT: ["climate.trv"]}, id="element-a-string"),
+    ],
+)
+async def test_an_entry_whose_thermostat_list_does_not_parse_still_downloads(
+    hass, stored
+):
+    """Settings setup refuses still download, with every stored key in info.
+
+    An entry whose settings fail to parse is the one support asks a
+    download for, so the thermostat section is left empty instead of
+    raising, and the other keys are dumped as stored.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={**stored, CONF_TEMPERATURE_SENSOR: "sensor.room"}
+    )
+    hass.states.async_set("climate.trv", "heat")
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnostics["thermostat"] == {}
+    assert diagnostics["info"] == {CONF_TEMPERATURE_SENSOR: "sensor.room"}
+
+
+@pytest.mark.asyncio
+async def test_unknown_keys_stay_in_the_info_section(hass):
+    """Keys no reader knows are part of the download, unchanged."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_THERMOSTAT: [
+                {"trv": "climate.trv", "integration": "mqtt", "legacy": [1, 2]}
+            ],
+            "balance_mode": 0,
+            "fix_calibration": "yes",
+        },
+    )
+    hass.states.async_set("climate.trv", "heat")
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnostics["info"] == {"balance_mode": 0, "fix_calibration": "yes"}
+    assert diagnostics["thermostat"]["climate.trv"]["bt_integration"] == "mqtt"

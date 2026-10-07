@@ -21,7 +21,7 @@ from .utils.const import (
     CONF_WINDOW_SENSORS,
     VERSION,
 )
-from .utils.helpers import entry_settings
+from .utils.helpers import entry_settings, setting_str, stored_trv_configs
 
 # Attributes an integration may publish on its climate or sensor entities
 # that identify hardware or a place. The download is attached to public
@@ -92,15 +92,23 @@ def _device(hass: HomeAssistant, entity_id: str) -> dict[str, Any] | None:
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, config_entry: ConfigEntry
 ) -> dict[str, Any]:
-    """Return diagnostics for a config entry."""
+    """Return diagnostics for a config entry.
+
+    The settings are read without parsing them: the download is wanted most
+    for an entry whose settings failed to parse. They appear as stored under
+    ``"info"``, and a thermostat without an entity id is left out.
+    """
     settings = entry_settings(config_entry)
-    trvs = {}
-    for trv_config in settings[CONF_THERMOSTAT]:
-        trv_state = hass.states.get(trv_config["trv"])
+    trvs: dict[str, dict[str, object]] = {}
+    for trv_config in stored_trv_configs(settings):
+        trv_entity_id = setting_str(trv_config, "trv")
+        if not trv_entity_id:
+            continue
+        trv_state = hass.states.get(trv_entity_id)
         if trv_state is None:
             continue
         integration = trv_config.get("integration")
-        trvs[trv_config["trv"]] = {
+        trvs[trv_entity_id] = {
             "name": trv_state.name,
             "state": trv_state.state,
             "attributes": dict(trv_state.attributes),
@@ -108,11 +116,11 @@ async def async_get_config_entry_diagnostics(
             "bt_adapter": integration if integration is not None else "unknown",
             "bt_integration": integration,
             "model": trv_config.get("model"),
-            "device": _device(hass, trv_config["trv"]),
+            "device": _device(hass, trv_entity_id),
         }
 
     _cleaned_data = dict(settings)
-    del _cleaned_data[CONF_THERMOSTAT]
+    _cleaned_data.pop(CONF_THERMOSTAT, None)
     diagnostics_data: dict[str, Any] = {
         "versions": {"better_thermostat": VERSION, "home_assistant": ha_version},
         "info": _cleaned_data,

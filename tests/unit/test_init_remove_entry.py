@@ -194,6 +194,52 @@ class TestAsyncRemoveEntryCleansRepairIssues:
         assert raised_by_the_runtime - called_ids == set()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "stored",
+        [
+            pytest.param({}, id="no-name"),
+            pytest.param({CONF_NAME: None}, id="name-none"),
+            pytest.param({CONF_NAME: 42}, id="name-number"),
+        ],
+    )
+    async def test_an_entry_without_a_string_name_keys_its_issues_by_title(
+        self, patched_delete_issue, stored
+    ):
+        """An entry without a usable name is removed under its title."""
+        hass = _make_hass()
+        entry = MagicMock()
+        entry.entry_id = "abcd1234"
+        entry.title = "Kinderzimmer"
+        entry.data = stored
+        entry.options = {}
+
+        await async_remove_entry(hass, entry)
+
+        called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
+        assert "degraded_mode_Kinderzimmer" in called_ids
+
+    @pytest.mark.asyncio
+    async def test_an_entry_with_unparsable_settings_is_removed(
+        self, patched_delete_issue
+    ):
+        """Settings setup refuses do not stop the removal's cleanup."""
+        hass = _make_hass()
+        entry = _make_entry(
+            **{
+                CONF_THERMOSTAT: 3,
+                CONF_HUMIDITY_SENSOR: ["sensor.not_an_entity_id"],
+                CONF_OUTDOOR_SENSOR: 5,
+            }
+        )
+
+        await async_remove_entry(hass, entry)
+
+        called_ids = {call.args[2] for call in patched_delete_issue.call_args_list}
+        assert "degraded_mode_Kinderzimmer" in called_ids
+        missing = {cid for cid in called_ids if cid.startswith("missing_entity_")}
+        assert missing == {"missing_entity_sensor.kinderzimmer_temperature"}
+
+    @pytest.mark.asyncio
     async def test_skips_unconfigured_optional_sensors(self, patched_delete_issue):
         """Sensors not configured on the entry do not trigger spurious deletes."""
         hass = _make_hass()

@@ -43,6 +43,14 @@ from custom_components.better_thermostat.utils.const import CONF_HUMIDITY_SENSOR
 # optional key the form submitted. Both have to read as "no humidity".
 NO_HUMIDITY_ENTRIES = ({}, {CONF_HUMIDITY_SENSOR: None})
 
+# Values no reader can use as an entity id, stored by hand or by a broken
+# entry; the humidity pair is left out for them as well.
+UNUSABLE_HUMIDITY_ENTRIES = (
+    {CONF_HUMIDITY_SENSOR: ""},
+    {CONF_HUMIDITY_SENSOR: 3},
+    {CONF_HUMIDITY_SENSOR: ["sensor.room_humidity"]},
+)
+
 
 def _create_device(
     hass: HomeAssistant, *, entry_data: dict | None = None
@@ -127,7 +135,11 @@ async def test_get_triggers_lists_all_types_for_bt_climate_entity(
         assert trigger[CONF_ENTITY_ID] == entity.entity_id
 
 
-@pytest.mark.parametrize("entry_data", NO_HUMIDITY_ENTRIES, ids=("absent", "none"))
+@pytest.mark.parametrize(
+    "entry_data",
+    NO_HUMIDITY_ENTRIES + UNUSABLE_HUMIDITY_ENTRIES,
+    ids=("absent", "none", "empty", "number", "list"),
+)
 async def test_get_triggers_omits_the_humidity_pair_without_that_sensor(
     hass: HomeAssistant, entry_data: dict
 ) -> None:

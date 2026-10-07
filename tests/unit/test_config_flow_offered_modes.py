@@ -23,7 +23,9 @@ import pytest
 from custom_components.better_thermostat.config_flow import (
     ConfigFlow,
     OptionsFlowHandler,
+    _AdvancedContext,
     _trv_supports_auto,
+    _TrvDraft,
 )
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
@@ -71,8 +73,15 @@ def _advanced_flow(modes):
     state.attributes = {"hvac_modes": modes}
     flow.hass.states.get.return_value = state
     flow.i = 0
-    flow.trv_bundle = [{"trv": "climate.trv", "advanced": {}}]
-    flow._active_trv_config = flow.trv_bundle[0]
+    flow.trv_bundle = [
+        _TrvDraft(
+            entity_id="climate.trv",
+            integration=None,
+            adapter=None,
+            stored={"trv": "climate.trv", "advanced": {}},
+        )
+    ]
+    flow._active_trv = flow.trv_bundle[0]
     return flow
 
 
@@ -83,13 +92,13 @@ async def _run_advanced(flow):
         patch(
             "custom_components.better_thermostat.config_flow._prepare_advanced_context",
             new=AsyncMock(
-                return_value={
-                    "trv_id": "climate.trv",
-                    "default_calibration": "target_temp_based",
-                    "homematic": False,
-                    "has_auto": False,
-                    "info": {},
-                }
+                return_value=_AdvancedContext(
+                    entity_id="climate.trv",
+                    info={},
+                    default_calibration="target_temp_based",
+                    homematic=False,
+                    has_auto=False,
+                )
             ),
         ),
         patch(
@@ -201,6 +210,16 @@ def _trv_bundle_entry(model):
     return {"trv": TRV_ID, "integration": "zha", "model": model, "advanced": {}}
 
 
+def _trv_draft(model):
+    """Return the draft a flow keeps for the device bundle of ``model``."""
+    return _TrvDraft(
+        entity_id=TRV_ID,
+        integration="zha",
+        adapter=None,
+        stored=_trv_bundle_entry(model),
+    )
+
+
 def _hass_holding_the_trv():
     """Return a Home Assistant whose only entity is the TRV under test."""
     hass = MagicMock()
@@ -223,7 +242,7 @@ async def _create_flow_advanced_form(model):
     """Render the advanced step a new entry is configured through."""
     flow = ConfigFlow()
     flow.hass = _hass_holding_the_trv()
-    flow.trv_bundle = [_trv_bundle_entry(model)]
+    flow.trv_bundle = [_trv_draft(model)]
     flow.i = 0
     with _a_device_of_model(model):
         return await flow.async_step_advanced(None, flow.trv_bundle[0])
@@ -235,10 +254,10 @@ async def _options_flow_advanced_form(model):
     entry.data = {CONF_NAME: "Living Room", CONF_THERMOSTAT: [_trv_bundle_entry(model)]}
     flow = OptionsFlowHandler(entry)
     flow.hass = _hass_holding_the_trv()
-    flow.trv_bundle = [_trv_bundle_entry(model)]
+    flow.trv_bundle = [_trv_draft(model)]
     flow.updated_config = dict(entry.data)
     with _a_device_of_model(model):
-        return await flow.async_step_advanced(None, flow.trv_bundle[0], entry.data)
+        return await flow.async_step_advanced(None, flow.trv_bundle[0])
 
 
 ADVANCED_FORMS = {

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, Platform, UnitOfTemperature
+from homeassistant.const import Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import issue_registry as ir, service
@@ -42,7 +42,14 @@ from .utils.const import (
     CalibrationMode,
 )
 from .utils.entry_schema import BtSettings, InvalidSettingsError, parse_settings
-from .utils.helpers import entry_settings, get_device_model
+from .utils.helpers import (
+    entry_name,
+    entry_settings,
+    get_device_model,
+    setting_str,
+    stored_trv_configs,
+)
+from .utils.stored_values import stored_float
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
@@ -100,14 +107,20 @@ SHARED_TRV_ISSUE_PREFIX = "shared_trv_"
 
 
 def trv_entity_ids(entry: ConfigEntry) -> list[str]:
-    """Return the entity ids of the thermostats ``entry`` controls."""
-    heaters = entry_settings(entry).get(CONF_THERMOSTAT)
+    """Return the entity ids of the thermostats ``entry`` controls.
+
+    Every entry is read this way, loaded or not, so the settings are read
+    without parsing them: a bare entity id counts as one thermostat, and a
+    value or element without a non-empty entity id counts as none.
+    """
+    settings = entry_settings(entry)
+    heaters = settings.get(CONF_THERMOSTAT)
     if isinstance(heaters, str):
         return [heaters]
     return [
-        trv["trv"]
-        for trv in heaters or []
-        if isinstance(trv, dict) and isinstance(trv.get("trv"), str) and trv["trv"]
+        trv_entity_id
+        for trv in stored_trv_configs(settings)
+        if (trv_entity_id := setting_str(trv, "trv"))
     ]
 
 
@@ -120,10 +133,6 @@ def other_entries_controlling(
         for other in hass.config_entries.async_entries(DOMAIN)
         if other.entry_id != entry_id and trv_entity_id in trv_entity_ids(other)
     ]
-
-
-def _entry_name(entry: ConfigEntry) -> str:
-    return str(entry_settings(entry).get(CONF_NAME, entry.title))
 
 
 def _raise_shared_trv_issue(
@@ -163,15 +172,15 @@ def _sync_shared_trv_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
             _LOGGER.warning(
                 "better_thermostat %s: the thermostat %s is also controlled by %s; "
                 "a thermostat should belong to one Better Thermostat only",
-                _entry_name(entry),
+                entry_name(entry),
                 trv_entity_id,
-                ", ".join(_entry_name(other) for other in others),
+                ", ".join(entry_name(other) for other in others),
             )
 
     owners: dict[str, list[str]] = {}
     for any_entry in hass.config_entries.async_entries(DOMAIN):
         for trv_entity_id in trv_entity_ids(any_entry):
-            owners.setdefault(trv_entity_id, []).append(_entry_name(any_entry))
+            owners.setdefault(trv_entity_id, []).append(entry_name(any_entry))
     shared = {
         trv_entity_id: names
         for trv_entity_id, names in owners.items()
@@ -211,7 +220,7 @@ def _warn_about_an_off_temperature_below_freezing(
     if not (settings.get(CONF_OUTDOOR_SENSOR) or settings.get(CONF_WEATHER)):
         return
     try:
-        stored = float(settings[CONF_OFF_TEMPERATURE])
+        stored = stored_float(settings[CONF_OFF_TEMPERATURE])
     except KeyError, TypeError, ValueError:
         return
     celsius = TemperatureConverter.convert(
@@ -223,7 +232,7 @@ def _warn_about_an_off_temperature_below_freezing(
             "%s °F (%.1f °C), so heating stops whenever it is warmer than that "
             "outside; change it in the thermostat's settings if it was meant "
             "in °C",
-            settings.get(CONF_NAME, entry.title),
+            entry_name(entry),
             settings[CONF_OFF_TEMPERATURE],
             celsius,
         )
@@ -356,7 +365,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         )
 
     settings = entry_settings(entry)
-    device_name = settings.get(CONF_NAME, entry.title)
+    device_name = entry_name(entry)
 
     for issue_id in (
         f"invalid_external_temperature_{device_name}",
@@ -374,7 +383,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         CONF_OUTDOOR_SENSOR,
         CONF_COOLER,
     ):
-        eid = settings.get(conf_key)
+        eid = setting_str(settings, conf_key)
         if eid:
             entity_ids.append(eid)
 
@@ -385,7 +394,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         remaining = other_entries_controlling(hass, trv_entity_id, entry.entry_id)
         if len(remaining) > 1:
             _raise_shared_trv_issue(
-                hass, trv_entity_id, [_entry_name(other) for other in remaining]
+                hass, trv_entity_id, [entry_name(other) for other in remaining]
             )
         else:
             ir.async_delete_issue(
