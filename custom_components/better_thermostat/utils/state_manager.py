@@ -262,8 +262,8 @@ def _make_json_safe(obj: Any) -> Any:
     return obj
 
 
-# Store key of ``FilterState.room_temperature_ema``. Stores written before the
-# field was renamed carry the value under this name, so it stays.
+# Store key of ``FilterState.room_temperature_ema``. The stores on disk carry
+# the value under this name, so it is the key read and written.
 _STORED_ROOM_TEMPERATURE_EMA = "external_temp_ema"
 
 
