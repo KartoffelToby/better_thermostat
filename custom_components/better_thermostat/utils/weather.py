@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from contextlib import suppress
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING
 
@@ -53,7 +53,7 @@ OUTDOOR_HISTORY_REFRESH = timedelta(minutes=15)
 FORECAST_CALL_TIMEOUT = timedelta(seconds=10)
 
 
-async def check_weather(self) -> bool:
+async def check_weather(self: BetterThermostat) -> bool:
     """Check weather predictions or ambient air temperature if available.
 
     Parameters
@@ -109,7 +109,7 @@ async def check_weather(self) -> bool:
                 self.call_for_heat = True
 
     if self.outdoor_sensor_entity_id is not None:
-        if None in (self.last_avg_outdoor_temp, self.off_temperature):
+        if self.last_avg_outdoor_temp is None or self.off_temperature is None:
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
@@ -162,7 +162,7 @@ async def check_weather(self) -> bool:
     return old_call_for_heat != self.call_for_heat
 
 
-async def check_weather_prediction(self) -> bool | None:
+async def check_weather_prediction(self: BetterThermostat) -> bool | None:
     """Check configured weather entity over roughly the next two days.
 
     The forecast horizon is normalised to about two days regardless of the
@@ -262,20 +262,23 @@ async def check_weather_prediction(self) -> bool | None:
                 if cur_state and cur_state.attributes
                 else None
             )
-            temps = []
-            for i in range(min(_forecast_samples, len(forecast))):
+            temps: list[float | None] = []
+            for entry in forecast[:_forecast_samples]:
+                _entry_unit = (
+                    entry.get("temperature_unit") if isinstance(entry, dict) else None
+                )
                 temps.append(
                     convert_to_float_celsius(
                         (
-                            str(forecast[i].get("temperature"))
-                            if isinstance(forecast[i], dict)
+                            str(entry.get("temperature"))
+                            if isinstance(entry, dict)
                             else ""
                         ),
                         self.device_name,
                         "check_weather_prediction()",
                         unit_of_measurement=(
-                            forecast[i].get("temperature_unit", _entity_temp_unit)
-                            if isinstance(forecast[i], dict)
+                            _entry_unit
+                            if isinstance(_entry_unit, str)
                             else _entity_temp_unit
                         ),
                     )
@@ -342,28 +345,23 @@ def outdoor_check_lock(self: BetterThermostat) -> asyncio.Lock:
     return lock
 
 
-async def check_ambient_air_temperature(self):
+async def check_ambient_air_temperature(self: BetterThermostat) -> None:
     """Get the history for two days and evaluates the necessary for heating.
 
     The two-day mean from the recorder is reused for
     ``OUTDOOR_HISTORY_REFRESH`` before it is read again. When the recorder
     holds no usable history, the current reading decides instead. Checks of
-    one entity run one at a time (see :func:`outdoor_check_lock`).
-
-    Returns
-    -------
-    bool
-            True if the average temperature is lower than the off temperature
-    None
-            if not successful
+    one entity run one at a time (see :func:`outdoor_check_lock`). The
+    verdict is stored in ``call_for_heat``.
     """
     async with outdoor_check_lock(self):
         return await _check_ambient_air_temperature(self)
 
 
-async def _check_ambient_air_temperature(self):
+async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
     """Decide call_for_heat from the outdoor sensor; callers hold the lock."""
-    if self.outdoor_sensor_entity_id is None:
+    outdoor_sensor_entity_id = self.outdoor_sensor_entity_id
+    if outdoor_sensor_entity_id is None:
         return None
 
     if self.off_temperature is None or not isinstance(self.off_temperature, float):
@@ -374,12 +372,12 @@ async def _check_ambient_air_temperature(self):
         return None
 
     # Check if outdoor sensor is available
-    outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
+    outdoor_state = self.hass.states.get(outdoor_sensor_entity_id)
     if outdoor_state is None or outdoor_state.state in ("unavailable", "unknown", None):
         _LOGGER.debug(
             "better_thermostat %s: outdoor sensor %s unavailable, skipping ambient check",
             self.device_name,
-            self.outdoor_sensor_entity_id,
+            outdoor_sensor_entity_id,
         )
         # Keep last known value or default to heating enabled
         if self.last_avg_outdoor_temp is None:
@@ -402,7 +400,7 @@ async def _check_ambient_air_temperature(self):
             self.outdoor_history_read_at = _now
             try:
                 self.outdoor_history_mean = await _read_outdoor_history_mean(
-                    self, outdoor_state
+                    self, outdoor_sensor_entity_id, outdoor_state
                 )
             except SQLAlchemyError, RuntimeError, HomeAssistantError, OSError:
                 # The recorder logs the traceback itself. Warn once per run of
@@ -412,7 +410,7 @@ async def _check_ambient_air_temperature(self):
                     "better_thermostat %s: reading the history of %s from the "
                     "recorder failed, keeping the last known outdoor mean",
                     self.device_name,
-                    self.outdoor_sensor_entity_id,
+                    outdoor_sensor_entity_id,
                 )
                 self.outdoor_history_failing = True
             else:
@@ -443,13 +441,17 @@ async def _check_ambient_air_temperature(self):
     self.last_avg_outdoor_temp = avg_temp
 
 
-async def _read_outdoor_history_mean(self, outdoor_state) -> float | None:
+async def _read_outdoor_history_mean(
+    self: BetterThermostat, entity_id: str, outdoor_state: State
+) -> float | None:
     """Return the two-day mean of the outdoor sensor's recorder history.
 
     Parameters
     ----------
     self :
             self instance of better_thermostat
+    entity_id :
+            entity id of the outdoor sensor
     outdoor_state :
             current state of the outdoor sensor, whose unit applies to history
             items that carry none
@@ -462,10 +464,8 @@ async def _read_outdoor_history_mean(self, outdoor_state) -> float | None:
     """
     _temp_history = DailyHistory(2)
     start_date = dt_util.utcnow() - timedelta(days=2)
-    _LOGGER.debug(
-        "Initializing values for %s from the database", self.outdoor_sensor_entity_id
-    )
-    lower_entity_id = self.outdoor_sensor_entity_id.lower()
+    _LOGGER.debug("Initializing values for %s from the database", entity_id)
+    lower_entity_id = entity_id.lower()
     history_list = await get_instance(self.hass).async_add_executor_job(
         history.state_changes_during_period,
         self.hass,
@@ -510,17 +510,19 @@ class DailyHistory:
     multi-day mean as a float.
     """
 
-    def __init__(self, max_length):
+    def __init__(self, max_length: int) -> None:
         """Create new DailyHistory with a maximum length of the history."""
         self.max_length = max_length
-        self._days = None  # deque[date]
+        self._days: deque[date] | None = None
         # Track per-day aggregate to compute means
-        self._sum_dict = {}
-        self._count_dict = {}
+        self._sum_dict: dict[date, float] = {}
+        self._count_dict: dict[date, int] = {}
         # Holds the resulting multi-day mean
-        self.min = None
+        self.min: float | None = None
 
-    def add_measurement(self, value, timestamp=None):
+    def add_measurement(
+        self, value: float | None, timestamp: datetime | None = None
+    ) -> None:
         """Add a new measurement for a certain day (value: float)."""
         day = (timestamp or dt_util.now()).date()
         if not isinstance(value, (int, float)):
@@ -542,7 +544,7 @@ class DailyHistory:
                 )
 
         # Compute per-day means and then the overall mean across days
-        day_means = []
+        day_means: list[float] = []
         if self._days:
             for d in self._days:
                 cnt = self._count_dict.get(d, 0)
@@ -551,7 +553,7 @@ class DailyHistory:
         if day_means:
             self.min = sum(day_means) / float(len(day_means))
 
-    def _add_day(self, day, value):
+    def _add_day(self, day: date, value: float) -> None:
         """Add a new day to the history.
 
         Deletes the oldest day, if the queue becomes too long.
@@ -564,8 +566,6 @@ class DailyHistory:
             self._sum_dict.pop(oldest, None)
             self._count_dict.pop(oldest, None)
         self._days.append(day)
-        if not isinstance(value, (int, float)):
-            return
         # Initialize aggregates for the new day with the first value
         self._sum_dict[day] = float(value)
         self._count_dict[day] = 1
