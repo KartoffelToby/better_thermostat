@@ -107,6 +107,7 @@ from custom_components.better_thermostat.utils.watcher import (
 if TYPE_CHECKING:
     from custom_components.better_thermostat.climate import BetterThermostat
     from custom_components.better_thermostat.trv import Trv
+    from custom_components.better_thermostat.utils.telemetry import ValveCommand
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -394,11 +395,10 @@ def _get_valve_control(
     entity_id: str,
     calibration_mode: CalibrationMode | str,
     calibration_output: CalibrationOutput | str,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> tuple[ValveCommand | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
-    Returns a tuple of (valve_settings_dict, source_name).
-    valve_settings_dict contains 'valve_percent' and 'apply_valve' keys.
+    Returns a tuple of (valve_command, source_name).
     Returns (None, None) if no valve control should be applied.
     """
     # Forcing the valve on a non-direct-valve TRV bypasses the calibration chain
@@ -2158,7 +2158,7 @@ async def control_trv(
                 ):
                     valve_settings = None
                 if valve_settings is not None:
-                    target_pct = int(round(valve_settings.get("valve_percent", 0)))
+                    target_pct = round(valve_settings.get("valve_percent", 0))
                     target_pct = int(
                         round(
                             _through_safety_hull(

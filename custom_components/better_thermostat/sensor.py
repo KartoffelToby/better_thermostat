@@ -695,6 +695,20 @@ def _get_filtered_temp(bt_climate: BetterThermostat) -> float | None:
 # Base classes
 
 
+def _debug_number(value: object) -> float | None:
+    """Return a calibration debug value as a float, or ``None`` if not numeric."""
+    match value:
+        case int() | float():
+            return float(value)
+        case str():
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        case _:
+            return None
+
+
 class _BtSensorBase(SensorEntity):
     """Base class for all Better Thermostat sensors."""
 
@@ -776,13 +790,7 @@ class _BtMpcSensorBase(_BtSensorBase):
                         value = debug[self._debug_key]
                         break
 
-        if value is not None:
-            try:
-                self._attr_native_value = float(value)
-            except ValueError, TypeError:
-                self._attr_native_value = None
-        else:
-            self._attr_native_value = None
+        self._attr_native_value = _debug_number(value)
 
 
 class _BtSimpleAttributeSensor(_BtSensorBase):
@@ -997,10 +1005,7 @@ class _BtMpcV2SensorBase(_BtMpcSensorBase):
                     value = debug[self._v2_debug_key]
                     break
 
-        try:
-            self._attr_native_value = float(value) if value is not None else None
-        except ValueError, TypeError:
-            self._attr_native_value = None
+        self._attr_native_value = _debug_number(value)
 
 
 class BetterThermostatMpcV2VirtualTempSensor(_BtMpcV2SensorBase):

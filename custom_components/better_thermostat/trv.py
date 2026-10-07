@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from custom_components.better_thermostat.utils.calibration.strategies import (
         BalanceCalibrator,
     )
+    from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
 
 
 @runtime_checkable
@@ -244,7 +245,7 @@ class Trv:
     unreachable_write_channels: dict[str, WriteOutage] = field(default_factory=dict)
 
     # -- Calibration results -----------------------------------------------
-    calibration_balance: dict[str, Any] | None = None
+    calibration_balance: CalibrationBalance | None = None
     # Per-TRV calibrator: the protocol adapter the
     # dispatch observes every cycle and actuates through when ready.
     calibrator: BalanceCalibrator | None = None
