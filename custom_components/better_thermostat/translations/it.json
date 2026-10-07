@@ -606,6 +606,9 @@
     },
     "pid_reset_failed": {
       "message": "Il ripristino dell'apprendimento PID di {device_name} non è riuscito. I dettagli sono nel log."
+    },
+    "invalid_settings": {
+      "message": "Le impostazioni salvate di questo Better Thermostat non possono essere lette: {reason}. Modificale nelle sue opzioni, oppure rimuovilo e aggiungilo di nuovo."
     }
   }
 }
