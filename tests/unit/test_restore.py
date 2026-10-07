@@ -18,6 +18,7 @@ from custom_components.better_thermostat.utils.restore import (
     clamp_heat_loss,
     clamp_heating_power,
     mean_trv_target,
+    restore_cooling_target,
     restore_target_temperature,
     saved_cooling_target,
     saved_heating_target,
@@ -397,3 +398,22 @@ class TestRestoredValuesThatAreNotScalars:
         assert saved_heating_target({ATTR_TEMPERATURE: raw}) is raw
         assert saved_heating_target({ATTR_TARGET_TEMP_LOW: raw}) is raw
         assert saved_cooling_target({ATTR_TARGET_TEMP_HIGH: raw}) is raw
+
+
+class TestRestoreCoolingTarget:
+    """restore_cooling_target reads a saved cooling target as Celsius."""
+
+    @pytest.mark.parametrize(
+        ("saved", "expected"),
+        [(23.0, 23.0), ("23.5", 23.5), (None, None), ("n/a", None), ([23.0], None)],
+        ids=["float", "string", "none", "malformed", "list"],
+    )
+    def test_saved_value(self, saved, expected):
+        """A number or numeric string is read; anything else yields None."""
+        assert restore_cooling_target(saved, DEV) == expected
+
+    def test_fahrenheit_converted_to_celsius(self):
+        """A saved value in Fahrenheit comes back as Celsius."""
+        assert restore_cooling_target(
+            77.0, DEV, UnitOfTemperature.FAHRENHEIT
+        ) == pytest.approx(25.0)
