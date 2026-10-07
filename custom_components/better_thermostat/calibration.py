@@ -742,6 +742,11 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         trv_state.calibration_balance = None
         return None, False
 
+    state_mgr = self.state_mgr
+    if state_mgr is None:
+        trv_state.calibration_balance = None
+        return None, False
+
     is_multi_trv = len(self.real_trvs) > 1
     trv_temps: dict[str, float | None] | None = None
     warmest_trv_id = entity_id
@@ -810,7 +815,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
     )
 
     try:
-        mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
+        mpc_v2_state = state_mgr.get_mpc_v2_live(mpc_key, v2_params)
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
@@ -838,7 +843,7 @@ def _compute_mpc_v2_balance(self, entity_id: str) -> tuple[MpcV2Output | None, b
         trv_state.calibration_balance = None
         return None, False
 
-    self.state_mgr.set_mpc_v2_live(mpc_key, mpc_v2_state)
+    state_mgr.set_mpc_v2_live(mpc_key, mpc_v2_state)
 
     if preset == MpcV2PlantPreset.AUTO and not is_multi_trv:
         _record_mpc_v2_reid_sample(
