@@ -80,6 +80,7 @@ def make_bt(hass, **kw):
         outdoor_history_mean=None,
         outdoor_history_read_at=None,
         outdoor_history_failing=False,
+        _outdoor_check_lock=None,
     )
     for k, v in kw.items():
         setattr(bt, k, v)

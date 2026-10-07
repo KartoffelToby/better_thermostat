@@ -209,7 +209,7 @@ def plateau_bt(bt, hass):
     bt.control_queue_task = None
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
-    bt.last_external_sensor_change = None
+    bt.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
     bt.prev_stable_temp = None
     bt.last_change_direction = 0
     bt.accum_delta = 0.0
@@ -217,6 +217,7 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt._temperature_filter_lock = None
     bt.is_removed = False
     bt._owned_tasks = set()
     bt._final_flush_task = None
@@ -2556,10 +2557,7 @@ class _AdvancingClock:
 
 def _trv_refusing_every_write(attempts: list[str]):
     """A thermostat whose only TRV raises on every setpoint write."""
-    trv = MagicMock(spec=Trv)
-    trv.target_temp_step = 0.5
-    trv.min_temp = 5.0
-    trv.max_temp = 30.0
+    trv = Trv(entity_id=TRV_ID, target_temp_step=0.5, min_temp=5.0, max_temp=30.0)
 
     async def refuse(_self, entity_id, _temperature):
         """Record the attempt and fail it the way an unreachable TRV does."""

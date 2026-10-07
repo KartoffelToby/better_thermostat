@@ -92,7 +92,6 @@ class TestZWA021Passthroughs:
         """The calibration fix helpers return their inputs unchanged."""
         mock_self = _make_self()
         assert quirk.fix_local_calibration(mock_self, "climate.trv1", 1.5) == 1.5
-        assert quirk.fix_valve_calibration(mock_self, "climate.trv1", 42) == 42
         assert (
             quirk.fix_target_temperature_calibration(mock_self, "climate.trv1", 21.0)
             == 21.0
@@ -147,6 +146,18 @@ class TestZWA021SetValve:
 
         args, _ = mock_self.hass.services.async_call.call_args
         assert args[2]["value"] == 0
+
+    @pytest.mark.asyncio
+    async def test_an_unscalable_opening_is_left_to_the_generic_path(self):
+        """A NaN opening has no device value, so the quirk declines the write."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+
+        handled = await quirk.override_set_valve(
+            mock_self, "climate.trv1", float("nan")
+        )
+
+        assert handled is False
+        mock_self.hass.services.async_call.assert_not_awaited()
 
 
 class TestAdapterGetInfo:

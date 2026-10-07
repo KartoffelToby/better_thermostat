@@ -8,6 +8,7 @@ from datetime import datetime
 import logging
 import math
 import time
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.helpers.importlib import async_import_module
@@ -21,12 +22,16 @@ from custom_components.better_thermostat.utils.helpers import (
 from ..utils.retry import async_retry, command_cancellation_as_disconnect
 
 if TYPE_CHECKING:
-    from .types import AdapterHost
+    from custom_components.better_thermostat.climate import BetterThermostat
+
+    from .types import AdapterHost, AdapterProbeHost
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def load_adapter(self, integration, entity_id):
+async def load_adapter(
+    self: AdapterProbeHost, integration: str, entity_id: str
+) -> ModuleType:
     """Load the adapter module that speaks to one integration.
 
     An integration without an adapter module of its own is served by the
@@ -36,7 +41,7 @@ async def load_adapter(self, integration, entity_id):
 
     Parameters
     ----------
-    self : BetterThermostat
+    self : AdapterProbeHost
         The Better Thermostat climate entity instance, or the config flow
         standing in for it
     integration : str
@@ -47,13 +52,13 @@ async def load_adapter(self, integration, entity_id):
     Returns
     -------
     ModuleType
-        The adapter module, which is also stored on ``self.adapter``
+        The adapter module
     """
     if integration == "generic_thermostat":
         integration = "generic"
 
     try:
-        self.adapter = await async_import_module(
+        adapter = await async_import_module(
             self.hass, "custom_components.better_thermostat.adapters." + integration
         )
         _LOGGER.debug(
@@ -70,7 +75,7 @@ async def load_adapter(self, integration, entity_id):
             entity_id,
             exc_info=True,
         )
-        self.adapter = await async_import_module(
+        adapter = await async_import_module(
             self.hass, "custom_components.better_thermostat.adapters.generic"
         )
         _LOGGER.info(
@@ -80,58 +85,81 @@ async def load_adapter(self, integration, entity_id):
             "generic",
         )
 
-    return self.adapter
+    return adapter
 
 
-async def init(self, entity_id):
+class AdapterNotLoadedError(AttributeError):
+    """A TRV record carries no adapter module to delegate to.
+
+    The climate entity builds every record from a loaded adapter, so a
+    record without one is a programming error. It derives from
+    ``AttributeError``, the error a call on the missing module would have
+    raised, so the retry wrapper fails it fast and every handler that
+    catches the attribute error keeps catching it.
+    """
+
+
+def _adapter(self: AdapterHost, entity_id: str) -> ModuleType:
+    """Answer the adapter module of the TRV, raising when it has none.
+
+    Raises
+    ------
+    KeyError
+        The thermostat holds no TRV under ``entity_id``
+    AdapterNotLoadedError
+        The TRV record carries no adapter module
+    """
+    adapter = self.real_trvs[entity_id].adapter
+    if adapter is None:
+        raise AdapterNotLoadedError(
+            f"better_thermostat {self.device_name}: no adapter is loaded for {entity_id}"
+        )
+    return adapter
+
+
+async def init(self: AdapterHost, entity_id: str) -> Any:
     """Init adapter.
 
     Transient unavailability is handled inside the adapter's
     ``wait_for_calibration_entity_or_timeout`` (6 × 5 s polls). The call
     is invoked under a 30 s outer budget in ``_initialize_trvs``.
     """
-    return await self.real_trvs[entity_id].adapter.init(self, entity_id)
+    return await _adapter(self, entity_id).init(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_info(self, entity_id):
+async def get_info(self: AdapterHost, entity_id: str) -> Any:
     """Get info."""
-    return await self.real_trvs[entity_id].adapter.get_info(self, entity_id)
+    return await _adapter(self, entity_id).get_info(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_calibration_offset(self, entity_id):
+async def get_calibration_offset(self: AdapterHost, entity_id: str) -> Any:
     """Get current offset."""
-    return await self.real_trvs[entity_id].adapter.get_calibration_offset(
-        self, entity_id
-    )
+    return await _adapter(self, entity_id).get_calibration_offset(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_calibration_offset_step(self, entity_id):
+async def get_calibration_offset_step(self: AdapterHost, entity_id: str) -> Any:
     """Get offset steps."""
-    return await self.real_trvs[entity_id].adapter.get_calibration_offset_step(
-        self, entity_id
-    )
+    return await _adapter(self, entity_id).get_calibration_offset_step(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_min_calibration_offset(self, entity_id):
+async def get_min_calibration_offset(self: AdapterHost, entity_id: str) -> Any:
     """Get min offset."""
-    return await self.real_trvs[entity_id].adapter.get_min_calibration_offset(
-        self, entity_id
-    )
+    return await _adapter(self, entity_id).get_min_calibration_offset(self, entity_id)
 
 
 @async_retry(retries=5)
-async def get_max_calibration_offset(self, entity_id):
+async def get_max_calibration_offset(self: AdapterHost, entity_id: str) -> Any:
     """Get max offset."""
-    return await self.real_trvs[entity_id].adapter.get_max_calibration_offset(
-        self, entity_id
-    )
+    return await _adapter(self, entity_id).get_max_calibration_offset(self, entity_id)
 
 
-async def set_temperature(self, entity_id, temperature):
+async def set_temperature(
+    self: BetterThermostat, entity_id: str, temperature: float | str | None
+) -> Any:
     """Set new target temperature.
 
     Round to device step if known and clamp to min/max before delegating.
@@ -147,10 +175,12 @@ async def set_temperature(self, entity_id, temperature):
     maximum setpoint.
     """
     # Normalize input to float early
-    try:
-        t = float(temperature)
-    except TypeError, ValueError:
-        t = None
+    t: float | None = None
+    if temperature is not None:
+        try:
+            t = float(temperature)
+        except TypeError, ValueError:
+            t = None
     if t is None or not math.isfinite(t):
         _LOGGER.error(
             "better_thermostat %s: target temperature %r for %s is not a number, "
@@ -227,12 +257,12 @@ async def set_temperature(self, entity_id, temperature):
         entity_id,
         "temperature",
         f"setpoint {rounded}",
-        self.real_trvs[entity_id].adapter.set_temperature,
+        _adapter(self, entity_id).set_temperature,
         rounded,
     )
 
 
-async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
+async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> bool:
     """Set a new hvac mode on the TRV.
 
     Parameters
@@ -249,7 +279,7 @@ async def set_hvac_mode(self, entity_id, hvac_mode) -> bool:
     bool
         True when the mode went out, False when every attempt raised
     """
-    write = self.real_trvs[entity_id].adapter.set_hvac_mode
+    write = _adapter(self, entity_id).set_hvac_mode
     try:
         await _write_on_channel(
             self, entity_id, "hvac_mode", f"hvac mode {hvac_mode}", write, hvac_mode
@@ -280,7 +310,7 @@ class WriteOutage:
 
 
 async def _write_on_channel(
-    self,
+    self: AdapterHost,
     entity_id: str,
     channel: str,
     what: str,
@@ -326,13 +356,11 @@ async def _write_on_channel(
     Exception
         The write's own exception, once the attempts it gets are spent
     """
-    trv = self.real_trvs.get(entity_id)
-    found = getattr(trv, "unreachable_write_channels", None)
-    outages: dict[str, WriteOutage] = found if isinstance(found, dict) else {}
+    outages = self.real_trvs[entity_id].unreachable_write_channels
     device_name = self.device_name
     outage = outages.get(channel)
 
-    async def write_to_device(host, target, payload):
+    async def write_to_device(host: AdapterHost, target: str, payload: Any) -> Any:
         with command_cancellation_as_disconnect():
             return await write(host, target, payload)
 
@@ -387,14 +415,15 @@ async def _write_on_channel(
     return answer
 
 
-def _adopted_helper_disabled(self, entity_id: str, attribute: str, role: str) -> bool:
-    helper = getattr(self.real_trvs[entity_id], attribute, None)
+def _adopted_helper_disabled(
+    self: AdapterHost, entity_id: str, helper: str | None, role: str
+) -> bool:
     return helper is not None and sibling_disabled_at_write(
         self, entity_id, helper, role
     )
 
 
-def calibration_entity_disabled(self, entity_id: str) -> bool:
+def calibration_entity_disabled(self: AdapterHost, entity_id: str) -> bool:
     """Whether the TRV's adopted calibration entity is disabled right now.
 
     A disabled entity stays disabled until the user acts, so the offset
@@ -402,11 +431,14 @@ def calibration_entity_disabled(self, entity_id: str) -> bool:
     offset, and does not schedule a retry for it, while this holds.
     """
     return _adopted_helper_disabled(
-        self, entity_id, "local_temperature_calibration_entity", "local calibration"
+        self,
+        entity_id,
+        self.real_trvs[entity_id].local_temperature_calibration_entity,
+        "local calibration",
     )
 
 
-def valve_entity_disabled(self, entity_id: str) -> bool:
+def valve_entity_disabled(self: AdapterHost, entity_id: str) -> bool:
     """Whether the TRV's adopted valve entity is disabled right now.
 
     A disabled entity stays disabled until the user acts, so the valve
@@ -414,11 +446,16 @@ def valve_entity_disabled(self, entity_id: str) -> bool:
     valve position, and does not schedule a retry for it, while this holds.
     """
     return _adopted_helper_disabled(
-        self, entity_id, "valve_position_entity", "valve position"
+        self,
+        entity_id,
+        self.real_trvs[entity_id].valve_position_entity,
+        "valve position",
     )
 
 
-async def set_calibration_offset(self, entity_id, calibration_offset) -> bool:
+async def set_calibration_offset(
+    self: AdapterHost, entity_id: str, calibration_offset: float
+) -> bool:
     """Set new target offset and record the value that was asked for.
 
     An adapter answers ``True`` once the offset write went out and
@@ -455,7 +492,7 @@ async def set_calibration_offset(self, entity_id, calibration_offset) -> bool:
     if calibration_entity_disabled(self, entity_id):
         return False
 
-    write = self.real_trvs[entity_id].adapter.set_calibration_offset
+    write = _adapter(self, entity_id).set_calibration_offset
     try:
         wrote = await _write_on_channel(
             self, entity_id, "offset", "calibration offset", write, calibration_offset
@@ -486,7 +523,8 @@ def _valve_channels(
     # the discovery as a completed write would tell the caller a position was
     # taken that the device never saw. An adapter without a declaration falls
     # back to the discovered surface, as elsewhere.
-    declared = getattr(getattr(trv_state, "adapter", None), "CAPABILITIES", None)
+    adapter = trv_state.adapter if trv_state is not None else None
+    declared = getattr(adapter, "CAPABILITIES", None)
     adapter_writes_valve = declared is None or declared.valve_write
     # An adapter whose valve channel is an ecosystem service call has no
     # helper entity to discover. `Trv.capabilities` already reads the flag
@@ -497,7 +535,7 @@ def _valve_channels(
     valve_writable = (
         trv_state.valve_position_writable if trv_state is not None else None
     )
-    adapter_write = getattr(getattr(trv_state, "adapter", None), "set_valve", None)
+    adapter_write = getattr(adapter, "set_valve", None)
 
     # Each channel carries whether its own answer decides the outcome: a quirk
     # reports whether it took the position, while an adapter call that returns
@@ -534,7 +572,7 @@ def _valve_channels(
     return channels
 
 
-def valve_channel_available(self, entity_id: str) -> bool:
+def valve_channel_available(self: AdapterHost, entity_id: str) -> bool:
     """Whether any channel exists to write the TRV's valve position through.
 
     Without one, the valve is out of reach for a reason that lasts until
@@ -546,7 +584,7 @@ def valve_channel_available(self, entity_id: str) -> bool:
     return bool(_valve_channels(self, entity_id))
 
 
-async def set_valve(self, entity_id, valve) -> bool:
+async def set_valve(self: AdapterHost, entity_id: str, valve: float) -> bool:
     """Set a new valve position and record the value that went out.
 
     A model quirk's ``override_set_valve`` owns the valve channel where
@@ -592,7 +630,6 @@ async def set_valve(self, entity_id, valve) -> bool:
         )
         return False
 
-    trv_state = self.real_trvs.get(entity_id)
     channels = _valve_channels(self, entity_id)
 
     # A channel that raised leaves the position to the next channel, as one
@@ -611,7 +648,9 @@ async def set_valve(self, entity_id, valve) -> bool:
             continue
         if answer_decides and not answer:
             continue
-        trv_state.last_valve_percent = target_pct
-        trv_state.last_valve_method = method
+        # A channel exists only for a TRV the thermostat holds.
+        trv = self.real_trvs[entity_id]
+        trv.last_valve_percent = target_pct
+        trv.last_valve_method = method
         return True
     return False

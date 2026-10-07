@@ -310,6 +310,7 @@ async def test_an_entity_without_a_flight_recorder_still_reports_its_state():
     """The thermostat's state is in the download even before a recorder exists."""
     bt = ThermostatStandIn()
     bt.entity_id = "climate.trv"
+    bt.flight_recorder = None
 
     diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
 

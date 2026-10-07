@@ -97,7 +97,7 @@ def _make_bt(*, real_trvs: dict[str, Trv], unique_id: str = "bt_test") -> Any:
         outdoor_sensor_entity_id=None,
         weather_entity_id=None,
         hass=None,
-        _unique_id=unique_id,
+        unique_id=unique_id,
         device_id="bt_test_device",
         entry_id="bt_test_entry",
         state_mgr=_FakeStateManager(),
@@ -232,6 +232,27 @@ def test_hvac_off_returns_none() -> None:
     bt.bt_hvac_mode = HVACMode.OFF
 
     out, supports = _compute_mpc_v2_balance(bt, "climate.x")
+    assert out is None
+    assert supports is False
+    assert real_trvs["climate.x"].calibration_balance is None
+
+
+def test_dispatch_without_a_state_store_publishes_no_valve() -> None:
+    """Before the store is loaded there is no controller state to run on.
+
+    A valve intent from an earlier cycle must not outlive the missing store.
+    """
+    real_trvs = {
+        "climate.x": _make_trv(
+            "climate.x", current_temperature=19.0, supports_valve=True
+        )
+    }
+    real_trvs["climate.x"].calibration_balance = {"valve_percent": 80}
+    bt = _make_bt(real_trvs=real_trvs)
+    bt.state_mgr = None
+
+    out, supports = _compute_mpc_v2_balance(bt, "climate.x")
+
     assert out is None
     assert supports is False
     assert real_trvs["climate.x"].calibration_balance is None

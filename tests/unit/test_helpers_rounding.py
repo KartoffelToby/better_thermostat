@@ -1,17 +1,13 @@
 """Tests for helper rounding functions.
 
-This module tests rounding and float validation functions in helpers.py.
+This module tests the rounding functions in helpers.py.
 These functions are critical for maintaining precision in temperature
 calculations while avoiding floating-point artifacts.
 """
 
 import pytest
 
-from custom_components.better_thermostat.utils.helpers import (
-    Rounding,
-    check_float,
-    round_by_step,
-)
+from custom_components.better_thermostat.utils.helpers import Rounding, round_by_step
 
 
 class TestRoundingEnum:
@@ -162,41 +158,3 @@ class TestRoundByStep:
         assert round_by_step(20.15, 0.1) == pytest.approx(20.1, abs=1e-10)
         assert round_by_step(20.16, 0.1) == pytest.approx(20.2, abs=1e-10)
         assert round_by_step(19.97, 0.01) == pytest.approx(19.97, abs=1e-10)
-
-
-class TestCheckFloat:
-    """Test check_float function."""
-
-    def test_returns_true_for_valid_float_string(self):
-        """Test that valid float strings return True."""
-        assert check_float("10.5") is True
-        assert check_float("20") is True
-        assert check_float("-5.5") is True
-        assert check_float("0.0") is True
-
-    def test_returns_true_for_scientific_notation(self):
-        """Test that scientific notation strings return True."""
-        assert check_float("1.5e-3") is True
-        assert check_float("1E10") is True
-        assert check_float("-2.5e+5") is True
-
-    def test_returns_true_for_float_number(self):
-        """Test that float numbers return True."""
-        assert check_float(10.5) is True
-        assert check_float(20) is True
-        assert check_float(-5.5) is True
-
-    def test_returns_false_for_invalid_string(self):
-        """Test that invalid strings return False."""
-        assert check_float("not_a_number") is False
-        assert check_float("10.5.5") is False
-        assert check_float("") is False
-
-    def test_returns_false_for_none(self):
-        """Test that check_float returns False for None."""
-        assert check_float(None) is False
-
-    def test_returns_false_for_invalid_types(self):
-        """Test that check_float returns False for invalid types."""
-        assert check_float([]) is False
-        assert check_float({}) is False

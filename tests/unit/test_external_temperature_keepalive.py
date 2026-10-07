@@ -35,6 +35,7 @@ def _bt_with_two_trvs(quirks):
         TRV_ID: Trv(entity_id=TRV_ID, model_quirks=quirks),
         TRV_ID_2: Trv(entity_id=TRV_ID_2, model_quirks=quirks),
     }
+    bt._temperature_filter_lock = None
     return bt
 
 
@@ -154,7 +155,6 @@ async def test_a_trv_that_never_answers_does_not_hold_the_tick():
     quirks = MagicMock()
     quirks.maybe_set_external_temperature = _write
     bt = _bt_with_two_trvs(quirks)
-    bt._temperature_filter_lock = None
 
     with patch(
         "custom_components.better_thermostat.climate.EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S",

@@ -698,10 +698,10 @@ class _HasUniqueId(Protocol):
 def resolve_unique_id(obj: _HasUniqueId) -> str:
     """Return the id used to key per-entity persistent state.
 
-    Prefers the public ``unique_id`` property, falls back to ``_unique_id`` and
-    finally ``"bt"``, so every site keys state the same way.
+    An entity without a unique id keys its state under ``"bt"``, so every
+    site keys state the same way.
     """
-    return getattr(obj, "unique_id", None) or getattr(obj, "_unique_id", None) or "bt"
+    return obj.unique_id or "bt"
 
 
 def round_to_bucket(temp: float) -> float:

@@ -169,6 +169,7 @@ def _make_bt(preset: MpcV2PlantPreset = MpcV2PlantPreset.AUTO) -> Any:
         outdoor_sensor_entity_id=None,
         weather_entity_id=None,
         hass=None,
+        unique_id=None,
         state_mgr=_make_manager(),
         clock=FakeClock(monotonic_value=1_000_000.0),
         schedule_save_state=MagicMock(),
@@ -741,3 +742,21 @@ def test_a_fit_that_cannot_be_scheduled_frees_the_next_attempt(caplog) -> None:
 
     assert runtime.fit_inflight is False
     assert "could not schedule MPC v2 re-identification" in caplog.text
+
+
+# -- Missing state store ------------------------------------------------------
+
+
+def test_reid_helpers_without_a_state_store_do_nothing() -> None:
+    """Every re-ID helper is a no-op until the state store exists."""
+    from custom_components.better_thermostat import calibration as cal
+
+    bt = _make_bt()
+    bt.hass = _FakeHass()
+    bt.state_mgr = None
+
+    assert cal._lookup_mpc_v2_reid(bt, "bt:reid", "bt:climate.x:t21.0") is None
+    cal._record_mpc_v2_reid_sample(
+        bt, "bt:reid", applied_valve_pct=40.0, trv_temp=21.0, outdoor_temperature=5.0
+    )
+    cal._maybe_start_mpc_v2_reid_fit(bt, "bt:reid", MpcV2Params())

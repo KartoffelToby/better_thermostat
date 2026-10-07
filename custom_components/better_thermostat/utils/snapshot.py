@@ -7,6 +7,8 @@ Assistant states are read and condensed into the immutable
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from ..calibration import _get_current_outdoor_temp, _get_solar_context
@@ -14,8 +16,12 @@ from ..core.snapshot import TrvReported, WorldSnapshot, parse_hvac_mode
 from ..model_fixes.model_quirks import trv_state_unknown_as_available
 from .helpers import convert_to_float
 
+if TYPE_CHECKING:
+    from ..climate import BetterThermostat
+    from ..trv import Trv
 
-def _as_float(self, value) -> float | None:
+
+def _as_float(self: BetterThermostat, value: str | float | None) -> float | None:
     """Normalize one observation via the shared converter.
 
     The 0.01-step rounding rule lives in ``convert_to_float``; the
@@ -24,7 +30,9 @@ def _as_float(self, value) -> float | None:
     return convert_to_float(value, self.device_name, "build_snapshot()")
 
 
-def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
+def _build_trv_reported(
+    self: BetterThermostat, entity_id: str, trv: Trv
+) -> TrvReported:
     """Condense one ``real_trvs`` entry (a Trv) into a TrvReported."""
     available = False
     if self.hass is not None:
@@ -51,7 +59,7 @@ def _build_trv_reported(self, entity_id: str, trv) -> TrvReported:
     )
 
 
-def _raw_window_open(self) -> bool | None:
+def _raw_window_open(self: BetterThermostat) -> bool | None:
     """Read the raw window-sensor state (None: no sensor configured)."""
     window_sensor_entity_id = self.window_sensor_entity_id
     if not window_sensor_entity_id or self.hass is None:
@@ -62,7 +70,7 @@ def _raw_window_open(self) -> bool | None:
     return state.state not in ("off", "false", "closed")
 
 
-def build_snapshot(self) -> WorldSnapshot:
+def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
     """Build the immutable world snapshot for one control cycle.
 
     ``self`` is the BetterThermostat entity; this function is the only
