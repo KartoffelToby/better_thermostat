@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import TYPE_CHECKING, override
 
 from homeassistant.components.climate.const import (
     PRESET_ACTIVITY,
@@ -20,6 +21,7 @@ from homeassistant.components.number import NumberDeviceClass, NumberEntity, Num
 from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -53,6 +55,9 @@ from .utils.helpers import (
 )
 from .utils.scheduler import request_control_cycle
 
+if TYPE_CHECKING:
+    from .climate import BetterThermostat
+
 _LOGGER = logging.getLogger(__name__)
 
 # Every entity is pushed and none polls; actions are not limited per platform.
@@ -77,7 +82,9 @@ _PRESET_MAX_TRANSLATION_KEYS = {
 }
 
 
-def _is_usable_setting(bt_climate, value: float, setting: str) -> bool:
+def _is_usable_setting(
+    bt_climate: BetterThermostat, value: float, setting: str
+) -> bool:
     """Return whether ``value`` is a finite number, and warn when it is not.
 
     ``number.set_value`` accepts ``nan``, and every comparison with NaN is
@@ -135,47 +142,46 @@ async def async_setup_entry(
             }
 
     # Create PID numbers for each TRV if PID calibration is enabled
-    if hasattr(bt_climate, "all_trvs"):
-        has_multiple_trvs = len(bt_climate.all_trvs) > 1
-        for trv_config in bt_climate.all_trvs:
-            trv_entity_id = trv_config.get("trv")
-            if not trv_entity_id:
-                continue
+    has_multiple_trvs = len(bt_climate.all_trvs) > 1
+    for trv_config in bt_climate.all_trvs:
+        trv_entity_id = trv_config.get("trv")
+        if not trv_entity_id:
+            continue
 
-            advanced = trv_config.get("advanced", {})
-            calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-            calibration_output = advanced.get(CONF_CALIBRATION)
+        advanced = trv_config.get("advanced", {})
+        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
+        calibration_output = advanced.get(CONF_CALIBRATION)
 
-            # Normalize string values to CalibrationMode enum
-            try:
-                if isinstance(calibration_mode, str):
-                    calibration_mode = CalibrationMode(calibration_mode)
-            except ValueError, TypeError:
-                calibration_mode = None
+        # Normalize string values to CalibrationMode enum
+        try:
+            if isinstance(calibration_mode, str):
+                calibration_mode = CalibrationMode(calibration_mode)
+        except ValueError, TypeError:
+            calibration_mode = None
 
-            try:
-                if isinstance(calibration_output, str):
-                    calibration_output = CalibrationOutput(calibration_output)
-            except ValueError, TypeError:
-                calibration_output = None
+        try:
+            if isinstance(calibration_output, str):
+                calibration_output = CalibrationOutput(calibration_output)
+        except ValueError, TypeError:
+            calibration_output = None
 
-            if calibration_mode == CalibrationMode.PID_CALIBRATION:
-                for param in ["kp", "ki", "kd"]:
-                    pid_number = BetterThermostatPIDNumber(
-                        bt_climate, trv_entity_id, param, has_multiple_trvs
-                    )
-                    numbers.append(pid_number)
-                    pid_unique_ids[pid_number._attr_unique_id] = {
-                        "trv": trv_entity_id,
-                        "param": param,
-                    }
-
-            if calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
-                numbers.append(
-                    BetterThermostatValveMaxOpeningNumber(
-                        bt_climate, trv_entity_id, has_multiple_trvs
-                    )
+        if calibration_mode == CalibrationMode.PID_CALIBRATION:
+            for param in ["kp", "ki", "kd"]:
+                pid_number = BetterThermostatPIDNumber(
+                    bt_climate, trv_entity_id, param, has_multiple_trvs
                 )
+                numbers.append(pid_number)
+                pid_unique_ids[pid_number._attr_unique_id] = {
+                    "trv": trv_entity_id,
+                    "param": param,
+                }
+
+        if calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
+            numbers.append(
+                BetterThermostatValveMaxOpeningNumber(
+                    bt_climate, trv_entity_id, has_multiple_trvs
+                )
+            )
 
     # Track created number entities for cleanup
     _ACTIVE_PRESET_NUMBERS[entry.entry_id] = preset_unique_ids
@@ -203,16 +209,17 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
     """Representation of a Better Thermostat Preset Temperature Number."""
 
     _attr_has_entity_name = True
-    # NumberEntity and the Entity/RestoreEntity bases type _attr_device_class
-    # incompatibly; the value itself is correct. Pyright reports this on the
-    # class line (like the other entity classes), so a per-line ignore here has
-    # no effect; left unsuppressed for consistency with the rest of the codebase.
+    # NumberEntity declares _attr_device_class as NumberDeviceClass | None while
+    # the Entity base reached through FollowsThermostat and RestoreEntity
+    # declares str | None. pyrefly reports that clash between Home Assistant's
+    # own bases as bad-override-mutable-attribute on this assignment, and
+    # pyproject.toml exempts number.py from that rule.
     _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, bt_climate, preset_mode):
+    def __init__(self, bt_climate: BetterThermostat, preset_mode: str) -> None:
         """Initialize the number."""
         self._bt_climate = bt_climate
         self._preset_mode = preset_mode
@@ -227,16 +234,19 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
     # runs after this entity is built, so they are read from the thermostat
     # and republished with its state.
     @property
+    @override
     def native_min_value(self) -> float:
         """Return the lowest heating temperature the preset can hold."""
         return get_heat_temperature_range(self._bt_climate)[0]
 
     @property
+    @override
     def native_max_value(self) -> float:
         """Return the highest heating temperature the preset can hold."""
         return get_heat_temperature_range(self._bt_climate)[1]
 
     @property
+    @override
     def native_step(self) -> float:
         """Return the step the thermostat's setpoint moves in.
 
@@ -246,6 +256,7 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
         """
         return self._bt_climate.target_temperature_step or 0.1
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -289,15 +300,18 @@ class BetterThermostatPresetNumber(FollowsThermostat, NumberEntity, RestoreEntit
         self._bt_climate.async_write_ha_state()
 
     @property
-    def device_info(self):
+    @override
+    def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return self._bt_climate.device_info
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the value of the number."""
         return self._bt_climate.preset_mgr.get_temperature(self._preset_mode)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         if not _is_usable_setting(
@@ -324,7 +338,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
     and are applied immediately when the represented preset is active.
     """
 
-    def __init__(self, bt_climate, preset_mode):
+    def __init__(self, bt_climate: BetterThermostat, preset_mode: str) -> None:
         """Initialize the cooling preset number.
 
         Parameters
@@ -338,6 +352,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         self._attr_unique_id = f"{bt_climate.unique_id}_preset_{preset_mode}_cool"
         self._attr_translation_key = _PRESET_MAX_TRANSLATION_KEYS[preset_mode]
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Restore the last persisted cooling preset value.
 
@@ -375,16 +390,19 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         )
 
     @property
+    @override
     def native_min_value(self) -> float:
         """Return the lowest cooling temperature the preset can hold."""
         return get_cool_temperature_range(self._bt_climate)[0]
 
     @property
+    @override
     def native_max_value(self) -> float:
         """Return the highest cooling temperature the preset can hold."""
         return get_cool_temperature_range(self._bt_climate)[1]
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the configured cooling temperature for this preset.
 
@@ -395,6 +413,7 @@ class BetterThermostatPresetCoolNumber(BetterThermostatPresetNumber):
         """
         return self._bt_climate._preset_cool_temperatures.get(self._preset_mode)
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Set the cooling temperature for this preset.
 
@@ -449,7 +468,13 @@ class BetterThermostatPIDNumber(
     _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, bt_climate, trv_entity_id, parameter, show_trv_name=True):
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        trv_entity_id: str,
+        parameter: str,
+        show_trv_name: bool = True,
+    ) -> None:
         """Initialize the number."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
@@ -477,6 +502,7 @@ class BetterThermostatPIDNumber(
             self._attr_native_max_value = 10000.0
             self._attr_native_step = 1.0
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -484,15 +510,17 @@ class BetterThermostatPIDNumber(
         self._follow_thermostat()
 
     @property
-    def device_info(self):
+    @override
+    def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return self._bt_climate.device_info
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the value of the number."""
         # Try to get the value from the current active PID state
-        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        state_mgr = self._bt_climate.state_mgr
         if state_mgr is not None:
             key = build_pid_key(self._bt_climate, self._trv_entity_id)
             pid_state = state_mgr.state.pid.get(key)
@@ -510,13 +538,14 @@ class BetterThermostatPIDNumber(
             return DEFAULT_PID_KD
         return 0.0
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         if not _is_usable_setting(
             self._bt_climate, value, f"PID {self._parameter} for {self._trv_entity_id}"
         ):
             return
-        state_mgr = getattr(self._bt_climate, "state_mgr", None)
+        state_mgr = self._bt_climate.state_mgr
         if state_mgr is None:
             _LOGGER.debug(
                 "Cannot set PID %s for %s: state manager not ready",
@@ -556,7 +585,12 @@ class BetterThermostatValveMaxOpeningNumber(
     _attr_entity_category = EntityCategory.CONFIG
     _attr_native_unit_of_measurement = "%"
 
-    def __init__(self, bt_climate, trv_entity_id, show_trv_name=True):
+    def __init__(
+        self,
+        bt_climate: BetterThermostat,
+        trv_entity_id: str,
+        show_trv_name: bool = True,
+    ) -> None:
         """Initialize the number."""
         self._bt_climate = bt_climate
         self._trv_entity_id = trv_entity_id
@@ -576,6 +610,7 @@ class BetterThermostatValveMaxOpeningNumber(
         self._attr_native_max_value = 100.0
         self._attr_native_step = 1.0
 
+    @override
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
         await super().async_added_to_hass()
@@ -595,11 +630,13 @@ class BetterThermostatValveMaxOpeningNumber(
                 pass
 
     @property
-    def device_info(self):
+    @override
+    def device_info(self) -> DeviceInfo:
         """Return the device info."""
         return self._bt_climate.device_info
 
     @property
+    @override
     def native_value(self) -> float | None:
         """Return the value of the number."""
         return self._get_value()
@@ -637,6 +674,7 @@ class BetterThermostatValveMaxOpeningNumber(
             return
         trv_state.valve_max_opening = max(0.0, min(100.0, numeric))
 
+    @override
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value."""
         self._set_value(value)

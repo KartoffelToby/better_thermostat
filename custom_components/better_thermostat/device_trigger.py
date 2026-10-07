@@ -266,8 +266,8 @@ async def async_attach_trigger(
     # Helpers
     def _build_state(
         attribute: str, to: _AttributeMatch, from_: _AttributeMatch
-    ) -> dict:
-        trigger_config: dict = {
+    ) -> ConfigType:
+        trigger_config: ConfigType = {
             state_trigger.CONF_PLATFORM: "state",
             state_trigger.CONF_ENTITY_ID: entity_id,
             CONF_ATTRIBUTE: attribute,
@@ -278,8 +278,8 @@ async def async_attach_trigger(
             trigger_config[CONF_FOR] = config[CONF_FOR]
         return trigger_config
 
-    def _build_numeric(template: str) -> dict:
-        trigger_config: dict = {
+    def _build_numeric(template: str) -> ConfigType:
+        trigger_config: ConfigType = {
             numeric_state_trigger.CONF_PLATFORM: "numeric_state",
             numeric_state_trigger.CONF_ENTITY_ID: entity_id,
             numeric_state_trigger.CONF_VALUE_TEMPLATE: template,
