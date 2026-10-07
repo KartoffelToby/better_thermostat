@@ -104,6 +104,30 @@ async def test_only_the_recomputing_modes_get_the_recomputing_tick(mode, recompu
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored_mode", "recomputes"),
+    [
+        (0, True),
+        ("PID_Calibration", True),
+        (None, False),
+        ("a mode from another version", False),
+    ],
+    ids=["legacy-zero", "mis-cased", "null", "unknown-name"],
+)
+async def test_the_gate_reads_the_mode_the_calibration_runs(stored_mode, recomputes):
+    """The recompute gate reads a stored mode the way the calibration does.
+
+    A legacy ``0`` runs ``CalibrationMode.DEFAULT``, which recomputes, and a
+    stored ``None`` runs the default mode, which does not.
+    """
+    bt = _startup_bt(advanced={"calibration_mode": stored_mode})
+
+    registered = await _run_finalize_startup(bt)
+
+    assert _has_control_tick(bt, registered) == recomputes
+
+
+@pytest.mark.asyncio
 async def test_the_availability_tick_advances_the_ladder_and_rechecks_entities():
     """What the tick does when it fires: one ladder step and one re-check."""
     bt = ThermostatStandIn()

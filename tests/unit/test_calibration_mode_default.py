@@ -22,12 +22,16 @@ from custom_components.better_thermostat import (
 )
 from custom_components.better_thermostat.calibration import calculate_calibration_local
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils import controlling as controlling_module
+from custom_components.better_thermostat.utils import (
+    controlling as controlling_module,
+    helpers as helpers_module,
+)
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
 from custom_components.better_thermostat.utils.helpers import (
+    configured_calibration_mode,
     is_calibration_mode,
     normalize_calibration_mode,
 )
@@ -91,17 +95,22 @@ def test_default_is_not_a_beta_mode():
 
 
 def test_no_runtime_fallback_hardcodes_a_mode():
-    """Runtime fallbacks read the shared default instead of naming a mode."""
+    """Runtime readers take the mode from the one helper that knows the default."""
     for module in _RUNTIME_MODULES:
         source = inspect.getsource(module)
         assert '"calibration_mode", CalibrationMode.' not in source, (
             f"{module.__name__} hardcodes a calibration-mode fallback"
         )
-        assert '"calibration_mode", DEFAULT_CALIBRATION_MODE' in source
+        assert 'get("calibration_mode"' not in source, (
+            f"{module.__name__} reads the calibration mode around the helper"
+        )
+        assert "configured_calibration_mode(" in source
         assert "_calibration_mode = CalibrationMode." not in source, (
             f"{module.__name__} rewrites an unresolved mode to a named one "
             "instead of the shared default"
         )
+    helper_source = inspect.getsource(configured_calibration_mode)
+    assert "return DEFAULT_CALIBRATION_MODE" in helper_source
 
 
 @pytest.mark.parametrize("stored_mode", [None, 3], ids=["null", "unmappable-number"])
@@ -115,7 +124,7 @@ def test_unresolvable_stored_mode_falls_back_to_the_shared_default(
     naming a mode of its own.
     """
     monkeypatch.setattr(
-        calibration_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
+        helpers_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
     )
     thermostat = _thermostat_without_target(stored_mode)
 
@@ -137,9 +146,13 @@ def test_a_named_but_unknown_mode_does_not_become_the_default(monkeypatch):
     assert not is_calibration_mode(
         "a mode from another version", DEFAULT_CALIBRATION_MODE
     )
+    assert (
+        configured_calibration_mode({"calibration_mode": "a mode from another version"})
+        is None
+    )
 
     monkeypatch.setattr(
-        calibration_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
+        helpers_module, "DEFAULT_CALIBRATION_MODE", CalibrationMode.DEFAULT
     )
     thermostat = _thermostat_without_target("a mode from another version")
 

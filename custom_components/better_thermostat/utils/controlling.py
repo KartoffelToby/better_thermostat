@@ -62,10 +62,11 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
+    CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
-    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationOutput,
 )
@@ -74,6 +75,8 @@ from custom_components.better_thermostat.utils.helpers import (
     TRV_SETPOINT_KEYS,
     attr_to_celsius,
     clamp_valve_percent,
+    configured_calibration_mode,
+    configured_calibration_output,
     convert_to_float,
     cooler_send_cache,
     cooling_owns_dual_role_device,
@@ -217,7 +220,7 @@ def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
     expects the head to follow within the normal interval, and a flurry of
     changes still coalesces on it. That write consumes the exemption.
     """
-    if not (trv.advanced or {}).get(CONF_HOMEMATICIP):
+    if not advanced_flag(trv.advanced, CONF_HOMEMATICIP):
         return MIN_WRITE_INTERVAL_S
     user_change = self.last_user_change_monotonic
     last_write = trv.last_write_monotonic
@@ -393,8 +396,8 @@ def _get_valve_control(
     self: BetterThermostat,
     snapshot: WorldSnapshot,
     entity_id: str,
-    calibration_mode: CalibrationMode | str,
-    calibration_output: CalibrationOutput | str,
+    calibration_mode: CalibrationMode | None,
+    calibration_output: CalibrationOutput | None,
 ) -> tuple[ValveCommand | None, str | None]:
     """Determine valve control settings based on boost mode or calibration.
 
@@ -426,14 +429,16 @@ def _get_valve_control(
         and cal_bal.get("apply_valve")
         and cal_bal.get("valve_percent") is not None
     ):
-        source_map: dict[CalibrationMode | str, str] = {
+        source_map: dict[CalibrationMode, str] = {
             CalibrationMode.MPC_CALIBRATION: "mpc_calibration",
             CalibrationMode.MPC_V2_CALIBRATION: "mpc_v2_calibration",
             CalibrationMode.TPI_CALIBRATION: "tpi_calibration",
             CalibrationMode.PID_CALIBRATION: "pid_calibration",
             CalibrationMode.HEATING_POWER_CALIBRATION: "heating_power_calibration",
         }
-        source = source_map.get(calibration_mode)
+        source = (
+            source_map.get(calibration_mode) if calibration_mode is not None else None
+        )
         if source:
             return cal_bal, source
 
@@ -1022,7 +1027,7 @@ def refresh_cached_trv_modes(self: BetterThermostat) -> None:
         state = self.hass.states.get(entity_id)
         if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
             continue
-        if (trv.advanced or {}).get("child_lock"):
+        if advanced_flag(trv.advanced, CONF_CHILD_LOCK):
             continue
         _settled_mode = state.state
         if trv.last_hvac_mode is not None and state.state != trv.last_hvac_mode:
@@ -1160,7 +1165,7 @@ def _locked_device_moved(
     reporting ``unknown`` names no mode, which is how a model that reads
     ``unknown`` as operating reports, so only its setpoint is compared.
     """
-    if state is None or not (trv.advanced or {}).get("child_lock"):
+    if state is None or not advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
     if state.state != STATE_UNKNOWN:
         if cooling_owns_dual_role_device(self, entity_id):
@@ -2109,12 +2114,9 @@ async def control_trv(
             _temperature = _remapped_states.get("temperature", None)
             _calibration = _remapped_states.get("local_temperature_calibration", None)
 
-            _calibration_mode = self.real_trvs[entity_id].advanced.get(
-                "calibration_mode", DEFAULT_CALIBRATION_MODE
-            )
-            _calibration_output = self.real_trvs[entity_id].advanced.get(
-                "calibration", CalibrationOutput.TARGET_TEMP_BASED
-            )
+            _advanced = self.real_trvs[entity_id].advanced
+            _calibration_mode = configured_calibration_mode(_advanced)
+            _calibration_output = configured_calibration_output(_advanced)
             # Pair the forced 100 % valve with a max-temp setpoint so the TRV
             # firmware does not fight the valve command.
             if (

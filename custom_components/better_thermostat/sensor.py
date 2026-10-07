@@ -29,7 +29,7 @@ from . import BetterThermostatConfigEntry
 from .calibration import _get_current_solar_intensity
 from .entity import remove_unclaimed_registry_entries
 from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
-from .utils.helpers import async_normalize_bt_entity_ids
+from .utils.helpers import async_normalize_bt_entity_ids, configured_calibration_mode
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
@@ -41,6 +41,15 @@ PARALLEL_UPDATES = 0
 
 # Global tracking variables for active algorithm-specific entities
 _ACTIVE_ALGORITHM_ENTITIES: dict[str, dict[CalibrationMode, list[str]]] = {}
+# The algorithms that bring diagnostic sensors of their own; only these are
+# ever tracked in _ACTIVE_ALGORITHM_ENTITIES.
+_ALGORITHMS_WITH_SENSORS: frozenset[CalibrationMode] = frozenset(
+    {
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+    }
+)
 _ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[..., None]] = {}
 _DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
@@ -304,7 +313,9 @@ async def _handle_dynamic_entity_update(
 ) -> None:
     """Handle dynamic entity creation/removal based on configuration."""
     entry_id = entry.entry_id
-    current_algorithms = _get_active_algorithms(bt_climate)
+    # Compared on the tracked side only: an algorithm without sensors is never
+    # tracked, so it would read as added on every change.
+    current_algorithms = _get_active_algorithms(bt_climate) & _ALGORITHMS_WITH_SENSORS
     previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}))
 
     # Check for changes in the algorithms
@@ -408,22 +419,16 @@ def _get_active_algorithms(bt_climate: BetterThermostat) -> set[CalibrationMode]
 
     active_algorithms: set[CalibrationMode] = set()
     for trv_entity_id, trv in bt_climate.real_trvs.items():
-        advanced = trv.advanced or {}
-        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-        if calibration_mode:
-            # Convert string to enum if needed
-            if isinstance(calibration_mode, str):
-                try:
-                    calibration_mode = CalibrationMode(calibration_mode)
-                except ValueError:
-                    _LOGGER.warning(
-                        "Better Thermostat %s: Invalid calibration mode '%s' for TRV %s",
-                        bt_climate.device_name,
-                        calibration_mode,
-                        trv_entity_id,
-                    )
-                    continue
-            active_algorithms.add(calibration_mode)
+        calibration_mode = configured_calibration_mode(trv.advanced)
+        if calibration_mode is None:
+            _LOGGER.warning(
+                "Better Thermostat %s: Invalid calibration mode '%s' for TRV %s",
+                bt_climate.device_name,
+                (trv.advanced or {}).get(CONF_CALIBRATION_MODE),
+                trv_entity_id,
+            )
+            continue
+        active_algorithms.add(calibration_mode)
 
     return active_algorithms
 
@@ -434,15 +439,7 @@ def _get_pid_trvs(bt_climate: BetterThermostat) -> set[str]:
     if not bt_climate.real_trvs:
         return pid_trvs
     for trv_entity_id, trv in bt_climate.real_trvs.items():
-        advanced = trv.advanced or {}
-        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-        # Normalize string values to CalibrationMode enum
-        if isinstance(calibration_mode, str):
-            try:
-                calibration_mode = CalibrationMode(calibration_mode)
-            except ValueError, TypeError:
-                continue
-        if calibration_mode == CalibrationMode.PID_CALIBRATION:
+        if configured_calibration_mode(trv.advanced) == CalibrationMode.PID_CALIBRATION:
             pid_trvs.add(trv_entity_id)
     return pid_trvs
 

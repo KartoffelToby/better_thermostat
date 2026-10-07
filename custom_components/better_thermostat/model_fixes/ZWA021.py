@@ -8,9 +8,7 @@ mode the module is inert and the device is driven through the standard
 ``climate`` services, exactly like an unquirked TRV.
 """
 
-from collections.abc import Mapping
 import logging
-from typing import Any
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNKNOWN
@@ -19,6 +17,7 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 from ..utils.const import CalibrationOutput
+from ..utils.helpers import configured_calibration_output
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,8 +49,10 @@ _VALVE_MODE_ENGAGED = "_zwa021_valve_mode_engaged"
 
 def _is_direct_valve(self: ModelFixHost, entity_id: str) -> bool:
     """Return True when this TRV is configured for direct valve control."""
-    adv: Mapping[str, Any] = self.real_trvs[entity_id].advanced or {}
-    return adv.get("calibration") == CalibrationOutput.DIRECT_VALVE_BASED
+    return (
+        configured_calibration_output(self.real_trvs[entity_id].advanced)
+        == CalibrationOutput.DIRECT_VALVE_BASED
+    )
 
 
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:

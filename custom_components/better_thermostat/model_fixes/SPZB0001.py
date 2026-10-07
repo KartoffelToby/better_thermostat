@@ -14,7 +14,7 @@ from homeassistant.helpers import entity_registry as er
 from custom_components.better_thermostat.model_fixes.types import ModelFixHost
 
 from ..utils.const import CalibrationOutput
-from ..utils.helpers import is_sibling_entry
+from ..utils.helpers import configured_calibration_output, is_sibling_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,10 +120,10 @@ async def check_operation_mode(
 
 async def initial_tweak(self: ModelFixHost, entity_id: str) -> None:
     """Run initial tweaks for the device."""
-    _calibration_output = self.real_trvs[entity_id].advanced.get(
-        "calibration", CalibrationOutput.TARGET_TEMP_BASED
-    )
-    if _calibration_output == CalibrationOutput.DIRECT_VALVE_BASED:
+    if (
+        configured_calibration_output(self.real_trvs[entity_id].advanced)
+        == CalibrationOutput.DIRECT_VALVE_BASED
+    ):
         await check_operation_mode(self, entity_id, goal="1")
     else:
         await check_operation_mode(self, entity_id, goal="2")

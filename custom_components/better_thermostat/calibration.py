@@ -17,6 +17,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
 )
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcOutput,
@@ -69,7 +70,6 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
 from custom_components.better_thermostat.utils.const import (
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
-    DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
     CalibrationOutput,
     MpcV2PlantPreset,
@@ -77,10 +77,11 @@ from custom_components.better_thermostat.utils.const import (
 from custom_components.better_thermostat.utils.helpers import (
     Rounding,
     clamp_valve_percent,
+    configured_calibration_mode,
+    configured_calibration_output,
     convert_to_float,
     convert_to_float_celsius,
     heating_power_valve_position,
-    normalize_calibration_mode,
     normalize_step,
     round_by_step,
 )
@@ -264,10 +265,10 @@ def _supports_direct_valve_control(self: BetterThermostat, entity_id: str) -> bo
     """Return True if the TRV supports writing a valve percentage."""
 
     trv = self.real_trvs[entity_id]
-    _calibration_output = trv.advanced.get(
-        "calibration", CalibrationOutput.TARGET_TEMP_BASED
-    )
-    if _calibration_output != CalibrationOutput.DIRECT_VALVE_BASED:
+    if (
+        configured_calibration_output(trv.advanced)
+        != CalibrationOutput.DIRECT_VALVE_BASED
+    ):
         return False
     return trv.capabilities().supports_valve_write
 
@@ -1207,17 +1208,14 @@ MODE_TRAITS: dict[CalibrationMode, ModeTraits] = {
 }
 
 
-def _traits_for(mode: CalibrationMode | str) -> ModeTraits:
-    """Resolve the traits for a (possibly raw-string) calibration mode.
+def _traits_for(mode: CalibrationMode | None) -> ModeTraits:
+    """Resolve the traits for a configured calibration mode.
 
-    A string that names a known :class:`CalibrationMode` resolves to that
-    mode's traits; any unknown mode falls back to the passive cascade.
+    ``None``, the answer for a mode this version does not know, and a mode
+    without an entry of its own fall back to the passive cascade.
     """
-    if not isinstance(mode, CalibrationMode):
-        try:
-            mode = CalibrationMode(mode)
-        except ValueError:
-            return _PASSIVE_TRAITS
+    if mode is None:
+        return _PASSIVE_TRAITS
     return MODE_TRAITS.get(mode, _PASSIVE_TRAITS)
 
 
@@ -1261,14 +1259,9 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     def _convert_to_float(value: str | int | float | None) -> float | None:
         return convert_to_float(value, self.device_name, _context)
 
-    _calibration_mode = normalize_calibration_mode(
-        self.real_trvs[entity_id].advanced.get(
-            "calibration_mode", DEFAULT_CALIBRATION_MODE
-        )
+    traits = _traits_for(
+        configured_calibration_mode(self.real_trvs[entity_id].advanced)
     )
-    if _calibration_mode is None:
-        _calibration_mode = DEFAULT_CALIBRATION_MODE
-    traits = _traits_for(_calibration_mode)
 
     _cur_external_temp = effective_room_temp(self)
     if _cur_external_temp is None:
@@ -1402,13 +1395,13 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     _new_trv_calibration = fix_local_calibration(self, entity_id, _new_trv_calibration)
 
     if not _skip_post_adjustments:
-        _overheating_protection = self.real_trvs[entity_id].advanced.get(
-            CONF_PROTECT_OVERHEATING, False
+        _overheating_protection = advanced_flag(
+            self.real_trvs[entity_id].advanced, CONF_PROTECT_OVERHEATING
         )
 
         # Overheating protection only ever closes the valve: the term counts
         # from heating target + tolerance and is zero below that line.
-        if _overheating_protection is True and _cur_target_temp is not None:
+        if _overheating_protection and _cur_target_temp is not None:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
                     _new_trv_calibration += (
@@ -1492,14 +1485,9 @@ def calculate_calibration_setpoint(
     def _convert_to_float(value: str | int | float | None) -> float | None:
         return convert_to_float(value, self.device_name, _context)
 
-    _calibration_mode = normalize_calibration_mode(
-        self.real_trvs[entity_id].advanced.get(
-            "calibration_mode", DEFAULT_CALIBRATION_MODE
-        )
+    traits = _traits_for(
+        configured_calibration_mode(self.real_trvs[entity_id].advanced)
     )
-    if _calibration_mode is None:
-        _calibration_mode = DEFAULT_CALIBRATION_MODE
-    traits = _traits_for(_calibration_mode)
 
     # Without a target or a room reading there is no demand, so no valve
     # intent from an earlier cycle may outlive it.
@@ -1612,13 +1600,13 @@ def calculate_calibration_setpoint(
     )
 
     if not _skip_post_adjustments:
-        _overheating_protection = self.real_trvs[entity_id].advanced.get(
-            CONF_PROTECT_OVERHEATING, False
+        _overheating_protection = advanced_flag(
+            self.real_trvs[entity_id].advanced, CONF_PROTECT_OVERHEATING
         )
 
         # Overheating protection only ever closes the valve: the term counts
         # from heating target + tolerance and is zero below that line.
-        if _overheating_protection is True:
+        if _overheating_protection:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
                     _calibrated_setpoint -= (

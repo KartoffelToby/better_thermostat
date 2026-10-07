@@ -35,8 +35,12 @@ from .utils.calibration.pid import (
     build_pid_key,
     resolve_unique_id,
 )
-from .utils.const import CONF_CALIBRATION_MODE, CONF_CHILD_LOCK, DOMAIN, CalibrationMode
-from .utils.helpers import async_normalize_bt_entity_ids, find_device_entity
+from .utils.const import CONF_CHILD_LOCK, DOMAIN, CalibrationMode
+from .utils.helpers import (
+    async_normalize_bt_entity_ids,
+    configured_calibration_mode,
+    find_device_entity,
+)
 
 if TYPE_CHECKING:
     from .climate import BetterThermostat
@@ -61,18 +65,7 @@ async def async_setup_entry(
     switch_unique_ids = {}
     has_multiple_trvs = len(bt_climate.real_trvs) > 1
     for trv_entity_id, trv in bt_climate.real_trvs.items():
-        advanced = trv.advanced or {}
-        calibration_mode = advanced.get(CONF_CALIBRATION_MODE)
-
-        # Normalize string values to CalibrationMode enum
-        try:
-            if isinstance(calibration_mode, str):
-                calibration_mode = CalibrationMode(calibration_mode)
-        except ValueError, TypeError:
-            # Invalid or unknown calibration mode, skip PID creation
-            calibration_mode = None
-
-        if calibration_mode == CalibrationMode.PID_CALIBRATION:
+        if configured_calibration_mode(trv.advanced) == CalibrationMode.PID_CALIBRATION:
             pid_switch = BetterThermostatPIDAutoTuneSwitch(
                 bt_climate, trv_entity_id, has_multiple_trvs
             )
