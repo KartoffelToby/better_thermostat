@@ -59,7 +59,6 @@ REQUIRED = (
 # Reached through hasattr/getattr, so a module may leave these out — and a
 # typo in one of them is invisible rather than loud.
 OPTIONAL = (
-    "fix_valve_calibration",
     "override_set_valve",
     "initial_tweak",
     "lowest_setpoint",
@@ -72,7 +71,6 @@ SURFACE = REQUIRED + OPTIONAL
 # function's own contract says it hands back.
 CALL_CONTRACT = {
     "fix_local_calibration": ((0.5,), float),
-    "fix_valve_calibration": ((50,), (int, float)),
     "fix_target_temperature_calibration": ((21.0,), float),
     "override_set_hvac_mode": (("heat",), bool),
     "override_set_temperature": ((21.0,), bool),

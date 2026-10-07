@@ -145,14 +145,6 @@ class TestTheDefaultQuirkChangesNothing:
             == calibration_offset
         )
 
-    @pytest.mark.parametrize("valve", [0, 42, 100])
-    def test_a_valve_calibration_is_handed_back_untouched(self, valve):
-        """The valve percentage reaches the device as it was calculated."""
-        assert (
-            default_quirk.fix_valve_calibration(_thermostat(), ENTITY_ID, valve)
-            == valve
-        )
-
     @pytest.mark.parametrize("temperature", [5.0, 21.5, 30.0])
     def test_a_target_temperature_is_handed_back_untouched(self, temperature):
         """The setpoint reaches the device as it was calculated."""

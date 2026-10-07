@@ -48,11 +48,6 @@ def fix_local_calibration(
     return calibration_offset
 
 
-def fix_valve_calibration(self: ModelFixHost, entity_id: str, valve: float) -> float:
-    """Return the given valve calibration unchanged."""
-    return valve
-
-
 def fix_target_temperature_calibration(
     self: ModelFixHost, entity_id: str, temperature: float
 ) -> float:
