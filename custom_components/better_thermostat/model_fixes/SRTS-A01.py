@@ -351,6 +351,9 @@ def register_external_sensor_watch(self, entity_id: str):
         self.hass, [self.sensor_entity_id], _handle_room_sensor_change
     )
 
+    if _room_sensor_unavailable(self):
+        _schedule(_select_internal)
+
     def _unsubscribe() -> None:
         unsub_selector()
         unsub_room()
