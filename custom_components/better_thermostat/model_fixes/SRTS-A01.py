@@ -158,6 +158,20 @@ _TK_SENSOR_SELECT = frozenset({"sensor"})
 # option are left as their owner set them.
 _EXTERNAL_SENSOR_OPTION = "external"
 
+# The option the device reports its own reading on. While the selector is on
+# the external input the device echoes back what BT last wrote, so the TRV
+# temperature is no fallback for a failed room sensor until it is selected.
+_INTERNAL_SENSOR_OPTION = "internal"
+
+
+def _room_sensor_unavailable(self) -> bool:
+    """Return True while the configured room temperature sensor is not reporting."""
+    sensor_id = getattr(self, "sensor_entity_id", None)
+    if not sensor_id:
+        return False
+    state = self.hass.states.get(sensor_id)
+    return state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+
 
 def _find_device_entity(
     entity_registry: er.EntityRegistry,
@@ -255,6 +269,11 @@ def register_external_sensor_watch(self, entity_id: str):
     sensor as well. At most one such repair runs per TRV at a time, and it is
     cancelled when the watch is removed.
 
+    While the room sensor is unavailable the selector is deliberately moved to
+    the internal sensor, so the TRV reports its real reading for the fallback,
+    and no repair runs. When the room sensor reports again, the room
+    temperature is written, which selects the external sensor once more.
+
     Parameters
     ----------
     self :
@@ -287,37 +306,108 @@ def register_external_sensor_watch(self, entity_id: str):
             or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
             or str(new_state.state).startswith(_EXTERNAL_SENSOR_OPTION)
             or self.is_removed
+            or _room_sensor_unavailable(self)
         ):
             return
+        _schedule(_repair_external_temperature)
 
+    def _schedule(factory) -> None:
         pending = trv.extra.get(task_key)
         if pending is not None and not pending.done():
             return
 
-        async def _repair_external_temperature() -> None:
+        async def _run() -> None:
             try:
-                temperature = self.cur_temp
-                if temperature is not None:
-                    await maybe_set_external_temperature(self, entity_id, temperature)
+                await factory()
             finally:
                 trv.extra.pop(task_key, None)
 
         trv.extra[task_key] = self.hass.async_create_background_task(
-            _repair_external_temperature(),
-            name=f"bt_external_sensor_repair_{entity_id}",
+            _run(), name=f"bt_external_sensor_repair_{entity_id}"
         )
 
-    unsubscribe = async_track_state_change_event(
+    async def _repair_external_temperature() -> None:
+        temperature = self.cur_temp
+        if temperature is not None:
+            await maybe_set_external_temperature(self, entity_id, temperature)
+
+    async def _select_internal() -> None:
+        await maybe_select_internal_sensor(self, entity_id)
+
+    @callback
+    def _handle_room_sensor_change(event) -> None:
+        new_state = event.data.get("new_state")
+        if self.is_removed:
+            return
+        if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _schedule(_select_internal)
+        else:
+            _schedule(_repair_external_temperature)
+
+    unsub_selector = async_track_state_change_event(
         self.hass, [selector_id], _handle_selector_change
+    )
+    unsub_room = async_track_state_change_event(
+        self.hass, [self.sensor_entity_id], _handle_room_sensor_change
     )
 
     def _unsubscribe() -> None:
-        unsubscribe()
+        unsub_selector()
+        unsub_room()
         pending = trv.extra.pop(task_key, None)
         if pending is not None and not pending.done():
             pending.cancel()
 
     return _unsubscribe
+
+
+async def maybe_select_internal_sensor(self, entity_id: str) -> bool:
+    """Point the TRV's sensor selector at its own sensor.
+
+    Used while the room sensor fails, so that the TRV reports its real
+    temperature instead of the value BT last wrote.
+
+    Parameters
+    ----------
+    self :
+        The Better Thermostat instance, supplying ``hass`` and the context
+        the service call is made under.
+    entity_id : str
+        The TRV whose device carries the selector.
+
+    Returns
+    -------
+    bool
+        True when the selector is on the internal option, whether this call
+        put it there or found it there.
+    """
+    target = _find_sensor_selector(self, entity_id)
+    if target is None:
+        return False
+    state = self.hass.states.get(target)
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return False
+    if state.state == _INTERNAL_SENSOR_OPTION:
+        return True
+    options = state.attributes.get("options")
+    if not isinstance(options, (list, tuple)) or _INTERNAL_SENSOR_OPTION not in options:
+        return False
+    await self.hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": target, "option": _INTERNAL_SENSOR_OPTION},
+        blocking=True,
+        context=self.context,
+    )
+    _LOGGER.debug(
+        "better_thermostat %s: room sensor unavailable, set SRTS-A01 %s from '%s' to '%s' (for %s)",
+        self.device_name,
+        target,
+        state.state,
+        _INTERNAL_SENSOR_OPTION,
+        entity_id,
+    )
+    return True
 
 
 async def maybe_select_external_sensor(self, entity_id: str) -> bool:
@@ -345,6 +435,14 @@ async def maybe_select_external_sensor(self, entity_id: str) -> bool:
         True when the selector is on an external option, whether this call
         put it there or found it there.
     """
+
+    if _room_sensor_unavailable(self):
+        _LOGGER.debug(
+            "better_thermostat %s: SRTS-A01 maybe_select_external_sensor: room sensor unavailable for %s",
+            self.device_name,
+            entity_id,
+        )
+        return False
 
     _LOGGER.debug(
         "better_thermostat %s: SRTS-A01 maybe_select_external_sensor: setting external sensor",
