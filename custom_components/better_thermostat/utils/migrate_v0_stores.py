@@ -19,8 +19,8 @@ removed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import logging
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -33,14 +33,12 @@ from .state_manager import (
     deserialize_pid,
     deserialize_tpi,
 )
-from .stored_values import finite_or_none, is_json_object
+from .stored_values import finite_or_none
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _legacy_thermal_stat(
-    thermal_data: Mapping[str, object], field: str
-) -> float | None:
+def _legacy_thermal_stat(thermal_data: dict[str, Any], field: str) -> float | None:
     """Read one thermal statistic from a legacy store, unset if unusable.
 
     A legacy file can hold a value ``float()`` refuses or a non-finite
@@ -50,7 +48,7 @@ def _legacy_thermal_stat(
 
     Parameters
     ----------
-    thermal_data : Mapping[str, object]
+    thermal_data : dict[str, Any]
         the legacy store's thermal section
     field : str
         name of the statistic to read from it
@@ -75,10 +73,10 @@ def _legacy_thermal_stat(
 def _import_legacy_data(
     state_mgr: StateManager,
     *,
-    mpc_data: Mapping[str, Mapping[str, object]] | None = None,
-    pid_data: Mapping[str, Mapping[str, object]] | None = None,
-    tpi_data: Mapping[str, Mapping[str, object]] | None = None,
-    thermal_data: Mapping[str, object] | None = None,
+    mpc_data: dict[str, dict[str, Any]] | None = None,
+    pid_data: dict[str, dict[str, Any]] | None = None,
+    tpi_data: dict[str, dict[str, Any]] | None = None,
+    thermal_data: dict[str, Any] | None = None,
 ) -> None:
     """Deserialize raw dicts from legacy stores into the unified state.
 
@@ -113,21 +111,19 @@ def _import_legacy_data(
             if isinstance(state_dict, dict):
                 state_mgr.set_tpi(key, deserialize_tpi(state_dict, key=key))
 
-    if thermal_data and is_json_object(thermal_data):
+    if thermal_data and isinstance(thermal_data, dict):
         state_mgr.thermal = ThermalStats(
             heating_power=_legacy_thermal_stat(thermal_data, "heating_power"),
             heat_loss_rate=_legacy_thermal_stat(thermal_data, "heat_loss_rate"),
         )
 
 
-def _filter_by_prefix(
-    raw: Mapping[str, object], prefix: str
-) -> dict[str, Mapping[str, object]]:
-    """Return only entries whose key starts with *prefix* and whose value is an object."""
+def _filter_by_prefix(raw: dict[str, Any], prefix: str) -> dict[str, dict[str, Any]]:
+    """Return only entries whose key starts with *prefix* and whose value is a dict."""
     return {
         k: v
         for k, v in raw.items()
-        if isinstance(k, str) and k.startswith(prefix) and is_json_object(v)
+        if isinstance(k, str) and k.startswith(prefix) and isinstance(v, dict)
     }
 
 
@@ -171,9 +167,9 @@ async def migrate_v0_stores(
 
     # MPC legacy
     try:
-        mpc_store: Store[Mapping[str, object]] = Store(hass, 1, f"{DOMAIN}_mpc_states")
+        mpc_store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}_mpc_states")
         mpc_raw = await mpc_store.async_load()
-        if is_json_object(mpc_raw):
+        if isinstance(mpc_raw, dict):
             entity_entries = _filter_by_prefix(mpc_raw, entity_prefix)
             if entity_entries:
                 _import_legacy_data(state_mgr, mpc_data=entity_entries)
@@ -187,9 +183,9 @@ async def migrate_v0_stores(
 
     # PID legacy
     try:
-        pid_store: Store[Mapping[str, object]] = Store(hass, 1, f"{DOMAIN}_pid_states")
+        pid_store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}_pid_states")
         pid_raw = await pid_store.async_load()
-        if is_json_object(pid_raw):
+        if isinstance(pid_raw, dict):
             entity_entries = _filter_by_prefix(pid_raw, entity_prefix)
             if entity_entries:
                 _import_legacy_data(state_mgr, pid_data=entity_entries)
@@ -203,9 +199,9 @@ async def migrate_v0_stores(
 
     # TPI legacy
     try:
-        tpi_store: Store[Mapping[str, object]] = Store(hass, 1, f"{DOMAIN}_tpi_states")
+        tpi_store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}_tpi_states")
         tpi_raw = await tpi_store.async_load()
-        if is_json_object(tpi_raw):
+        if isinstance(tpi_raw, dict):
             entity_entries = _filter_by_prefix(tpi_raw, entity_prefix)
             if entity_entries:
                 _import_legacy_data(state_mgr, tpi_data=entity_entries)
@@ -219,13 +215,11 @@ async def migrate_v0_stores(
 
     # Thermal legacy
     try:
-        thermal_store: Store[Mapping[str, object]] = Store(
-            hass, 1, f"{DOMAIN}_thermal_stats"
-        )
+        thermal_store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}_thermal_stats")
         thermal_raw = await thermal_store.async_load()
-        if is_json_object(thermal_raw):
+        if isinstance(thermal_raw, dict):
             thermal_entry = thermal_raw.get(str(config_entry_id))
-            if is_json_object(thermal_entry):
+            if isinstance(thermal_entry, dict):
                 _import_legacy_data(state_mgr, thermal_data=thermal_entry)
                 any_imported = True
     except Exception:
