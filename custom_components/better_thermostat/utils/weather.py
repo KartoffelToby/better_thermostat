@@ -262,20 +262,23 @@ async def check_weather_prediction(self) -> bool | None:
                 if cur_state and cur_state.attributes
                 else None
             )
-            temps = []
-            for i in range(min(_forecast_samples, len(forecast))):
+            temps: list[float | None] = []
+            for entry in forecast[:_forecast_samples]:
+                _entry_unit = (
+                    entry.get("temperature_unit") if isinstance(entry, dict) else None
+                )
                 temps.append(
                     convert_to_float_celsius(
                         (
-                            str(forecast[i].get("temperature"))
-                            if isinstance(forecast[i], dict)
+                            str(entry.get("temperature"))
+                            if isinstance(entry, dict)
                             else ""
                         ),
                         self.device_name,
                         "check_weather_prediction()",
                         unit_of_measurement=(
-                            forecast[i].get("temperature_unit", _entity_temp_unit)
-                            if isinstance(forecast[i], dict)
+                            _entry_unit
+                            if isinstance(_entry_unit, str)
                             else _entity_temp_unit
                         ),
                     )
