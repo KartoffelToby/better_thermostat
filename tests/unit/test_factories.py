@@ -15,6 +15,7 @@ from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 from tests.factories import (
     DEFAULT_TRV_ID,
+    STAND_IN_DEFAULTS,
     THERMOSTAT_STATE,
     ThermostatStandIn,
     make_bt,
@@ -61,6 +62,40 @@ def test_the_stand_in_refuses_state_it_was_not_given(name):
     assert name in THERMOSTAT_STATE
     with pytest.raises(AttributeError, match=name):
         getattr(ThermostatStandIn(), name)
+
+
+@pytest.mark.parametrize("name", sorted(STAND_IN_DEFAULTS))
+def test_a_defaulted_name_is_thermostat_state(name):
+    """Every default the stand-in answers names state the thermostat holds."""
+    assert name in THERMOSTAT_STATE
+
+
+def test_the_stand_in_answers_constructor_bookkeeping():
+    """Bookkeeping a constructed thermostat holds reads as the constructor set it."""
+    bt = ThermostatStandIn()
+
+    assert bt.unavailable_sensors == []
+    assert bt._critical_grace_until is None
+    assert bt._outdoor_check_lock is None
+    assert bt.flight_recorder.export() == []
+    assert bt.unique_id is None
+
+
+def test_each_stand_in_gets_its_own_defaults():
+    """A mutable default is built per stand-in, so tests cannot share it."""
+    first = ThermostatStandIn()
+    first.unavailable_sensors.append("sensor.outdoor")
+
+    assert ThermostatStandIn().unavailable_sensors == []
+    assert first.unavailable_sensors == ["sensor.outdoor"]
+
+
+def test_the_unique_id_answers_from_the_private_id():
+    """``unique_id`` reads ``_unique_id``, as the property does."""
+    bt = ThermostatStandIn()
+    bt._unique_id = "entry_1"
+
+    assert bt.unique_id == "entry_1"
 
 
 def test_the_stand_in_answers_state_it_was_given():

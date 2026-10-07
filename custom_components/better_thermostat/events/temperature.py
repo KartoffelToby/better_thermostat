@@ -9,7 +9,7 @@ propagated to the target devices.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 import math
 from time import monotonic
@@ -32,6 +32,8 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 from custom_components.better_thermostat.utils.watcher import room_sensor_reading
 
 if TYPE_CHECKING:
+    from homeassistant.core import Event, EventStateChangedData
+
     from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,22 +43,22 @@ _LOGGER = logging.getLogger(__name__)
 PLATEAU_ACCEPT_WINDOW = 120
 
 
-def _update_external_temp_ema(self: BetterThermostat, temp_q: float) -> float:
+def _update_room_temperature_ema(self: BetterThermostat, temp_q: float) -> float:
     """Update and return EMA-filtered external temperature.
 
     Uses a time-based EMA so varying sensor update intervals behave sensibly.
 
     Tunables (optional attributes on `self`):
-    - `external_temp_ema_tau_s` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
+    - `room_temperature_ema_tau_seconds` (float): time constant in seconds (e.g. 900=15min, 1800=30min)
     """
 
-    tau_s = float(self.external_temp_ema_tau_s or 300.0)
+    tau_s = float(self.room_temperature_ema_tau_seconds or 300.0)
     if tau_s <= 0:
         tau_s = 300.0
 
     now_m = monotonic()
-    prev_ts = self._external_temp_ema_ts
-    prev_ema = self.external_temp_ema
+    prev_ts = self._room_temperature_ema_monotonic
+    prev_ema = self.room_temperature_ema
 
     if prev_ts is None or prev_ema is None:
         ema = float(temp_q)
@@ -76,8 +78,8 @@ def _update_external_temp_ema(self: BetterThermostat, temp_q: float) -> float:
             ema,
         )
 
-    self._external_temp_ema_ts = now_m
-    self.external_temp_ema = ema
+    self._room_temperature_ema_monotonic = now_m
+    self.room_temperature_ema = ema
     # Expose a generic name so consumers don't need to know EMA vs SMA
     self.room_temperature_filtered = round(float(ema), 2)
     return float(ema)
@@ -114,7 +116,7 @@ def temperature_filter_lock(self: BetterThermostat) -> asyncio.Lock:
     asyncio.Lock
             the entity's own lock, created on first use
     """
-    lock = getattr(self, "_temperature_filter_lock", None)
+    lock = self._temperature_filter_lock
     if lock is None:
         lock = asyncio.Lock()
         self._temperature_filter_lock = lock
@@ -133,7 +135,7 @@ def _room_sensor_returns(self: BetterThermostat, previous_state: State | None) -
     return room_sensor_reading(self, previous_state) is None
 
 
-async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
+async def _commit_temperature_update(self: BetterThermostat, new_temp: float) -> None:
     """Apply the new external temperature and trigger updates.
 
     Callers hold the filter lock.
@@ -159,14 +161,14 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
     self.last_known_external_temp = new_temp_q
     # Update EMA (useful if called from timer after delay)
     try:
-        _update_external_temp_ema(self, float(new_temp_q))
+        _update_room_temperature_ema(self, float(new_temp_q))
     except (TypeError, ValueError) as exc:
         _LOGGER.debug(
             "better_thermostat %s: EMA update failed (non-critical): %s",
             self.device_name,
             exc,
         )
-    _ema = self.external_temp_ema
+    _ema = self.room_temperature_ema
     self.last_external_sensor_change = dt_util.now()
     # Reset accumulation & pending after accept
     self.accum_delta = 0.0
@@ -182,7 +184,7 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
         _LOGGER.debug(
             "better_thermostat %s: external_temperature filtered (ema_tau_s=%s) raw=%.2f ema=%.2f",
             self.device_name,
-            self.external_temp_ema_tau_s,
+            self.room_temperature_ema_tau_seconds,
             float(new_temp_q),
             float(_ema),
         )
@@ -246,7 +248,7 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
     )
 
 
-def _sensor_still_reads(self, value: float) -> bool:
+def _sensor_still_reads(self: BetterThermostat, value: float) -> bool:
     """Tell whether the room sensor still reports a pending reading.
 
     A timer that commits a pending reading queues on the filter lock with
@@ -268,11 +270,14 @@ def _sensor_still_reads(self, value: float) -> bool:
     bool
             True if the sensor still reads ``value``.
     """
-    reading = room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
+    sensor_entity_id = self.sensor_entity_id
+    if sensor_entity_id is None:
+        return False
+    reading = room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
     return reading is not None and round(reading, 2) == value
 
 
-def _commit_pending_after(self, delay_s: float) -> None:
+def _commit_pending_after(self: BetterThermostat, delay_s: float) -> None:
     """Apply the pending reading once the debounce interval has run out.
 
     A reading turned away only because it came too soon after the last one
@@ -284,10 +289,12 @@ def _commit_pending_after(self, delay_s: float) -> None:
     A sensor that has since stopped giving a usable reading, or that now
     reads a different value, has withdrawn the pending one.
     """
-    if self.plateau_timer_cancel is not None:
-        self.plateau_timer_cancel()
     _value = self.pending_temp
     _since = self.pending_since
+    if _value is None:
+        return
+    if self.plateau_timer_cancel is not None:
+        self.plateau_timer_cancel()
 
     async def _interval_cb() -> None:
         async with temperature_filter_lock(self):
@@ -313,7 +320,9 @@ def _commit_pending_after(self, delay_s: float) -> None:
     self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_due)
 
 
-async def trigger_temperature_change(self, event):
+async def trigger_temperature_change(
+    self: BetterThermostat, event: Event[EventStateChangedData]
+) -> None:
     """Handle temperature changes.
 
     Decides whether one external temperature reading is applied. Readings
@@ -362,15 +371,9 @@ async def trigger_temperature_change(self, event):
     # updates even with a larger control tolerance.
     _sig_threshold = 0.11
 
-    # First-run guard: seed the timestamp far enough in the past that the
-    # first real update clears the debounce interval finalized above (setting
-    # it to "now" would make the age zero and fail the interval check).
-    if self.last_external_sensor_change is None:
-        self.last_external_sensor_change = dt_util.now() - timedelta(
-            seconds=_time_diff + 1
-        )
-
-    if not is_reasonable_temperature(_incoming_temperature_q):
+    if _incoming_temperature_q is None or not is_reasonable_temperature(
+        _incoming_temperature_q
+    ):
         # raise a ha repair notification
         _LOGGER.error(
             "better_thermostat %s: external_temperature %s is outside the "
@@ -546,8 +549,8 @@ async def trigger_temperature_change(self, event):
             # last reading from before it, which says nothing about the room
             # since. The filter starts over from the returning reading, and
             # so does the slope the tick derives from it.
-            self.external_temp_ema = None
-            self._external_temp_ema_ts = None
+            self.room_temperature_ema = None
+            self._room_temperature_ema_monotonic = None
         await _commit_temperature_update(self, _incoming_temperature_q)
     else:
         if (

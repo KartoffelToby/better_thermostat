@@ -77,6 +77,12 @@ definition = "Room sensor reading after smoothing."
 rejected = ["cur_temp_filtered", "room_temp_filtered"]
 
 [[term]]
+name = "room_temperature_ema"
+zone = "A"
+definition = "The smoothing filter's state at full precision; `room_temperature_filtered` is this value rounded for display."
+rejected = ["external_temp_ema"]
+
+[[term]]
 name = "setpoint"
 zone = "A"
 definition = "A target temperature on the device side: the value written to a TRV, or the value one reports back."

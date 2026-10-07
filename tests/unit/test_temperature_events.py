@@ -30,7 +30,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
 from custom_components.better_thermostat.events.temperature import (
     _commit_pending_after,
     _commit_temperature_update,
-    _update_external_temp_ema,
+    _update_room_temperature_ema,
     temperature_filter_lock,
     trigger_temperature_change,
 )
@@ -63,9 +63,9 @@ def mock_bt():
     bt.last_external_sensor_change = dt_util.now() - timedelta(seconds=60)
 
     # EMA state
-    bt.external_temp_ema_tau_s = 300.0
-    bt._external_temp_ema_ts = None
-    bt.external_temp_ema = None
+    bt.room_temperature_ema_tau_seconds = 300.0
+    bt._room_temperature_ema_monotonic = None
+    bt.room_temperature_ema = None
     bt.room_temperature_filtered = None
 
     # Accumulation state
@@ -120,14 +120,14 @@ async def _commit_in_turn(bt, new_temp):
 
 
 class TestUpdateExternalTempEma:
-    """Tests for _update_external_temp_ema()."""
+    """Tests for _update_room_temperature_ema()."""
 
     def test_first_call_returns_input(self, mock_bt):
         """Return the input value when no previous EMA exists."""
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        result = _update_external_temp_ema(mock_bt, 21.5)
+        result = _update_room_temperature_ema(mock_bt, 21.5)
 
         assert result == 21.5
 
@@ -135,42 +135,42 @@ class TestUpdateExternalTempEma:
         """Blend old and new values when a previous EMA exists."""
         from time import monotonic
 
-        mock_bt._external_temp_ema_ts = monotonic() - 60.0
-        mock_bt.external_temp_ema = 20.0
+        mock_bt._room_temperature_ema_monotonic = monotonic() - 60.0
+        mock_bt.room_temperature_ema = 20.0
 
-        result = _update_external_temp_ema(mock_bt, 22.0)
+        result = _update_room_temperature_ema(mock_bt, 22.0)
 
         assert 20.0 < result < 22.0
 
     def test_zero_tau_defaults_to_300(self, mock_bt):
         """Fall back to tau=300 when tau_s is zero."""
-        mock_bt.external_temp_ema_tau_s = 0.0
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        mock_bt.room_temperature_ema_tau_seconds = 0.0
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        result = _update_external_temp_ema(mock_bt, 21.0)
+        result = _update_room_temperature_ema(mock_bt, 21.0)
 
         assert result == 21.0
 
     def test_none_tau_defaults_to_300(self, mock_bt):
         """Fall back to tau=300 when tau_s is None."""
-        mock_bt.external_temp_ema_tau_s = None
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        mock_bt.room_temperature_ema_tau_seconds = None
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        result = _update_external_temp_ema(mock_bt, 21.0)
+        result = _update_room_temperature_ema(mock_bt, 21.0)
 
         assert result == 21.0
 
     def test_updates_all_state_attributes(self, mock_bt):
-        """Set _external_temp_ema_ts, external_temp_ema, and room_temperature_filtered."""
-        mock_bt._external_temp_ema_ts = None
-        mock_bt.external_temp_ema = None
+        """Set _room_temperature_ema_monotonic, room_temperature_ema, and room_temperature_filtered."""
+        mock_bt._room_temperature_ema_monotonic = None
+        mock_bt.room_temperature_ema = None
 
-        _update_external_temp_ema(mock_bt, 21.5)
+        _update_room_temperature_ema(mock_bt, 21.5)
 
-        assert mock_bt._external_temp_ema_ts is not None
-        assert mock_bt.external_temp_ema == 21.5
+        assert mock_bt._room_temperature_ema_monotonic is not None
+        assert mock_bt.room_temperature_ema == 21.5
         assert mock_bt.room_temperature_filtered == 21.5
 
 
@@ -413,8 +413,8 @@ class TestReturningRoomSensor:
             KernelState(), control_mode=ControlModeState(mode=rung)
         )
         mock_bt.room_temperature = 18.0
-        mock_bt.external_temp_ema = 18.0
-        mock_bt._external_temp_ema_ts = monotonic() - 60.0
+        mock_bt.room_temperature_ema = 18.0
+        mock_bt._room_temperature_ema_monotonic = monotonic() - 60.0
         event = MagicMock()
         event.data = {
             "old_state": previous_state,
@@ -526,18 +526,6 @@ class TestTriggerTemperatureChangeGuards:
         mock_ir.async_create_issue.assert_called_once()
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_first_run_accepts_via_first_reading_path(self, mock_bt):
-        """Accept the first reading via 'first_reading' when room_temperature is None."""
-        mock_bt.last_external_sensor_change = None
-        mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
-
 
 # ---------------------------------------------------------------------------
 # 4. Temperature acceptance (debounce)
@@ -556,23 +544,6 @@ class TestTemperatureAcceptance:
     async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
         """Accept the first temperature reading when room_temperature is None."""
         mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
-
-    @pytest.mark.asyncio
-    async def test_first_update_accepted_when_timestamp_uninitialized(self, mock_bt):
-        """First real update passes even with no prior timestamp.
-
-        With a known room_temperature but ``last_external_sensor_change is None`` the
-        guard must seed a timestamp older than the debounce window (not "now"),
-        so the first significant update clears the interval check.
-        """
-        mock_bt.room_temperature = 20.0
-        mock_bt.last_external_sensor_change = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -956,7 +927,7 @@ class TestEdgeCasesAndRobustness:
         """EMA calculation failure should not prevent temperature update."""
         mock_bt.room_temperature = None
         # Force EMA to fail by making tau_s non-numeric
-        mock_bt.external_temp_ema_tau_s = "invalid"
+        mock_bt.room_temperature_ema_tau_seconds = "invalid"
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)
@@ -1615,6 +1586,30 @@ class TestPendingReadingAfterTheDebounce:
             await self._fire(mock_bt, callback)
 
         commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_room_without_a_sensor_has_withdrawn_the_reading(self, mock_bt):
+        """Without a room sensor no reading is still reported, so none is applied."""
+        callback = self._arm(mock_bt)
+        mock_bt.sensor_entity_id = None
+        with patch(
+            "custom_components.better_thermostat.events.temperature._commit_temperature_update",
+            new=AsyncMock(),
+        ) as commit:
+            await self._fire(mock_bt, callback)
+
+        commit.assert_not_awaited()
+
+    def test_nothing_pending_arms_no_timer(self, mock_bt):
+        """Without a pending reading there is nothing to apply later."""
+        mock_bt.pending_temp = None
+        with patch(
+            "custom_components.better_thermostat.events.temperature.async_call_later"
+        ) as call_later:
+            _commit_pending_after(mock_bt, 5.0)
+
+        call_later.assert_not_called()
+        assert mock_bt.plateau_timer_cancel is None
 
     @pytest.mark.asyncio
     async def test_a_sensor_that_moved_on_leaves_its_new_reading_to_its_event(

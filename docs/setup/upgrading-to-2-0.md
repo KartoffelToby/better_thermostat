@@ -78,6 +78,14 @@ itself.
   `room_temperature_filtered`, and `temp_slope_K_min` is now
   `temperature_slope_kelvin_per_min`. 2.x publishes the old names as well;
   3.0 drops them.
+- **The PID and MPC v2 diagnostic attributes spell out their units.**
+  `pid_e_K` is now `pid_error_kelvin`, `pid_meas_smooth_C`
+  `pid_measurement_filtered`, `pid_d_meas_K_per_min`
+  `pid_measurement_slope_kelvin_per_min`, `pid_dt_s` `pid_dt_seconds`,
+  `mpc_v2_D_hat_K_per_min` `mpc_v2_disturbance_kelvin_per_min`,
+  `mpc_v2_tau_room_min` `mpc_v2_tau_room_minutes` and `mpc_v2_group_valve_pct`
+  `mpc_v2_group_valve_percent`. 2.x publishes the old names as well; 3.0
+  drops them.
 
 ### Cooling devices
 
