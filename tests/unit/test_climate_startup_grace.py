@@ -73,6 +73,8 @@ def _startup_bt():
     mock._initialize_arrived_trvs = AsyncMock()
     mock._hand_over_room_sensor_state = AsyncMock()
     mock.async_update_ha_state = AsyncMock()
+    mock.in_maintenance = False
+    mock.control_queue_task = asyncio.Queue(maxsize=1)
     mock.hass = MagicMock()
     return mock
 
