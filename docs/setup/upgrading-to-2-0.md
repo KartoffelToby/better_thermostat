@@ -86,6 +86,12 @@ itself.
   `mpc_v2_tau_room_min` `mpc_v2_tau_room_minutes` and `mpc_v2_group_valve_pct`
   `mpc_v2_group_valve_percent`. 2.x publishes the old names as well; 3.0
   drops them.
+- **More diagnostic attributes are renamed.** `mpc_v2_T_room_hat` is now
+  `mpc_v2_room_temperature_estimate`, `mpc_v2_T_rad_hat`
+  `mpc_v2_radiator_temperature_estimate`, `mpc_v2_coupling_rad_room`
+  `mpc_v2_radiator_room_coupling` and `heating_power_norm`
+  `heating_power_normalized`. 2.x publishes the old names as well; 3.0 drops
+  them.
 
 ### Cooling devices
 

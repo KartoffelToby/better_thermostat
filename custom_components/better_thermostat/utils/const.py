@@ -110,10 +110,14 @@ ATTR_STATE_HEATING_STATS: Final = "heating_stats"
 ATTR_STATE_ERRORS: Final = "errors"
 ATTR_STATE_BATTERIES: Final = "batteries"
 ATTR_STATE_OFF_TEMPERATURE: Final = "off_temperature"
+ATTR_HEATING_POWER_NORMALIZED: Final = "heating_power_normalized"
 ATTR_PID_ERROR: Final = "pid_error_kelvin"
 ATTR_PID_MEASUREMENT_FILTERED: Final = "pid_measurement_filtered"
 ATTR_PID_MEASUREMENT_SLOPE: Final = "pid_measurement_slope_kelvin_per_min"
 ATTR_PID_DT: Final = "pid_dt_seconds"
+ATTR_MPC_V2_ROOM_TEMPERATURE: Final = "mpc_v2_room_temperature_estimate"
+ATTR_MPC_V2_RADIATOR_TEMPERATURE: Final = "mpc_v2_radiator_temperature_estimate"
+ATTR_MPC_V2_COUPLING: Final = "mpc_v2_radiator_room_coupling"
 ATTR_MPC_V2_DISTURBANCE: Final = "mpc_v2_disturbance_kelvin_per_min"
 ATTR_MPC_V2_TAU_ROOM: Final = "mpc_v2_tau_room_minutes"
 ATTR_MPC_V2_GROUP_VALVE: Final = "mpc_v2_group_valve_percent"
@@ -134,6 +138,10 @@ DEPRECATED_STATE_ATTRIBUTES: Final[dict[str, str]] = {
     ATTR_PID_MEASUREMENT_FILTERED: "pid_meas_smooth_C",
     ATTR_PID_MEASUREMENT_SLOPE: "pid_d_meas_K_per_min",
     ATTR_PID_DT: "pid_dt_s",
+    ATTR_HEATING_POWER_NORMALIZED: "heating_power_norm",
+    ATTR_MPC_V2_ROOM_TEMPERATURE: "mpc_v2_T_room_hat",
+    ATTR_MPC_V2_RADIATOR_TEMPERATURE: "mpc_v2_T_rad_hat",
+    ATTR_MPC_V2_COUPLING: "mpc_v2_coupling_rad_room",
     ATTR_MPC_V2_DISTURBANCE: "mpc_v2_D_hat_K_per_min",
     ATTR_MPC_V2_TAU_ROOM: "mpc_v2_tau_room_min",
     ATTR_MPC_V2_GROUP_VALVE: "mpc_v2_group_valve_pct",

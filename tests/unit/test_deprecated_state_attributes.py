@@ -28,6 +28,7 @@ def test_every_deprecated_attribute_is_published_with_the_current_value():
         _preset_cool_temperature=24.5,
         _preset_cool_temperatures={"comfort": 25.0},
         temp_slope=0.0012,
+        heating_power_normalized=0.42,
     )
     entity.preset_mgr.temperatures = {"comfort": 21.0}
 
@@ -55,6 +56,9 @@ _PID_DEBUG = {
 }
 _MPC_V2_DEBUG = {
     "controller_version": "v2",
+    "T_room_hat": 20.5,
+    "T_rad_hat": 35.0,
+    "coupling_rad_room": 0.7,
     "D_hat_K_per_min": 0.002,
     "tau_room_min": 180.0,
     "group_valve_pct": 42.0,
@@ -63,7 +67,7 @@ _MPC_V2_DEBUG = {
 
 
 @pytest.mark.parametrize(
-    ("debug", "renamed"), [(_PID_DEBUG, 4), (_MPC_V2_DEBUG, 3)], ids=["pid", "mpc_v2"]
+    ("debug", "renamed"), [(_PID_DEBUG, 4), (_MPC_V2_DEBUG, 6)], ids=["pid", "mpc_v2"]
 )
 def test_controller_telemetry_is_published_under_both_names(debug, renamed):
     """A controller's telemetry carries its deprecated names with the same values."""
@@ -74,7 +78,7 @@ def test_controller_telemetry_is_published_under_both_names(debug, renamed):
     mirrored = [
         name
         for name in DEPRECATED_STATE_ATTRIBUTES
-        if name in TELEMETRY_ATTRIBUTES and name in attrs
+        if name.startswith(("pid_", "mpc_v2_")) and name in attrs
     ]
     assert len(mirrored) == renamed
     for name in mirrored:
