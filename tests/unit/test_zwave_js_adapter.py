@@ -17,7 +17,8 @@ from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationType
+from custom_components.better_thermostat.utils.const import CalibrationOutput
+from tests.factories import ThermostatStandIn
 
 quirk = importlib.import_module(
     "custom_components.better_thermostat.model_fixes.ZWA021"
@@ -25,11 +26,14 @@ quirk = importlib.import_module(
 adapter = importlib.import_module(
     "custom_components.better_thermostat.adapters.zwave_js"
 )
+quirks = importlib.import_module(
+    "custom_components.better_thermostat.model_fixes.model_quirks"
+)
 
 
 def _make_self(calibration=None):
     """Create a mock BetterThermostat with a spied service-call layer."""
-    mock_self = MagicMock()
+    mock_self = ThermostatStandIn()
     mock_self.device_name = "test_thermostat"
     mock_self.context = MagicMock()
     mock_self.hass.services.async_call = AsyncMock()
@@ -47,7 +51,7 @@ class TestZWA021HvacOverride:
     @pytest.mark.asyncio
     async def test_declines_when_not_direct_valve(self):
         """Non valve-based calibration falls through to the standard path."""
-        mock_self = _make_self(calibration=CalibrationType.TARGET_TEMP_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.TARGET_TEMP_BASED)
 
         handled = await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
 
@@ -57,7 +61,7 @@ class TestZWA021HvacOverride:
     @pytest.mark.asyncio
     async def test_declines_for_off_even_in_valve_mode(self):
         """OFF uses the standard path so the device closes normally."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         handled = await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "off")
 
@@ -67,7 +71,7 @@ class TestZWA021HvacOverride:
     @pytest.mark.asyncio
     async def test_engages_manufacturer_mode_for_valve_heat(self):
         """Valve mode + a heating request switches the device into mode 31."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         handled = await quirk.override_set_hvac_mode(mock_self, "climate.trv1", "heat")
 
@@ -97,7 +101,7 @@ class TestZWA021Passthroughs:
     @pytest.mark.asyncio
     async def test_set_temperature_declines(self):
         """The temperature override always declines so the adapter writes it."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
         assert (
             await quirk.override_set_temperature(mock_self, "climate.trv1", 21.0)
             is False
@@ -110,7 +114,7 @@ class TestZWA021SetValve:
     @pytest.mark.asyncio
     async def test_declines_when_not_direct_valve(self):
         """Outside direct valve control the quirk does not touch the valve."""
-        mock_self = _make_self(calibration=CalibrationType.TARGET_TEMP_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.TARGET_TEMP_BASED)
 
         handled = await quirk.override_set_valve(mock_self, "climate.trv1", 50)
 
@@ -120,7 +124,7 @@ class TestZWA021SetValve:
     @pytest.mark.asyncio
     async def test_writes_multilevel_switch_scaled_to_99(self):
         """100 % maps onto the device's fully-open value of 99."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         handled = await quirk.override_set_valve(mock_self, "climate.trv1", 100)
 
@@ -137,7 +141,7 @@ class TestZWA021SetValve:
     @pytest.mark.asyncio
     async def test_closed_valve_writes_zero(self):
         """0 % maps onto a fully closed valve."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
 
         await quirk.override_set_valve(mock_self, "climate.trv1", 0)
 
@@ -274,3 +278,140 @@ class TestAdapterSetValve:
 
         args, _ = mock_self.hass.services.async_call.call_args
         assert args[2]["value"] == pytest.approx(99)
+
+
+class TestTheSpiritIsDrivenByTheZWA021Quirk:
+    """One device, two names on the box, one quirk module.
+
+    Z-Wave JS reports the Eurotronic Spirit Z under the model string
+    ``Spirit`` and the identical Aeotec unit under ``ZWA021``. Only the
+    latter names a module, so the Spirit reaches the manufacturer-specific
+    valve mode only if its model resolves onto that module.
+    """
+
+    def test_the_spirit_resolves_onto_the_zwa021_module(self):
+        """The alias is what makes the quirk reachable for that model."""
+        assert quirks.get_model_quirks_name("Spirit") == "ZWA021"
+
+    def test_a_model_without_an_alias_keeps_its_own_name(self):
+        """Every other model names its own module."""
+        assert quirks.get_model_quirks_name("TRVZB") == "TRVZB"
+
+    def test_no_model_yields_no_module_name(self):
+        """An undetermined model resolves to nothing to import."""
+        assert quirks.get_model_quirks_name(None) == ""
+
+    @pytest.mark.asyncio
+    async def test_the_loader_imports_the_zwa021_module_for_a_spirit(self):
+        """The module path the loader builds carries the resolved name."""
+        mock_self = _make_self()
+        imported = AsyncMock(return_value=quirk)
+        with patch.object(quirks, "async_import_module", imported):
+            module = await quirks.load_model_quirks(mock_self, "Spirit", "climate.trv1")
+
+        assert module is quirk
+        assert imported.await_args.args[1] == (
+            "custom_components.better_thermostat.model_fixes.ZWA021"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_spirit_reports_valve_without_a_number_entity(self):
+        """Valve support is what puts direct valve control in the config flow."""
+        mock_self = _make_self()
+        with (
+            patch.object(
+                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+            ),
+            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
+            patch.object(adapter, "get_device_model", AsyncMock(return_value="Spirit")),
+        ):
+            info = await adapter.get_info(mock_self, "climate.trv1")
+
+        assert info["support_valve"] is True
+        
+class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
+    """The ZVIDAR Z-TRV-V01 is a clone of the same device, under a third name.
+
+    Z-Wave JS reports it as ``Z-TRV-V01``, which names no module of its own,
+    so it reaches the manufacturer-specific valve mode only if its model
+    resolves onto the ZWA021 module.
+    """
+
+    def test_the_z_trv_v01_resolves_onto_the_zwa021_module(self):
+        """The alias is what makes the quirk reachable for that model."""
+        assert quirks.get_model_quirks_name("Z-TRV-V01") == "ZWA021"
+
+    @pytest.mark.asyncio
+    async def test_the_loader_imports_the_zwa021_module_for_a_z_trv_v01(self):
+        """The module path the loader builds carries the resolved name."""
+        mock_self = _make_self()
+        imported = AsyncMock(return_value=quirk)
+        with patch.object(quirks, "async_import_module", imported):
+            module = await quirks.load_model_quirks(
+                mock_self, "Z-TRV-V01", "climate.trv1"
+            )
+
+        assert module is quirk
+        assert imported.await_args.args[1] == (
+            "custom_components.better_thermostat.model_fixes.ZWA021"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_z_trv_v01_reports_valve_without_a_number_entity(self):
+        """Valve support is what puts direct valve control in the config flow."""
+        mock_self = _make_self()
+        with (
+            patch.object(
+                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+            ),
+            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
+            patch.object(
+                adapter, "get_device_model", AsyncMock(return_value="Z-TRV-V01")
+            ),
+        ):
+            info = await adapter.get_info(mock_self, "climate.trv1")
+
+        assert info["support_valve"] is True
+
+class TestAnUnknownStateFromADrivenSpirit:
+    """The state a Spirit publishes while it takes valve positions.
+
+    The manufacturer-specific thermostat mode is not one the climate
+    entity describes, so the entity reports ``unknown`` throughout. Read
+    as the absence it means everywhere else, the device is dropped from
+    the addressed set and never written to again.
+    """
+
+    def test_the_quirk_claims_it_only_in_direct_valve_control(self):
+        """That is the only setting under which the mode is engaged."""
+        direct_valve = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        local_calibration = _make_self(calibration=CalibrationOutput.LOCAL_BASED)
+
+        assert (
+            quirk.trv_state_unknown_as_available(direct_valve, "climate.trv1") is True
+        )
+        assert (
+            quirk.trv_state_unknown_as_available(local_calibration, "climate.trv1")
+            is False
+        )
+
+    def test_the_shim_asks_the_module_the_trv_carries(self):
+        """The answer belongs to the model, so it comes from its module."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+        mock_self.real_trvs["climate.trv1"].model_quirks = quirk
+
+        assert quirks.trv_state_unknown_as_available(mock_self, "climate.trv1") is True
+
+    def test_a_trv_without_quirks_says_nothing_while_unknown(self):
+        """No module has claimed otherwise, so the default reading holds."""
+        mock_self = _make_self(calibration=CalibrationOutput.DIRECT_VALVE_BASED)
+
+        assert quirks.trv_state_unknown_as_available(mock_self, "climate.trv1") is False
+
+    def test_a_trv_that_is_not_configured_says_nothing_while_unknown(self):
+        """An entity id the instance does not drive has no quirk to ask."""
+        mock_self = _make_self()
+
+        assert (
+            quirks.trv_state_unknown_as_available(mock_self, "climate.other") is False
+        )
