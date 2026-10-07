@@ -60,6 +60,7 @@ from .calibration.mpc_v2 import (
     import_mpc_v2_state,
 )
 from .calibration.mpc_v2.reid import ReidBuffer
+from .calibration.mpc_v2.state import MpcV2Payload
 from .calibration.mpc_v2_internals.plant import GAIN_HEATER_BOUNDS, TAU_ROOM_BOUNDS_MIN
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
@@ -86,15 +87,18 @@ class MpcV2StateData:
 
     ``snapshot`` is the opaque payload returned by
     :meth:`MpcV2Controller.export_snapshot` — restored verbatim by
-    :meth:`MpcV2Controller.restore_snapshot`. Top-level fields mirror the
-    metadata the runtime state holds independently of the controller.
+    :meth:`MpcV2Controller.restore_snapshot`. It is held as stored and only
+    parsed when a controller is rebuilt from it, so a snapshot of a version
+    this release cannot read stays in the store as it was. Top-level fields
+    mirror the metadata the runtime state holds independently of the
+    controller.
     """
 
     last_percent: float | None = None
     last_compute_ts: float = 0.0
     created_ts: float = 0.0
     outdoor_fallback_logged: bool = False
-    snapshot: dict[str, Any] = field(default_factory=dict)
+    snapshot: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -929,6 +933,17 @@ def _stored_version(raw: Mapping[str, object], default: int) -> int:
     raise TypeError(f"store version is not a number: {value!r}")
 
 
+def _mpc_v2_payload(data: MpcV2StateData) -> MpcV2Payload:
+    """Return a persisted MPC v2 entry in the form a live state is imported from."""
+    return MpcV2Payload(
+        last_percent=data.last_percent,
+        last_compute_ts=data.last_compute_ts,
+        created_ts=data.created_ts,
+        outdoor_fallback_logged=data.outdoor_fallback_logged,
+        snapshot=data.snapshot,
+    )
+
+
 def _store_key(entry_id: str) -> str:
     """Return the Store key holding one config entry's runtime state."""
     return f"{DOMAIN}_{entry_id}_state"
@@ -1071,7 +1086,7 @@ class StateManager:
         if live is None:
             persisted = self._state.mpc_v2.get(key)
             live = (
-                import_mpc_v2_state(asdict(persisted), params, key=key)
+                import_mpc_v2_state(_mpc_v2_payload(persisted), params, key=key)
                 if persisted is not None
                 else MpcV2State()
             )
