@@ -437,15 +437,6 @@ def _get_valve_control(
         if source:
             return cal_bal, source
 
-    # Fallback to raw balance
-    raw_balance = self.real_trvs[entity_id].balance
-    if (
-        isinstance(raw_balance, dict)
-        and raw_balance.get("apply_valve")
-        and raw_balance.get("valve_percent") is not None
-    ):
-        return raw_balance, "balance"
-
     return None, None
 
 
@@ -1491,7 +1482,9 @@ def _record_cooler_failure(
     )
 
 
-async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
+async def control_cooler(
+    self: BetterThermostat, snapshot: WorldSnapshot | None = None
+) -> None:
     """Control the cooler entity based on current temperature and cooling setpoint.
 
     Activates cooling when the current temperature reaches the cooling target
@@ -1504,10 +1497,14 @@ async def control_cooler(self, snapshot: WorldSnapshot | None = None) -> None:
     while a window or door contact is open.
 
     The control queue passes the cycle's snapshot in; a standalone
-    invocation observes the world itself.
+    invocation observes the world itself. Without a configured cooler there
+    is nothing to control.
     """
+    cooler_entity_id = self.cooler_entity_id
+    if cooler_entity_id is None:
+        return
     # Get current cooler state to avoid sending redundant commands
-    cooler_state = self.hass.states.get(self.cooler_entity_id)
+    cooler_state = self.hass.states.get(cooler_entity_id)
     if cooler_state is None or cooler_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         _LOGGER.debug(
             "better_thermostat %s: cooler %s unavailable, skipping",

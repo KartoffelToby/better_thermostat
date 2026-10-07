@@ -11,6 +11,7 @@ is inside the `else` branch and gets skipped. This means:
 - Devices without OFF mode are not handled correctly
 """
 
+import logging
 from unittest.mock import MagicMock
 
 from homeassistant.components.climate import HVACMode
@@ -226,3 +227,36 @@ class TestFallbackModeTemperature:
         assert result is not None
         # Fallback mode should not include calibration
         assert "local_temperature_calibration" not in result
+
+
+class TestNoBtMode:
+    """Tests for an outbound conversion while the room has no mode yet."""
+
+    def test_no_mode_leaves_the_device_mode_untouched_without_a_warning(
+        self, mock_bt_instance_no_calibration, caplog
+    ):
+        """No mode sends no system mode and is not reported as unsupported.
+
+        The device offers HEAT and OFF, so nothing about it is unsupported;
+        a missing room mode only means the device's mode is left alone.
+        """
+        from custom_components.better_thermostat.events.trv import (
+            convert_outbound_states,
+        )
+
+        caplog.set_level(logging.WARNING)
+
+        result = convert_outbound_states(
+            mock_bt_instance_no_calibration, "climate.test_trv", None
+        )
+
+        assert result is not None
+        assert result["system_mode"] is None
+        assert result["temperature"] == 21.0
+        assert not [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "does not offer" in r.getMessage()
+        ]
+        trv = mock_bt_instance_no_calibration.real_trvs["climate.test_trv"]
+        assert trv.unsupported_modes_logged == set()
