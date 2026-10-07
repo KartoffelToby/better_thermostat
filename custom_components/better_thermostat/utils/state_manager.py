@@ -72,6 +72,8 @@ from .const import (
     MIN_HEATING_POWER,
 )
 from .stored_values import (
+    MAX_STORED_INT,
+    MIN_STORED_INT,
     finite_or_none,
     is_json_object,
     stored_count,
@@ -923,14 +925,18 @@ def _stored_version(raw: Mapping[str, object], default: int) -> int:
     ValueError
         when the version is NaN
     OverflowError
-        when the version is infinite
+        when the version is infinite, or outside the integer range the Store
+        can write back
     """
     if "version" not in raw:
         return default
     value = raw["version"]
-    if isinstance(value, int | float):
-        return math.floor(value)
-    raise TypeError(f"store version is not a number: {value!r}")
+    if not isinstance(value, int | float):
+        raise TypeError(f"store version is not a number: {value!r}")
+    version = math.floor(value)
+    if not MIN_STORED_INT <= version <= MAX_STORED_INT:
+        raise OverflowError(f"store version cannot be written back: {value!r}")
+    return version
 
 
 def _mpc_v2_payload(data: MpcV2StateData) -> MpcV2Payload:

@@ -2689,7 +2689,8 @@ class TestStoredVersion:
 
     Every JSON number keeps the migration decision ``version < 1`` it has
     always had and is held, and saved again, as its integer part. Anything
-    that is not a finite number sends the payload down the unreadable path,
+    that is not a finite number, or whose integer part lies outside the range
+    the Store can write, sends the payload down the unreadable path,
     which keeps a copy before defaults take its place.
     """
 
@@ -2740,10 +2741,21 @@ class TestStoredVersion:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "stored", ["1", None, [1], {"v": 1}, float("nan"), float("inf")]
+        "stored",
+        [
+            "1",
+            None,
+            [1],
+            {"v": 1},
+            float("nan"),
+            float("inf"),
+            1e20,
+            2**64,
+            -(2**63) - 1,
+        ],
     )
     async def test_a_version_that_is_no_number_is_unreadable(self, stored, caplog):
-        """A version that is not a finite number keeps a copy and starts fresh."""
+        """A version the Store could not write back keeps a copy and starts fresh."""
         payload = {"version": stored, "mpc": self._ENTRY}
         with _stores_by_key() as stores:
             mgr = StateManager(_hass_double(), "test_entry")
