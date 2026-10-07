@@ -183,10 +183,6 @@ matches = "custom_components/better_thermostat/__init__.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/adapters/delegate.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/calibration.py"
 errors = { implicit-any-parameter = false }
 
