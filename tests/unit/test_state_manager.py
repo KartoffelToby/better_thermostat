@@ -47,8 +47,6 @@ from custom_components.better_thermostat.utils.const import (
     MIN_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _MAX_STORED_INT,
-    _MIN_STORED_INT,
     _MPC_NULLABLE_FIELDS,
     _MPC_V2_NULLABLE_FIELDS,
     _MPC_V2_REID_NULLABLE_FIELDS,
@@ -71,6 +69,10 @@ from custom_components.better_thermostat.utils.state_manager import (
     deserialize_mpc_v2_reid,
     deserialize_pid,
     deserialize_tpi,
+)
+from custom_components.better_thermostat.utils.stored_values import (
+    MAX_STORED_INT,
+    MIN_STORED_INT,
 )
 
 _SM = "custom_components.better_thermostat.utils.state_manager"
@@ -550,10 +552,10 @@ class TestDeserializeMpcV2Reid:
 
     def test_largest_storable_segment_count_is_kept(self):
         """The bound is inclusive: the widest storable count still passes."""
-        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": _MAX_STORED_INT}
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": MAX_STORED_INT}
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
-        assert reid.n_segments == _MAX_STORED_INT
+        assert reid.n_segments == MAX_STORED_INT
 
     def test_string_nan_discards_the_entry(self):
         """A JSON string is the route a real store file can deliver a NaN by."""
@@ -618,12 +620,12 @@ class TestStorableIntegerBound:
 
     def test_bounds_are_exactly_what_the_encoder_accepts(self):
         """Both bounds are storable and one step past either one is not."""
-        json_bytes({"n": _MIN_STORED_INT})
-        json_bytes({"n": _MAX_STORED_INT})
+        json_bytes({"n": MIN_STORED_INT})
+        json_bytes({"n": MAX_STORED_INT})
         with pytest.raises(TypeError):
-            json_bytes({"n": _MIN_STORED_INT - 1})
+            json_bytes({"n": MIN_STORED_INT - 1})
         with pytest.raises(TypeError):
-            json_bytes({"n": _MAX_STORED_INT + 1})
+            json_bytes({"n": MAX_STORED_INT + 1})
 
 
 class TestStoredIntegerFields:
@@ -641,8 +643,8 @@ class TestStoredIntegerFields:
 
     def test_largest_storable_count_is_kept(self):
         """The bound is inclusive, so the widest storable tally survives."""
-        raw = {"profile_samples": _MAX_STORED_INT}
-        assert deserialize_mpc(raw).profile_samples == _MAX_STORED_INT
+        raw = {"profile_samples": MAX_STORED_INT}
+        assert deserialize_mpc(raw).profile_samples == MAX_STORED_INT
 
     def test_oversized_sign_keeps_the_default(self):
         """An unstorable direction is dropped like any other unusable field."""
