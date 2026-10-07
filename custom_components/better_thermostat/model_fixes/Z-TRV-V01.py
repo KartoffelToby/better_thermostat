@@ -73,17 +73,62 @@ def trv_state_unknown_as_available(self, entity_id):
 
 
 def fix_local_calibration(self, entity_id, offset):
-    """Return the given local calibration offset unchanged."""
+    """Return unchanged local calibration for Z-TRV-V01 by default.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        entity_id of the TRV
+    offset : float
+        the calculated local calibration offset
+
+    Returns
+    -------
+    float
+        The offset, unchanged.
+    """
     return offset
 
 
 def fix_valve_calibration(self, entity_id, valve):
-    """Return the given valve calibration unchanged."""
+    """Return unchanged valve calibration for Z-TRV-V01 by default.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        entity_id of the TRV
+    valve : int
+        the calculated valve position
+
+    Returns
+    -------
+    int
+        The valve position, unchanged.
+    """
     return valve
 
 
 def fix_target_temperature_calibration(self, entity_id, temperature):
-    """Return the given target temperature unchanged."""
+    """Return unchanged setpoint temperature for Z-TRV-V01 by default.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        entity_id of the TRV
+    temperature : float
+        the calculated target temperature
+
+    Returns
+    -------
+    float
+        The temperature, unchanged.
+    """
     return temperature
 
 
@@ -95,6 +140,21 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
     the mode write, this returns ``False`` so the caller falls back to the
     standard ``climate.set_hvac_mode`` service, leaving behaviour identical to
     a device without this quirk.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        entity_id of the TRV
+    hvac_mode : str
+        the HVAC mode to set
+
+    Returns
+    -------
+    bool
+        True when the manufacturer-specific mode was engaged (or already
+        held), False to let the generic adapter perform the write.
     """
     if not _is_direct_valve(self, entity_id):
         return False
@@ -152,7 +212,23 @@ async def override_set_hvac_mode(self, entity_id, hvac_mode):
 
 
 async def override_set_temperature(self, entity_id, temperature):
-    """Do not override set temperature."""
+    """No special setpoint handling for Z-TRV-V01; the generic adapter performs the write.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        entity_id of the TRV
+    temperature : float
+        the target temperature to set
+
+    Returns
+    -------
+    bool
+        False, always: the generic adapter fallback performs the service
+        call, including its retry handling.
+    """
     return False
 
 
@@ -161,9 +237,25 @@ async def override_set_valve(self, entity_id, percent):
 
     Active only in direct valve control; otherwise, and when the device
     refuses the write, returns ``False`` so the generic valve handling
-    applies. The device is expected to already be in manufacturer-specific
-    mode (see :func:`override_set_hvac_mode`). The requested 0-100 % opening
-    is mapped onto the device's 0-99 range.
+    applies. Engages the manufacturer-specific mode first (see
+    :func:`override_set_hvac_mode`). The requested 0-100 % opening is mapped
+    onto the device's 0-99 range.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        entity_id of the TRV
+    percent : int
+        the requested valve opening, 0-100 %
+
+    Returns
+    -------
+    bool
+        True when the valve write went out, False when this TRV is not on
+        direct valve control, the value is not a number, or the device
+        refused the write.
     """
     if not _is_direct_valve(self, entity_id):
         return False
@@ -171,6 +263,11 @@ async def override_set_valve(self, entity_id, percent):
         value = int(round(min(max(float(percent), 0.0), 100.0) / 100.0 * _VALVE_MAX))
     except TypeError, ValueError:
         return False
+
+    # The control cycle writes the valve before the mode, so engage the
+    # manufacturer-specific mode here too; the cached flag makes a repeat a
+    # no-op, and without it the first valve write of a cycle is ignored.
+    await override_set_hvac_mode(self, entity_id, HVACMode.HEAT)
 
     _LOGGER.debug(
         "better_thermostat %s: TRV %s Z-TRV-V01 set valve %s%% -> %s/%s",
