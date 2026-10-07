@@ -102,12 +102,8 @@ class MpcV2ReidData:
     tau_room_min: float = 0.0
     gain_heater: float = 0.0
     fitted_ts: float = 0.0
-    # `persist_state` writes this dataclass through `dataclasses.asdict` into
-    # Home Assistant's `Store`, so these two field names are the names on disk.
-    # Lowercasing them needs a store version bump and a migration step, and the
-    # two move with it.
-    rmse_prior_K: float = 0.0  # noqa: N815
-    rmse_fit_K: float = 0.0  # noqa: N815
+    rmse_prior_kelvin: float = 0.0
+    rmse_fit_kelvin: float = 0.0
     n_segments: int = 0
 
 
@@ -267,6 +263,13 @@ def _make_json_safe(obj: Any) -> Any:
 _STORED_ROOM_TEMPERATURE_EMA = "external_temp_ema"
 _STORED_TEMPERATURE_SLOPE = "temp_slope"
 
+# Store keys of the ``MpcV2ReidData`` fields whose stored name differs from
+# the field name. The other fields are stored under their own names.
+_STORED_MPC_V2_REID_KEYS = {
+    "rmse_prior_kelvin": "rmse_prior_K",
+    "rmse_fit_kelvin": "rmse_fit_K",
+}
+
 
 def _serialize(state: RuntimeState) -> dict[str, Any]:
     """Convert RuntimeState to a JSON-serializable dict.
@@ -278,6 +281,9 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     filters = data["filters"]
     filters[_STORED_ROOM_TEMPERATURE_EMA] = filters.pop("room_temperature_ema")
     filters[_STORED_TEMPERATURE_SLOPE] = filters.pop("temperature_slope")
+    for entry in data["mpc_v2_reid"].values():
+        for attr, stored in _STORED_MPC_V2_REID_KEYS.items():
+            entry[stored] = entry.pop(attr)
     return _make_json_safe(data)
 
 
@@ -646,9 +652,10 @@ def deserialize_mpc_v2_reid(
     """
     state = MpcV2ReidData()
     for attr in MpcV2ReidData.__dataclass_fields__:
-        if attr not in raw:
+        stored = _STORED_MPC_V2_REID_KEYS.get(attr, attr)
+        if stored not in raw:
             continue
-        value = raw[attr]
+        value = raw[stored]
         try:
             if value is None:
                 _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS)
@@ -656,12 +663,12 @@ def deserialize_mpc_v2_reid(
             elif attr == "n_segments":
                 setattr(state, attr, _stored_count(value))
             else:
-                setattr(state, attr, _finite_or_poison(value, attr))
+                setattr(state, attr, _finite_or_poison(value, stored))
         except _PoisonedStateError as error:
             _discard_poisoned_entry(error, "mpc_v2_reid", key, poisoned)
             return None
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "mpc_v2_reid", key)
+            _report_unreadable_field(stored, "mpc_v2_reid", key)
             continue
     # A result whose fitted components lie outside the plausible band cannot
     # seed a plant prior. The band is two-sided on both: too small a

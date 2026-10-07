@@ -688,8 +688,8 @@ def _maybe_start_mpc_v2_reid_fit(
                     tau_room_min=outcome.tau_room_min,
                     gain_heater=outcome.gain_heater,
                     fitted_ts=fitted_wall_ts,
-                    rmse_prior_K=outcome.rmse_prior_K or 0.0,
-                    rmse_fit_K=outcome.rmse_fit_K or 0.0,
+                    rmse_prior_kelvin=outcome.rmse_prior_K or 0.0,
+                    rmse_fit_kelvin=outcome.rmse_fit_K or 0.0,
                     n_segments=outcome.n_segments,
                 ),
             )

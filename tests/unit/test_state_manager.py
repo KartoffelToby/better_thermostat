@@ -57,6 +57,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     CURRENT_VERSION,
     FilterState,
     MpcState,
+    MpcV2ReidData,
     MpcV2StateData,
     PIDState,
     RuntimeState,
@@ -241,6 +242,28 @@ class TestSerializeDeserializeRoundtrip:
         assert restored.filters.room_temperature_ema == 20.4
         assert restored.filters.temperature_slope == 0.002
 
+    def test_reid_results_keep_their_stored_keys(self):
+        """The re-identification RMSEs are stored as ``rmse_prior_K``/``rmse_fit_K``."""
+        original = RuntimeState(
+            mpc_v2_reid={
+                "k1": MpcV2ReidData(
+                    tau_room_min=240.0,
+                    gain_heater=3.0,
+                    rmse_prior_kelvin=0.4,
+                    rmse_fit_kelvin=0.1,
+                )
+            }
+        )
+
+        raw = _serialize(original)
+        restored = _deserialize(raw)
+
+        stored = raw["mpc_v2_reid"]["k1"]
+        assert (stored["rmse_prior_K"], stored["rmse_fit_K"]) == (0.4, 0.1)
+        assert "rmse_prior_kelvin" not in stored
+        assert "rmse_fit_kelvin" not in stored
+        assert restored.mpc_v2_reid["k1"] == original.mpc_v2_reid["k1"]
+
     def test_legacy_presets_section_ignored(self):
         """A legacy presets section in a stored payload is ignored.
 
@@ -404,8 +427,8 @@ class TestDeserializeMpcV2Reid:
         assert reid.tau_room_min == 240.0
         assert reid.gain_heater == 3.0
         assert reid.fitted_ts == 1000.0
-        assert reid.rmse_prior_K == 0.4
-        assert reid.rmse_fit_K == 0.1
+        assert reid.rmse_prior_kelvin == 0.4
+        assert reid.rmse_fit_kelvin == 0.1
         assert reid.n_segments == 4
 
     def test_nan_tau_room_discards_the_entry(self):
@@ -429,7 +452,7 @@ class TestDeserializeMpcV2Reid:
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
         assert reid.tau_room_min == 240.0
-        assert reid.rmse_fit_K == 0.0
+        assert reid.rmse_fit_kelvin == 0.0
 
     def test_wrong_type_only_skips_the_segment_count(self):
         """The count is metadata, so an unreadable one still keeps the entry."""
@@ -466,8 +489,8 @@ class TestDeserializeMpcV2Reid:
         reid = deserialize_mpc_v2_reid({"tau_room_min": 240.0, "gain_heater": 3.0})
         assert reid is not None
         assert reid.fitted_ts == 0.0
-        assert reid.rmse_prior_K == 0.0
-        assert reid.rmse_fit_K == 0.0
+        assert reid.rmse_prior_kelvin == 0.0
+        assert reid.rmse_fit_kelvin == 0.0
         assert reid.n_segments == 0
 
     def test_null_entry_is_absent_after_a_full_load(self):
