@@ -699,3 +699,322 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
             await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.42)
             is False
         )
+
+
+def _trvzb_with_numbers(monkeypatch, numbers, *, model="TRVZB"):
+    """A TRVZB whose device carries ``numbers`` and accepts every write."""
+    registry = make_entity_registry(_registry_entry(ENTITY), *numbers)
+    monkeypatch.setattr(quirk.er, "async_get", lambda hass: registry, raising=True)
+    mock_self = _make_self()
+    mock_self.in_maintenance = False
+    mock_self.real_trvs = {ENTITY: Trv(entity_id=ENTITY, model=model)}
+    return mock_self
+
+
+def _number_writes(mock_self):
+    """The number.set_value payloads the quirk dispatched, in order."""
+    return [
+        call.args[2]
+        for call in mock_self.hass.services.async_call.await_args_list
+        if call.args[:2] == ("number", "set_value")
+    ]
+
+
+class TestValveNumbersWithoutATranslationKey:
+    """A valve number that carries no key is found by the names it does carry."""
+
+    @pytest.mark.parametrize(
+        ("opening", "closing"),
+        [
+            (_registry_entry(VALVE_OPENING), _registry_entry(VALVE_CLOSING)),
+            (
+                make_registry_entry(
+                    "number.radiator_a",
+                    unique_id="0x1234_valve_opening_degree",
+                    device_id="dev1",
+                ),
+                make_registry_entry(
+                    "number.radiator_b",
+                    unique_id="0x1234_valve_closing_degree",
+                    device_id="dev1",
+                ),
+            ),
+            (
+                make_registry_entry(
+                    "number.radiator_a",
+                    original_name="Valve opening degree",
+                    device_id="dev1",
+                ),
+                make_registry_entry(
+                    "number.radiator_b",
+                    original_name="Valve closing degree",
+                    device_id="dev1",
+                ),
+            ),
+        ],
+        ids=["entity_id", "unique_id", "original_name"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_opening_and_its_complement_are_written(
+        self, monkeypatch, opening, closing
+    ):
+        """The opening degree takes the position, the closing degree the rest."""
+        mock_self = _trvzb_with_numbers(monkeypatch, [opening, closing])
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": opening.entity_id, "value": 30},
+            {"entity_id": closing.entity_id, "value": 70},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_generic_valve_number_is_preferred_over_a_position(
+        self, monkeypatch
+    ):
+        """Without either degree, a number naming the valve takes the position."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _valve_number("number.trv1_motor_degree"),
+                _valve_number("number.trv1_position_limit"),
+                _valve_number("number.trv1_valve_target"),
+            ],
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_valve_target", "value": 30}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_position_number_is_preferred_over_any_other_match(
+        self, monkeypatch
+    ):
+        """Among generic matches that do not name the valve, position comes first."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _valve_number("number.trv1_motor_degree"),
+                _valve_number("number.trv1_position_limit"),
+            ],
+        )
+
+        assert await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_position_limit", "value": 30}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_number_keyed_as_something_else_is_no_valve(self, monkeypatch):
+        """The external temperature input is a number, but no valve channel."""
+        mock_self = _trvzb_with_numbers(
+            monkeypatch,
+            [
+                _registry_entry(
+                    "number.trv1_external_temperature_input",
+                    translation_key="external_temperature_input",
+                )
+            ],
+        )
+
+        assert quirk.has_valve_channel(mock_self, ENTITY) is False
+        assert (
+            await quirk.maybe_set_sonoff_valve_percent(mock_self, ENTITY, 30) is False
+        )
+        assert _number_writes(mock_self) == []
+
+
+class TestOverrideSetValveEdges:
+    """The valve override around its de-sticking bump."""
+
+    @pytest.mark.asyncio
+    async def test_a_trv_bt_does_not_hold_is_declined(self, writes):
+        """Without the TRV's record there is no position to start from."""
+        mock_self, _ = _make_valve_self(last_pct=40)
+        mock_self.real_trvs = {}
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is False
+        assert writes == []
+
+    @pytest.mark.asyncio
+    async def test_a_position_that_is_no_number_is_declined(self, writes):
+        """The adapter's own valve channel is left to handle it."""
+        mock_self, _ = _make_valve_self(last_pct=40)
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, "half") is False
+        assert writes == []
+
+    @pytest.mark.asyncio
+    async def test_a_refused_bump_still_writes_the_target(self, monkeypatch):
+        """A device that did not take the bump is handed the target directly."""
+        recorded = []
+
+        async def _write(_self, _entity_id, percent):
+            recorded.append(percent)
+            return percent != 50
+
+        monkeypatch.setattr(quirk, "maybe_set_sonoff_valve_percent", _write)
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+
+        assert await quirk.override_set_valve(mock_self, ENTITY, 30) is True
+
+        assert recorded == [50, 30]
+        assert "_trvzb_valve_bump_task" not in trv_state.extra
+
+    @pytest.mark.asyncio
+    async def test_a_bump_the_loop_can_no_longer_cancel_is_no_pending_write(
+        self, writes
+    ):
+        """A reference left behind by a closed loop does not stand in for a bump.
+
+        Cancelling a future whose loop is closed raises; the close that
+        follows is then treated as the first one and bumps again.
+        """
+        stale_loop = asyncio.new_event_loop()
+        stale = stale_loop.create_future()
+        stale.add_done_callback(lambda _future: None)
+        stale_loop.close()
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+        trv_state.extra["_trvzb_valve_bump_task"] = stale
+
+        handled = await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra.get("_trvzb_valve_bump_task")
+
+        try:
+            assert handled is True
+            assert writes == [50]
+            assert task is not None and task is not stale
+        finally:
+            await _settle(task)
+
+
+class TestTheDeferredValveWrite:
+    """The target a bump deferred lands only while it is still the newest."""
+
+    @pytest.mark.asyncio
+    async def test_it_lands_after_the_delay(self, writes, monkeypatch):
+        """The baseline: the deferred target follows the bump."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50, 30]
+
+    @pytest.mark.asyncio
+    async def test_a_trv_removed_meanwhile_is_not_written(self, writes, monkeypatch):
+        """A TRV that left the thermostat during the delay takes no write."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        mock_self.real_trvs = {}
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_superseded_write_is_dropped(self, writes, monkeypatch):
+        """A newer bump sequence owns the valve; the older target stays off it."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        trv_state.extra["_trvzb_valve_bump_seq"] += 1
+        await trv_state.extra["_trvzb_valve_bump_task"]
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_write_cancelled_during_the_delay_never_lands(
+        self, writes, monkeypatch
+    ):
+        """Cancelling the waiting task drops the target it carried."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.01)
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+
+        await quirk.override_set_valve(mock_self, ENTITY, 30)
+        task = trv_state.extra["_trvzb_valve_bump_task"]
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.wait([task])
+        await asyncio.sleep(0.02)
+
+        assert writes == [50]
+
+    @pytest.mark.asyncio
+    async def test_a_failing_write_is_logged_not_raised(self, monkeypatch, caplog):
+        """Nothing awaits the background task, so its error goes to the log."""
+        monkeypatch.setattr(quirk, "_TRVZB_CLOSE_BUMP_DELAY_S", 0.0)
+
+        async def _write(_self, _entity_id, percent):
+            if percent == 30:
+                raise RuntimeError("integration is shutting down")
+            return True
+
+        monkeypatch.setattr(quirk, "maybe_set_sonoff_valve_percent", _write)
+        mock_self, trv_state = _make_valve_self(last_pct=40)
+
+        with caplog.at_level("DEBUG", logger=quirk.__name__):
+            await quirk.override_set_valve(mock_self, ENTITY, 30)
+            task = trv_state.extra["_trvzb_valve_bump_task"]
+            await asyncio.wait([task])
+
+        assert task.exception() is None
+        assert "TRVZB delayed valve set exception" in caplog.text
+        assert "integration is shutting down" in caplog.text
+
+
+class TestExternalTemperatureIsOnlyWrittenWhereItCanLand:
+    """The input is written for a Sonoff device and a numeric reading only."""
+
+    @staticmethod
+    def _device_with_input(monkeypatch, model):
+        number = _registry_entry(
+            "number.trv1_external_temperature_input",
+            translation_key="external_temperature_input",
+        )
+        return _trvzb_with_numbers(monkeypatch, [number], model=model)
+
+    @pytest.mark.parametrize("model", ["TS0601", "", None])
+    @pytest.mark.asyncio
+    async def test_a_device_of_another_model_is_not_written(self, monkeypatch, model):
+        """An input of the same name on another device means something else."""
+        mock_self = self._device_with_input(monkeypatch, model)
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, ENTITY, 21.0) is False
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.parametrize("reading", [None, "unknown"])
+    @pytest.mark.asyncio
+    async def test_a_reading_that_is_no_number_is_not_written(
+        self, monkeypatch, reading
+    ):
+        """Without a room temperature the input keeps its last value."""
+        mock_self = self._device_with_input(monkeypatch, "TRVZB")
+
+        assert (
+            await quirk.maybe_set_external_temperature(mock_self, ENTITY, reading)
+            is False
+        )
+        mock_self.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.parametrize(("reading", "written"), [(-3.0, 0.0), (120.0, 99.9)])
+    @pytest.mark.asyncio
+    async def test_the_reading_is_clamped_to_the_input_range(
+        self, monkeypatch, reading, written
+    ):
+        """The input takes 0 to 99.9 degrees."""
+        mock_self = self._device_with_input(monkeypatch, "TRVZB")
+
+        assert await quirk.maybe_set_external_temperature(mock_self, ENTITY, reading)
+
+        assert _number_writes(mock_self) == [
+            {"entity_id": "number.trv1_external_temperature_input", "value": written}
+        ]

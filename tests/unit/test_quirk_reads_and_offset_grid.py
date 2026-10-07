@@ -20,7 +20,11 @@ import pytest
 from custom_components.better_thermostat.adapters import base, delegate, generic
 from custom_components.better_thermostat.model_fixes import SPZB0001, ZWA021
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.const import CalibrationOutput
+from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION_MODE,
+    CalibrationMode,
+    CalibrationOutput,
+)
 from custom_components.better_thermostat.utils.helpers import round_by_step
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
 
@@ -107,6 +111,40 @@ class TestTheSetpointBoostReadsTheTrvInCelsius:
 
         assert answer == pytest.approx(21.0)
 
+    @pytest.mark.parametrize("name", sorted(BOOSTING_QUIRKS))
+    @pytest.mark.parametrize(
+        "state",
+        [
+            None,
+            State(ENTITY_ID, "heat", {}),
+            State(ENTITY_ID, "heat", {"current_temperature": "n/a"}),
+        ],
+        ids=["no_state", "no_reading", "unreadable_reading"],
+    )
+    def test_without_a_trv_reading_the_setpoint_is_left_alone(self, name, state):
+        """No reading means no gap to measure, so the request goes out as is."""
+        host = _host(state=state)
+
+        answer = BOOSTING_QUIRKS[name].fix_target_temperature_calibration(
+            host, ENTITY_ID, 21.0
+        )
+
+        assert answer == 21.0
+
+    def test_the_sea801_leaves_the_setpoint_to_mpc(self):
+        """Under MPC calibration the controller's setpoint goes out as is."""
+        state = State(ENTITY_ID, "heat", {"current_temperature": 20.0})
+        host = _host(
+            state=state,
+            advanced={CONF_CALIBRATION_MODE: CalibrationMode.MPC_CALIBRATION},
+        )
+
+        answer = BOOSTING_QUIRKS[
+            "SEA801-Zigbee_SEA802-Zigbee"
+        ].fix_target_temperature_calibration(host, ENTITY_ID, 21.0)
+
+        assert answer == 21.0
+
 
 class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
     """SPZB0001 finds the TRV mode select by entity id, unique id or name."""
@@ -142,6 +180,62 @@ class TestTheEurotronicModeSelectIsFoundByAnyOfItsNames:
             "select",
             "select_option",
             {"entity_id": select_id, "option": "1"},
+            blocking=True,
+            context=None,
+        )
+
+
+class TestTheEurotronicModeIsOnlyWrittenWhenItDiffers:
+    """SPZB0001 writes its TRV mode select once, and only that select."""
+
+    MODE_SELECT = "select.trv_trv_mode"
+
+    def _registry(self, *extra_selects):
+        return make_entity_registry(
+            make_registry_entry(ENTITY_ID, device_id="device1"),
+            make_registry_entry(self.MODE_SELECT, device_id="device1"),
+            *(
+                make_registry_entry(select_id, device_id="device1")
+                for select_id in extra_selects
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_mode_already_on_the_goal_is_not_written(self):
+        """Each write is a radio message to a battery device."""
+        host = _host(state=State(self.MODE_SELECT, "1"))
+
+        with patch.object(SPZB0001.er, "async_get", lambda hass: self._registry()):
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
+
+        assert answered is True
+        host.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_mode_select_without_a_state_is_not_written(self):
+        """A select that publishes nothing has no mode to compare against."""
+        host = _host(state=None)
+
+        with patch.object(SPZB0001.er, "async_get", lambda hass: self._registry()):
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
+
+        assert answered is False
+        host.hass.services.async_call.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_other_selects_on_the_device_are_passed_by(self):
+        """Only the select naming the TRV mode receives the option."""
+        host = _host(state=State(self.MODE_SELECT, "2"))
+        registry = self._registry("select.trv_display_orientation")
+
+        with patch.object(SPZB0001.er, "async_get", lambda hass: registry):
+            answered = await SPZB0001.check_operation_mode(host, ENTITY_ID, "1")
+
+        assert answered is True
+        host.hass.services.async_call.assert_awaited_once_with(
+            "select",
+            "select_option",
+            {"entity_id": self.MODE_SELECT, "option": "1"},
             blocking=True,
             context=None,
         )
