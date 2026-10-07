@@ -16,6 +16,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import ControlMod
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
+    local_calibration_shifts_setpoint,
 )
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.mpc import (
@@ -1321,6 +1322,16 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     _current_trv_calibration = float(_current_trv_calibration)
     _calibration_step = float(_calibration_step)
 
+    # A device that adds the offset to its setpoint regulates on its reading
+    # minus the offset and reports the reading alone. Everything below works
+    # in the terms of a device that offsets its reading, so the stored offset
+    # and the reading are taken into those terms here, and the result goes
+    # back into the device's terms once it is final.
+    _shifts_setpoint = local_calibration_shifts_setpoint(self, entity_id)
+    if _shifts_setpoint:
+        _current_trv_calibration = -_current_trv_calibration
+        _cur_trv_temp_f += _current_trv_calibration
+
     _new_trv_calibration = (
         _cur_external_temp - _cur_trv_temp_f
     ) + _current_trv_calibration
@@ -1457,6 +1468,8 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
         _log_current_calibration,
     )
 
+    if _shifts_setpoint:
+        return -_new_trv_calibration
     return _new_trv_calibration
 
 
