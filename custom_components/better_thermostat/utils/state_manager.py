@@ -454,10 +454,15 @@ def deserialize_mpc(
     """
     state = MpcState()
     for attr in MpcState.__dataclass_fields__:
+        # The store spells a few fields under their own key; a snapshot taken
+        # with ``asdict`` spells them by attribute. The store key wins.
         stored = _STORED_MPC_KEYS.get(attr, attr)
-        if stored not in raw:
+        if stored in raw:
+            value = raw[stored]
+        elif attr in raw:
+            value = raw[attr]
+        else:
             continue
-        value = raw[stored]
         try:
             if value is None:
                 _null_or_poison(attr, _MPC_NULLABLE_FIELDS)

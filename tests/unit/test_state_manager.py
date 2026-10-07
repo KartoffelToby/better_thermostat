@@ -345,6 +345,27 @@ class TestSerializeDeserializeRoundtrip:
 # ---------------------------------------------------------------------------
 
 
+class TestDeserializeMpcFieldSpellings:
+    """The temperature anchors read under their store key and their attribute."""
+
+    def test_an_asdict_snapshot_keeps_the_anchors(self):
+        """A snapshot taken with ``asdict`` restores the three anchors."""
+        state = MpcState(
+            last_target_temperature=21.5,
+            last_sensor_temperature=20.25,
+            last_room_temperature=19.75,
+        )
+        restored = deserialize_mpc(asdict(state))
+        assert restored.last_target_temperature == 21.5
+        assert restored.last_sensor_temperature == 20.25
+        assert restored.last_room_temperature == 19.75
+
+    def test_the_store_key_wins_over_the_attribute_name(self):
+        """An entry carrying both spellings reads the store key."""
+        raw = {"last_target_C": 22.0, "last_target_temperature": 18.0}
+        assert deserialize_mpc(raw).last_target_temperature == 22.0
+
+
 class TestDeserializeMpcTypeCoercion:
     """deserialize_mpc should coerce types correctly."""
 
