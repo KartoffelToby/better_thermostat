@@ -179,28 +179,12 @@ errors = { implicit-any-parameter = true, implicit-any-attribute = true, implici
 # held by tests/gates/test_type_strictness_exemptions.py.
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/__init__.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/calibration.py"
 errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/climate.py"
 errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-type-argument = false, implicit-any-empty-container = false, missing-override-decorator = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/config_flow.py"
-errors = { implicit-any-parameter = false, implicit-any-attribute = false, implicit-any-type-argument = false, implicit-any-empty-container = false, missing-override-decorator = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/device_trigger.py"
-errors = { implicit-any-type-argument = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/diagnostics.py"
-errors = { implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/events/cooler.py"
@@ -216,15 +200,7 @@ errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/number.py"
-errors = { implicit-any-parameter = false, missing-override-decorator = false, bad-override-mutable-attribute = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/sensor.py"
-errors = { missing-override-decorator = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/switch.py"
-errors = { implicit-any-parameter = false, implicit-any-empty-container = false, missing-override-decorator = false }
+errors = { bad-override-mutable-attribute = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/utils/controlling.py"

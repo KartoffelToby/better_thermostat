@@ -373,7 +373,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             )
 
 
-async def async_migrate_entry(hass, config_entry: ConfigEntry):
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Migrate old entry."""
     _LOGGER.debug("Migrating from version %s", config_entry.version)
 
