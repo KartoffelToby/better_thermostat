@@ -2682,3 +2682,135 @@ class TestAFailedCopyThatRecovers:
         assert flushed != self._PAYLOAD
         assert hass_storage[self._LIVE_KEY]["data"] == flushed
         assert manager.dirty is False
+
+
+class TestStoredVersion:
+    """The payload's ``version`` is read as an integer before anything else.
+
+    Every JSON number keeps the migration decision ``version < 1`` it has
+    always had and is held, and saved again, as its integer part. Anything
+    that is not a finite number sends the payload down the unreadable path,
+    which keeps a copy before defaults take its place.
+    """
+
+    _ENTRY = {"k1": {"gain_est": 0.5}}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("stored", "expected"), [(1, 1), (True, 1), (1.0, 1), (1.9, 1), (2, 2)]
+    )
+    async def test_a_numeric_version_loads_as_an_integer(self, stored, expected):
+        """A bool or float version loads its entries and saves as an int."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(_hass_double(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": stored,
+                "mpc": self._ENTRY,
+            }
+            await mgr.load()
+            await mgr.save()
+
+        assert type(mgr.state.version) is int
+        assert mgr.state.version == expected
+        assert mgr.state.mpc["k1"].gain_est == 0.5
+        assert _SET_ASIDE_KEY not in stores
+        saved = stores[_LIVE_STORE_KEY].async_save.await_args[0][0]
+        assert type(saved["version"]) is int
+        assert saved["version"] == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stored", [0, False, 0.5, -3])
+    async def test_a_version_below_one_is_migrated(self, stored):
+        """A number below 1, a bool included, still runs the v0 migration."""
+        with _stores_by_key() as stores:
+            mgr = StateManager(_hass_double(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = {
+                "version": stored,
+                "mpc": self._ENTRY,
+            }
+            with patch(
+                f"{_SM}._migrate_v0_to_v1", side_effect=_migrate_v0_to_v1
+            ) as migrate:
+                await mgr.load()
+
+        migrate.assert_called_once()
+        assert type(mgr.state.version) is int
+        assert mgr.state.version < 1
+        assert mgr.state.mpc["k1"].gain_est == 0.5
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "stored", ["1", None, [1], {"v": 1}, float("nan"), float("inf")]
+    )
+    async def test_a_version_that_is_no_number_is_unreadable(self, stored, caplog):
+        """A version that is not a finite number keeps a copy and starts fresh."""
+        payload = {"version": stored, "mpc": self._ENTRY}
+        with _stores_by_key() as stores:
+            mgr = StateManager(_hass_double(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = payload
+            with caplog.at_level(logging.WARNING, logger=_SM):
+                await mgr.load()
+
+        assert mgr.state.mpc == {}
+        assert mgr.state.version == CURRENT_VERSION
+        assert "persisted state is unreadable" in caplog.text
+        copy = stores[_SET_ASIDE_KEY].async_save.await_args[0][0]
+        assert copy is payload
+
+    def test_a_payload_without_a_version_deserializes_as_current(self):
+        """``_deserialize`` gives a payload without a version the current one."""
+        assert _deserialize({"mpc": {}}).version == CURRENT_VERSION
+
+
+class TestMigrationLeavesItsInputUnchanged:
+    """The v0 migration builds a new payload instead of filling in the loaded one."""
+
+    def test_the_input_keeps_its_keys(self):
+        """The loaded mapping is the same before and after the migration."""
+        raw = {"mpc": {"k": {"gain_est": 0.5}}, "presets": {"eco": 18.0}}
+        before = {"mpc": {"k": {"gain_est": 0.5}}, "presets": {"eco": 18.0}}
+
+        result = _migrate_v0_to_v1(raw)
+
+        assert raw == before
+        assert result is not raw
+        assert result == {
+            **before,
+            "version": 1,
+            "pid": {},
+            "tpi": {},
+            "thermal": {},
+            "filters": {},
+        }
+
+    def test_each_default_section_is_its_own_mapping(self):
+        """No two migrated payloads, or sections, share a default mapping."""
+        first = _migrate_v0_to_v1({})
+        second = _migrate_v0_to_v1({})
+
+        assert first["mpc"] is not second["mpc"]
+        assert first["pid"] is not first["tpi"]
+
+    @pytest.mark.asyncio
+    async def test_a_v0_payload_is_set_aside_as_migrated(self):
+        """A v0 payload with a poisoned entry is kept as the migration left it.
+
+        The live payload stays as Home Assistant loaded it, and the copy set
+        aside carries the v1 defaults the migration added.
+        """
+        payload = {"mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
+        with _stores_by_key() as stores:
+            mgr = StateManager(_hass_double(), "test_entry")
+            stores[_LIVE_STORE_KEY].async_load.return_value = payload
+            await mgr.load()
+
+        assert payload == {"mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}}}
+        copy = stores[_SET_ASIDE_KEY].async_save.await_args[0][0]
+        assert copy == {
+            "version": 1,
+            "mpc": {"k1": {"gain_est": 0.5, "kalman_P": None}},
+            "pid": {},
+            "tpi": {},
+            "thermal": {},
+            "filters": {},
+        }

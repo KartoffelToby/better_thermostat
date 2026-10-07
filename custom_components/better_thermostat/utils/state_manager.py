@@ -70,7 +70,13 @@ from .const import (
     MIN_HEAT_LOSS,
     MIN_HEATING_POWER,
 )
-from .stored_values import finite_or_none, stored_count, stored_float, stored_int
+from .stored_values import (
+    finite_or_none,
+    is_json_object,
+    stored_count,
+    stored_float,
+    stored_int,
+)
 from .thermal_learning import clamp
 
 
@@ -401,7 +407,7 @@ def _finite_element(value: object, attr: str) -> float:
     return _finite_or_poison(value, attr)
 
 
-def _finite_perf_curve(value: Mapping[Any, Any]) -> dict[str, dict[str, float]]:
+def _finite_perf_curve(value: Mapping[str, object]) -> dict[str, dict[str, float]]:
     """Copy a stored performance curve, parsing every statistic in it.
 
     What the offending value is decides what it costs. A bin that is not a
@@ -414,7 +420,7 @@ def _finite_perf_curve(value: Mapping[Any, Any]) -> dict[str, dict[str, float]]:
     """
     curve: dict[str, dict[str, float]] = {}
     for label, stats in value.items():
-        if not isinstance(stats, Mapping):
+        if not is_json_object(stats):
             raise TypeError("perf_curve bin is not a mapping of statistics")
         curve[label] = {
             name: _finite_element(stat, "perf_curve statistic")
@@ -424,7 +430,10 @@ def _finite_perf_curve(value: Mapping[Any, Any]) -> dict[str, dict[str, float]]:
 
 
 def deserialize_mpc(
-    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+    raw: Mapping[str, object],
+    *,
+    key: str | None = None,
+    poisoned: list[str] | None = None,
 ) -> MpcState:
     """Deserialize a single MPC state dict into an MpcState dataclass.
 
@@ -443,7 +452,7 @@ def deserialize_mpc(
 
     Parameters
     ----------
-    raw : dict[str, Any]
+    raw : Mapping[str, object]
         the stored entry to read
     key : str | None
         names the state entry, so a report about a value that cannot be read
@@ -467,7 +476,7 @@ def deserialize_mpc(
             if value is None:
                 _null_or_poison(attr, _MPC_NULLABLE_FIELDS)
                 setattr(state, attr, None)
-            elif attr == "perf_curve" and isinstance(value, Mapping):
+            elif attr == "perf_curve" and is_json_object(value):
                 setattr(state, attr, _finite_perf_curve(value))
             elif attr == "recent_errors" and isinstance(value, (list, tuple)):
                 # MpcState.recent_errors is a deque(maxlen=20).
@@ -484,8 +493,6 @@ def deserialize_mpc(
                 )
             elif attr in _COUNT_FIELDS:
                 setattr(state, attr, stored_count(value))
-            elif attr in _SIGN_FIELDS:
-                setattr(state, attr, stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             elif attr in _STR_FIELDS:
@@ -502,7 +509,10 @@ def deserialize_mpc(
 
 
 def deserialize_mpc_v2(
-    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+    raw: Mapping[str, object],
+    *,
+    key: str | None = None,
+    poisoned: list[str] | None = None,
 ) -> MpcV2StateData | None:
     """Deserialize a single MPC v2 state dict; ``None`` if the entry is corrupt.
 
@@ -525,7 +535,7 @@ def deserialize_mpc_v2(
 
     Parameters
     ----------
-    raw : dict[str, Any]
+    raw : Mapping[str, object]
         the stored entry to read
     key : str | None
         names the state entry, so a report about a value that cannot be read
@@ -558,7 +568,7 @@ def deserialize_mpc_v2(
             continue
     state.outdoor_fallback_logged = bool(raw.get("outdoor_fallback_logged", False))
     snapshot = raw.get("snapshot")
-    if isinstance(snapshot, Mapping):
+    if is_json_object(snapshot):
         state.snapshot = dict(snapshot)
     elif snapshot is not None:
         # The snapshot holds the learned controller state, so one of any
@@ -572,7 +582,10 @@ def deserialize_mpc_v2(
 
 
 def deserialize_mpc_v2_reid(
-    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+    raw: Mapping[str, object],
+    *,
+    key: str | None = None,
+    poisoned: list[str] | None = None,
 ) -> MpcV2ReidData | None:
     """Deserialize a persisted re-identification result; None if malformed.
 
@@ -602,7 +615,7 @@ def deserialize_mpc_v2_reid(
 
     Parameters
     ----------
-    raw : dict[str, Any]
+    raw : Mapping[str, object]
         the stored entry to read
     key : str | None
         names the state entry, so a report about a value that cannot be read
@@ -656,7 +669,10 @@ def deserialize_mpc_v2_reid(
 
 
 def deserialize_pid(
-    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+    raw: Mapping[str, object],
+    *,
+    key: str | None = None,
+    poisoned: list[str] | None = None,
 ) -> PIDState:
     """Deserialize a single PID state dict into a PIDState dataclass.
 
@@ -674,7 +690,7 @@ def deserialize_pid(
 
     Parameters
     ----------
-    raw : dict[str, Any]
+    raw : Mapping[str, object]
         the stored entry to read
     key : str | None
         names the state entry, so a report about a value that cannot be read
@@ -692,8 +708,6 @@ def deserialize_pid(
             if value is None:
                 _null_or_poison(attr, _PID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
-            elif attr in _COUNT_FIELDS:
-                setattr(state, attr, stored_count(value))
             elif attr in _SIGN_FIELDS:
                 setattr(state, attr, stored_int(value))
             elif attr in _BOOL_FIELDS:
@@ -710,7 +724,10 @@ def deserialize_pid(
 
 
 def deserialize_tpi(
-    raw: dict[str, Any], *, key: str | None = None, poisoned: list[str] | None = None
+    raw: Mapping[str, object],
+    *,
+    key: str | None = None,
+    poisoned: list[str] | None = None,
 ) -> TpiState:
     """Deserialize a single TPI state dict into a TpiState dataclass.
 
@@ -721,7 +738,7 @@ def deserialize_tpi(
 
     Parameters
     ----------
-    raw : dict[str, Any]
+    raw : Mapping[str, object]
         the stored entry to read
     key : str | None
         names the state entry, so a report about a value that cannot be read
@@ -751,8 +768,8 @@ def deserialize_tpi(
 
 
 def _stored_section(
-    raw: dict[str, Any], section: str, poisoned: list[str] | None
-) -> Mapping[str, Any]:
+    raw: Mapping[str, object], section: str, poisoned: list[str] | None
+) -> Mapping[str, object]:
     """Return one section of the store, or an empty one when it has none.
 
     A section of any other shape than a mapping is dropped and named: past
@@ -761,7 +778,7 @@ def _stored_section(
     the next save.
     """
     value = raw.get(section, {})
-    if isinstance(value, Mapping):
+    if is_json_object(value):
         return value
     _LOGGER.warning(
         "better_thermostat: stored %s section is not a mapping; its entries "
@@ -774,16 +791,16 @@ def _stored_section(
 
 
 def _stored_entries(
-    raw: dict[str, Any], section: str, poisoned: list[str] | None
-) -> list[tuple[str, dict[str, Any]]]:
+    raw: Mapping[str, object], section: str, poisoned: list[str] | None
+) -> list[tuple[str, Mapping[str, object]]]:
     """Return the entries of one keyed section that are mappings.
 
     An entry of any other shape is dropped, named with its key and noted
     in *poisoned*.
     """
-    entries: list[tuple[str, dict[str, Any]]] = []
+    entries: list[tuple[str, Mapping[str, object]]] = []
     for key, entry in _stored_section(raw, section, poisoned).items():
-        if isinstance(entry, dict):
+        if is_json_object(entry):
             entries.append((key, entry))
             continue
         _LOGGER.warning(
@@ -820,7 +837,7 @@ def _stored_optional_number(
 
 
 def _deserialize(
-    raw: dict[str, Any], *, poisoned: list[str] | None = None
+    raw: Mapping[str, object], *, poisoned: list[str] | None = None
 ) -> RuntimeState:
     """Reconstruct a RuntimeState from a raw dict (loaded from Store).
 
@@ -829,7 +846,7 @@ def _deserialize(
     non-finite number reset, a re-identification result outside its
     plausible band, and a section or entry of the wrong shape.
     """
-    state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
+    state = RuntimeState(version=_stored_version(raw, CURRENT_VERSION))
 
     for key, entry in _stored_entries(raw, "mpc", poisoned):
         state.mpc[key] = deserialize_mpc(entry, key=key, poisoned=poisoned)
@@ -874,6 +891,44 @@ def _deserialize(
     return state
 
 
+def _stored_version(raw: Mapping[str, object], default: int) -> int:
+    """Return the schema version a store payload declares, or *default*.
+
+    Any JSON number is read as its integer part, rounded down, which keeps
+    the ``version < 1`` decision of :meth:`StateManager.load` for every
+    number, a bool included. Whatever is not a finite number, a stored
+    null or a string among them, raises, so ``load()`` treats the payload
+    as unreadable.
+
+    Parameters
+    ----------
+    raw : Mapping[str, object]
+        the store payload
+    default : int
+        the version of a payload without a ``"version"`` key
+
+    Returns
+    -------
+    int
+        the declared version, rounded down
+
+    Raises
+    ------
+    TypeError
+        when the version is not a number
+    ValueError
+        when the version is NaN
+    OverflowError
+        when the version is infinite
+    """
+    if "version" not in raw:
+        return default
+    value = raw["version"]
+    if isinstance(value, int | float):
+        return math.floor(value)
+    raise TypeError(f"store version is not a number: {value!r}")
+
+
 def _store_key(entry_id: str) -> str:
     """Return the Store key holding one config entry's runtime state."""
     return f"{DOMAIN}_{entry_id}_state"
@@ -894,20 +949,19 @@ def _quarantine_key(entry_id: str, copy: int = 0) -> str:
 # Migration
 
 
-def _migrate_v0_to_v1(raw: dict[str, Any]) -> dict[str, Any]:
+def _migrate_v0_to_v1(raw: Mapping[str, object]) -> dict[str, object]:
     """Migrate from unversioned (v0) format to v1.
 
     v0 is the legacy format where MPC/PID/TPI/thermal data lived in
-    separate Store files.  If loading from a unified store that already
-    has the v1 schema, this is a no-op.
+    separate Store files.  The result is a new mapping holding every key
+    of *raw* plus a default for each v1 key it lacks; *raw* itself is left
+    as it was loaded.
     """
-    raw.setdefault("version", 1)
-    raw.setdefault("mpc", {})
-    raw.setdefault("pid", {})
-    raw.setdefault("tpi", {})
-    raw.setdefault("thermal", {})
-    raw.setdefault("filters", {})
-    return raw
+    migrated = dict(raw)
+    migrated.setdefault("version", 1)
+    for section in ("mpc", "pid", "tpi", "thermal", "filters"):
+        migrated.setdefault(section, {})
+    return migrated
 
 
 # StateManager
@@ -925,7 +979,7 @@ class StateManager:
     """
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
-        self._store: Store[dict[str, Any]] = Store(
+        self._store: Store[Mapping[str, object]] = Store(
             hass, CURRENT_VERSION, _store_key(entry_id)
         )
         self._hass = hass
@@ -941,7 +995,7 @@ class StateManager:
         # A payload load() could not read in full and could not set aside
         # either. The live store holds its only copy, so nothing is written
         # over it until the copy exists.
-        self._payload_awaiting_copy: dict[str, Any] | None = None
+        self._payload_awaiting_copy: Mapping[str, object] | None = None
         # Whether the failing copy has been reported at WARNING already; each
         # further attempt that fails is logged at DEBUG only.
         self._copy_failure_reported = False
@@ -1414,7 +1468,7 @@ class StateManager:
             return
         await self._quarantine_unreadable_state(payload)
 
-    async def _quarantine_unreadable_state(self, raw: dict[str, Any]) -> None:
+    async def _quarantine_unreadable_state(self, raw: Mapping[str, object]) -> None:
         """Set an unreadable store aside before defaults take its place.
 
         That covers a store that cannot be read at all and one with entries
@@ -1433,7 +1487,7 @@ class StateManager:
 
         Parameters
         ----------
-        raw : dict[str, Any]
+        raw : Mapping[str, object]
             The store payload that could not be deserialized in full.
         """
         key = _quarantine_key(self._entry_id, QUARANTINE_COPIES - 1)
@@ -1441,7 +1495,7 @@ class StateManager:
             free: str | None = None
             for copy in range(QUARANTINE_COPIES):
                 copy_key = _quarantine_key(self._entry_id, copy)
-                kept: Store[dict[str, Any]] = Store(
+                kept: Store[Mapping[str, object]] = Store(
                     self._hass, QUARANTINE_VERSION, copy_key
                 )
                 stored = await kept.async_load()
@@ -1454,7 +1508,7 @@ class StateManager:
             key = free or key
             # Written atomically: replacing the newest copy must not leave it
             # half-written when the write fails.
-            quarantine: Store[dict[str, Any]] = Store(
+            quarantine: Store[Mapping[str, object]] = Store(
                 self._hass, QUARANTINE_VERSION, key, atomic_writes=True
             )
             await quarantine.async_save(raw)
@@ -1462,7 +1516,9 @@ class StateManager:
             # Home Assistant stops it only queues the write for the final
             # write. A second Store holds no queued data, so what it loads
             # is what reached the disk.
-            on_disk: Store[dict[str, Any]] = Store(self._hass, QUARANTINE_VERSION, key)
+            on_disk: Store[Mapping[str, object]] = Store(
+                self._hass, QUARANTINE_VERSION, key
+            )
             written = await on_disk.async_load()
         except HomeAssistantError, OSError:
             self._report_copy_failure(
@@ -1506,8 +1562,7 @@ class StateManager:
         # relearning replaces anything a poisoned store could offer.
         poisoned: list[str] = []
         try:
-            version = raw.get("version", 0)
-            if version < 1:
+            if _stored_version(raw, 0) < 1:
                 raw = _migrate_v0_to_v1(raw)
             self._state = _deserialize(raw, poisoned=poisoned)
         except Exception:
