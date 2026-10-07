@@ -32,8 +32,8 @@ from .state_manager import (
     deserialize_mpc,
     deserialize_pid,
     deserialize_tpi,
-    finite_or_none,
 )
+from .stored_values import finite_or_none
 
 _LOGGER = logging.getLogger(__name__)
 
