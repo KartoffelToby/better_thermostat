@@ -969,7 +969,11 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
 
         # Normalize without forcing to str to avoid values like "HVACMode.HEAT"
         _orig_mode = hvac_mode
-        hvac_mode = mode_remap(self, entity_id, hvac_mode, False)
+        # No mode leaves the device's mode untouched, which is what the
+        # remap answers for a mode the device does not offer as well.
+        hvac_mode = (
+            None if hvac_mode is None else mode_remap(self, entity_id, hvac_mode, False)
+        )
         _LOGGER.debug(
             "better_thermostat %s: convert_outbound_states(%s) system_mode in=%s out=%s",
             self.device_name,
