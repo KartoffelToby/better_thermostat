@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -59,9 +59,26 @@ from custom_components.better_thermostat.utils.helpers import (
 from custom_components.better_thermostat.utils.scheduler import request_control_cycle
 
 if TYPE_CHECKING:
+    from homeassistant.core import Event, EventStateChangedData
+
+    from custom_components.better_thermostat.climate import BetterThermostat
     from custom_components.better_thermostat.trv import Trv
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class OutboundTrvPayload(TypedDict):
+    """The writes one control cycle sends to a TRV, in °C.
+
+    ``system_mode`` is the mode in the device's own spelling, or None when
+    the device's mode is left untouched. ``local_temperature_calibration``
+    is present only for a TRV calibrated through its local offset.
+    """
+
+    temperature: float | None
+    local_temperature: float | None
+    system_mode: str | None
+    local_temperature_calibration: NotRequired[float]
 
 
 def accepts_user_setpoint(
@@ -113,7 +130,7 @@ def accepts_user_setpoint(
 
 
 def _hold_report(
-    self, trv: Trv, old_state: State | None, new_state: State | None
+    self: BetterThermostat, trv: Trv, old_state: State | None, new_state: State | None
 ) -> None:
     """Park a report that arrives while a control cycle holds the handler off.
 
@@ -171,13 +188,13 @@ def _reports_on(state: State | None) -> bool:
     )
 
 
-def _held_setpoint(self, state: State | None) -> float | None:
+def _held_setpoint(self: BetterThermostat, state: State | None) -> float | None:
     """Return the setpoint a held report's state carries, or None."""
     return read_setpoint_celsius(self, state, TRV_SETPOINT_KEYS, "_hold_report()")
 
 
 def _read_internal_temperature_later(
-    self, trv: Trv, entity_id: str, interval_s: float
+    self: BetterThermostat, trv: Trv, entity_id: str, interval_s: float
 ) -> None:
     """Read a device's internal temperature again once its debounce is over.
 
@@ -272,13 +289,13 @@ def _read_internal_temperature_later(
 
 
 async def trigger_trv_change(
-    self,
-    event,
+    self: BetterThermostat,
+    event: Event[EventStateChangedData],
     *,
     mode_settled: bool = False,
     request_cycle: bool = True,
     prior_hvac_mode: str | None = None,
-):
+) -> None:
     """Trigger a change in the trv state.
 
     ``mode_settled`` reads a report whose mode the end of a control cycle
@@ -887,7 +904,9 @@ async def trigger_trv_change(
     return
 
 
-def convert_inbound_states(self, entity_id, state: State) -> str | None:
+def convert_inbound_states(
+    self: BetterThermostat, entity_id: str, state: State
+) -> str | None:
     """Convert HVAC mode in a thermostat state from Home Assistant.
 
     Parameters
@@ -917,7 +936,9 @@ def convert_inbound_states(self, entity_id, state: State) -> str | None:
     return remapped_state
 
 
-def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
+def convert_outbound_states(
+    self: BetterThermostat, entity_id: str, hvac_mode: HVACMode | str | None
+) -> OutboundTrvPayload | None:
     """Convert outbound states for TRV control.
 
     Returns the payload for setting the TRV state.
@@ -1014,7 +1035,7 @@ def convert_outbound_states(self, entity_id, hvac_mode) -> dict | None:
             hvac_mode = None
 
         # Build payload; include calibration only if present
-        _payload = {
+        _payload: OutboundTrvPayload = {
             "temperature": _new_heating_setpoint,
             "local_temperature": self.real_trvs[entity_id].current_temperature,
             "system_mode": hvac_mode,

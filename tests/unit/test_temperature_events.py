@@ -526,18 +526,6 @@ class TestTriggerTemperatureChangeGuards:
         mock_ir.async_create_issue.assert_called_once()
         mock_bt.control_queue_task.put_nowait.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_first_run_accepts_via_first_reading_path(self, mock_bt):
-        """Accept the first reading via 'first_reading' when room_temperature is None."""
-        mock_bt.last_external_sensor_change = None
-        mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
-
 
 # ---------------------------------------------------------------------------
 # 4. Temperature acceptance (debounce)
@@ -556,23 +544,6 @@ class TestTemperatureAcceptance:
     async def test_first_temp_accepted_when_cur_is_none(self, mock_bt):
         """Accept the first temperature reading when room_temperature is None."""
         mock_bt.room_temperature = None
-        event = _make_event(State(SENSOR_ID, "21.0"))
-
-        await trigger_temperature_change(mock_bt, event)
-
-        mock_bt.control_queue_task.put_nowait.assert_called_once()
-        assert mock_bt.room_temperature == 21.0
-
-    @pytest.mark.asyncio
-    async def test_first_update_accepted_when_timestamp_uninitialized(self, mock_bt):
-        """First real update passes even with no prior timestamp.
-
-        With a known room_temperature but ``last_external_sensor_change is None`` the
-        guard must seed a timestamp older than the debounce window (not "now"),
-        so the first significant update clears the interval check.
-        """
-        mock_bt.room_temperature = 20.0
-        mock_bt.last_external_sensor_change = None
         event = _make_event(State(SENSOR_ID, "21.0"))
 
         await trigger_temperature_change(mock_bt, event)

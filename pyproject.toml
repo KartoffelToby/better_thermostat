@@ -207,18 +207,6 @@ matches = "custom_components/better_thermostat/diagnostics.py"
 errors = { implicit-any-type-argument = false }
 
 [[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/events/cooler.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/events/temperature.py"
-errors = { implicit-any-parameter = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/events/trv.py"
-errors = { implicit-any-parameter = false, implicit-any-type-argument = false }
-
-[[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/number.py"
 errors = { implicit-any-parameter = false, missing-override-decorator = false, bad-override-mutable-attribute = false }
 
@@ -229,10 +217,6 @@ errors = { missing-override-decorator = false }
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/switch.py"
 errors = { implicit-any-parameter = false, implicit-any-empty-container = false, missing-override-decorator = false }
-
-[[tool.pyrefly.sub-config]]
-matches = "custom_components/better_thermostat/utils/controlling.py"
-errors = { implicit-any-parameter = false }
 
 [[tool.pyrefly.sub-config]]
 matches = "custom_components/better_thermostat/utils/helpers.py"

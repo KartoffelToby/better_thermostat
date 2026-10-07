@@ -9,7 +9,7 @@ propagated to the target devices.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 import math
 from time import monotonic
@@ -32,6 +32,8 @@ from custom_components.better_thermostat.utils.scheduler import request_control_
 from custom_components.better_thermostat.utils.watcher import room_sensor_reading
 
 if TYPE_CHECKING:
+    from homeassistant.core import Event, EventStateChangedData
+
     from custom_components.better_thermostat.climate import BetterThermostat
 
 _LOGGER = logging.getLogger(__name__)
@@ -133,7 +135,7 @@ def _room_sensor_returns(self: BetterThermostat, previous_state: State | None) -
     return room_sensor_reading(self, previous_state) is None
 
 
-async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
+async def _commit_temperature_update(self: BetterThermostat, new_temp: float) -> None:
     """Apply the new external temperature and trigger updates.
 
     Callers hold the filter lock.
@@ -246,7 +248,7 @@ async def _commit_temperature_update(self: BetterThermostat, new_temp) -> None:
     )
 
 
-def _sensor_still_reads(self, value: float) -> bool:
+def _sensor_still_reads(self: BetterThermostat, value: float) -> bool:
     """Tell whether the room sensor still reports a pending reading.
 
     A timer that commits a pending reading queues on the filter lock with
@@ -268,11 +270,14 @@ def _sensor_still_reads(self, value: float) -> bool:
     bool
             True if the sensor still reads ``value``.
     """
-    reading = room_sensor_reading(self, self.hass.states.get(self.sensor_entity_id))
+    sensor_entity_id = self.sensor_entity_id
+    if sensor_entity_id is None:
+        return False
+    reading = room_sensor_reading(self, self.hass.states.get(sensor_entity_id))
     return reading is not None and round(reading, 2) == value
 
 
-def _commit_pending_after(self, delay_s: float) -> None:
+def _commit_pending_after(self: BetterThermostat, delay_s: float) -> None:
     """Apply the pending reading once the debounce interval has run out.
 
     A reading turned away only because it came too soon after the last one
@@ -284,10 +289,12 @@ def _commit_pending_after(self, delay_s: float) -> None:
     A sensor that has since stopped giving a usable reading, or that now
     reads a different value, has withdrawn the pending one.
     """
-    if self.plateau_timer_cancel is not None:
-        self.plateau_timer_cancel()
     _value = self.pending_temp
     _since = self.pending_since
+    if _value is None:
+        return
+    if self.plateau_timer_cancel is not None:
+        self.plateau_timer_cancel()
 
     async def _interval_cb() -> None:
         async with temperature_filter_lock(self):
@@ -313,7 +320,9 @@ def _commit_pending_after(self, delay_s: float) -> None:
     self.plateau_timer_cancel = async_call_later(self.hass, delay_s, _interval_due)
 
 
-async def trigger_temperature_change(self, event):
+async def trigger_temperature_change(
+    self: BetterThermostat, event: Event[EventStateChangedData]
+) -> None:
     """Handle temperature changes.
 
     Decides whether one external temperature reading is applied. Readings
@@ -362,15 +371,9 @@ async def trigger_temperature_change(self, event):
     # updates even with a larger control tolerance.
     _sig_threshold = 0.11
 
-    # First-run guard: seed the timestamp far enough in the past that the
-    # first real update clears the debounce interval finalized above (setting
-    # it to "now" would make the age zero and fail the interval check).
-    if self.last_external_sensor_change is None:
-        self.last_external_sensor_change = dt_util.now() - timedelta(
-            seconds=_time_diff + 1
-        )
-
-    if not is_reasonable_temperature(_incoming_temperature_q):
+    if _incoming_temperature_q is None or not is_reasonable_temperature(
+        _incoming_temperature_q
+    ):
         # raise a ha repair notification
         _LOGGER.error(
             "better_thermostat %s: external_temperature %s is outside the "

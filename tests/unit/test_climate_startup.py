@@ -209,7 +209,7 @@ def plateau_bt(bt, hass):
     bt.control_queue_task = None
     bt.in_maintenance = False
     bt._control_needed_after_maintenance = False
-    bt.last_external_sensor_change = None
+    bt.last_external_sensor_change = dt_util.now() - timedelta(hours=2)
     bt.prev_stable_temp = None
     bt.last_change_direction = 0
     bt.accum_delta = 0.0
