@@ -341,6 +341,51 @@ class TestTheSpiritIsDrivenByTheZWA021Quirk:
         assert info["support_valve"] is True
 
 
+class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
+    """The ZVIDAR Z-TRV-V01 is a clone of the same device, under a third name.
+
+    Z-Wave JS reports it as ``Z-TRV-V01``, which names no module of its own,
+    so it reaches the manufacturer-specific valve mode only if its model
+    resolves onto the ZWA021 module.
+    """
+
+    def test_the_z_trv_v01_resolves_onto_the_zwa021_module(self):
+        """The alias is what makes the quirk reachable for that model."""
+        assert quirks.get_model_quirks_name("Z-TRV-V01") == "ZWA021"
+
+    @pytest.mark.asyncio
+    async def test_the_loader_imports_the_zwa021_module_for_a_z_trv_v01(self):
+        """The module path the loader builds carries the resolved name."""
+        mock_self = _make_self()
+        imported = AsyncMock(return_value=quirk)
+        with patch.object(quirks, "async_import_module", imported):
+            module = await quirks.load_model_quirks(
+                mock_self, "Z-TRV-V01", "climate.trv1"
+            )
+
+        assert module is quirk
+        assert imported.await_args.args[1] == (
+            "custom_components.better_thermostat.model_fixes.ZWA021"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_z_trv_v01_reports_valve_without_a_number_entity(self):
+        """Valve support is what puts direct valve control in the config flow."""
+        mock_self = _make_self()
+        with (
+            patch.object(
+                adapter, "find_local_calibration_entity", AsyncMock(return_value=None)
+            ),
+            patch.object(adapter, "find_valve_entity", AsyncMock(return_value=None)),
+            patch.object(
+                adapter, "get_device_model", AsyncMock(return_value="Z-TRV-V01")
+            ),
+        ):
+            info = await adapter.get_info(mock_self, "climate.trv1")
+
+        assert info["support_valve"] is True
+
+
 class TestAnUnknownStateFromADrivenSpirit:
     """The state a Spirit publishes while it takes valve positions.
 

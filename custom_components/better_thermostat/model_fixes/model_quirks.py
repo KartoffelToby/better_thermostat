@@ -25,7 +25,9 @@ _LOGGER = logging.getLogger(__name__)
 # Model strings that no quirk module of their own answers for, mapped to the
 # module that drives them instead. The Eurotronic Spirit Z and the Aeotec
 # ZWA021 are one device sold under two names, so one module covers both.
-_QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021"}
+# ZVIDAR Z-TRV-V01 is a clone of the same device and drives its valve the same
+# way, so it resolves onto that module too.
+_QUIRK_MODULE_ALIASES = {"Spirit": "ZWA021", "Z-TRV-V01": "ZWA021"}
 
 
 def get_model_quirks_name(model: str | None) -> str:
