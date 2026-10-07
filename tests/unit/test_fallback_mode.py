@@ -260,3 +260,18 @@ class TestNoBtMode:
         ]
         trv = mock_bt_instance_no_calibration.real_trvs["climate.test_trv"]
         assert trv.unsupported_modes_logged == set()
+
+
+def test_a_stored_false_no_off_sends_the_off_mode(mock_bt_instance_no_calibration):
+    """A device whose ``no_off_system_mode`` is stored as ``"false"`` gets OFF."""
+    from custom_components.better_thermostat.events.trv import convert_outbound_states
+
+    trv = mock_bt_instance_no_calibration.real_trvs["climate.test_trv"]
+    trv.advanced["no_off_system_mode"] = "false"
+
+    result = convert_outbound_states(
+        mock_bt_instance_no_calibration, "climate.test_trv", HVACMode.OFF
+    )
+
+    assert result is not None
+    assert result["system_mode"] == HVACMode.OFF
