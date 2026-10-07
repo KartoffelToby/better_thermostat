@@ -418,7 +418,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
     """Set Aqara SRTS-A01 external temperature input via a number entity on the same device.
 
     Looks for number.* entity matching external_temperature_input and writes the
-    given temperature (clamped to 0..99.9, rounded to one decimal). The sensor
+    given temperature (clamped to 0..55.0, rounded to one decimal). The sensor
     selector is pointed at that input alongside the write, because a device
     regulating on its own sensor never reads it.
 
@@ -489,7 +489,7 @@ async def maybe_set_external_temperature(self, entity_id, temperature: float) ->
                 temperature,
             )
             return False
-        val = max(0.0, min(99.9, round(val, 1)))
+        val = max(0.0, min(55.0, round(val, 1)))
 
         if not await maybe_select_external_sensor(self, entity_id):
             _LOGGER.debug(
