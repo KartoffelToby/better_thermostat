@@ -731,3 +731,74 @@ class TestPidTimeHandling:
         assert percent > 0
         assert (state.pid_kp, state.pid_ki, state.pid_kd) == (60.0, 0.01, 2000.0)
         assert state.last_tune_ts == 0.0
+
+
+class TestPidDerivativeSmoothing:
+    """The smoothing weight of the D channel's measurement."""
+
+    def test_unusable_smoothing_factor_blends_half_and_half(self):
+        """A non-numeric smoothing factor smooths the D channel with 0.5.
+
+        The derivative of this cycle and the measurement stored for the next
+        one both use the fallback weight.
+        """
+        params = PIDParams(
+            auto_tune=False,
+            kp=0.0,
+            ki=0.0,
+            kd=100.0,
+            d_smoothing_alpha="fast",
+            min_hold_time_s=0.0,
+        )
+        state = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+
+        _, debug, state = compute_pid(
+            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=1010.0
+        )
+
+        assert debug["meas_smooth_C"] == 20.5
+        # (20.5 - 20.0) / 10 s
+        assert debug["d_meas_per_s"] == pytest.approx(0.05)
+        assert debug["d"] == pytest.approx(-5.0)
+        # The stored measurement blends 20.0 and 21.0 again with 0.5.
+        assert state.pid_last_meas == pytest.approx(20.5)
+
+    def test_smoothing_factor_weights_the_new_measurement(self):
+        """A valid smoothing factor sets the weight of the new reading."""
+        params = PIDParams(
+            auto_tune=False,
+            kp=0.0,
+            ki=0.0,
+            kd=100.0,
+            d_smoothing_alpha=0.25,
+            min_hold_time_s=0.0,
+        )
+        state = PIDState(pid_last_meas=20.0, pid_last_time=1000.0)
+
+        _, debug, state = compute_pid(
+            params, 22.0, 21.0, 21.0, 0.0, "k", state=state, now=1010.0
+        )
+
+        assert debug["meas_smooth_C"] == 20.25
+        assert debug["d"] == pytest.approx(-2.5)
+        assert state.pid_last_meas == pytest.approx(20.25)
+
+
+class TestPidKeyBucket:
+    """The target bucket in the PID key."""
+
+    class _Thermostat:
+        def __init__(self, target: float | None) -> None:
+            self.heat_target_temperature = target
+            self.unique_id = "bt_1"
+
+    @pytest.mark.parametrize("target", [float("inf"), float("nan")])
+    def test_a_target_without_a_bucket_keys_as_unknown(self, target):
+        """A target that cannot be rounded to a bucket keys as ``tunknown``."""
+        key = build_pid_key(self._Thermostat(target), "climate.trv")
+        assert key == "bt_1:climate.trv:tunknown"
+
+    def test_a_target_rounds_to_its_half_degree_bucket(self):
+        """A finite target lands in its nearest 0.5 degree bucket."""
+        key = build_pid_key(self._Thermostat(21.3), "climate.trv")
+        assert key == "bt_1:climate.trv:t21.5"
