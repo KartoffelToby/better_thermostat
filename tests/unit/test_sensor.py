@@ -46,6 +46,7 @@ from custom_components.better_thermostat.sensor import (
     _cleanup_pid_switch_entities,
     _cleanup_preset_number_entities,
     _cleanup_stale_algorithm_entities,
+    _debug_number,
     _get_active_algorithms,
     _get_filtered_temp,
     _handle_dynamic_entity_update,
@@ -425,6 +426,22 @@ class TestMpcSensorAvailability:
         bt._available = False
         sensor = sensor_class(bt)
         assert sensor.available is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (21.5, 21.5),
+        (3, 3.0),
+        ("0.25", 0.25),
+        ("bad", None),
+        (None, None),
+        ({"nested": 1.0}, None),
+    ],
+)
+def test_debug_number_keeps_numbers_and_drops_everything_else(value, expected):
+    """A debug value becomes a float when numeric and None otherwise."""
+    assert _debug_number(value) == expected
 
 
 class TestMpcSensorState:

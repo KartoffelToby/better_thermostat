@@ -306,20 +306,6 @@ async def test_a_valve_without_a_device_reports_its_integration_only(device_id):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_empty_registries")
-async def test_an_entity_without_a_flight_recorder_still_reports_its_state():
-    """The thermostat's state is in the download even before a recorder exists."""
-    bt = ThermostatStandIn()
-    bt.entity_id = "climate.trv"
-    bt.flight_recorder = None
-
-    diagnostics = await async_get_config_entry_diagnostics(_hass(), _config_entry(bt))
-
-    assert diagnostics["climate"]["entity_id"] == "climate.trv"
-    assert "flight_recorder" not in diagnostics
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("_empty_registries")
 @pytest.mark.parametrize("key", ["ip", "ip_address"])
 async def test_no_network_address_reaches_the_download(key):
     """An address a valve publishes under either key is redacted."""

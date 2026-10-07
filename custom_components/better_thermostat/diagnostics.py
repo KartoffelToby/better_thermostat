@@ -136,8 +136,6 @@ async def async_get_config_entry_diagnostics(
         # annunciation attributes.
         diagnostics_data["climate"] = _state(hass, bt.entity_id)
         # Flight recorder: the last decision tuples for offline replay.
-        recorder = getattr(bt, "flight_recorder", None)
-        if recorder is not None:
-            diagnostics_data["flight_recorder"] = recorder.export()
+        diagnostics_data["flight_recorder"] = bt.flight_recorder.export()
 
     return async_redact_data(diagnostics_data, TO_REDACT)

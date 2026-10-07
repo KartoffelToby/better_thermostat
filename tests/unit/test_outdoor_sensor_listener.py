@@ -21,6 +21,8 @@ CLIMATE_MOD = "custom_components.better_thermostat.climate"
 def _make_self(*, call_for_heat_after, last_call_for_heat, in_maintenance=False):
     """Build a BetterThermostat stand-in for the outdoor-change handler."""
     bt = SimpleNamespace(
+        hass=MagicMock(),
+        entity_id="climate.test_bt",
         device_name="Test BT",
         in_maintenance=in_maintenance,
         call_for_heat=last_call_for_heat,
