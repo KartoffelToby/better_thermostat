@@ -141,7 +141,13 @@ class TestSetValve:
     @pytest.mark.asyncio
     async def test_writes_multilevel_switch_scaled_to_99(self):
         """100 % maps onto the device's fully-open value of 99."""
-        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self = _make_self(
+            calibration=CalibrationType.DIRECT_VALVE_BASED,
+            state=State("climate.trv1", STATE_UNKNOWN),
+        )
+        mock_self.real_trvs["climate.trv1"].extra["_z_trv_v01_valve_mode_engaged"] = (
+            True
+        )
 
         handled = await quirk.override_set_valve(mock_self, "climate.trv1", 100)
 
@@ -166,9 +172,40 @@ class TestSetValve:
         assert args[2]["value"] == 0
 
     @pytest.mark.asyncio
+    async def test_engages_mode_before_writing_the_valve(self):
+        """The first valve write of a cycle engages mode 31 first."""
+        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+
+        handled = await quirk.override_set_valve(mock_self, "climate.trv1", 100)
+
+        assert handled is True
+        calls = mock_self.hass.services.async_call.await_args_list
+        assert calls[0].args[2]["command_class"] == "64"
+        assert calls[0].args[2]["value"] == "31"
+        assert calls[-1].args[2]["command_class"] == 38
+        assert calls[-1].args[2]["property"] == "targetValue"
+        assert calls[-1].args[2]["value"] == 99
+
+    @pytest.mark.asyncio
     async def test_declines_a_refused_valve_write(self):
         """A position that never reached the valve is not one to record."""
         mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
         mock_self.hass.services.async_call = AsyncMock(side_effect=HomeAssistantError)
 
         assert await quirk.override_set_valve(mock_self, "climate.trv1", 50) is False
+
+    @pytest.mark.asyncio
+    async def test_a_failed_mode_write_sends_no_valve_command(self):
+        """Without the mode engaged the valve target is not sent."""
+        mock_self = _make_self(calibration=CalibrationType.DIRECT_VALVE_BASED)
+        mock_self.hass.services.async_call = AsyncMock(side_effect=HomeAssistantError)
+
+        handled = await quirk.override_set_valve(mock_self, "climate.trv1", 50)
+
+        assert handled is False
+        # Only the mode write was attempted; no targetValue reached the device.
+        sent = [
+            call.args[2]["property"]
+            for call in mock_self.hass.services.async_call.await_args_list
+        ]
+        assert "targetValue" not in sent
