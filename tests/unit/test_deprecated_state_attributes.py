@@ -43,6 +43,33 @@ def test_every_deprecated_attribute_is_published_with_the_current_value():
         assert attrs[deprecated_name] == attrs[name]
 
 
+# Every name 1.9 published that 2.x writes next to its current name, spelled
+# out here so a typo or a dropped entry in the table fails.
+_PUBLISHED_BY_1_9 = {
+    "preset_cool_temperature": "bt_preset_cool_temperature",
+    "preset_cool_temperatures": "bt_preset_cool_temperatures",
+    "preset_heat_temperatures": "bt_preset_heat_temperatures",
+    "room_temperature_filtered": "external_temp_ema",
+    "temperature_slope_kelvin_per_min": "temp_slope_K_min",
+    "heating_power_normalized": "heating_power_norm",
+    "pid_error_kelvin": "pid_e_K",
+    "pid_measurement_filtered": "pid_meas_smooth_C",
+    "pid_measurement_slope_kelvin_per_min": "pid_d_meas_K_per_min",
+    "pid_dt_seconds": "pid_dt_s",
+    "mpc_v2_room_temperature_estimate": "mpc_v2_T_room_hat",
+    "mpc_v2_radiator_temperature_estimate": "mpc_v2_T_rad_hat",
+    "mpc_v2_radiator_room_coupling": "mpc_v2_coupling_rad_room",
+    "mpc_v2_disturbance_kelvin_per_min": "mpc_v2_D_hat_K_per_min",
+    "mpc_v2_tau_room_minutes": "mpc_v2_tau_room_min",
+    "mpc_v2_group_valve_percent": "mpc_v2_group_valve_pct",
+}
+
+
+def test_the_table_holds_every_name_1_9_published():
+    """Each renamed attribute keeps the exact spelling 1.9 published."""
+    assert DEPRECATED_STATE_ATTRIBUTES == _PUBLISHED_BY_1_9
+
+
 def _trv(debug: dict[str, object]) -> Trv:
     return make_trv(calibration_balance={"debug": debug})
 
