@@ -1,8 +1,8 @@
 """The parser that checks a config entry's stored settings.
 
-It accepts every shape a writer stores, returns a new mapping and leaves the
-stored one alone, and refuses a value no writer stores with a message that
-names the key.
+It accepts every value a current reader tolerates, returns a new mapping and
+leaves the stored one alone, and refuses a broken structure, or a container
+where no reader can use one, with a message that names the key.
 """
 
 import copy
@@ -11,6 +11,10 @@ from homeassistant.const import CONF_NAME
 import pytest
 
 from custom_components.better_thermostat.utils import const
+from custom_components.better_thermostat.utils.advanced_flags import (
+    advanced_flag,
+    as_bool,
+)
 from custom_components.better_thermostat.utils.entry_schema import (
     BtSettings,
     InvalidSettingsError,
@@ -119,6 +123,74 @@ def test_a_whole_number_where_a_float_is_read_becomes_that_float():
     ids=["numbers", "text", "none"],
 )
 def test_every_shape_the_readers_take_parses_as_stored(stored):
+    assert parse_settings(_minimal() | stored) == _minimal() | stored
+
+
+@pytest.mark.parametrize(
+    "advanced",
+    [
+        # Older entries stored numeric modes; 0 is the default mode.
+        {"calibration_mode": 0},
+        {"calibration": None},
+        {"calibration_mode": 1.5, "balance_mode": None, "mpc_v2_plant_preset": 3},
+        # A bool is an int to the readers that look at numeric modes.
+        {"calibration_mode": False},
+    ],
+    ids=["mode_zero", "calibration_none", "numbers_and_none", "bool"],
+)
+def test_a_choice_is_kept_as_stored(advanced):
+    raw = _with_advanced(**advanced)
+
+    parsed = parse_settings(raw)
+
+    assert parsed["thermostat"][0]["advanced"] == advanced
+
+
+@pytest.mark.parametrize(
+    ("stored", "read"),
+    [
+        ("false", False),
+        (" On ", True),
+        (1, True),
+        (0, False),
+        ("maybe", True),
+        ([], False),
+    ],
+)
+def test_a_flag_stored_as_another_type_reads_as_the_options_flow_saves_it(stored, read):
+    parsed = parse_settings(_with_advanced(child_lock=stored, valve_maintenance=stored))
+
+    advanced = parsed["thermostat"][0]["advanced"]
+    assert advanced == {"child_lock": read, "valve_maintenance": read}
+    assert advanced["child_lock"] is as_bool(stored)
+
+
+def test_a_flag_stored_as_none_is_left_out_so_each_reader_keeps_its_default():
+    raw = _with_advanced(child_lock=None, protect_overheating=None)
+
+    advanced = parse_settings(raw)["thermostat"][0]["advanced"]
+
+    assert advanced == {}
+    stored = raw["thermostat"][0]["advanced"]
+    for default in (False, True):
+        for key in ("child_lock", "protect_overheating"):
+            assert advanced_flag(advanced, key, default) == advanced_flag(
+                stored, key, default
+            )
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        # The options flow reads delays stored as text, and the contact
+        # handling converts them with float().
+        {"window_off_delay": "30", "door_off_delay_after": "0"},
+        # The readers convert with float(), which takes a bool.
+        {"tolerance": True, "door_off_delay": False},
+    ],
+    ids=["delays_as_text", "bools"],
+)
+def test_other_scalars_the_readers_convert_are_kept_as_stored(stored):
     assert parse_settings(_minimal() | stored) == _minimal() | stored
 
 
@@ -257,12 +329,9 @@ def _with_advanced(**advanced: object) -> dict[str, object]:
             "thermostat[0].advanced is list, not a mapping",
         ),
         (
-            _with_advanced(calibration_mode=2),
-            "thermostat[0].advanced.calibration_mode is int, not a string",
-        ),
-        (
-            _with_advanced(child_lock="true"),
-            "thermostat[0].advanced.child_lock is str, not a boolean",
+            _with_advanced(calibration_mode=["mpc_calibration"]),
+            "thermostat[0].advanced.calibration_mode is list, "
+            "not a string, a number or null",
         ),
         (_minimal() | {"model": 1}, "model is int, not a string"),
         (
@@ -271,16 +340,11 @@ def _with_advanced(**advanced: object) -> dict[str, object]:
         ),
         (
             _minimal() | {"window_off_delay": {"seconds": 30}},
-            "window_off_delay is dict, not a number",
+            "window_off_delay is dict, not a number or a string",
         ),
-        (_minimal() | {"door_off_delay": True}, "door_off_delay is bool, not a number"),
         (
             _minimal() | {"off_temperature": [20]},
             "off_temperature is list, not a number or a string",
-        ),
-        (
-            _minimal() | {"tolerance": True},
-            "tolerance is bool, not a number or a string",
         ),
         (
             _minimal() | {"target_temp_min": {}},
@@ -290,7 +354,7 @@ def _with_advanced(**advanced: object) -> dict[str, object]:
         (_minimal() | {"presets": ["eco", None]}, "presets[1] is null, not a string"),
     ],
 )
-def test_a_value_no_writer_stores_is_refused_by_name(raw, reason):
+def test_a_broken_structure_is_refused_by_name(raw, reason):
     with pytest.raises(InvalidSettingsError) as caught:
         parse_settings(raw)
 

@@ -15,9 +15,18 @@ stored keys are not identifiers, so the glossary, which rejects some of their
 spellings (``window_off_delay``, ``outdoor_sensor``) for identifiers, does not
 apply to them.
 
+Only a broken structure is refused: a missing or non-string name, a missing,
+empty or non-list thermostat list, a thermostat without a string entity id
+or integration, and a value that is not a mapping where one has to be. A
+container no writer ever stored and no reader can use, such as a list where a
+number belongs, is refused as well. Every value a current reader tolerates
+parses.
+
 Parsing never changes the stored entry: it builds a new mapping holding the
 keys described here, with each value as stored, except that a whole number
-stored where a reader expects a float becomes that float.
+stored where a reader expects a float becomes that float, and that the
+boolean options are read with ``as_bool``, the reading the options flow saves
+them with.
 """
 
 from __future__ import annotations
@@ -27,6 +36,7 @@ from typing import Final, Literal, NotRequired, TypedDict
 
 from homeassistant.const import CONF_NAME
 
+from .advanced_flags import as_bool
 from .const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -59,24 +69,29 @@ from .const import (
     CONF_WINDOW_SENSORS,
 )
 
+# A choice as stored: a string, a number from an older version, or ``None``.
+type StoredChoice = str | int | float | None
+
 # The per-thermostat options of the advanced step. Every key is optional: an
 # entry written before a key existed lacks it, and no migration adds the newer
-# ones. The flows store each flag as a bool. ``balance_mode`` is the setting
-# ``calibration_mode`` replaced; entries that predate it still carry it and it
-# is still read.
+# ones. The four choices are kept as stored, uninterpreted: older entries hold
+# numbers there (``calibration_mode`` 0 for the default mode) or ``None``.
+# ``balance_mode`` is the setting ``calibration_mode`` replaced; entries that
+# predate it still carry it and it is still read. A flag stored as ``None`` is
+# left out, which every reader takes the same way as ``None``.
 TrvAdvanced = TypedDict(  # noqa: UP013
     "TrvAdvanced",
     {
-        "calibration": str,
-        "calibration_mode": str,
-        "mpc_v2_plant_preset": str,
+        "calibration": StoredChoice,
+        "calibration_mode": StoredChoice,
+        "mpc_v2_plant_preset": StoredChoice,
         "protect_overheating": bool,
         "no_off_system_mode": bool,
         "heat_auto_swapped": bool,
         "valve_maintenance": bool,
         "child_lock": bool,
         "homematicip": bool,
-        "balance_mode": str,
+        "balance_mode": StoredChoice,
     },
     total=False,
 )
@@ -95,7 +110,8 @@ TrvSettings = TypedDict(  # noqa: UP013
 # The settings of one Better Thermostat. ``None`` under an entity key means no
 # entity is set. ``off_temperature`` is in the system unit. The keys that take
 # a number or a string are stored as strings by the flows (the bounds and the
-# step as selector tokens) and as numbers by older versions and by hand.
+# step as selector tokens) and as numbers by older versions and by hand; their
+# readers convert either with ``float()``.
 BtSettings = TypedDict(  # noqa: UP013
     "BtSettings",
     {
@@ -109,10 +125,10 @@ BtSettings = TypedDict(  # noqa: UP013
         "door_sensors": NotRequired[str | None],
         "outdoor_sensor": NotRequired[str | None],
         "weather": NotRequired[str | None],
-        "window_off_delay": NotRequired[float | None],
-        "window_off_delay_after": NotRequired[float | None],
-        "door_off_delay": NotRequired[float | None],
-        "door_off_delay_after": NotRequired[float | None],
+        "window_off_delay": NotRequired[str | float | None],
+        "window_off_delay_after": NotRequired[str | float | None],
+        "door_off_delay": NotRequired[str | float | None],
+        "door_off_delay_after": NotRequired[str | float | None],
         "off_temperature": NotRequired[str | float | None],
         "tolerance": NotRequired[str | float | None],
         "target_temp_min": NotRequired[str | float | None],
@@ -132,13 +148,11 @@ type _TextKey = Literal[
     "outdoor_sensor",
     "weather",
 ]
-type _NumberKey = Literal[
+type _NumberOrTextKey = Literal[
     "window_off_delay",
     "window_off_delay_after",
     "door_off_delay",
     "door_off_delay_after",
-]
-type _NumberOrTextKey = Literal[
     "off_temperature",
     "tolerance",
     "target_temp_min",
@@ -167,13 +181,11 @@ _TEXT_KEYS: Final[tuple[_TextKey, ...]] = (
     CONF_OUTDOOR_SENSOR,
     CONF_WEATHER,
 )
-_NUMBER_KEYS: Final[tuple[_NumberKey, ...]] = (
+_NUMBER_OR_TEXT_KEYS: Final[tuple[_NumberOrTextKey, ...]] = (
     CONF_WINDOW_OFF_DELAY,
     CONF_WINDOW_OFF_DELAY_AFTER,
     CONF_DOOR_OFF_DELAY,
     CONF_DOOR_OFF_DELAY_AFTER,
-)
-_NUMBER_OR_TEXT_KEYS: Final[tuple[_NumberOrTextKey, ...]] = (
     CONF_OFF_TEMPERATURE,
     CONF_TOLERANCE,
     CONF_TARGET_TEMP_MIN,
@@ -232,34 +244,24 @@ def _text_or_none(value: object, key: str) -> str | None:
     return None if value is None else _text(value, key)
 
 
-def _number(value: object) -> float | None:
-    """Return a stored number as a float, or ``None`` for anything else.
-
-    An int converts without loss; a bool is not taken for a number.
-    """
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
-
-
-def _number_or_none(value: object, key: str) -> float | None:
-    """Return a stored number as a float, or ``None`` as stored."""
-    if value is None:
-        return None
-    number = _number(value)
-    if number is None:
-        raise _refuse(key, value, "a number")
-    return number
-
-
 def _number_or_text(value: object, key: str) -> str | float | None:
-    """Return a stored number as a float, and a string or ``None`` as stored."""
-    if value is None or isinstance(value, str):
+    """Return a stored whole number as a float, and anything else as stored.
+
+    A string, a float, a bool (which its readers' ``float()`` takes) and
+    ``None`` stay as they are; a container is refused.
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return float(value)
+    if value is None or isinstance(value, str | float | int):
         return value
-    number = _number(value)
-    if number is None:
-        raise _refuse(key, value, "a number or a string")
-    return number
+    raise _refuse(key, value, "a number or a string")
+
+
+def _choice(value: object, key: str) -> StoredChoice:
+    """Return a stored choice unchanged; a container is refused."""
+    if value is None or isinstance(value, str | int | float):
+        return value
+    raise _refuse(key, value, "a string, a number or null")
 
 
 def _mapping(value: object, key: str) -> Mapping[str, object]:
@@ -283,13 +285,11 @@ def _parse_advanced(value: object, where: str) -> TrvAdvanced:
     advanced: TrvAdvanced = {}
     for choice_key in _CHOICE_KEYS:
         if choice_key in raw:
-            advanced[choice_key] = _text(raw[choice_key], f"{where}.{choice_key}")
+            advanced[choice_key] = _choice(raw[choice_key], f"{where}.{choice_key}")
     for flag_key in _FLAG_KEYS:
-        if flag_key in raw:
-            flag = raw[flag_key]
-            if not isinstance(flag, bool):
-                raise _refuse(f"{where}.{flag_key}", flag, "a boolean")
-            advanced[flag_key] = flag
+        flag = raw.get(flag_key)
+        if flag is not None:
+            advanced[flag_key] = as_bool(flag)
     return advanced
 
 
@@ -346,7 +346,8 @@ def parse_settings(raw: Mapping[str, object]) -> BtSettings:
     InvalidSettingsError
         When a required key is missing (the name, the thermostat list, a
         thermostat's entity id or integration), when the thermostat list is
-        empty, or when a key holds a value of a type its readers do not take.
+        empty, when a value that has to be a mapping, a list or a string is
+        not one, or when a scalar key holds a container.
     """
     settings: BtSettings = {
         "name": _text(_required(raw, CONF_NAME, ""), CONF_NAME),
@@ -355,9 +356,6 @@ def parse_settings(raw: Mapping[str, object]) -> BtSettings:
     for text_key in _TEXT_KEYS:
         if text_key in raw:
             settings[text_key] = _text_or_none(raw[text_key], text_key)
-    for number_key in _NUMBER_KEYS:
-        if number_key in raw:
-            settings[number_key] = _number_or_none(raw[number_key], number_key)
     for number_or_text_key in _NUMBER_OR_TEXT_KEYS:
         if number_or_text_key in raw:
             settings[number_or_text_key] = _number_or_text(
