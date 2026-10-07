@@ -10,9 +10,12 @@ change, not a refactor.
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable, Mapping
+from dataclasses import fields
 from pathlib import Path
 
 from homeassistant.helpers.json import prepare_save_json
+import pytest
 
 from custom_components.better_thermostat.utils.calibration.mpc import MpcState
 from custom_components.better_thermostat.utils.calibration.mpc_v2.controller import (
@@ -21,12 +24,33 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2.controller imp
 from custom_components.better_thermostat.utils.calibration.pid import PIDState
 from custom_components.better_thermostat.utils.calibration.tpi import TpiState
 from custom_components.better_thermostat.utils.state_manager import (
+    _STORED_MPC_KEYS,
+    _STORED_MPC_V2_REID_KEYS,
+    _STORED_ROOM_TEMPERATURE_EMA,
+    _STORED_TEMPERATURE_SLOPE,
     FilterState,
     MpcV2ReidData,
     MpcV2StateData,
     RuntimeState,
     ThermalStats,
     _serialize,
+    write_filters,
+    write_mpc_state,
+    write_mpc_v2_reid,
+    write_mpc_v2_state,
+    write_pid_state,
+    write_thermal,
+    write_tpi_state,
+)
+from custom_components.better_thermostat.utils.stored_state import (
+    StoredFilterState,
+    StoredMpcState,
+    StoredMpcV2Reid,
+    StoredMpcV2State,
+    StoredPidState,
+    StoredRuntimeState,
+    StoredThermalStats,
+    StoredTpiState,
 )
 
 GOLDEN_PATH = (
@@ -183,3 +207,63 @@ def test_serializing_leaves_the_live_state_unshared():
     assert isinstance(x_hat, list)
     x_hat.append(1.0)
     assert _stored_bytes(_populated_state()) == prepare_save_json(data)[1]
+
+
+_FILTER_KEYS = {
+    "room_temperature_ema": _STORED_ROOM_TEMPERATURE_EMA,
+    "temperature_slope": _STORED_TEMPERATURE_SLOPE,
+}
+
+# Each persisted dataclass, its on-disk TypedDict, and the fields stored
+# under a name other than their own.
+_SECTIONS: list[tuple[type, type, Mapping[str, str]]] = [
+    (MpcState, StoredMpcState, _STORED_MPC_KEYS),
+    (MpcV2StateData, StoredMpcV2State, {}),
+    (MpcV2ReidData, StoredMpcV2Reid, _STORED_MPC_V2_REID_KEYS),
+    (PIDState, StoredPidState, {}),
+    (TpiState, StoredTpiState, {}),
+    (ThermalStats, StoredThermalStats, {}),
+    (FilterState, StoredFilterState, _FILTER_KEYS),
+    (RuntimeState, StoredRuntimeState, {}),
+]
+
+
+@pytest.mark.parametrize(
+    ("persisted", "stored", "renamed"),
+    _SECTIONS,
+    ids=[persisted.__name__ for persisted, _, _ in _SECTIONS],
+)
+def test_every_dataclass_field_has_exactly_one_stored_key(
+    persisted: type, stored: type, renamed: Mapping[str, str]
+):
+    """A field added to a persisted dataclass cannot go unwritten.
+
+    The stored keys are the field names, with the legacy store names
+    substituted, and every key is required.
+    """
+    expected = {renamed.get(f.name, f.name) for f in fields(persisted)}
+    assert set(renamed) <= {f.name for f in fields(persisted)}
+    assert stored.__required_keys__ == expected
+    assert stored.__optional_keys__ == frozenset()
+
+
+_WRITERS: list[tuple[Callable[[], Mapping[str, object]], type]] = [
+    (lambda: write_mpc_state(MpcState()), StoredMpcState),
+    (lambda: write_mpc_v2_state(MpcV2StateData()), StoredMpcV2State),
+    (lambda: write_mpc_v2_reid(MpcV2ReidData()), StoredMpcV2Reid),
+    (lambda: write_pid_state(PIDState()), StoredPidState),
+    (lambda: write_tpi_state(TpiState()), StoredTpiState),
+    (lambda: write_thermal(ThermalStats()), StoredThermalStats),
+    (lambda: write_filters(FilterState()), StoredFilterState),
+    (lambda: _serialize(RuntimeState()), StoredRuntimeState),
+]
+
+
+@pytest.mark.parametrize(
+    ("write", "stored"), _WRITERS, ids=[stored.__name__ for _, stored in _WRITERS]
+)
+def test_each_writer_emits_exactly_its_stored_keys(
+    write: Callable[[], Mapping[str, object]], stored: type
+):
+    """A writer produces every key of its on-disk shape and nothing else."""
+    assert set(write()) == stored.__required_keys__
