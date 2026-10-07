@@ -6,6 +6,7 @@ handler. The ladder therefore keeps stepping in the combined failure case
 (room sensor lost while a TRV is offline) instead of freezing at OPTIMAL.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -44,6 +45,7 @@ def bt():
     mock.unavailable_sensors = []
     mock._degraded_warning_emitted = False
     mock.in_maintenance = False
+    mock.control_queue_task = asyncio.Queue(maxsize=1)
     mock.hass = MagicMock()
     mock.hass.states.get.return_value = None
     return mock

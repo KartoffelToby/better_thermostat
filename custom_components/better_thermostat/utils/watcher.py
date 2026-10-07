@@ -364,7 +364,7 @@ async def check_critical_entities(self: BetterThermostat) -> None:
     so stale issues from a previous run are also removed).
     """
     critical = get_critical_entities(self)
-    grace_until = getattr(self, "_critical_grace_until", None)
+    grace_until = self._critical_grace_until
     in_grace = grace_until is not None and self.clock.now() < grace_until
 
     for entity in critical:
@@ -627,7 +627,7 @@ async def check_and_update_degraded_mode(
     unavailable = []
     # Still the previous pass's list at this point, so it says which sensors
     # are coming back from an outage on this one.
-    previously_unavailable = set(getattr(self, "unavailable_sensors", None) or ())
+    previously_unavailable = set(self.unavailable_sensors)
 
     for entity in optional:
         if not is_entity_available(self.hass, entity):
@@ -717,11 +717,7 @@ async def check_and_update_degraded_mode(
     # so the devices are driven from the new source now rather than on the
     # next unrelated trigger. Valve maintenance requests its own cycle when
     # it ends.
-    if (
-        self.kernel_state.control_mode.mode != old_rung
-        and not getattr(self, "in_maintenance", False)
-        and getattr(self, "control_queue_task", None) is not None
-    ):
+    if self.kernel_state.control_mode.mode != old_rung and not self.in_maintenance:
         request_control_cycle(self)
     degraded = self.kernel_state.control_mode.degraded
 

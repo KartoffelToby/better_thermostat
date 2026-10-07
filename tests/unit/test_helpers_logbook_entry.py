@@ -27,7 +27,9 @@ def _bt() -> MagicMock:
     bt.hass = MagicMock()
     bt.hass.config.language = "de"
     bt.entity_id = "climate.test_bt"
-    bt.name = "Test BT"
+    bt.device_name = "Test BT"
+    # A thermostat named by its device, as Home Assistant sees it.
+    bt.name = None
     return bt
 
 
@@ -67,3 +69,43 @@ async def test_unreadable_catalogue_is_traced_and_entry_still_fires(caplog):
     assert _fired(bt)["message"] == "Window open"
     assert "logbook translation for window_open unavailable" in caplog.text
     assert any(record.exc_info for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_the_entry_carries_the_configured_name():
+    """The entry names the thermostat by its configured name.
+
+    The entity takes its name from the device, so Home Assistant reports
+    the entity's own name as None.
+    """
+    bt = _bt()
+    with patch(_TRANSLATIONS, AsyncMock(return_value={})):
+        await async_fire_logbook_entry(bt, "window_open", "Window open")
+    assert _fired(bt)["name"] == "Test BT"
+    assert _fired(bt)["entity_id"] == "climate.test_bt"
+
+
+@pytest.mark.asyncio
+async def test_an_entity_without_an_id_yet_names_the_id_its_name_produces():
+    """Before Home Assistant assigns the entity id, the entry predicts it.
+
+    The id is the one the configured name produces.
+    """
+    bt = _bt()
+    bt.entity_id = None
+    bt.device_name = "Living Room"
+    with patch(_TRANSLATIONS, AsyncMock(return_value={})):
+        await async_fire_logbook_entry(bt, "window_open", "Window open")
+    assert _fired(bt)["entity_id"] == "climate.living_room"
+
+
+@pytest.mark.asyncio
+async def test_an_entity_not_yet_added_fires_nothing():
+    """Without ``hass`` there is no bus to fire on."""
+    bt = _bt()
+    hass = bt.hass
+    bt.hass = None
+    with patch(_TRANSLATIONS, AsyncMock(return_value={})) as translations:
+        await async_fire_logbook_entry(bt, "window_open", "Window open")
+    translations.assert_not_awaited()
+    hass.bus.async_fire.assert_not_called()

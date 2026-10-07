@@ -281,11 +281,6 @@ def async_normalize_bt_entity_ids(
         return
 
     registry = er.async_get(hass)
-    # The registry is populated lazily on first load; with a mocked hass
-    # (unit tests) it is an unloaded shell without ``.entities``, so there is
-    # nothing to rename.
-    if not hasattr(registry, "entities"):
-        return
     for reg_entry in registry.entities.get_entries_for_config_entry_id(entry.entry_id):
         if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
             continue
@@ -2687,13 +2682,13 @@ async def async_fire_logbook_entry(
     self: BetterThermostat, key: str, default_msg: str
 ) -> None:
     """Fire a logbook entry safely, with fallback translations."""
-    hass_obj = getattr(self, "hass", None)
+    # Home Assistant assigns ``hass`` when the entity is added to a platform.
+    hass_obj = self.hass
     log_msg = default_msg
     if hass_obj is not None:
         try:
-            lang = getattr(getattr(hass_obj, "config", None), "language", "en")
             translations = await translation.async_get_translations(
-                hass_obj, lang, "entity", integrations=[DOMAIN]
+                hass_obj, hass_obj.config.language, "entity", integrations=[DOMAIN]
             )
             log_msg = translations.get(
                 f"component.{DOMAIN}.entity.sensor.logbook.state.{key}", default_msg
@@ -2705,15 +2700,16 @@ async def async_fire_logbook_entry(
                 exc_info=True,
             )
 
-        entity_id = getattr(self, "entity_id", None)
+        # The entity id follows ``hass`` during platform setup, so an entry
+        # fired in between names the id the configured name will produce.
+        entity_id = self.entity_id
         if not entity_id:
-            name = getattr(self, "name", "better_thermostat")
-            entity_id = f"climate.{slugify(name)}"
+            entity_id = f"climate.{slugify(self.device_name)}"
 
         hass_obj.bus.async_fire(
             "logbook_entry",
             {
-                "name": getattr(self, "name", "Better Thermostat"),
+                "name": self.device_name,
                 "message": log_msg,
                 "entity_id": entity_id,
                 "domain": DOMAIN,

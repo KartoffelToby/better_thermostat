@@ -76,6 +76,8 @@ def mock_bt_instance(mock_hass):
     bt.is_removed = False
     bt.kernel_state = KernelState()
     bt.clock = FakeClock()
+    bt.in_maintenance = False
+    bt.control_queue_task = asyncio.Queue(maxsize=1)
     return bt
 
 
