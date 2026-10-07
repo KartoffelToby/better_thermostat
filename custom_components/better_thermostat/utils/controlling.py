@@ -437,15 +437,6 @@ def _get_valve_control(
         if source:
             return cal_bal, source
 
-    # Fallback to raw balance
-    raw_balance = self.real_trvs[entity_id].balance
-    if (
-        isinstance(raw_balance, dict)
-        and raw_balance.get("apply_valve")
-        and raw_balance.get("valve_percent") is not None
-    ):
-        return raw_balance, "balance"
-
     return None, None
 
 
