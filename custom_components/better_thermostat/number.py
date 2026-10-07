@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Literal, override
 
 from homeassistant.components.climate.const import (
     PRESET_ACTIVITY,
@@ -76,6 +76,15 @@ _PRESET_MIN_TRANSLATION_KEYS = {
 }
 _PRESET_MAX_TRANSLATION_KEYS = {
     preset: f"{key}_max" for preset, key in _PRESET_TRANSLATION_KEYS.items()
+}
+
+type PidGain = Literal["kp", "ki", "kd"]
+# Per PID gain: the lowest and highest value and the step its number offers,
+# and the value it shows before the gain has been learned or set.
+_PID_GAIN_SETTINGS: dict[PidGain, tuple[float, float, float, float]] = {
+    "kp": (0.0, 1000.0, 0.1, DEFAULT_PID_KP),
+    "ki": (0.0, 100.0, 0.001, DEFAULT_PID_KI),
+    "kd": (0.0, 10000.0, 1.0, DEFAULT_PID_KD),
 }
 
 
@@ -150,7 +159,7 @@ async def async_setup_entry(
         calibration_output = configured_calibration_output(advanced)
 
         if calibration_mode == CalibrationMode.PID_CALIBRATION:
-            for param in ["kp", "ki", "kd"]:
+            for param in _PID_GAIN_SETTINGS:
                 pid_number = BetterThermostatPIDNumber(
                     bt_climate, trv_entity_id, param, has_multiple_trvs
                 )
@@ -456,7 +465,7 @@ class BetterThermostatPIDNumber(
         self,
         bt_climate: BetterThermostat,
         trv_entity_id: str,
-        parameter: str,
+        parameter: PidGain,
         show_trv_name: bool = True,
     ) -> None:
         """Initialize the number."""
@@ -473,18 +482,11 @@ class BetterThermostatPIDNumber(
         else:
             self._attr_translation_key = f"pid_{parameter}_no_trv"
 
-        if parameter == "kp":
-            self._attr_native_min_value = 0.0
-            self._attr_native_max_value = 1000.0
-            self._attr_native_step = 0.1
-        elif parameter == "ki":
-            self._attr_native_min_value = 0.0
-            self._attr_native_max_value = 100.0
-            self._attr_native_step = 0.001
-        elif parameter == "kd":
-            self._attr_native_min_value = 0.0
-            self._attr_native_max_value = 10000.0
-            self._attr_native_step = 1.0
+        (
+            self._attr_native_min_value,
+            self._attr_native_max_value,
+            self._attr_native_step,
+        ) = _PID_GAIN_SETTINGS[parameter][:3]
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -513,14 +515,7 @@ class BetterThermostatPIDNumber(
                 if value is not None:
                     return value
 
-        # Defaults
-        if self._parameter == "kp":
-            return DEFAULT_PID_KP
-        if self._parameter == "ki":
-            return DEFAULT_PID_KI
-        if self._parameter == "kd":
-            return DEFAULT_PID_KD
-        return 0.0
+        return _PID_GAIN_SETTINGS[self._parameter][3]
 
     @override
     async def async_set_native_value(self, value: float) -> None:
@@ -627,11 +622,7 @@ class BetterThermostatValveMaxOpeningNumber(
 
     def _get_value(self) -> float:
         trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)
-        value = trv_state.valve_max_opening if trv_state is not None else 100.0
-        try:
-            return float(value)
-        except TypeError, ValueError:
-            return 100.0
+        return trv_state.valve_max_opening if trv_state is not None else 100.0
 
     def _set_value(self, value: float) -> None:
         trv_state = self._bt_climate.real_trvs.get(self._trv_entity_id)

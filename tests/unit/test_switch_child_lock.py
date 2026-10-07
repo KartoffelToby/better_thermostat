@@ -79,3 +79,18 @@ async def test_a_restored_off_matching_a_stored_false_sends_nothing():
 
     assert trv.advanced["child_lock"] is False
     switch._set_child_lock.assert_not_awaited()
+
+
+def test_a_switch_of_a_head_not_built_shows_off_and_publishes_nothing():
+    """A head the thermostat could not build has no lock to show or set.
+
+    The switch stays registered so it comes back once the head is built,
+    and toggling it in the meantime publishes nothing.
+    """
+    switch = _make_switch(Trv(entity_id=TRV_ID, advanced={"child_lock": True}))
+    switch._bt_climate.real_trvs = {}
+
+    assert switch.is_on is False
+    switch._update_state(True)
+
+    switch.async_write_ha_state.assert_not_called()
