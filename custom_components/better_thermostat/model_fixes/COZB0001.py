@@ -1,7 +1,8 @@
-"""Model quirks for COZB0001 Zigbee thermostats.
+"""Model quirks for the Eurotronic Comet Zigbee (COZB0001).
 
-Includes device-specific offsets and behavior adaptations required for certain
-COZB0001 based devices.
+The COZB0001 adds its local temperature calibration to the setpoint, not to
+the temperature it measures, and keeps reporting the measured temperature
+without it. The predecessor SPZB0001 offsets the reading like most devices.
 """
 
 from __future__ import annotations
@@ -16,10 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 def fix_local_calibration(
     self: ModelFixHost, entity_id: str, calibration_offset: float
 ) -> float:
-    """Adjust the local calibration offset for COZB0001 devices.
-
-    Just invert the given offset for this model, as they seem to report it in
-    reverse compared to other devices.
+    """Return the given local calibration offset unchanged.
 
     Parameters
     ----------
@@ -28,14 +26,32 @@ def fix_local_calibration(
     entity_id : str
         Entity id of the TRV the offset belongs to.
     calibration_offset : float
-        Local calibration offset reported by the device.
+        Local calibration offset to write.
 
     Returns
     -------
     float
-        The inverted local calibration offset.
+        The unchanged local calibration offset.
     """
-    return -calibration_offset
+    return calibration_offset
+
+
+def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> bool:
+    """Report that the COZB0001 adds its calibration offset to the setpoint.
+
+    Parameters
+    ----------
+    self : ModelFixHost
+        Better Thermostat host providing device state and HA access.
+    entity_id : str
+        Entity id of the TRV the offset is written to.
+
+    Returns
+    -------
+    bool
+        Always True.
+    """
+    return True
 
 
 def fix_target_temperature_calibration(

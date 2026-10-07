@@ -133,6 +133,38 @@ def quirk_writes_valve(model_quirks: ModuleType | None) -> bool:
     return callable(getattr(model_quirks, "override_set_valve", None))
 
 
+def local_calibration_shifts_setpoint(self: ModelFixHost, entity_id: str) -> bool:
+    """Answer whether a TRV applies its calibration offset to the setpoint.
+
+    Most devices add the offset to the temperature they measure and report
+    that sum. A device that adds it to its setpoint instead keeps reporting
+    the bare reading, and an offset raises its effective setpoint where it
+    would lower the reading of the others, so the offset acts with the
+    opposite sign. Only the model's own quirk module knows which kind a
+    device is; a device without that answer offsets its reading.
+
+    Parameters
+    ----------
+    self :
+        self instance of better_thermostat
+    entity_id : str
+        Entity id of the TRV the offset is written to
+
+    Returns
+    -------
+    bool
+        True when the device adds the offset to its setpoint and reports
+        its reading without it
+    """
+    trv = self.real_trvs.get(entity_id)
+    quirks = trv.model_quirks if trv is not None else None
+    if not isinstance(quirks, ModuleType):
+        return False
+    if not hasattr(quirks, "local_calibration_shifts_setpoint"):
+        return False
+    return bool(quirks.local_calibration_shifts_setpoint(self, entity_id))
+
+
 def trv_state_unknown_as_available(self: ModelFixHost, entity_id: str) -> bool:
     """Answer whether a TRV is operating while its state reads ``unknown``.
 
