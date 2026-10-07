@@ -122,6 +122,7 @@ from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
 from .switch import restored_child_lock
 from .trv import Trv
+from .utils.advanced_flags import advanced_flag
 from .utils.calibration.pid import (
     PIDParams,
     format_bucket,
@@ -1346,7 +1347,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 self.hass,
                 self.unique_id,
                 trv["trv"],
-                bool(_advanced.get(CONF_CHILD_LOCK)),
+                advanced_flag(_advanced, CONF_CHILD_LOCK),
             )
             if child_lock is not None:
                 self.real_trvs[trv["trv"]].advanced[CONF_CHILD_LOCK] = child_lock

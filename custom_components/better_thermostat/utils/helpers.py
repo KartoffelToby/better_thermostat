@@ -34,10 +34,12 @@ from homeassistant.helpers.entity_registry import async_entries_for_config_entry
 from homeassistant.util import slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
     CONF_HEAT_AUTO_SWAPPED,
+    CONF_NO_OFF_SYSTEM_MODE,
     DEFAULT_CALIBRATION_MODE,
     DOMAIN,
     GENERIC_MODEL,
@@ -564,7 +566,7 @@ def _unsupported_mode_hint(trv: Trv) -> str:
             setting: a device without ``auto`` is only asked for ``auto``
             because the option is already on.
     """
-    if (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False):
+    if advanced_flag(trv.advanced, CONF_HEAT_AUTO_SWAPPED):
         return (
             "Disable the heat auto swapped option unless 'auto' really is this "
             "device's heating mode."
@@ -685,7 +687,7 @@ def mode_remap(
     if trv is None:
         return hvac_mode
 
-    _heat_auto_swapped = (trv.advanced or {}).get(CONF_HEAT_AUTO_SWAPPED, False)
+    _heat_auto_swapped = advanced_flag(trv.advanced, CONF_HEAT_AUTO_SWAPPED)
 
     if _heat_auto_swapped:
         # HEAT and HEAT_COOL are the same demand seen from two instances: a
@@ -816,7 +818,7 @@ def member_counts_as_off(self: BetterThermostat, entity_id: str, state: State) -
         return True
 
     member = self.real_trvs.get(entity_id)
-    if member is None or not (member.advanced or {}).get("no_off_system_mode", False):
+    if member is None or not advanced_flag(member.advanced, CONF_NO_OFF_SYSTEM_MODE):
         return False
 
     setpoint = attr_to_celsius(

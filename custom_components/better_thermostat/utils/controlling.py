@@ -62,8 +62,10 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     trv_report_is_unreadable,
     trv_state_unknown_as_available,
 )
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.pid import resolve_unique_id
 from custom_components.better_thermostat.utils.const import (
+    CONF_CHILD_LOCK,
     CONF_HOMEMATICIP,
     CalibrationMode,
     CalibrationOutput,
@@ -218,7 +220,7 @@ def _write_interval_s(self: BetterThermostat, trv: Trv, channel: str) -> float:
     expects the head to follow within the normal interval, and a flurry of
     changes still coalesces on it. That write consumes the exemption.
     """
-    if not (trv.advanced or {}).get(CONF_HOMEMATICIP):
+    if not advanced_flag(trv.advanced, CONF_HOMEMATICIP):
         return MIN_WRITE_INTERVAL_S
     user_change = self.last_user_change_monotonic
     last_write = trv.last_write_monotonic
@@ -1025,7 +1027,7 @@ def refresh_cached_trv_modes(self: BetterThermostat) -> None:
         state = self.hass.states.get(entity_id)
         if state is None or state.state in UNAVAILABLE_STATES + UNKNOWN_STATES:
             continue
-        if (trv.advanced or {}).get("child_lock"):
+        if advanced_flag(trv.advanced, CONF_CHILD_LOCK):
             continue
         _settled_mode = state.state
         if trv.last_hvac_mode is not None and state.state != trv.last_hvac_mode:
@@ -1163,7 +1165,7 @@ def _locked_device_moved(
     reporting ``unknown`` names no mode, which is how a model that reads
     ``unknown`` as operating reports, so only its setpoint is compared.
     """
-    if state is None or not (trv.advanced or {}).get("child_lock"):
+    if state is None or not advanced_flag(trv.advanced, CONF_CHILD_LOCK):
         return False
     if state.state != STATE_UNKNOWN:
         if cooling_owns_dual_role_device(self, entity_id):

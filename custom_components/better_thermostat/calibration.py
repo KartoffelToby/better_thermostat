@@ -17,6 +17,7 @@ from custom_components.better_thermostat.model_fixes.model_quirks import (
     fix_local_calibration,
     fix_target_temperature_calibration,
 )
+from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcInput,
     MpcOutput,
@@ -1394,13 +1395,13 @@ def calculate_calibration_local(self: BetterThermostat, entity_id: str) -> float
     _new_trv_calibration = fix_local_calibration(self, entity_id, _new_trv_calibration)
 
     if not _skip_post_adjustments:
-        _overheating_protection = self.real_trvs[entity_id].advanced.get(
-            CONF_PROTECT_OVERHEATING, False
+        _overheating_protection = advanced_flag(
+            self.real_trvs[entity_id].advanced, CONF_PROTECT_OVERHEATING
         )
 
         # Overheating protection only ever closes the valve: the term counts
         # from heating target + tolerance and is zero below that line.
-        if _overheating_protection is True and _cur_target_temp is not None:
+        if _overheating_protection and _cur_target_temp is not None:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
                     _new_trv_calibration += (
@@ -1599,13 +1600,13 @@ def calculate_calibration_setpoint(
     )
 
     if not _skip_post_adjustments:
-        _overheating_protection = self.real_trvs[entity_id].advanced.get(
-            CONF_PROTECT_OVERHEATING, False
+        _overheating_protection = advanced_flag(
+            self.real_trvs[entity_id].advanced, CONF_PROTECT_OVERHEATING
         )
 
         # Overheating protection only ever closes the valve: the term counts
         # from heating target + tolerance and is zero below that line.
-        if _overheating_protection is True:
+        if _overheating_protection:
             if self.hvac_action == HVACAction.IDLE:
                 if _cur_external_temp > _cur_target_temp + self.tolerance:
                     _calibrated_setpoint -= (
