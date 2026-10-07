@@ -217,6 +217,7 @@ def plateau_bt(bt, hass):
     bt.pending_temp = None
     bt.pending_since = None
     bt.plateau_timer_cancel = None
+    bt._temperature_filter_lock = None
     bt.is_removed = False
     bt._owned_tasks = set()
     bt._final_flush_task = None

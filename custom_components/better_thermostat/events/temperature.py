@@ -116,7 +116,7 @@ def temperature_filter_lock(self: BetterThermostat) -> asyncio.Lock:
     asyncio.Lock
             the entity's own lock, created on first use
     """
-    lock = getattr(self, "_temperature_filter_lock", None)
+    lock = self._temperature_filter_lock
     if lock is None:
         lock = asyncio.Lock()
         self._temperature_filter_lock = lock
