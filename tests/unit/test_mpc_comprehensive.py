@@ -2569,7 +2569,7 @@ class TestValveUsageIntegration:
         assert state.last_integration_ts == _NOW
 
     def test_command_in_force_integrates_over_the_interval(self):
-        """A 50 % command held for 60 s adds 50 * 60 to the integral."""
+        """A command in force adds its percentage times the elapsed seconds."""
         state = _MpcState(last_integration_ts=_NOW - 60.0, last_percent=50.0)
 
         _run_at(_NOW, _inp(key="cmd"), _default_params(), state)

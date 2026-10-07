@@ -867,22 +867,21 @@ def compute_mpc(
                 percent = 0.0
                 extra_debug["calib_active"] = True
 
-        else:
-            # Trigger condition: Overheated/Reached target
-            # Check random chance if we have "enough" heat (delta_kelvin <= 0 means we are at/above target)
-            if inp.room_temperature >= inp.target_temperature:
-                # Chance decays with experience: 1 (100%), 0.5, ... but min 5%
-                chance = max(0.05, 1.0 / (state.loss_learn_count + 1))
-                if random.random() < chance:
-                    state.is_calibration_active = True
-                    percent = 0.0
-                    extra_debug["calib_active"] = True
-                    _LOGGER.info(
-                        "better_thermostat %s: Starting forced calibration (chance %.2f, count %d). Forcing 0%% valve.",
-                        name,
-                        chance,
-                        state.loss_learn_count,
-                    )
+        # Trigger condition: Overheated/Reached target
+        # Check random chance if we have "enough" heat (delta_kelvin <= 0 means we are at/above target)
+        elif inp.room_temperature >= inp.target_temperature:
+            # Chance decays with experience: 1 (100%), 0.5, ... but min 5%
+            chance = max(0.05, 1.0 / (state.loss_learn_count + 1))
+            if random.random() < chance:
+                state.is_calibration_active = True
+                percent = 0.0
+                extra_debug["calib_active"] = True
+                _LOGGER.info(
+                    "better_thermostat %s: Starting forced calibration (chance %.2f, count %d). Forcing 0%% valve.",
+                    name,
+                    chance,
+                    state.loss_learn_count,
+                )
 
         _LOGGER.debug(
             "better_thermostat %s: MPC raw output (%s) percent=%s delta_T=%s debug=%s",
