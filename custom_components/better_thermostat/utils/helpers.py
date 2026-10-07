@@ -1786,6 +1786,105 @@ def resolve_state_change_event(
     return old_state, new_state, entity_id
 
 
+# Entity ids already warned about the Tuya Fahrenheit double conversion.
+# One warning per entity: the reading can update many times a minute.
+_tuya_double_conversion_warned: set[str] = set()
+
+
+def _climate_registry_platform(hass: HomeAssistant, entity_id: str) -> str | None:
+    """Return the entity-registry platform of a climate entity.
+
+    An unregistered id, a domain other than climate, and a registry that
+    cannot be read all yield ``None``. Callers then leave the reading alone.
+
+    Parameters
+    ----------
+    hass : HomeAssistant
+            the Home Assistant instance that holds the entity registry
+    entity_id : str
+            the entity whose platform is needed
+
+    Returns
+    -------
+    str | None
+            the integration platform, or ``None`` when it is not a registered
+            climate entity
+    """
+    try:
+        entry = er.async_get(hass).async_get(entity_id)
+    except AttributeError, KeyError, TypeError:
+        return None
+    if entry is None or entry.domain != CLIMATE_DOMAIN:
+        return None
+    return entry.platform
+
+
+def _undo_tuya_fahrenheit_double_conversion(
+    self: BetterThermostat, entity_id: str, temperature: float | None
+) -> float | None:
+    """Undo one extra Celsius-to-Fahrenheit conversion on a Tuya climate reading.
+
+    Home Assistant's Tuya integration can treat a Fahrenheit datapoint as
+    Celsius and convert it again, so a 70 °F room is published as 158.
+    On a Fahrenheit system that published value is implausible once read as
+    Celsius, but reversing the extra conversion yields a plausible Fahrenheit
+    temperature. A reading that is already plausible is returned unchanged, so
+    a fixed Tuya integration and a Celsius install never take this path, and
+    a corrected value is not corrected again.
+
+    Parameters
+    ----------
+    self :
+            the Better Thermostat instance, supplying ``hass`` and ``device_name``
+    entity_id : str
+            the climate entity the reading came from
+    temperature : float | None
+            the reading already converted from the system unit to Celsius
+
+    Returns
+    -------
+    float | None
+            the temperature in Celsius, with one extra Tuya conversion removed
+            when the signature matches
+    """
+    if temperature is None:
+        return None
+    if self.hass.config.units.temperature_unit != UnitOfTemperature.FAHRENHEIT:
+        return temperature
+    if is_reasonable_temperature(temperature):
+        return temperature
+    # ``temperature`` is ``(published - 32) * 5/9``. When the published number
+    # was itself a Celsius-to-Fahrenheit conversion of a Fahrenheit datapoint,
+    # that figure is the original Fahrenheit value.
+    undone = convert_to_float_celsius(
+        temperature,
+        self.device_name,
+        "tuya_fahrenheit_double_conversion",
+        unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+    )
+    if not is_reasonable_temperature(undone):
+        return temperature
+    if _climate_registry_platform(self.hass, entity_id) != "tuya":
+        return temperature
+    if entity_id not in _tuya_double_conversion_warned:
+        _tuya_double_conversion_warned.add(entity_id)
+        _LOGGER.warning(
+            "better_thermostat %s: %s published a temperature that reads as "
+            "%s °C after the normal Fahrenheit conversion, outside the "
+            "plausible range. Treating that figure as %s °F (%s °C) undoes "
+            "one extra Celsius-to-Fahrenheit conversion from the Tuya "
+            "integration. This is a compatibility shim for the upstream "
+            "Home Assistant Tuya bug and does not run once readings are "
+            "already plausible.",
+            self.device_name,
+            entity_id,
+            temperature,
+            temperature,
+            undone,
+        )
+    return undone
+
+
 def attr_to_celsius(
     self: BetterThermostat,
     state: State | None,
@@ -1798,7 +1897,10 @@ def attr_to_celsius(
     The single inbound boundary for foreign temperatures: it resolves the source
     unit via :func:`state_temperature_unit` (system-unit fallback, since
     ``climate`` entities expose no unit attribute) and converts to the Celsius
-    Better Thermostat works in internally.
+    Better Thermostat works in internally. A Tuya climate entity on a
+    Fahrenheit system whose reading is implausible until one extra
+    Celsius-to-Fahrenheit conversion is removed is corrected here; every other
+    reading is unchanged.
 
     Parameters
     ----------
@@ -1824,7 +1926,7 @@ def attr_to_celsius(
     state_temperature_unit : resolves the source unit
     """
     attributes = state.attributes if state is not None else {}
-    return convert_to_float_celsius(
+    converted = convert_to_float_celsius(
         str(attributes.get(key, default)),
         self.device_name,
         context,
@@ -1832,6 +1934,9 @@ def attr_to_celsius(
             attributes, self.hass.config.units.temperature_unit
         ),
     )
+    if state is None:
+        return converted
+    return _undo_tuya_fahrenheit_double_conversion(self, state.entity_id, converted)
 
 
 # The grids Home Assistant publishes a climate entity's temperatures on,
