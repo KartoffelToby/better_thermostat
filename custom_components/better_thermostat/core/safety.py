@@ -151,7 +151,10 @@ def _clamp_trv(
                 max_valve_jump is not None
                 and previous is not None
                 and previous.valve_percent is not None
+                and math.isfinite(previous.valve_percent)
             ):
+                # A non-finite previous intent is no position to step from;
+                # limiting against it would drive the valve to a bound.
                 delta = valve - previous.valve_percent
                 if abs(delta) > max_valve_jump:
                     valve = previous.valve_percent + (

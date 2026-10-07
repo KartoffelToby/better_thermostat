@@ -1,6 +1,7 @@
 """Pure tests for the safety hull at the command boundary."""
 
 from datetime import UTC, datetime
+import math
 
 import pytest
 
@@ -307,3 +308,30 @@ def test_offset_inside_the_range_is_untouched():
         },
     )
     assert clamp(desired, snapshot) == desired
+
+
+def test_a_step_inside_the_jump_limit_passes_unchanged():
+    """A valve change no larger than max_valve_jump reaches the TRV as asked."""
+    out = clamp(
+        _desired(valve=45.0),
+        _snapshot(),
+        previous=_desired(valve=30.0),
+        max_valve_jump=20.0,
+    )
+    assert out.trvs["climate.trv"].valve_percent == 45.0
+
+
+@pytest.mark.parametrize("previous_valve", [math.inf, -math.inf, math.nan])
+def test_a_non_finite_previous_valve_does_not_move_the_valve(previous_valve):
+    """The limiter steps from a real position only.
+
+    Stepping from an infinite previous intent would land on infinity and
+    clamp the valve shut; the hull treats it like having no previous intent.
+    """
+    out = clamp(
+        _desired(valve=50.0),
+        _snapshot(),
+        previous=_desired(valve=previous_valve),
+        max_valve_jump=20.0,
+    )
+    assert out.trvs["climate.trv"].valve_percent == 50.0
