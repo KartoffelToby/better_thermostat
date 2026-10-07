@@ -2142,27 +2142,6 @@ def round_by_step(
     return f_rounding(steps) * step
 
 
-def check_float(potential_float) -> bool:
-    """Check if a string is a float.
-
-    Parameters
-    ----------
-    potential_float :
-            the value to check
-
-    Returns
-    -------
-    bool
-            True if the value is a float, False otherwise.
-
-    """
-    try:
-        float(potential_float)
-        return True
-    except ValueError, TypeError:
-        return False
-
-
 class ValveEntityInfo(TypedDict):
     """A valve position helper entity discovered for one TRV.
 
