@@ -35,7 +35,10 @@ from homeassistant.util import slugify
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from custom_components.better_thermostat.utils.const import (
+    CONF_CALIBRATION,
+    CONF_CALIBRATION_MODE,
     CONF_HEAT_AUTO_SWAPPED,
+    DEFAULT_CALIBRATION_MODE,
     DOMAIN,
     GENERIC_MODEL,
     MAX_HEATING_POWER,
@@ -49,6 +52,7 @@ from custom_components.better_thermostat.utils.const import (
     VALVE_MIN_SMALL_DIFF_THRESHOLD,
     VALVE_MIN_THRESHOLD_TEMP_DIFF,
     CalibrationMode,
+    CalibrationOutput,
 )
 
 if TYPE_CHECKING:
@@ -68,7 +72,7 @@ class _CalibrationConfiguredTrv(Protocol):
     """The per-TRV record a calibration-mode question reads."""
 
     @property
-    def advanced(self) -> Mapping[str, Any] | None:
+    def advanced(self) -> Mapping[str, object] | None:
         """Per-TRV advanced options, keyed by option name."""
         ...
 
@@ -306,7 +310,7 @@ def async_normalize_bt_entity_ids(
 
 
 def normalize_calibration_mode(
-    mode: CalibrationMode | str | None,
+    mode: CalibrationMode | str | float | None,
 ) -> CalibrationMode | str | None:
     """Normalize a calibration_mode field from TRV advanced data."""
 
@@ -332,6 +336,49 @@ def normalize_calibration_mode(
     return None
 
 
+def configured_calibration_mode(
+    advanced: Mapping[str, object] | None,
+) -> CalibrationMode | None:
+    """Return the calibration mode a TRV's advanced settings select.
+
+    A known mode name is matched regardless of case and surrounding
+    whitespace, and the legacy numeric ``0`` reads as ``DEFAULT``. A setting
+    that names nothing (missing, ``None``, another number or a non-string)
+    selects ``DEFAULT_CALIBRATION_MODE``, the mode the config flow
+    preselects and fills in for a submission without one. A string that
+    names no mode this version knows returns ``None``: the calibration then
+    runs the passive cascade, and no mode-specific entity or controller is
+    set up.
+    """
+    mode = (advanced or {}).get(CONF_CALIBRATION_MODE)
+    normalized = (
+        normalize_calibration_mode(mode)
+        if isinstance(mode, (str, int, float))
+        else None
+    )
+    if normalized is None:
+        return DEFAULT_CALIBRATION_MODE
+    return normalized if isinstance(normalized, CalibrationMode) else None
+
+
+def configured_calibration_output(
+    advanced: Mapping[str, object] | None,
+) -> CalibrationOutput | None:
+    """Return the calibration type a TRV's advanced settings select.
+
+    Only an exact type name selects a type. A missing, ``None`` or unknown
+    setting returns ``None``: Better Thermostat then sends the room target
+    to the TRV unchanged and looks for no offset or valve channel.
+    """
+    output = (advanced or {}).get(CONF_CALIBRATION)
+    if not isinstance(output, str):
+        return None
+    try:
+        return CalibrationOutput(output)
+    except ValueError:
+        return None
+
+
 def is_calibration_mode(
     mode: CalibrationMode | str | None, expected: CalibrationMode
 ) -> bool:
@@ -355,8 +402,7 @@ def entity_uses_calibration_mode(
         advanced: Mapping[str, Any] = (_trv.advanced if _trv is not None else {}) or {}
     except AttributeError:
         return False
-    mode = advanced.get("calibration_mode")
-    return is_calibration_mode(mode, expected)
+    return configured_calibration_mode(advanced) == expected
 
 
 def entity_uses_mpc_calibration(bt: _CalibrationModeHost, entity_id: str) -> bool:
