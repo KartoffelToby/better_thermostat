@@ -141,7 +141,7 @@ def test_trv_entity_ids_tolerates_every_stored_shape(settings, expected):
 
 
 async def test_an_entry_with_a_broken_thermostat_list_owns_no_thermostat(hass):
-    """Asking who controls a thermostat survives an entry that never parsed."""
+    """An entry whose thermostat list does not parse is skipped as an owner."""
     owner = _entry(options={CONF_THERMOSTAT: [{"trv": "climate.trv"}]})
     broken = _entry(options={CONF_THERMOSTAT: 3})
     empty = _entry()
