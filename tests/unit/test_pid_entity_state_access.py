@@ -13,6 +13,8 @@ from custom_components.better_thermostat.number import BetterThermostatPIDNumber
 from custom_components.better_thermostat.switch import BetterThermostatPIDAutoTuneSwitch
 from custom_components.better_thermostat.utils.calibration.pid import (
     DEFAULT_PID_AUTO_TUNE,
+    DEFAULT_PID_KD,
+    DEFAULT_PID_KI,
     DEFAULT_PID_KP,
     PIDState,
 )
@@ -76,6 +78,32 @@ class TestPidNumber:
         bt = _make_bt()
         bt.state_mgr = None
         assert self._make(bt).native_value == DEFAULT_PID_KP
+
+    @pytest.mark.parametrize(
+        ("gain", "default", "bounds"),
+        [
+            ("kp", DEFAULT_PID_KP, (0.0, 1000.0, 0.1)),
+            ("ki", DEFAULT_PID_KI, (0.0, 100.0, 0.001)),
+            ("kd", DEFAULT_PID_KD, (0.0, 10000.0, 1.0)),
+        ],
+    )
+    def test_a_gain_not_learned_yet_shows_its_own_default(self, gain, default, bounds):
+        """A state that holds other gains shows this one at its default.
+
+        Each gain offers its own range and step: their scales differ by
+        orders of magnitude.
+        """
+        bt = _make_bt()
+        others = {f"pid_{name}": 7.0 for name in ("kp", "ki", "kd") if name != gain}
+        bt.state_mgr.pid[_KEY] = PIDState(**others)
+        number = BetterThermostatPIDNumber(bt, "climate.trv", gain, False)
+
+        assert number.native_value == default
+        assert (
+            number.native_min_value,
+            number.native_max_value,
+            number.native_step,
+        ) == bounds
 
     @pytest.mark.asyncio
     async def test_set_writes_only_current_bucket(self):
