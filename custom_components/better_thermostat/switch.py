@@ -401,7 +401,9 @@ class BetterThermostatChildLockSwitch(
                         await self._bt_climate.hass.services.async_call(
                             "switch", service, {"entity_id": cl_entity}
                         )
-                elif domain == "lock":
+                else:
+                    # find_device_entity answers only from the two domains
+                    # it was asked for, so the entity is a lock here.
                     target_lock = "locked" if state else "unlocked"
                     cur = self._bt_climate.hass.states.get(cl_entity)
                     if cur and (force or cur.state != target_lock):

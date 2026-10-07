@@ -332,18 +332,10 @@ async def trigger_trv_change(
             entity_id,
         )
         return
-    if entity_id not in self.real_trvs:
-        _LOGGER.debug(
-            "better_thermostat %s: TRV %s is no longer tracked, skipping",
-            self.device_name,
-            entity_id,
-        )
-        return
-
     trv = self.real_trvs.get(entity_id)
     if trv is None:
         _LOGGER.debug(
-            "better_thermostat %s: TRV %s is not tracked in real_trvs, skipping",
+            "better_thermostat %s: TRV %s is no longer tracked, skipping",
             self.device_name,
             entity_id,
         )
@@ -379,28 +371,22 @@ async def trigger_trv_change(
 
     # Dynamic model detection: only once (e.g. at startup), not on every event
     try:
-        prev_model = trv.model
-        if not prev_model:
-            if _org_trv_state is not None and isinstance(
-                _org_trv_state.attributes, dict
-            ):
-                # Only check when there are hints available
-                if (
-                    "model_id" in _org_trv_state.attributes
-                    or "device" in _org_trv_state.attributes
-                ):
-                    detected = await get_device_model(self, entity_id)
-                    if isinstance(detected, str) and detected:
-                        _LOGGER.info(
-                            "better_thermostat %s: TRV %s model detected: %s; "
-                            "loading quirks",
-                            self.device_name,
-                            entity_id,
-                            detected,
-                        )
-                        quirks = await load_model_quirks(self, detected, entity_id)
-                        trv.model = detected
-                        trv.model_quirks = quirks
+        # Only check when the state carries hints
+        if not trv.model and (
+            "model_id" in _org_trv_state.attributes
+            or "device" in _org_trv_state.attributes
+        ):
+            detected = await get_device_model(self, entity_id)
+            if isinstance(detected, str) and detected:
+                _LOGGER.info(
+                    "better_thermostat %s: TRV %s model detected: %s; loading quirks",
+                    self.device_name,
+                    entity_id,
+                    detected,
+                )
+                quirks = await load_model_quirks(self, detected, entity_id)
+                trv.model = detected
+                trv.model_quirks = quirks
     except Exception as e:
         _LOGGER.debug(
             "better_thermostat %s: dynamic model detection failed for %s: %s",
@@ -545,15 +531,7 @@ async def trigger_trv_change(
     # is emitted before any later cache update could correct it.
     adopt_reported_hvac_modes(trv, _org_trv_state.attributes.get("hvac_modes"))
 
-    try:
-        mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
-    except TypeError:
-        _LOGGER.debug(
-            "better_thermostat %s: remapping TRV %s state failed, skipping",
-            self.device_name,
-            entity_id,
-        )
-        return
+    mapped_state = convert_inbound_states(self, entity_id, _org_trv_state)
 
     # Always cache the reported hvac_action and valve position so both stay
     # current
