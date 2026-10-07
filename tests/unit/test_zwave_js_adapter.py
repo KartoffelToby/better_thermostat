@@ -328,7 +328,8 @@ class TestTheSpiritIsDrivenByTheZWA021Quirk:
             info = await adapter.get_info(mock_self, "climate.trv1")
 
         assert info["support_valve"] is True
-        
+
+
 class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
     """The ZVIDAR Z-TRV-V01 is a clone of the same device, under a third name.
 
@@ -372,6 +373,7 @@ class TestTheZTrvV01IsDrivenByTheZWA021Quirk:
             info = await adapter.get_info(mock_self, "climate.trv1")
 
         assert info["support_valve"] is True
+
 
 class TestAnUnknownStateFromADrivenSpirit:
     """The state a Spirit publishes while it takes valve positions.
