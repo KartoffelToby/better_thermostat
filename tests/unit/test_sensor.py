@@ -1317,6 +1317,26 @@ class TestDynamicAlgorithmSensors:
         return list(async_add_entities.call_args.args[0])
 
     @pytest.mark.asyncio
+    async def test_an_unchanged_mode_without_sensors_reports_no_change(self, caplog):
+        """A configuration change that keeps the algorithms logs no algorithm change.
+
+        Heating power brings no sensors of its own, so it is never tracked;
+        it is still the algorithm the thermostat ran before the change.
+        """
+        bt = _make_bt_climate(
+            real_trvs=_trvs_in_modes(CalibrationMode.HEATING_POWER_CALIBRATION)
+        )
+        reg = self._registry_of({})
+
+        with caplog.at_level(
+            logging.INFO, logger="custom_components.better_thermostat"
+        ):
+            await self._config_change(bt, reg)
+            await self._config_change(bt, reg)
+
+        assert "Algorithm configuration changed" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_a_second_algorithm_leaves_the_first_ones_sensors_in_place(self):
         """A TRV switching to PID beside one on MPC adds PID and keeps MPC.
 

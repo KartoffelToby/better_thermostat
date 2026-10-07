@@ -41,6 +41,15 @@ PARALLEL_UPDATES = 0
 
 # Global tracking variables for active algorithm-specific entities
 _ACTIVE_ALGORITHM_ENTITIES: dict[str, dict[CalibrationMode, list[str]]] = {}
+# The algorithms that bring diagnostic sensors of their own; only these are
+# ever tracked in _ACTIVE_ALGORITHM_ENTITIES.
+_ALGORITHMS_WITH_SENSORS: frozenset[CalibrationMode] = frozenset(
+    {
+        CalibrationMode.MPC_CALIBRATION,
+        CalibrationMode.MPC_V2_CALIBRATION,
+        CalibrationMode.PID_CALIBRATION,
+    }
+)
 _ENTITY_CLEANUP_CALLBACKS: dict[str, Callable[..., None]] = {}
 _DISPATCHER_UNSUBSCRIBES: dict[str, Callable[[], None]] = {}
 
@@ -304,7 +313,9 @@ async def _handle_dynamic_entity_update(
 ) -> None:
     """Handle dynamic entity creation/removal based on configuration."""
     entry_id = entry.entry_id
-    current_algorithms = _get_active_algorithms(bt_climate)
+    # Compared on the tracked side only: an algorithm without sensors is never
+    # tracked, so it would read as added on every change.
+    current_algorithms = _get_active_algorithms(bt_climate) & _ALGORITHMS_WITH_SENSORS
     previous_algorithms = set(_ACTIVE_ALGORITHM_ENTITIES.get(entry_id, {}))
 
     # Check for changes in the algorithms
