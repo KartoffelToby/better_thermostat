@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import logging
 import math
 from typing import Any
@@ -79,7 +79,7 @@ def export_mpc_v2_state(state: MpcV2State) -> dict[str, Any] | None:
         "last_compute_ts": state.last_compute_ts,
         "created_ts": state.created_ts,
         "outdoor_fallback_logged": state.outdoor_fallback_logged,
-        "snapshot": asdict(state.controller.export_snapshot()),
+        "snapshot": state.controller.export_snapshot().to_mapping(),
     }
 
 

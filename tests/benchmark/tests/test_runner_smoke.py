@@ -74,7 +74,7 @@ _COLD_ROOM_WINDOW_OPEN = ScenarioConfig(
     name="window_open_cold_room",
     description="Window open throughout, room 4 K below a 21 °C target",
     duration_min=20,
-    initial=InitialConditions(T_room_C=17.0, T_rad_C=17.0),
+    initial=InitialConditions(T_room=17.0, T_rad=17.0),
     plant=S01_SETPOINT_STEP_SMALL.plant,
     setpoint_schedule=schedules.constant(21.0),
     outdoor_schedule=schedules.constant(5.0),
@@ -103,7 +103,7 @@ def test_open_window_closes_the_valve_on_a_multi_trv_plant():
         make_multi_trv_adapter("pid", plant),
         _COLD_ROOM_WINDOW_OPEN,
         plant_params=plant,
-        initial_state=MultiTrvPlantState(T_room_C=17.0, T_rads_C=[17.0] * plant.n_trvs),
+        initial_state=MultiTrvPlantState(T_room=17.0, T_rads=[17.0] * plant.n_trvs),
     )
     assert result.metrics.integral_valve_pct_min == 0.0
 
@@ -142,7 +142,7 @@ def test_open_window_overrides_the_valve_only_while_open():
         window_open_schedule=schedules.pulse_bool(5 * 60.0, 10 * 60.0),
     )
     adapter = _ConstantValveAdapter(60.0)
-    plant = TwoStatePlant(scenario.plant, PlantState(T_room_C=17.0, T_rad_C=17.0))
+    plant = TwoStatePlant(scenario.plant, PlantState(T_room=17.0, T_rad=17.0))
     facade = _SingleTrvFacade(plant, Actuator(ActuatorParams()))
 
     _drive_adapter(
@@ -197,7 +197,7 @@ def test_open_window_closes_the_plant_valve_through_actuator_hysteresis():
         window_open_schedule=schedules.pulse_bool(5 * 60.0, 10 * 60.0),
     )
     adapter = _ScheduledValveAdapter(0.0)
-    plant = TwoStatePlant(scenario.plant, PlantState(T_room_C=17.0, T_rad_C=17.0))
+    plant = TwoStatePlant(scenario.plant, PlantState(T_room=17.0, T_rad=17.0))
     actuator = _RecordingActuator(ActuatorParams(hysteresis_pct=10.0))
     facade = _SingleTrvFacade(plant, actuator)
 

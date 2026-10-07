@@ -272,7 +272,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
 
     Free-cooldown fitting relies on the ``window_open`` flag to cut
     segments; a door open with the window shut must set it as well,
-    while ``T_room_C`` keeps coming from the real room sensor.
+    while ``T_room`` keeps coming from the real room sensor.
     """
     state_mgr = _StateStub()
     bt = _make_bt(state_mgr, trv_temp=21.0)
@@ -290,7 +290,7 @@ def test_reid_sample_records_open_door_as_open_contact() -> None:
     samples = state_mgr.get_mpc_v2_reid_runtime("key").buffer.samples
     assert len(samples) == 1
     assert samples[0].window_open is True
-    assert samples[0].T_room_C == 20.5
+    assert samples[0].T_room == 20.5
 
 
 def test_reid_sample_without_a_confirmed_valve_reading_records_nothing() -> None:

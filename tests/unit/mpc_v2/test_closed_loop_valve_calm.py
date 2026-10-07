@@ -35,7 +35,7 @@ CYCLE_S = 300.0
 ROOM_STEP_S = 30.0
 HOURS = 30.0
 SETTLED_FROM_H = 6.0
-SETPOINT_C = 21.0
+SETPOINT = 21.0
 # A valve move larger than this counts as a move; smaller ones are the
 # ordinary trim a noisy reading causes.
 MOVE_PCT = 5
@@ -53,7 +53,7 @@ class _Case:
     max_moves: int
     max_valve_span_pct: int
     max_mean_abs_error: float
-    setpoint: float = SETPOINT_C
+    setpoint: float = SETPOINT
 
 
 _CASES = {
@@ -114,10 +114,10 @@ def _settled_run(case: _Case) -> tuple[list[int], list[float]]:
         out, state = compute_mpc_v2(
             MpcV2Input(
                 key="valve-calm",
-                target_temp_C=case.setpoint,
-                current_temp_C=reading,
-                trv_temp_C=float(x[1]),
-                outdoor_temp_C=case.outdoor_temperature,
+                target_temperature=case.setpoint,
+                room_temperature=reading,
+                trv_temperature=float(x[1]),
+                outdoor_temperature=case.outdoor_temperature,
                 window_open=False,
                 applied_valve_pct=None if applied_pct is None else float(applied_pct),
             ),

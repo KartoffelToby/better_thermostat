@@ -38,11 +38,11 @@ def test_predict_rolls_state_forward_one_step_per_history_entry() -> None:
     sp = SmithPredictor(plant)
     x0 = np.array([20.0, 30.0])
     history = [0.2, 0.4, 0.6]  # most recent two consumed by dead_time=60s
-    out = sp.predict(x0, history, T_outdoor_C=5.0, dead_time_s=60.0)
+    out = sp.predict(x0, history, T_outdoor=5.0, dead_time_s=60.0)
 
     # Independently propagate the same two commands and compare.
-    expected = plant.discrete_step(x0, history[-2], T_outdoor_C=5.0)
-    expected = plant.discrete_step(expected, history[-1], T_outdoor_C=5.0)
+    expected = plant.discrete_step(x0, history[-2], T_outdoor=5.0)
+    expected = plant.discrete_step(expected, history[-1], T_outdoor=5.0)
     np.testing.assert_allclose(out, expected, atol=1e-12)
 
 
@@ -56,10 +56,10 @@ def test_partial_step_overlap_replays_the_in_flight_command() -> None:
     sp = SmithPredictor(plant)
     x0 = np.array([20.0, 30.0])
     history = [0.2, 0.4, 0.6]
-    out = sp.predict(x0, history, T_outdoor_C=5.0, dead_time_s=31.0)
+    out = sp.predict(x0, history, T_outdoor=5.0, dead_time_s=31.0)
 
-    expected = plant.discrete_step(x0, history[-2], T_outdoor_C=5.0)
-    expected = plant.discrete_step(expected, history[-1], T_outdoor_C=5.0)
+    expected = plant.discrete_step(x0, history[-2], T_outdoor=5.0)
+    expected = plant.discrete_step(expected, history[-1], T_outdoor=5.0)
     np.testing.assert_allclose(out, expected, atol=1e-12)
 
 
@@ -69,8 +69,8 @@ def test_long_dead_time_uses_full_history() -> None:
     sp = SmithPredictor(plant)
     x0 = np.array([19.5, 28.0])
     history = [0.1, 0.2, 0.3, 0.4]
-    out = sp.predict(x0, history, T_outdoor_C=5.0, dead_time_s=200.0)
+    out = sp.predict(x0, history, T_outdoor=5.0, dead_time_s=200.0)
     expected = x0.copy()
     for u in history:
-        expected = plant.discrete_step(expected, u, T_outdoor_C=5.0)
+        expected = plant.discrete_step(expected, u, T_outdoor=5.0)
     np.testing.assert_allclose(out, expected, atol=1e-12)

@@ -186,11 +186,11 @@ def _stabilise_plant(
         ctx = BenchmarkContext(
             t=0.0,  # logical time; not exposed to test controller
             dt=step_s,
-            target_temp_C=pre_setpoint,
-            current_temp_C=plant.state.T_room_C,
-            raw_room_temp_C=plant.state.T_room_C,
-            trv_temp_C=plant.state.T_rad_C,
-            outdoor_temp_C=pre_outdoor,
+            target_temperature=pre_setpoint,
+            room_temperature=plant.state.T_room,
+            raw_room_temperature=plant.state.T_room,
+            trv_temperature=plant.state.T_rad,
+            outdoor_temperature=pre_outdoor,
         )
         out = oracle.step(ctx)
         u = (out.valve_percent or 0.0) / 100.0
@@ -208,17 +208,17 @@ class PlantFacade(Protocol):
     """
 
     @property
-    def T_room_C(self) -> float:
+    def T_room(self) -> float:
         """Current room air temperature, in °C."""
         ...
 
     @property
-    def T_rad_C(self) -> float:
+    def T_rad(self) -> float:
         """Single-radiator view of the plant (mean over radiators if multi-TRV), in °C."""
         ...
 
     def apply(
-        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
         """Step the plant forward by ``dt_s`` seconds under the given valve and outdoor inputs."""
         ...
@@ -232,18 +232,18 @@ class _SingleTrvFacade:
         self._actuator = actuator
 
     @property
-    def T_room_C(self) -> float:
-        return self._plant.state.T_room_C
+    def T_room(self) -> float:
+        return self._plant.state.T_room
 
     @property
-    def T_rad_C(self) -> float:
-        return self._plant.state.T_rad_C
+    def T_rad(self) -> float:
+        return self._plant.state.T_rad
 
     def apply(
-        self, dt_s: float, valve_percent: float, T_outdoor_C: float, Q_K_per_min: float
+        self, dt_s: float, valve_percent: float, T_outdoor: float, Q_K_per_min: float
     ) -> None:
         u = self._actuator.apply(valve_percent)
-        self._plant.step(dt_s, u, T_outdoor_C, Q_K_per_min=Q_K_per_min)
+        self._plant.step(dt_s, u, T_outdoor, Q_K_per_min=Q_K_per_min)
 
 
 def _drive_adapter(
@@ -275,7 +275,7 @@ def _drive_adapter(
 
     t = 0.0
     last_valve_percent = 0.0
-    last_measured_temp = facade.T_room_C
+    last_measured_temp = facade.T_room
     restart_fired = False
 
     while t <= duration_s + 1e-6:
@@ -319,7 +319,7 @@ def _drive_adapter(
         )
         # On dropout the sensor returns None; the controller keeps using
         # its last good reading rather than being handed the plant truth.
-        sampled = sensor.read(t, facade.T_room_C)
+        sampled = sensor.read(t, facade.T_room)
         if sampled is not None:
             last_measured_temp = sampled
         T_measured = last_measured_temp
@@ -327,11 +327,11 @@ def _drive_adapter(
         ctx = BenchmarkContext(
             t=t,
             dt=step_s,
-            target_temp_C=target,
-            current_temp_C=T_measured,
-            raw_room_temp_C=facade.T_room_C,
-            trv_temp_C=facade.T_rad_C,
-            outdoor_temp_C=T_outdoor,
+            target_temperature=target,
+            room_temperature=T_measured,
+            raw_room_temperature=facade.T_room,
+            trv_temperature=facade.T_rad,
+            outdoor_temperature=T_outdoor,
             window_open=window_open,
             solar_intensity=controller_solar,
             last_valve_percent=last_valve_percent,
@@ -348,7 +348,7 @@ def _drive_adapter(
         last_valve_percent = valve_percent
 
         t_s_list.append(t)
-        T_room_list.append(facade.T_room_C)
+        T_room_list.append(facade.T_room)
         T_setpoint_list.append(target)
         valve_percent_list.append(valve_percent)
 
@@ -359,8 +359,8 @@ def _drive_adapter(
 
     return TimeSeries(
         t_s=t_s_list,
-        T_room_C=T_room_list,
-        T_setpoint_C=T_setpoint_list,
+        T_room=T_room_list,
+        T_setpoint=T_setpoint_list,
         valve_percent=valve_percent_list,
     )
 
@@ -401,9 +401,7 @@ def run_scenario(
     actual_plant = plant_params if plant_params is not None else scenario.plant
     plant = TwoStatePlant(
         actual_plant,
-        PlantState(
-            T_room_C=scenario.initial.T_room_C, T_rad_C=scenario.initial.T_rad_C
-        ),
+        PlantState(T_room=scenario.initial.T_room, T_rad=scenario.initial.T_rad),
     )
     # Run stabilisation with a scenario whose plant matches the override so
     # the IdealOracle inside the warm-up loop is parametrised correctly.
@@ -752,8 +750,7 @@ def _run_multi_trv_block(
         plant: MultiTrvPlantParams, scen: ScenarioConfig
     ) -> MultiTrvPlantState:
         return MultiTrvPlantState(
-            T_room_C=scen.initial.T_room_C,
-            T_rads_C=[scen.initial.T_rad_C] * plant.n_trvs,
+            T_room=scen.initial.T_room, T_rads=[scen.initial.T_rad] * plant.n_trvs
         )
 
     for profile_name, plant_params in multi_profiles.items():

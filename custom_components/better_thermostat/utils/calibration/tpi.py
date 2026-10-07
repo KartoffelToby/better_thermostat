@@ -41,9 +41,9 @@ class TpiInput:
     """Input parameters for TPI calibration calculation."""
 
     key: str
-    current_temp_C: float | None
-    target_temp_C: float | None
-    outdoor_temp_C: float | None = None
+    room_temperature: float | None
+    target_temperature: float | None
+    outdoor_temperature: float | None = None
     window_open: bool = False
     heating_allowed: bool = True
     bt_name: str | None = None
@@ -127,9 +127,9 @@ def compute_tpi(
         "better_thermostat %s: TPI input (%s) target=%s current=%s outdoor=%s window_open=%s allowed=%s last_percent=%s",
         name,
         entity,
-        _round_dbg(inp.target_temp_C),
-        _round_dbg(inp.current_temp_C),
-        _round_dbg(inp.outdoor_temp_C),
+        _round_dbg(inp.target_temperature),
+        _round_dbg(inp.room_temperature),
+        _round_dbg(inp.outdoor_temperature),
         inp.window_open,
         inp.heating_allowed,
         _round_dbg(state.last_percent, 2),
@@ -140,19 +140,19 @@ def compute_tpi(
         debug: dict[str, object] = {"reason": "blocked"}
         return _finalize_output(inp, params, state, now, duty_pct, None, debug)
 
-    if inp.current_temp_C is None or inp.target_temp_C is None:
+    if inp.room_temperature is None or inp.target_temperature is None:
         # Reuse last percent if available
         duty_pct = state.last_percent if state.last_percent is not None else 0.0
         debug = {"reason": "missing_temps"}
         return _finalize_output(inp, params, state, now, duty_pct, None, debug)
 
     # Error in Kelvin
-    error_K = float(inp.target_temp_C) - float(inp.current_temp_C)
+    error_K = float(inp.target_temperature) - float(inp.room_temperature)
 
     # Simple TPI calculation like in versatile_thermostat
     duty_pct = params.coef_int * error_K
-    if inp.outdoor_temp_C is not None:
-        delta_ext = float(inp.target_temp_C) - float(inp.outdoor_temp_C)
+    if inp.outdoor_temperature is not None:
+        delta_ext = float(inp.target_temperature) - float(inp.outdoor_temperature)
         duty_pct += params.coef_ext * delta_ext
 
     # Convert to percentage (0-100)

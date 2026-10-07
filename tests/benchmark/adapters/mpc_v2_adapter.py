@@ -72,10 +72,10 @@ class MpcV2Adapter:
         """
         inp = MpcV2Input(
             key=self._key,
-            target_temp_C=ctx.target_temp_C,
-            current_temp_C=ctx.current_temp_C,
-            trv_temp_C=ctx.trv_temp_C,
-            outdoor_temp_C=ctx.outdoor_temp_C,
+            target_temperature=ctx.target_temperature,
+            room_temperature=ctx.room_temperature,
+            trv_temperature=ctx.trv_temperature,
+            outdoor_temperature=ctx.outdoor_temperature,
             window_open=ctx.window_open,
             heating_allowed=True,
             applied_valve_pct=ctx.last_valve_percent,

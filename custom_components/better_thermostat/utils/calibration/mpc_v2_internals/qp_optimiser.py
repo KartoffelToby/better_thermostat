@@ -302,7 +302,7 @@ class QpOptimiser:
         self,
         x_pred: FloatArray,
         T_sp: float,
-        T_outdoor_C: float,
+        T_outdoor: float,
         u_last: float,
         D_hat_K_per_min: float = 0.0,
     ) -> float:
@@ -324,11 +324,11 @@ class QpOptimiser:
         # That bound keeps the gain positive only for a setpoint below the
         # supply water, which a room setpoint always is.
         radiator_operating_point = min(
-            self.plant.steady_radiator_temp(T_sp, T_outdoor_C, D_hat_K_per_min),
+            self.plant.steady_radiator_temp(T_sp, T_outdoor, D_hat_K_per_min),
             self.plant.hottest_radiator_temp(T_sp),
         )
-        u_ss = self._steady_input_for(T_sp, T_outdoor_C, D_hat_K_per_min)
-        A, B, d_vec = self.plant.linearised_AB(T_outdoor_C, radiator_operating_point)
+        u_ss = self._steady_input_for(T_sp, T_outdoor, D_hat_K_per_min)
+        A, B, d_vec = self.plant.linearised_system(T_outdoor, radiator_operating_point)
         d_vec = d_vec + np.array([D_hat_K_per_min * self.plant.dt_min, 0.0])
 
         A_pow = [np.eye(n)]
@@ -597,7 +597,7 @@ class QpOptimiser:
         return x if exact is None else exact
 
     def _steady_input_for(
-        self, T_sp: float, T_outdoor_C: float, D_hat_K_per_min: float = 0.0
+        self, T_sp: float, T_outdoor: float, D_hat_K_per_min: float = 0.0
     ) -> float:
-        u_ss = self.plant.steady_input(T_sp, T_outdoor_C, D_hat_K_per_min)
+        u_ss = self.plant.steady_input(T_sp, T_outdoor, D_hat_K_per_min)
         return max(0.0, min(1.0, u_ss))

@@ -47,11 +47,11 @@ def _ctx(target: float = 21.0, current: float = 20.0) -> BenchmarkContext:
     return BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 
@@ -128,11 +128,11 @@ def test_oracle_feedback_uses_plant_truth():
     ctx = BenchmarkContext(
         t=0.0,
         dt=30.0,
-        target_temp_C=21.0,
-        current_temp_C=18.0,  # lagged/noisy sensor reading
-        raw_room_temp_C=21.0,  # plant truth already at setpoint
-        trv_temp_C=None,
-        outdoor_temp_C=5.0,
+        target_temperature=21.0,
+        room_temperature=18.0,  # lagged/noisy sensor reading
+        raw_room_temperature=21.0,  # plant truth already at setpoint
+        trv_temperature=None,
+        outdoor_temperature=5.0,
     )
     out = adapter.step(ctx)
     assert out.diagnostics["error_K"] == pytest.approx(0.0)
@@ -149,11 +149,11 @@ def _ctx_at(t: float, target: float = 21.0, current: float = 20.0) -> BenchmarkC
     return BenchmarkContext(
         t=t,
         dt=30.0,
-        target_temp_C=target,
-        current_temp_C=current,
-        raw_room_temp_C=current,
-        trv_temp_C=current,
-        outdoor_temp_C=5.0,
+        target_temperature=target,
+        room_temperature=current,
+        raw_room_temperature=current,
+        trv_temperature=current,
+        outdoor_temperature=5.0,
     )
 
 

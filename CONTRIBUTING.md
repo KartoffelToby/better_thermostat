@@ -361,6 +361,17 @@ because the persisted configuration mixes seconds and minutes. Of those
 spellings, only `delta_T`, `delta_t` and `dT` are in `glossary.toml`, so only
 they are checked; the suffixes rest on review.
 
+**The control-theory code writes its equations' notation.** Under
+`custom_components/better_thermostat/utils/calibration/` and in the tests that
+mirror it (`tests/benchmark/`, `tests/unit/mpc_v2/`,
+`tests/unit/test_mpc_comprehensive.py`) a quantity keeps the symbol of the
+derivation in its docstring: `A`, `kalman_P`, `T_room`, `dT_rad`, and `_K` for
+a temperature difference, since `K` is the SI symbol for kelvin and its case
+carries meaning. Absolute temperatures carry no suffix there either:
+`T_room`, `target_temperature`, never `T_room_C`. A value leaves the notation
+where it leaves those paths, so `calibration.py` hands `rmse_fit_K` on as
+`rmse_fit_kelvin`.
+
 **A `CONF_*` constant and its string agree.** `CONF_WINDOW_OFF_DELAY =
 "window_off_delay"`, never `CONF_WINDOW_TIMEOUT` for that key; a gate test holds
 it. The constant follows the string, not the other way round: the string is zone
@@ -414,23 +425,23 @@ The two halves are checked by different tools. `check_naming.py` reads vocabular
 and says nothing about case; `ruff check` reads case and shape through its `N`
 rules and says nothing about which word was chosen.
 
-Where the case rules give way, `pyproject.toml` says so in a `per-file-ignores`
-entry, and there are five: the control-theory notation under
-`custom_components/better_thermostat/utils/calibration/`, its three test mirrors
-`tests/benchmark/`, `tests/unit/mpc_v2/` and
-`tests/unit/test_mpc_comprehensive.py`, and the device model strings that name
-the modules under `model_fixes/`. Each entry drops only the rules that fire
-under it. Where a single line carries the notation rather than a tree, a
-`# noqa: N8xx` with its reason does the job instead, as the two persisted field
-names in `utils/state_manager.py` do. Both forms are capped by
-`.pep8-naming-budget.json`, which records per file how many findings they hide,
-and CI holds that number exactly: a count above it or below it fails, and
-`update` records a lower one:
+Where the case rules give way, `pyproject.toml` says so, in two places. Its
+`extend-ignore-names` lists the shapes of the control-theory notation: a lone
+capital, a capital with a subscript, a capital symbol as a suffix or infix, a
+derivative, never a trailing `C`. A `per-file-ignores` entry accepts N999 under
+`model_fixes/`, whose module names are the device model strings. Ruff applies
+the name patterns everywhere, so `scripts/pep8_naming_budget.py` scans the
+notation zones with them and every other file without them, and accepts N999
+under `model_fixes/` alone. Any other naming finding fails CI, whether a lint
+setting or a `# noqa` hides it from `ruff check` or not:
 
 ```bash
 uv run python scripts/pep8_naming_budget.py check    # what CI runs
-uv run python scripts/pep8_naming_budget.py update   # after a rename
 ```
+
+A deviation the notation does not cover is a name to fix. Where one has to
+stay for a while, `update --allow-raise` records it per file in
+`.pep8-naming-budget.json`, which only ever falls and deletes itself at zero.
 
 Inside those paths both gates apply. The ruff exemption covers case alone, so
 the notation may still not use a spelling `glossary.toml` rejects: a

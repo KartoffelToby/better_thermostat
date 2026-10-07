@@ -266,6 +266,40 @@ class TestSerializeDeserializeRoundtrip:
         assert "rmse_fit_kelvin" not in stored
         assert restored.mpc_v2_reid["k1"] == original.mpc_v2_reid["k1"]
 
+    def test_mpc_temperatures_keep_their_stored_keys(self):
+        """The MPC v1 temperatures are stored under their 1.9 keys."""
+        original = RuntimeState(
+            mpc={
+                "k1": MpcState(
+                    last_target_temperature=21.0,
+                    last_sensor_temperature=20.5,
+                    last_room_temperature=20.25,
+                )
+            }
+        )
+
+        raw = _serialize(original)
+        restored = _deserialize(raw)
+
+        stored = raw["mpc"]["k1"]
+        assert (
+            stored["last_target_C"],
+            stored["last_sensor_temp_C"],
+            stored["last_room_temp_C"],
+        ) == (21.0, 20.5, 20.25)
+        assert (
+            not {
+                "last_target_temperature",
+                "last_sensor_temperature",
+                "last_room_temperature",
+            }
+            & stored.keys()
+        )
+        restored_mpc = restored.mpc["k1"]
+        assert restored_mpc.last_target_temperature == 21.0
+        assert restored_mpc.last_sensor_temperature == 20.5
+        assert restored_mpc.last_room_temperature == 20.25
+
     def test_legacy_presets_section_ignored(self):
         """A legacy presets section in a stored payload is ignored.
 
@@ -309,6 +343,27 @@ class TestSerializeDeserializeRoundtrip:
 # ---------------------------------------------------------------------------
 # Type coercion during deserialization
 # ---------------------------------------------------------------------------
+
+
+class TestDeserializeMpcFieldSpellings:
+    """The temperature anchors read under their store key and their attribute."""
+
+    def test_an_asdict_snapshot_keeps_the_anchors(self):
+        """A snapshot taken with ``asdict`` restores the three anchors."""
+        state = MpcState(
+            last_target_temperature=21.5,
+            last_sensor_temperature=20.25,
+            last_room_temperature=19.75,
+        )
+        restored = deserialize_mpc(asdict(state))
+        assert restored.last_target_temperature == 21.5
+        assert restored.last_sensor_temperature == 20.25
+        assert restored.last_room_temperature == 19.75
+
+    def test_the_store_key_wins_over_the_attribute_name(self):
+        """An entry carrying both spellings reads the store key."""
+        raw = {"last_target_C": 22.0, "last_target_temperature": 18.0}
+        assert deserialize_mpc(raw).last_target_temperature == 22.0
 
 
 class TestDeserializeMpcTypeCoercion:
@@ -473,6 +528,13 @@ class TestDeserializeMpcV2Reid:
         base = {"tau_room_min": 240.0, "gain_heater": 3.0}
         assert deserialize_mpc_v2_reid({**base, "rmse_prior_K": None}) is None
         assert deserialize_mpc_v2_reid({**base, "rmse_fit_K": None}) is None
+
+    def test_null_validation_metric_is_reported_under_its_stored_key(self, caplog):
+        """The report names the key the file holds, as the other paths do."""
+        base = {"tau_room_min": 240.0, "gain_heater": 3.0}
+        with caplog.at_level(logging.WARNING, logger=_SM):
+            assert deserialize_mpc_v2_reid({**base, "rmse_fit_K": None}) is None
+        assert "rmse_fit_K is null" in caplog.text
 
     def test_null_segment_count_discards_the_entry(self):
         """``n_segments`` is typed ``int``; a null is not a tally either."""
@@ -1493,7 +1555,7 @@ def _make_snapshot(last_u: float) -> ControllerSnapshot:
         last_u=last_u,
         e_integral_K_min=0.0,
         u_history=[],
-        rg_v_C=None,
+        rg_v=None,
         last_t_s=0.0,
         next_mpc_t_s=0.0,
     )

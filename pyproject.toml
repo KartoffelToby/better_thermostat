@@ -76,38 +76,46 @@ convention = "numpy"
 # imports inside function bodies.
 "tests/**" = ["D", "PLC0415"]
 
-# Control-theory notation. The state-space matrices `A` and `B`, the Kalman
-# covariance `P` and gain `K`, the process and measurement noise `Q` and `R`
-# and the horizon length `N` are single symbols lifted from the derivations
-# that sit in the docstrings beside them. Lowercasing them separates the code
-# from the equations it implements, which is the case PEP 8 itself makes for
-# dropping the convention. Class names, exception suffixes, module names and
-# import aliases stay under it either way.
-#
-# Each entry drops only the rules that actually fire under it, so a rule no
-# file there trips is not disarmed for the files that arrive later, and
-# `.pep8-naming-budget.json` caps how many findings the entries hide. A glob
-# says where a deviation is allowed; the budget says how many there are, and
-# `scripts/pep8_naming_budget.py check` holds that number. An inline
-# `# noqa: N8xx` counts the same, which is what makes it the better form where
-# one line rather than a tree carries the notation.
-#
-# This is about case alone. The vocabulary half is judged by
-# `scripts/check_naming.py` against `glossary.toml` in these paths as well, so
-# the notation may not use a spelling the glossary rejects, such as `delta_T`.
-"custom_components/better_thermostat/utils/calibration/**" = ["N803", "N806", "N815"]
-"tests/benchmark/**" = ["N802", "N803", "N806", "N815"]
-"tests/unit/mpc_v2/**" = ["N803", "N806"]
-"tests/unit/test_mpc_comprehensive.py" = ["N802", "N803", "N806"]
-
 # Device model names as module names. `load_model_quirks` sanitises the model
 # string the device registry reports and imports the module of that name, so a
 # file name under `model_fixes` is a lookup key rather than a name anybody
 # chose. `_QUIRK_MODULE_ALIASES` in `model_quirks.py` redirects a model to
 # another model's module; snake_case module names would turn that one-line
-# redirect into an entry per supported device. The budget records the fourteen
-# files that trip the rule today, so a fifteenth is not exempt for free.
+# redirect into an entry per supported device. `scripts/pep8_naming_budget.py`
+# accepts N999 under `model_fixes` and nowhere else.
 "custom_components/better_thermostat/model_fixes/**" = ["N999"]
+
+[tool.ruff.lint.pep8-naming]
+# Control-theory notation. The state-space matrices `A` and `B`, the Kalman
+# covariance `P` and gain `K`, the process and measurement noise `Q` and `R`,
+# the horizon length `N` and subscripted quantities such as `T_room` or
+# `dT_rad` are symbols lifted from the derivations that sit in the docstrings
+# beside them, and `_K` is the SI symbol for kelvin, whose case carries meaning
+# (`k` is kilo). Lowercasing them separates the code from the equations it
+# implements, which is the case PEP 8 itself makes for dropping the convention.
+#
+# The patterns name the shapes of that notation: a lone capital (`A`, `P0`), a
+# capital with a subscript (`T_room`, `D_hat_K_per_min`), a capital symbol as a
+# suffix or infix (`kalman_P`, `error_K`, `Y_T_u`) and a derivative (`dT_rad`).
+# `C` is left out on purpose: absolute temperatures carry no suffix, and the
+# symbol for a degree Celsius is not `C`.
+#
+# Ruff applies the patterns everywhere. `scripts/pep8_naming_budget.py` holds
+# them to the notation zones: the calibration code and its three test mirrors.
+# Outside those paths a name these patterns let through still fails CI.
+#
+# This is about case alone. `scripts/check_naming.py` judges the vocabulary in
+# these paths as well, so the notation may not use a spelling `glossary.toml`
+# rejects, such as `delta_T`.
+extend-ignore-names = [
+  "[A-Z]",
+  "[A-Z][0-9]",
+  "[A-Z]_*[!C]",
+  "*_[A-BD-Z]",
+  "*_[A-BD-Z]_*",
+  "d[A-Z]",
+  "d[A-Z]_*[!C]",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["custom_components.better_thermostat", "tests"]

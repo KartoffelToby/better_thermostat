@@ -116,31 +116,31 @@ class Sensor:
         u = (self._rng_state / 0x7FFFFFFF) * 2.0 - 1.0  # [-1, 1]
         return u * u * u * _CUBIC_STD_CORRECTION * self.params.noise_std_K
 
-    def _apply_thermal_lag(self, t_s: float, T_true_C: float) -> float:
+    def _apply_thermal_lag(self, t_s: float, T_true: float) -> float:
         """Return the lagged sensor temperature for the current step.
 
         Advances the sensor's internal thermal state.
         """
         if self.params.thermal_lag_s <= 0.0:
-            return T_true_C
+            return T_true
 
         if self._lag_state is None or self._last_lag_update_t < 0.0:
-            self._lag_state = T_true_C
+            self._lag_state = T_true
             self._last_lag_update_t = t_s
-            return T_true_C
+            return T_true
 
         dt = t_s - self._last_lag_update_t
         if dt > 0.0:
             alpha = 1.0 - math.exp(-dt / self.params.thermal_lag_s)
-            self._lag_state += alpha * (T_true_C - self._lag_state)
+            self._lag_state += alpha * (T_true - self._lag_state)
             self._last_lag_update_t = t_s
         return self._lag_state
 
-    def read(self, t_s: float, T_true_C: float) -> float | None:
+    def read(self, t_s: float, T_true: float) -> float | None:
         """Return the currently observed temperature, or None on dropout."""
         # The sensor body keeps tracking the room even while reporting is
         # down, so the lag state must advance through the outage.
-        T_lagged = self._apply_thermal_lag(t_s, T_true_C)
+        T_lagged = self._apply_thermal_lag(t_s, T_true)
         if self.params.dropout_from_t_s <= t_s < self.params.dropout_until_t_s:
             return None
 

@@ -17,8 +17,8 @@ class TimeSeries:
     """Parallel arrays of recorded simulator state at every step."""
 
     t_s: Sequence[float]
-    T_room_C: Sequence[float]
-    T_setpoint_C: Sequence[float]
+    T_room: Sequence[float]
+    T_setpoint: Sequence[float]
     valve_percent: Sequence[float]
 
     def __post_init__(self) -> None:
@@ -32,13 +32,13 @@ class TimeSeries:
         """
         lengths = {
             len(self.t_s),
-            len(self.T_room_C),
-            len(self.T_setpoint_C),
+            len(self.T_room),
+            len(self.T_setpoint),
             len(self.valve_percent),
         }
         if len(lengths) != 1:
             raise ValueError("TimeSeries fields must have the same length")
-        for name in ("t_s", "T_room_C", "T_setpoint_C", "valve_percent"):
+        for name in ("t_s", "T_room", "T_setpoint", "valve_percent"):
             if any(not math.isfinite(v) for v in getattr(self, name)):
                 raise ValueError(f"TimeSeries.{name} must contain only finite values")
         if any(t2 <= t1 for t1, t2 in zip(self.t_s, self.t_s[1:])):
@@ -84,7 +84,7 @@ def _compute_overshoot(
     series: TimeSeries, transient_start_s: float
 ) -> tuple[float, float]:
     over, under = 0.0, 0.0
-    for t, T, sp in zip(series.t_s, series.T_room_C, series.T_setpoint_C):
+    for t, T, sp in zip(series.t_s, series.T_room, series.T_setpoint):
         if t < transient_start_s:
             continue
         if T > sp + over:
@@ -107,7 +107,7 @@ def _compute_settling(
     settling never occurs within the run.
     """
     in_band_since: float | None = None
-    for t, T, sp in zip(series.t_s, series.T_room_C, series.T_setpoint_C):
+    for t, T, sp in zip(series.t_s, series.T_room, series.T_setpoint):
         if t < transient_start_s:
             continue
         if abs(T - sp) < band_K:
@@ -130,7 +130,7 @@ def _compute_steady_state(
     window_start = max(final_t - window_min * 60.0, transient_start_s)
     errs = [
         abs(T - sp)
-        for t, T, sp in zip(series.t_s, series.T_room_C, series.T_setpoint_C)
+        for t, T, sp in zip(series.t_s, series.T_room, series.T_setpoint)
         if t >= window_start
     ]
     if not errs:
@@ -141,7 +141,7 @@ def _compute_steady_state(
 def _compute_rmse(series: TimeSeries, transient_start_s: float) -> float:
     errs = [
         (T - sp) ** 2
-        for t, T, sp in zip(series.t_s, series.T_room_C, series.T_setpoint_C)
+        for t, T, sp in zip(series.t_s, series.T_room, series.T_setpoint)
         if t >= transient_start_s
     ]
     if not errs:
@@ -190,7 +190,7 @@ def _compute_setpoint_imbalance_K_h(
         # Clip the first interval so pre-transient time is not charged.
         seg_start = max(series.t_s[i - 1], transient_start_s)
         dt_h = (seg_end - seg_start) / 3600.0
-        err = series.T_room_C[i] - series.T_setpoint_C[i]
+        err = series.T_room[i] - series.T_setpoint[i]
         if err > 0.0:
             above_K_h += err * dt_h
         else:

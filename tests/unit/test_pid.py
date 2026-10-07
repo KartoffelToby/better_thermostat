@@ -43,9 +43,9 @@ class TestPIDController:
         params = PIDParams()
         percent, debug, _ = self._compute(
             params=params,
-            inp_target_temp_C=None,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=None,
+            inp_target_temperature=None,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=None,
             inp_temp_slope_K_per_min=None,
             key="test_no_temp",
         )
@@ -62,9 +62,9 @@ class TestPIDController:
         # First call to initialize
         percent1, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_basic",
         )
@@ -74,9 +74,9 @@ class TestPIDController:
         # Second call with same error; integer rounding may mask tiny increments
         percent2, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_basic",
         )
@@ -87,9 +87,9 @@ class TestPIDController:
         for _ in range(6):
             percent_last, _, _ = self._compute(
                 params=params,
-                inp_target_temp_C=22.0,
-                inp_current_temp_C=20.0,
-                inp_trv_temp_C=21.0,
+                inp_target_temperature=22.0,
+                inp_room_temperature=20.0,
+                inp_trv_temperature=21.0,
                 inp_temp_slope_K_per_min=0.0,
                 key="test_basic",
             )
@@ -101,9 +101,9 @@ class TestPIDController:
         # Large error to cause windup
         percent, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=30.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=30.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_windup",
         )
@@ -144,9 +144,9 @@ class TestPIDController:
         # negative triggers relief (i_term *= 0.8).
         _, debug, new_state = compute_pid(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=21.95,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=21.95,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_relief",
             state=state,
@@ -170,9 +170,9 @@ class TestPIDController:
         # First call: positive error > band
         self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -180,9 +180,9 @@ class TestPIDController:
         # Second call: overshoot (negative error < band)
         self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=22.05,  # error = -0.05 < band
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=22.05,  # error = -0.05 < band
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -206,9 +206,9 @@ class TestPIDController:
         # Large error < 1.0, small slope -> sluggish
         self._compute(
             params=params,
-            inp_target_temp_C=20.8,  # error = 0.8 < 1.0
-            inp_current_temp_C=20.0,  # error = 0.8 > band
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=20.8,  # error = 0.8 < 1.0
+            inp_room_temperature=20.0,  # error = 0.8 > band
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.005,  # < threshold
             key=key,
         )
@@ -230,9 +230,9 @@ class TestPIDController:
         # Small error, low percent -> steady state
         self._compute(
             params=params,
-            inp_target_temp_C=20.1,
-            inp_current_temp_C=20.0,  # error = 0.1 < band
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=20.1,
+            inp_room_temperature=20.0,  # error = 0.1 < band
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -255,9 +255,9 @@ class TestPIDController:
         # First call: sluggish -> tune
         self._compute(
             params=params,
-            inp_target_temp_C=20.8,  # error = 0.8 < 1.0
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=20.8,  # error = 0.8 < 1.0
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,  # < threshold
             key=key,
         )
@@ -273,9 +273,9 @@ class TestPIDController:
         # Immediate second call with sluggish again - should not tune due to interval
         self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,  # same error
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # same error
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -313,18 +313,18 @@ class TestPIDController:
             # Positive error
             self._compute(
                 params=params,
-                inp_target_temp_C=22.0,
-                inp_current_temp_C=20.0,
-                inp_trv_temp_C=21.0,
+                inp_target_temperature=22.0,
+                inp_room_temperature=20.0,
+                inp_trv_temperature=21.0,
                 inp_temp_slope_K_per_min=0.0,
                 key=key,
             )
             # Overshoot
             self._compute(
                 params=params,
-                inp_target_temp_C=22.0,
-                inp_current_temp_C=22.2,  # error = -0.2 > threshold
-                inp_trv_temp_C=21.0,
+                inp_target_temperature=22.0,
+                inp_room_temperature=22.2,  # error = -0.2 > threshold
+                inp_trv_temperature=21.0,
                 inp_temp_slope_K_per_min=0.0,
                 key=key,
             )
@@ -353,9 +353,9 @@ class TestPIDController:
         # First: sluggish (error <1.0, small slope)
         self._compute(
             params=params,
-            inp_target_temp_C=20.8,  # error = 0.8
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=20.8,  # error = 0.8
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.005,  # sluggish
             key=key,
         )
@@ -369,17 +369,17 @@ class TestPIDController:
         # Second: overshoot (previous abs > band, current abs < band)
         self._compute(
             params=params,
-            inp_target_temp_C=20.8,  # error = 0.8 > band
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=20.8,  # error = 0.8 > band
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.02,  # > threshold, no sluggish
             key=key,
         )
         self._compute(
             params=params,
-            inp_target_temp_C=20.8,
-            inp_current_temp_C=20.83,  # error = -0.03 < band
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=20.8,
+            inp_room_temperature=20.83,  # error = -0.03 < band
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -415,9 +415,9 @@ class TestPIDController:
             room_temperature = 20.0 + (2.0 - error)  # Adjust to create error
             self._compute(
                 params=params,
-                inp_target_temp_C=22.0,
-                inp_current_temp_C=room_temperature,
-                inp_trv_temp_C=21.0,
+                inp_target_temperature=22.0,
+                inp_room_temperature=room_temperature,
+                inp_trv_temperature=21.0,
                 inp_temp_slope_K_per_min=0.0,
                 key=key,
             )
@@ -446,18 +446,18 @@ class TestPIDController:
         # First call to initialize
         self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_deriv",
         )
         # Second call to have dt > 0
         _, debug, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_deriv",
         )
@@ -481,9 +481,9 @@ class TestPIDController:
         # First call initializes pid_last_error (= 2.0); no derivative yet.
         self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_deriv_err",
         )
@@ -491,9 +491,9 @@ class TestPIDController:
         # 2.0 -> 3.0, so d = kd * (3-2)/dt with dt clamped to 1.0.
         _, debug, state = self._compute(
             params=params,
-            inp_target_temp_C=23.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=23.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_deriv_err",
         )
@@ -509,9 +509,9 @@ class TestPIDController:
         params = PIDParams(auto_tune=False, d_on_measurement=True)
         _, _, state = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key="test_last_err",
         )
@@ -534,9 +534,9 @@ class TestPIDController:
         # First call establishes baseline
         percent1, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -545,9 +545,9 @@ class TestPIDController:
         # Second call with slightly different error (small change < 33%)
         percent2, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.5,  # Error = 1.5, P = 15%
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.5,  # Error = 1.5, P = 15%
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -569,9 +569,9 @@ class TestPIDController:
         # First call establishes baseline
         percent1, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -580,9 +580,9 @@ class TestPIDController:
         # Second call with large error change (big change >= 33%)
         percent2, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=15.0,  # Error = 7.0, P = 70%
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=15.0,  # Error = 7.0, P = 70%
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -604,9 +604,9 @@ class TestPIDController:
         # First call establishes baseline
         percent1, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,  # Error = 2.0, P = 20%
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,  # Error = 2.0, P = 20%
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -615,9 +615,9 @@ class TestPIDController:
         # Second call with changed target temperature
         percent2, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=23.0,  # Target changed by 1.0°C (> 0.05)
-            inp_current_temp_C=20.0,  # Error = 3.0, P = 30%
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=23.0,  # Target changed by 1.0°C (> 0.05)
+            inp_room_temperature=20.0,  # Error = 3.0, P = 30%
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -639,9 +639,9 @@ class TestPIDController:
         # First call
         percent1, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.0,
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.0,
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )
@@ -650,9 +650,9 @@ class TestPIDController:
         # Second call with small change - should NOT be blocked
         percent2, _, _ = self._compute(
             params=params,
-            inp_target_temp_C=22.0,
-            inp_current_temp_C=20.5,  # Small change
-            inp_trv_temp_C=21.0,
+            inp_target_temperature=22.0,
+            inp_room_temperature=20.5,  # Small change
+            inp_trv_temperature=21.0,
             inp_temp_slope_K_per_min=0.0,
             key=key,
         )

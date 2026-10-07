@@ -29,9 +29,9 @@ def _warm(state: MpcV2State) -> MpcV2State:
     _out, state = compute_mpc_v2(
         MpcV2Input(
             key="k",
-            target_temp_C=22.0,
-            current_temp_C=19.0,
-            outdoor_temp_C=5.0,
+            target_temperature=22.0,
+            room_temperature=19.0,
+            outdoor_temperature=5.0,
             heating_allowed=True,
             window_open=False,
         ),

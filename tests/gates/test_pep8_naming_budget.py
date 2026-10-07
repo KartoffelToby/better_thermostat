@@ -57,6 +57,46 @@ UPPERCASE_LOCAL = textwrap.dedent(
     '''
 )
 
+ZONED = "custom_components/better_thermostat/utils/calibration/notation.py"
+MODEL_FIXES = "custom_components/better_thermostat/model_fixes"
+OTHER_PACKAGE = "custom_components/better_thermostat/utils"
+UNZONED = "custom_components/better_thermostat/climate_notation.py"
+
+NOTATION_CONFIG = textwrap.dedent(
+    """
+    [tool.ruff]
+    target-version = "py314"
+
+    [tool.ruff.lint.pep8-naming]
+    extend-ignore-names = ["[A-Z]", "[A-Z]_*[!C]", "*_[A-BD-Z]"]
+    """
+)
+
+# One name per pattern: a lone capital, a subscripted capital and a capital
+# symbol as a suffix, the last as a unit and as a matrix.
+NOTATION_MODULE = textwrap.dedent(
+    '''
+    """A module in the control-theory notation."""
+
+
+    def step(T_room: float, error_K: float, kalman_P: float) -> float:
+        """Return the next state."""
+        A = 0.5
+        return A * T_room + error_K + kalman_P
+    '''
+)
+
+CELSIUS_MODULE = textwrap.dedent(
+    '''
+    """A module that spells an absolute temperature with a Celsius suffix."""
+
+
+    def step(T_room_C: float, target_C: float) -> float:
+        """Return the gap."""
+        return target_C - T_room_C
+    '''
+)
+
 # `except X, Y:` without parentheses is Python 3.14 syntax, so an older grammar
 # makes this module a syntax error rather than the module it is.
 NEWER_GRAMMAR = textwrap.dedent(
@@ -265,6 +305,62 @@ def test_the_scan_reads_the_files_it_was_given(budget, monkeypatch, tmp_path):
     assert budget._measure() == {"listed.py": 1}
 
 
+def _zoned_repository(root: Path, monkeypatch, budget, **files: str) -> None:
+    """Point the scan at *root*, holding *files* and the notation patterns."""
+    (root / "pyproject.toml").write_text(NOTATION_CONFIG, encoding="utf-8")
+    for name, source in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(source, encoding="utf-8")
+    monkeypatch.setattr(budget, "REPO_ROOT", root)
+    monkeypatch.setattr(budget, "_python_files", lambda: sorted(files))
+
+
+def test_the_notation_is_accepted_inside_a_notation_zone(budget, monkeypatch, tmp_path):
+    """A name the patterns describe costs nothing where the notation lives."""
+    _zoned_repository(tmp_path, monkeypatch, budget, **{ZONED: NOTATION_MODULE})
+
+    assert budget._measure() == {}
+
+
+def test_the_notation_counts_outside_the_notation_zones(budget, monkeypatch, tmp_path):
+    """The patterns apply to every path for ruff, and to the zones alone here."""
+    _zoned_repository(tmp_path, monkeypatch, budget, **{UNZONED: NOTATION_MODULE})
+
+    assert budget._measure() == {UNZONED: 4}
+
+
+def test_a_celsius_suffix_counts_inside_a_notation_zone(budget, monkeypatch, tmp_path):
+    """`C` is no notation: an absolute temperature carries no suffix at all."""
+    _zoned_repository(tmp_path, monkeypatch, budget, **{ZONED: CELSIUS_MODULE})
+
+    assert budget._measure() == {ZONED: 2}
+
+
+def test_a_model_string_module_name_is_accepted_only_under_model_fixes(
+    budget, monkeypatch, tmp_path
+):
+    """N999 is the model string's due under `model_fixes` and a finding elsewhere.
+
+    Ruff names an invalid module name only inside a package, so both
+    directories carry an `__init__.py`.
+    """
+    _zoned_repository(
+        tmp_path,
+        monkeypatch,
+        budget,
+        **{
+            f"{package}/{module}": source
+            for package in (MODEL_FIXES, OTHER_PACKAGE)
+            for module, source in (
+                ("__init__.py", ""),
+                ("BHT-002-GCLZB.py", "value = 1\n"),
+            )
+        },
+    )
+
+    assert budget._measure() == {f"{OTHER_PACKAGE}/BHT-002-GCLZB.py": 1}
+
+
 def test_the_listed_files_are_the_ones_git_tracks(budget):
     """That list is the repository's Python files as git records them."""
     files = budget._python_files()
@@ -275,8 +371,11 @@ def test_the_listed_files_are_the_ones_git_tracks(budget):
 
 def test_the_recorded_budget_names_files_that_exist(budget):
     """A moved or deleted file must not keep a budget nobody can spend."""
-    recorded = json.loads(
-        (REPO_ROOT / ".pep8-naming-budget.json").read_text(encoding="utf-8")
+    recorded_file = REPO_ROOT / ".pep8-naming-budget.json"
+    recorded = (
+        json.loads(recorded_file.read_text(encoding="utf-8"))
+        if recorded_file.exists()
+        else {}
     )
 
     missing = sorted(name for name in recorded if not (REPO_ROOT / name).exists())

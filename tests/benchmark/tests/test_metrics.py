@@ -14,10 +14,7 @@ def _flat_series(
 ) -> TimeSeries:
     t = [i * dt_s for i in range(n)]
     return TimeSeries(
-        t_s=t,
-        T_room_C=[value] * n,
-        T_setpoint_C=[setpoint] * n,
-        valve_percent=[0.0] * n,
+        t_s=t, T_room=[value] * n, T_setpoint=[setpoint] * n, valve_percent=[0.0] * n
     )
 
 
@@ -36,7 +33,7 @@ def test_overshoot_detected():
     t = [i * 60.0 for i in range(n)]
     T_room = [20.0 + (0.5 if i == 50 else 0.0) for i in range(n)]
     series = TimeSeries(
-        t_s=t, T_room_C=T_room, T_setpoint_C=[20.0] * n, valve_percent=[0.0] * n
+        t_s=t, T_room=T_room, T_setpoint=[20.0] * n, valve_percent=[0.0] * n
     )
     m = compute_metrics(series, transient_start_s=0.0)
     assert abs(m.max_overshoot_K - 0.5) < 1e-9
@@ -50,7 +47,7 @@ def test_settling_time_detected():
     T_setpoint = [21.0] * n
     T_room = [20.0 if i < 5 else 21.0 for i in range(n)]
     series = TimeSeries(
-        t_s=t, T_room_C=T_room, T_setpoint_C=T_setpoint, valve_percent=[0.0] * n
+        t_s=t, T_room=T_room, T_setpoint=T_setpoint, valve_percent=[0.0] * n
     )
     m = compute_metrics(series, transient_start_s=0.0)
     # Enters band at t=5min, dwell requirement is 10min, so settling
@@ -63,7 +60,7 @@ def test_settling_inf_when_never_in_band():
     n = 100
     t = [i * 60.0 for i in range(n)]
     series = TimeSeries(
-        t_s=t, T_room_C=[20.0] * n, T_setpoint_C=[22.0] * n, valve_percent=[0.0] * n
+        t_s=t, T_room=[20.0] * n, T_setpoint=[22.0] * n, valve_percent=[0.0] * n
     )
     m = compute_metrics(series, transient_start_s=0.0)
     assert math.isinf(m.settling_time_min)
@@ -74,8 +71,8 @@ def test_valve_cycle_count():
     n = 10
     series = TimeSeries(
         t_s=[i * 60.0 for i in range(n)],
-        T_room_C=[20.0] * n,
-        T_setpoint_C=[20.0] * n,
+        T_room=[20.0] * n,
+        T_setpoint=[20.0] * n,
         # 0 -> 50 (up) -> 50 -> 0 (down) -> 0 -> 50 (up) -> 50 -> 0 (down)
         valve_percent=[0.0, 50.0, 50.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 0.0],
     )
@@ -89,8 +86,8 @@ def test_integral_valve_pct_min():
     n = 61  # samples
     series = TimeSeries(
         t_s=[i * 60.0 for i in range(n)],
-        T_room_C=[20.0] * n,
-        T_setpoint_C=[20.0] * n,
+        T_room=[20.0] * n,
+        T_setpoint=[20.0] * n,
         valve_percent=[50.0] * n,
     )
     m = compute_metrics(series, transient_start_s=0.0)
@@ -102,8 +99,8 @@ def test_timeseries_rejects_mismatched_lengths():
     with pytest.raises(ValueError):
         TimeSeries(
             t_s=[0.0, 30.0],
-            T_room_C=[20.0],
-            T_setpoint_C=[21.0, 21.0],
+            T_room=[20.0],
+            T_setpoint=[21.0, 21.0],
             valve_percent=[0.0, 0.0],
         )
 
@@ -113,8 +110,8 @@ def test_timeseries_rejects_non_monotonic_time():
     with pytest.raises(ValueError):
         TimeSeries(
             t_s=[0.0, 30.0, 30.0],
-            T_room_C=[20.0, 20.0, 20.0],
-            T_setpoint_C=[21.0, 21.0, 21.0],
+            T_room=[20.0, 20.0, 20.0],
+            T_setpoint=[21.0, 21.0, 21.0],
             valve_percent=[0.0, 0.0, 0.0],
         )
 
@@ -123,8 +120,8 @@ def test_imbalance_clips_interval_straddling_transient_start():
     """Only the post-transient portion of a straddling interval is charged."""
     series = TimeSeries(
         t_s=[0.0, 3600.0],
-        T_room_C=[22.0, 22.0],
-        T_setpoint_C=[21.0, 21.0],
+        T_room=[22.0, 22.0],
+        T_setpoint=[21.0, 21.0],
         valve_percent=[0.0, 0.0],
     )
     m = compute_metrics(series, transient_start_s=1800.0)
@@ -137,14 +134,14 @@ def test_timeseries_rejects_non_finite_values():
     with pytest.raises(ValueError):
         TimeSeries(
             t_s=[0.0, float("nan")],
-            T_room_C=[20.0, 20.0],
-            T_setpoint_C=[21.0, 21.0],
+            T_room=[20.0, 20.0],
+            T_setpoint=[21.0, 21.0],
             valve_percent=[0.0, 0.0],
         )
     with pytest.raises(ValueError):
         TimeSeries(
             t_s=[0.0, 30.0],
-            T_room_C=[20.0, float("inf")],
-            T_setpoint_C=[21.0, 21.0],
+            T_room=[20.0, float("inf")],
+            T_setpoint=[21.0, 21.0],
             valve_percent=[0.0, 0.0],
         )

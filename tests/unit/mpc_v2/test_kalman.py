@@ -31,7 +31,7 @@ def test_initialise_seeds_x_hat() -> None:
     assert float(obs.x_hat[1]) == 35.0
 
 
-def test_observer_reconstructs_T_rad_from_T_room_measurements() -> None:  # noqa: N802
+def test_observer_reconstructs_T_rad_from_T_room_measurements() -> None:
     """Drive the truth model, feed only T_room into the observer, verify T_rad recovery."""
     plant_true = PlantModelRC2(
         PlantParams(tau_room_min=120.0, tau_rad_min=8.0), dt_s=30.0
@@ -45,9 +45,9 @@ def test_observer_reconstructs_T_rad_from_T_room_measurements() -> None:  # noqa
     rng = np.random.default_rng(0)
     for _ in range(800):
         u = 0.5
-        x_true = plant_true.discrete_step(x_true, u=u, T_outdoor_C=5.0)
+        x_true = plant_true.discrete_step(x_true, u=u, T_outdoor=5.0)
         y_meas = float(x_true[0]) + rng.normal(0, 0.02)
-        obs.update(y_meas, u=u, T_outdoor_C=5.0)
+        obs.update(y_meas, u=u, T_outdoor=5.0)
     # After convergence, the observer's T_rad estimate tracks truth within
     # ~0.5 K despite only seeing T_room with sensor noise.
     assert abs(float(obs.x_hat[1]) - float(x_true[1])) < 1.0
@@ -65,7 +65,7 @@ def test_room_correction_is_the_move_from_prediction_towards_measurement() -> No
     predicted = plant.discrete_step(obs.x_hat, 0.3, 5.0)
     y_meas = 20.5
 
-    x_hat = obs.update(y_meas, u=0.3, T_outdoor_C=5.0)
+    x_hat = obs.update(y_meas, u=0.3, T_outdoor=5.0)
 
     residual = y_meas - float(predicted[0])
     assert obs.room_correction == pytest.approx(float(x_hat[0] - predicted[0]))
@@ -78,7 +78,7 @@ def test_update_keeps_the_covariance_exactly_symmetric() -> None:
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 22.0]))
     for step in range(50):
-        obs.update(20.1 + 0.01 * step, u=0.4, T_outdoor_C=5.0, dt_s=300.0)
+        obs.update(20.1 + 0.01 * step, u=0.4, T_outdoor=5.0, dt_s=300.0)
         np.testing.assert_array_equal(obs.P, obs.P.T)
 
 
@@ -130,7 +130,7 @@ def test_restored_covariance_keeps_the_estimate_bounded() -> None:
     obs.restore_covariance([[-1.0, 0.0], [0.0, 1.0]])
 
     for step in range(5):
-        obs.update(20.1, u=0.4, T_outdoor_C=5.0, dt_s=300.0)
+        obs.update(20.1, u=0.4, T_outdoor=5.0, dt_s=300.0)
         assert abs(float(obs.x_hat[0]) - 20.1) < 5.0, f"diverged at step {step}"
 
 
@@ -150,7 +150,7 @@ def test_observer_uses_actual_elapsed_time() -> None:
     one_step = plant.discrete_step(obs.x_hat, 0.2, 5.0)
     assert float(x[0]) != pytest.approx(float(one_step[0]))
 
-    x_hat = obs.update(float(x[0]), u=0.2, T_outdoor_C=5.0, dt_s=300.0)
+    x_hat = obs.update(float(x[0]), u=0.2, T_outdoor=5.0, dt_s=300.0)
 
     assert obs.room_correction == pytest.approx(0.0, abs=1e-12)
     np.testing.assert_allclose(x_hat, x)
@@ -199,7 +199,7 @@ def test_covariance_stays_between_its_noise_floor_and_the_sensor_variance(
         dt_s = dt_pattern_s[k % len(dt_pattern_s)]
         u = 0.9 if (k // 20) % 2 == 0 else 0.05
         y_meas = 20.0 + 2.0 * math.sin(k / 9.0) + 0.002 * k
-        obs.update(y_meas, u=u, T_outdoor_C=-5.0, dt_s=dt_s)
+        obs.update(y_meas, u=u, T_outdoor=-5.0, dt_s=dt_s)
 
         P = obs.P
         scale = float(np.trace(P))
@@ -225,7 +225,7 @@ def test_reseeding_the_estimate_discards_the_confidence_of_the_run() -> None:
     obs = _make_observer(plant)
     obs.initialise(np.array([20.0, 22.0]))
     for k in range(400):
-        obs.update(20.0 + 0.01 * k, u=0.5, T_outdoor_C=-5.0, dt_s=30.0)
+        obs.update(20.0 + 0.01 * k, u=0.5, T_outdoor=-5.0, dt_s=30.0)
 
     P_after_run = obs.P.copy()
     # The run has to have built something up, or the re-seed asserts nothing.
@@ -260,12 +260,14 @@ def test_update_corrects_against_the_plants_own_prediction() -> None:
     for k in range(200):
         dt_s = intervals_s[k % len(intervals_s)]
         u = 0.8 if (k // 7) % 2 == 0 else 0.1
-        predicted_C = float(plant.propagate(obs.x_hat, u, -5.0, dt_s)[0])
-        x_hat = obs.update(predicted_C, u=u, T_outdoor_C=-5.0, dt_s=dt_s)
-        assert abs(float(x_hat[0]) - predicted_C) <= rounding_ulps * eps * abs(
-            predicted_C
+        predicted_room_temperature = float(plant.propagate(obs.x_hat, u, -5.0, dt_s)[0])
+        x_hat = obs.update(predicted_room_temperature, u=u, T_outdoor=-5.0, dt_s=dt_s)
+        assert abs(
+            float(x_hat[0]) - predicted_room_temperature
+        ) <= rounding_ulps * eps * abs(predicted_room_temperature)
+        assert abs(obs.room_correction) <= rounding_ulps * eps * abs(
+            predicted_room_temperature
         )
-        assert abs(obs.room_correction) <= rounding_ulps * eps * abs(predicted_C)
         estimates.append(float(x_hat[1]))
 
     # A radiator estimate that never left its seed would satisfy the above
@@ -287,8 +289,8 @@ def test_process_noise_stops_growing_with_the_prediction_at_settling_time() -> N
     for gap_s in (settling_s, 10.0 * settling_s):
         obs = _make_observer(plant)
         obs.initialise(np.array([20.0, 40.0]))
-        obs.update(20.0, u=0.3, T_outdoor_C=5.0, dt_s=gap_s)
-        obs.update(20.1, u=0.3, T_outdoor_C=5.0, dt_s=300.0)
+        obs.update(20.0, u=0.3, T_outdoor=5.0, dt_s=gap_s)
+        obs.update(20.1, u=0.3, T_outdoor=5.0, dt_s=300.0)
         observers[gap_s] = obs
 
     at_settling, far_beyond = observers[settling_s], observers[10.0 * settling_s]

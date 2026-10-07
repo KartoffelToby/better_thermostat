@@ -4,7 +4,7 @@
 # treat them as ``Final``.
 """2-state Kalman observer — reconstructs T_rad from T_room measurements.
 
-Most TRVs report the radiator temperature (``trv_temp_C``) but Better
+Most TRVs report the radiator temperature (``trv_temperature``) but Better
 Thermostat treats the external room sensor as authoritative for the control
 loop. The Kalman filter, linearised against the RC2 plant, takes only
 ``T_room`` as its measurement (``C = [[1, 0]]``) and reconstructs the
@@ -112,7 +112,7 @@ class KalmanObserver:
         self.P = P0
 
     def update(
-        self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
+        self, y_meas: float, u: float, T_outdoor: float, dt_s: float | None = None
     ) -> FloatArray:
         """Run one predict/correct step and return the updated state estimate.
 
@@ -121,7 +121,7 @@ class KalmanObserver:
         new ``[T_room, T_rad]`` estimate.
         """
         elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
-        A, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
+        A, x_pred = self._predict(u, T_outdoor, elapsed_s)
         # ``Q`` is configured for the plant's nominal observer step.  Scale
         # it with elapsed time so sparse events increase uncertainty instead
         # of making the filter over-confident. The prediction covers at most
@@ -183,7 +183,7 @@ class KalmanObserver:
         return True
 
     def _predict(
-        self, u: float, T_outdoor_C: float, elapsed_s: float
+        self, u: float, T_outdoor: float, elapsed_s: float
     ) -> tuple[FloatArray, FloatArray]:
         """Return the state transition ``A`` and the predicted state.
 
@@ -192,7 +192,7 @@ class KalmanObserver:
         interval between readings carries the estimate past it. ``A`` does
         not depend on the operating point and propagates the covariance.
         """
-        A, _, _ = self.plant.linearised_AB(
-            T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
+        A, _, _ = self.plant.linearised_system(
+            T_outdoor, float(self.x_hat[1]), dt_s=elapsed_s
         )
-        return A, self.plant.propagate(self.x_hat, u, T_outdoor_C, elapsed_s)
+        return A, self.plant.propagate(self.x_hat, u, T_outdoor, elapsed_s)

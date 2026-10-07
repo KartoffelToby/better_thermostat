@@ -429,17 +429,17 @@ def _compute_mpc_balance(
         mpc_output, mpc_state = compute_mpc(
             MpcInput(
                 key=mpc_key,
-                target_temp_C=self.heat_target_temperature,
-                current_temp_C=mpc_current_temp,
-                filtered_temp_C=mpc_filtered_temp,
-                trv_temp_C=trv_state.current_temperature,
+                target_temperature=self.heat_target_temperature,
+                room_temperature=mpc_current_temp,
+                room_temperature_filtered=mpc_filtered_temp,
+                trv_temperature=trv_state.current_temperature,
                 tolerance_K=float(self.tolerance or 0.0),
                 temp_slope_K_per_min=self.temperature_slope,
                 window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
-                outdoor_temp_C=_get_current_outdoor_temp(self),
+                outdoor_temperature=_get_current_outdoor_temp(self),
                 is_day=_is_day,
                 solar_intensity=_solar_intensity,
                 max_opening_pct=max_opening_pct,
@@ -594,10 +594,10 @@ def _record_mpc_v2_reid_sample(
     runtime.buffer.append(
         ReidSample(
             t_s=self.clock.monotonic(),
-            T_room_C=t_room,
+            T_room=t_room,
             u_frac=u_frac,
-            T_outdoor_C=outdoor_temperature,
-            T_trv_C=trv_temp if isinstance(trv_temp, (int, float)) else None,
+            T_outdoor=outdoor_temperature,
+            T_trv=trv_temp if isinstance(trv_temp, (int, float)) else None,
             window_open=bool(self.contact_open),
         )
     )
@@ -834,14 +834,14 @@ def _compute_mpc_v2_balance(
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
-                target_temp_C=self.heat_target_temperature,
-                current_temp_C=mpc_current_temp,
-                trv_temp_C=trv_state.current_temperature,
+                target_temperature=self.heat_target_temperature,
+                room_temperature=mpc_current_temp,
+                trv_temperature=trv_state.current_temperature,
                 window_open=bool(self.contact_open),
                 heating_allowed=True,
                 bt_name=self.device_name,
                 entity_id=entity_id,
-                outdoor_temp_C=outdoor_temperature,
+                outdoor_temperature=outdoor_temperature,
                 max_opening_pct=max_opening_pct,
                 applied_valve_pct=controller_applied_pct,
             ),
@@ -947,9 +947,9 @@ def _compute_tpi_balance(
         tpi_output, tpi_state = compute_tpi(
             TpiInput(
                 key=key,
-                current_temp_C=_room_temperature,
-                target_temp_C=self.heat_target_temperature,
-                outdoor_temp_C=_get_current_outdoor_temp(self),
+                room_temperature=_room_temperature,
+                target_temperature=self.heat_target_temperature,
+                outdoor_temperature=_get_current_outdoor_temp(self),
                 window_open=self.contact_open,
                 heating_allowed=True,
                 bt_name=self.device_name,
@@ -1020,7 +1020,7 @@ def _compute_pid_balance(
             pid_state,
             _pid_room_temp,
             self.clock.monotonic(),
-            inp_current_temp_ema_C=(
+            inp_room_temperature_filtered=(
                 self.room_temperature_filtered
                 if _pid_room_temp is self.room_temperature
                 else None
@@ -1077,7 +1077,7 @@ def _compute_pid_balance(
             trv_state.current_temperature,
             self.temperature_slope,
             key,
-            inp_current_temp_ema_C=(
+            inp_room_temperature_filtered=(
                 self.room_temperature_filtered
                 if _pid_room_temp is self.room_temperature
                 else None

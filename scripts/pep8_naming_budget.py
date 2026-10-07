@@ -3,21 +3,26 @@
 Ruff's `N` rules read the case and shape of a name: a class that is not
 CapWords (N801), a function or argument or local or class attribute that is not
 lowercase (N802, N803, N806, N815), a module whose file name is not a valid
-identifier (N999). `pyproject.toml` silences some of them for the control-theory
-notation under `utils/calibration/` and its test mirrors, and N999 for the
-device model strings that name the modules under `model_fixes/`.
+identifier (N999). Two deviations are the domain's own and are accepted by
+name and place:
 
-A `per-file-ignores` glob is blunt twice over. It covers every file the glob
-matches, including the ones that never tripped the rule and the ones written
-tomorrow, and it covers the whole of each file, including the parts that carry
-no notation at all. So the glob says where the convention may be dropped, and
-this budget says how far it is actually dropped today: a file may not exceed the
-number of silenced findings it carries now, and a file that is not in the budget
-may not have a single one.
+- the control-theory notation (`A`, `kalman_P`, `T_room`, `error_K`), whose
+  shapes `extend-ignore-names` in `pyproject.toml` lists, inside
+  ``NOTATION_ZONES`` only;
+- N999 for the device model strings that name the modules under
+  ``MODULE_NAME_ZONE``.
 
-The budget is scaffolding, not an inventory. It only ever shrinks, and once the
-last entry reaches zero the file is deleted and the check becomes "no silenced
-naming finding anywhere".
+Ruff can apply a name pattern only everywhere and a `per-file-ignores` glob
+only to a whole rule, so neither says "these names in these paths". The scan
+here does: the zone files are scanned with the patterns, every other file
+without them, so a `kalman_P` in `climate.py` is a finding although ruff itself
+lets it through.
+
+Every other silenced finding is a deviation the budget records per file: a file
+may not exceed the number it carries now, and a file that is not in the budget
+may not have a single one. The budget is scaffolding, not an inventory. It only
+ever shrinks, and once the last entry reaches zero the file is deleted and the
+check becomes "no silenced naming finding outside the accepted notation".
 
 The count therefore does not come from `ruff check`. It comes from a scan that
 runs with ruff's own configuration ignored, with inline `noqa` directives
@@ -47,15 +52,29 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 import sys
 import tomllib
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUDGET_FILE = REPO_ROOT / ".pep8-naming-budget.json"
 
 RULE_FAMILY = "N"
+
+# The paths where the control-theory notation is accepted: the calibration code
+# and the tests that mirror it.
+NOTATION_ZONES = (
+    "custom_components/better_thermostat/utils/calibration/**",
+    "tests/benchmark/**",
+    "tests/unit/mpc_v2/**",
+    "tests/unit/test_mpc_comprehensive.py",
+)
+
+# The modules named after the device model strings `load_model_quirks` imports.
+MODULE_NAME_ZONE = "custom_components/better_thermostat/model_fixes/**"
+MODULE_NAME_RULE = "N999"
 
 # `--isolated` drops every lint setting the repository carries, which is the
 # point: `per-file-ignores`, `extend-per-file-ignores`, `ignore`, `exclude` and
@@ -129,27 +148,64 @@ def _python_files() -> list[str]:
     return [name for name in listing.stdout.split("\0") if name]
 
 
-def _measure() -> dict[str, int]:
-    """Return the number of silenced naming findings per file."""
+def _in_zone(name: str, *zones: str) -> bool:
+    """Return whether a repository-relative path lies in one of *zones*."""
+    path = PurePosixPath(name)
+    return any(path.full_match(zone) for zone in zones)
+
+
+def _notation_patterns() -> list[str]:
+    """Return the name patterns `pyproject.toml` lists as notation.
+
+    They are the one lint setting the scan reads back, and it applies them to
+    ``NOTATION_ZONES`` alone: a pattern widens what the notation zones accept
+    and nothing else.
+    """
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    naming = config.get("tool", {}).get("ruff", {}).get("lint", {})
+    patterns = naming.get("pep8-naming", {}).get("extend-ignore-names", [])
+    if not isinstance(patterns, list) or not all(
+        isinstance(pattern, str) for pattern in patterns
+    ):
+        sys.exit("pyproject.toml: extend-ignore-names is no list of patterns")
+    return patterns
+
+
+def _scan(files: list[str], *extra: str) -> list[dict[str, Any]]:
+    """Return ruff's naming findings for *files*, exiting when it cannot scan."""
+    if not files:
+        return []
+    command = [*RUFF_SCAN, *extra]
     target = _target_version()
-    command = [*RUFF_SCAN]
     if target is not None:
         command += ["--target-version", target]
     scan = subprocess.run(
-        [*command, *_python_files()],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
+        [*command, *files], cwd=REPO_ROOT, capture_output=True, text=True, check=False
     )
     # Ruff exits 1 when it found something and 2 or above when it could not
     # scan, which is the only case that says nothing about the code.
     if scan.returncode > 1:
         sys.exit(f"ruff could not scan the repository:\n{scan.stderr.strip()}")
     try:
-        findings = json.loads(scan.stdout)
+        return json.loads(scan.stdout)
     except json.JSONDecodeError as err:
         sys.exit(f"ruff did not report JSON: {err}\n{scan.stderr.strip()}")
+
+
+def _measure() -> dict[str, int]:
+    """Return the number of silenced naming findings per file.
+
+    The notation zones are scanned with the notation patterns, every other
+    file without them, and N999 is accepted under ``MODULE_NAME_ZONE`` alone.
+    """
+    files = _python_files()
+    zoned = [name for name in files if _in_zone(name, *NOTATION_ZONES)]
+    plain = [name for name in files if not _in_zone(name, *NOTATION_ZONES)]
+    patterns = json.dumps(_notation_patterns())
+    findings = [
+        *_scan(plain),
+        *_scan(zoned, "--config", f"lint.pep8-naming.extend-ignore-names={patterns}"),
+    ]
 
     # Only the naming rules were selected, so anything else is a file ruff could
     # not parse. Such a file reports no naming findings, which would read as a
@@ -169,6 +225,8 @@ def _measure() -> dict[str, int]:
     counts: dict[str, int] = {}
     for finding in findings:
         name = _normalise(finding["filename"])
+        if finding["code"] == MODULE_NAME_RULE and _in_zone(name, MODULE_NAME_ZONE):
+            continue
         counts[name] = counts.get(name, 0) + 1
     return counts
 
@@ -187,14 +245,12 @@ def check() -> int:
     """Report the files over budget and the files with no budget at all.
 
     Files that came in under budget fail too, with a prompt to re-record: the
-    lower number is the one that has to be held from then on. Return 1 when any
-    file is over, under or unbudgeted, 0 otherwise; exit outright when no budget
-    has been recorded yet.
+    lower number is the one that has to be held from then on. With no budget
+    recorded, every file is unbudgeted. Return 1 when any file is over, under or
+    unbudgeted, 0 otherwise.
     """
     counts = _measure()
     budget = _load_budget()
-    if not budget:
-        sys.exit(f"no budget recorded — run '{Path(__file__).name} update' first")
 
     over = [
         (name, budget[name], counts[name])
@@ -217,6 +273,9 @@ def check() -> int:
 
     if not over and not unbudgeted and not improved:
         total = sum(counts.values())
+        if not total:
+            print("no silenced naming finding outside the accepted notation")
+            return 0
         print(f"{total} silenced naming findings across {len(budget)} files, all held")
         return 0
 

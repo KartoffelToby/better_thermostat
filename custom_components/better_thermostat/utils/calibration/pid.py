@@ -180,9 +180,9 @@ def _forget_stamps_from_a_previous_uptime(state: PIDState, now: float) -> None:
 def observe_standby(
     params: PIDParams,
     state: PIDState,
-    inp_current_temp_C: float | None,
+    inp_room_temperature: float | None,
     now: float,
-    inp_current_temp_ema_C: float | None = None,
+    inp_room_temperature_filtered: float | None = None,
 ) -> PIDState:
     """Track the measurement chain while actuation is suppressed.
 
@@ -193,9 +193,9 @@ def observe_standby(
     no derivative kick and no one-step integral jump computed from an
     hours-old timestamp. The integral itself stays frozen.
     """
-    room_temperature = inp_current_temp_C
-    if inp_current_temp_ema_C is not None:
-        room_temperature = inp_current_temp_ema_C
+    room_temperature = inp_room_temperature
+    if inp_room_temperature_filtered is not None:
+        room_temperature = inp_room_temperature_filtered
     if room_temperature is None:
         return state
 
@@ -219,12 +219,12 @@ def observe_standby(
 
 def compute_pid(
     params: PIDParams,
-    inp_target_temp_C: float | None,
-    inp_current_temp_C: float | None,
-    inp_trv_temp_C: float | None,
+    inp_target_temperature: float | None,
+    inp_room_temperature: float | None,
+    inp_trv_temperature: float | None,
     inp_temp_slope_K_per_min: float | None,
     key: str,
-    inp_current_temp_ema_C: float | None = None,
+    inp_room_temperature_filtered: float | None = None,
     max_opening_pct: float | None = None,
     *,
     state: PIDState,
@@ -236,17 +236,17 @@ def compute_pid(
     ----------
     params:
         PID tuning parameters.
-    inp_target_temp_C:
+    inp_target_temperature:
         Target temperature.
-    inp_current_temp_C:
+    inp_room_temperature:
         Current external temperature.
-    inp_trv_temp_C:
+    inp_trv_temperature:
         TRV internal temperature.
     inp_temp_slope_K_per_min:
         Temperature slope.
     key:
         Unique key for state storage.
-    inp_current_temp_ema_C:
+    inp_room_temperature_filtered:
         Optional EMA-filtered external temperature for learning.
     max_opening_pct:
         Optional maximum valve opening percentage.
@@ -281,9 +281,9 @@ def compute_pid(
     _LOGGER.debug(
         "better_thermostat PID: input for %s: target=%.1f current=%.1f trv=%.1f slope=%.3f kp=%.1f ki=%.3f kd=%.1f",
         key,
-        inp_target_temp_C or 0.0,
-        inp_current_temp_C or 0.0,
-        inp_trv_temp_C or 0.0,
+        inp_target_temperature or 0.0,
+        inp_room_temperature or 0.0,
+        inp_trv_temperature or 0.0,
         inp_temp_slope_K_per_min or 0.0,
         st.pid_kp or 0.0,
         st.pid_ki or 0.0,
@@ -291,18 +291,18 @@ def compute_pid(
     )
 
     # Determine effective current temperature (prefer EMA)
-    room_temperature = inp_current_temp_C
-    if inp_current_temp_ema_C is not None:
-        room_temperature = inp_current_temp_ema_C
+    room_temperature = inp_room_temperature
+    if inp_room_temperature_filtered is not None:
+        room_temperature = inp_room_temperature_filtered
 
     # Delta T
-    if inp_target_temp_C is None or room_temperature is None:
+    if inp_target_temperature is None or room_temperature is None:
         # Without temperatures we can only keep the previous value
         percent = 0.0
         pid_dbg: PIDDebugInfo = {"mode": "pid", "error": "no_temps"}
         return percent, pid_dbg, st
 
-    delta_kelvin = inp_target_temp_C - room_temperature
+    delta_kelvin = inp_target_temperature - room_temperature
     e = delta_kelvin
 
     # Update previous_abs_error before setting current
@@ -441,13 +441,13 @@ def compute_pid(
 
     # 3. Check Target Change
     target_changed = False
-    if inp_target_temp_C is not None:
+    if inp_target_temperature is not None:
         if (
             st.last_target_temp is not None
-            and abs(inp_target_temp_C - st.last_target_temp) > 0.05
+            and abs(inp_target_temperature - st.last_target_temp) > 0.05
         ):
             target_changed = True
-        st.last_target_temp = inp_target_temp_C
+        st.last_target_temp = inp_target_temperature
 
     # 4. Hold-Time Check
     time_since_change = now - st.last_output_change_ts
@@ -529,8 +529,8 @@ def compute_pid(
             "slope_ema": _r(st.ema_slope, 3),
             # Measurements
             "meas_current_used": _r(room_temperature, 2),
-            "meas_external_raw": _r(inp_current_temp_C, 2),
-            "meas_trv_C": _r(inp_trv_temp_C, 2),
+            "meas_external_raw": _r(inp_room_temperature, 2),
+            "meas_trv_C": _r(inp_trv_temperature, 2),
             "meas_smooth_C": _r(smoothed, 2),
             "d_meas_per_s": _r(d_meas, 4),
             "hold_time_rem": (

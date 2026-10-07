@@ -20,11 +20,11 @@ class BenchmarkContext:
 
     t: float  # seconds since scenario start
     dt: float  # time since last step (seconds)
-    target_temp_C: float
-    current_temp_C: float  # measurement coming out of the sensor model
-    raw_room_temp_C: float  # plant-internal truth (for adapters that cheat-peek)
-    trv_temp_C: float | None  # radiator surface, if supported
-    outdoor_temp_C: float
+    target_temperature: float
+    room_temperature: float  # measurement coming out of the sensor model
+    raw_room_temperature: float  # plant-internal truth (for adapters that cheat-peek)
+    trv_temperature: float | None  # radiator surface, if supported
+    outdoor_temperature: float
     window_open: bool = False
     solar_intensity: float = 0.0  # 0.0 - 1.0
     last_valve_percent: float = 0.0

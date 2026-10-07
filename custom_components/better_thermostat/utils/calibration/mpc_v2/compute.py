@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 # day average — close enough that the steady-state input is still in the
 # valid range; well off-target temps make ``u_ss`` saturate, which the
 # reference governor catches.
-OUTDOOR_TEMP_FALLBACK_C = 10.0
+OUTDOOR_TEMPERATURE_FALLBACK = 10.0
 
 
 def _all_finite(*values: float | None) -> bool:
@@ -56,8 +56,8 @@ def compute_mpc_v2(
         state.created_ts = now
 
     if (
-        inp.current_temp_C is None
-        or inp.target_temp_C is None
+        inp.room_temperature is None
+        or inp.target_temperature is None
         or not inp.heating_allowed
         or inp.window_open
     ):
@@ -67,10 +67,10 @@ def compute_mpc_v2(
     # through Kalman/QP and poisons the cached state — a single bad reading
     # would require restarting the integration to recover.
     if not _all_finite(
-        inp.current_temp_C,
-        inp.target_temp_C,
-        inp.outdoor_temp_C,
-        inp.trv_temp_C,
+        inp.room_temperature,
+        inp.target_temperature,
+        inp.outdoor_temperature,
+        inp.trv_temperature,
         inp.applied_valve_pct,
     ):
         _LOGGER.warning(
@@ -78,10 +78,10 @@ def compute_mpc_v2(
             "(current=%s target=%s outdoor=%s trv=%s) — holding last command",
             inp.bt_name or "BT",
             inp.entity_id or inp.key,
-            inp.current_temp_C,
-            inp.target_temp_C,
-            inp.outdoor_temp_C,
-            inp.trv_temp_C,
+            inp.room_temperature,
+            inp.target_temperature,
+            inp.outdoor_temperature,
+            inp.trv_temperature,
         )
         return None, state
 
@@ -109,11 +109,11 @@ def compute_mpc_v2(
     if inp.applied_valve_pct is not None:
         state.controller.set_applied_u(inp.applied_valve_pct / 100.0)
 
-    if inp.outdoor_temp_C is None:
-        T_outdoor = OUTDOOR_TEMP_FALLBACK_C
+    if inp.outdoor_temperature is None:
+        T_outdoor = OUTDOOR_TEMPERATURE_FALLBACK
         if not state.outdoor_fallback_logged:
             _LOGGER.warning(
-                "better_thermostat %s: MPC v2 (%s) no outdoor_temp_C — falling "
+                "better_thermostat %s: MPC v2 (%s) no outdoor_temperature — falling "
                 "back to %.1f °C. Configure an outdoor sensor for accurate "
                 "feed-forward (u_ss).",
                 inp.bt_name or "BT",
@@ -122,14 +122,14 @@ def compute_mpc_v2(
             )
             state.outdoor_fallback_logged = True
     else:
-        T_outdoor = inp.outdoor_temp_C
+        T_outdoor = inp.outdoor_temperature
 
     u, diag = state.controller.step(
         t_s=now,
-        T_room_C=inp.current_temp_C,
-        T_target_C=inp.target_temp_C,
-        T_outdoor_C=T_outdoor,
-        T_rad_C=inp.trv_temp_C,
+        T_room=inp.room_temperature,
+        T_target=inp.target_temperature,
+        T_outdoor=T_outdoor,
+        T_rad=inp.trv_temperature,
     )
 
     # Round half up. The built-in ``round`` is half to even, so it sends every
@@ -163,10 +163,10 @@ def compute_mpc_v2(
             "outdoor=%s -> valve=%d%% (T_rad_hat=%.2f D_hat=%.4f tau_room=%.0f) key=%s",
             inp.bt_name or "BT",
             inp.entity_id or inp.key,
-            inp.target_temp_C,
-            inp.current_temp_C,
-            inp.trv_temp_C,
-            inp.outdoor_temp_C,
+            inp.target_temperature,
+            inp.room_temperature,
+            inp.trv_temperature,
+            inp.outdoor_temperature,
             percent_int,
             diag.T_rad_hat,
             diag.D_hat_K_per_min,

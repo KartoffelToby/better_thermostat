@@ -40,7 +40,9 @@ class TestMPCController:
     def test_no_temperatures(self):
         """Test behavior when temperatures are missing."""
         params = MpcParams()
-        inp = MpcInput(key="test_no_temp", target_temp_C=None, current_temp_C=20.0)
+        inp = MpcInput(
+            key="test_no_temp", target_temperature=None, room_temperature=20.0
+        )
         result, _ = compute_mpc(inp, params)
         assert result is not None
         assert result.valve_percent == 0
@@ -50,8 +52,8 @@ class TestMPCController:
         params = MpcParams()
         inp = MpcInput(
             key="test_blocked",
-            target_temp_C=22.0,
-            current_temp_C=20.0,
+            target_temperature=22.0,
+            room_temperature=20.0,
             window_open=True,
             heating_allowed=True,
         )
@@ -70,8 +72,8 @@ class TestMPCController:
         params = MpcParams(mpc_adapt=True)  # Enable adaptation, as it's default
         inp = MpcInput(
             key="test_basic",
-            target_temp_C=22.0,
-            current_temp_C=21.5,  # Smaller error to get valve <100%
+            target_temperature=22.0,
+            room_temperature=21.5,  # Smaller error to get valve <100%
             temp_slope_K_per_min=0.0,
         )
         result, _ = compute_mpc(inp, params)
@@ -92,8 +94,8 @@ class TestMPCController:
         _STATES[key] = MpcState(loss_learn_count=100)
         inp = MpcInput(
             key=key,
-            target_temp_C=22.0,
-            current_temp_C=room_temperature,
+            target_temperature=22.0,
+            room_temperature=room_temperature,
             temp_slope_K_per_min=0.0,
         )
         with patch(f"{_MPC}.random.random", return_value=0.99):
@@ -121,7 +123,9 @@ class TestMPCController:
 
         raw, _ = compute_mpc(
             MpcInput(
-                key="test_filtered_raw", target_temp_C=target, current_temp_C=base_temp
+                key="test_filtered_raw",
+                target_temperature=target,
+                room_temperature=base_temp,
             ),
             params,
         )
@@ -129,9 +133,9 @@ class TestMPCController:
         filtered, _ = compute_mpc(
             MpcInput(
                 key="test_filtered_cost",
-                target_temp_C=target,
-                current_temp_C=base_temp,
-                filtered_temp_C=21.9,  # EMA closer to target → lower cost
+                target_temperature=target,
+                room_temperature=base_temp,
+                room_temperature_filtered=21.9,  # EMA closer to target → lower cost
             ),
             params,
         )
@@ -162,8 +166,8 @@ class TestMPCController:
         # First call: establish baseline
         inp1 = MpcInput(
             key=key,
-            target_temp_C=target,
-            current_temp_C=current,
+            target_temperature=target,
+            room_temperature=current,
             # temp_slope_K_per_min=slope,
         )
         result1, _ = compute_mpc(inp1, params)
@@ -181,8 +185,8 @@ class TestMPCController:
         # For simplicity, simulate by calling again with reduced error
         inp2 = MpcInput(
             key=key,
-            target_temp_C=target,
-            current_temp_C=21.0,  # Error reduced from 2.0 to 1.0
+            target_temperature=target,
+            room_temperature=21.0,  # Error reduced from 2.0 to 1.0
             temp_slope_K_per_min=slope,
         )
         result2, _ = compute_mpc(inp2, params)
@@ -198,8 +202,8 @@ class TestMPCController:
         # Simulate no heating response: error stays the same
         inp3 = MpcInput(
             key=key,
-            target_temp_C=target,
-            current_temp_C=21.0,  # Error still 1.0
+            target_temperature=target,
+            room_temperature=21.0,  # Error still 1.0
             temp_slope_K_per_min=slope,
         )
         result3, _ = compute_mpc(inp3, params)
@@ -213,8 +217,8 @@ class TestMPCController:
         # Simulate cooling: error increases
         inp4 = MpcInput(
             key=key,
-            target_temp_C=target,
-            current_temp_C=20.5,  # Error back to 1.5
+            target_temperature=target,
+            room_temperature=20.5,  # Error back to 1.5
             temp_slope_K_per_min=slope,
         )
         gain_before_decrease = state.gain_est
@@ -252,20 +256,26 @@ class TestMPCController:
 
         # First call initializes state.
         inp1 = MpcInput(
-            key=key, target_temp_C=22.0, current_temp_C=21.5, temp_slope_K_per_min=0.08
+            key=key,
+            target_temperature=22.0,
+            room_temperature=21.5,
+            temp_slope_K_per_min=0.08,
         )
         _ = compute_mpc(inp1, params)
 
         st = _STATES[key]
         st.last_percent = 100.0
-        st.last_learn_temp = inp1.current_temp_C
+        st.last_learn_temp = inp1.room_temperature
         st.last_learn_time = time() - 300.0  # >=180s, but <600s (no steady-state gain)
         assert st.gain_est is not None
         gain_before = float(st.gain_est)
 
         # Second call: sensor unchanged, but slope still positive.
         inp2 = MpcInput(
-            key=key, target_temp_C=22.0, current_temp_C=21.5, temp_slope_K_per_min=0.08
+            key=key,
+            target_temperature=22.0,
+            room_temperature=21.5,
+            temp_slope_K_per_min=0.08,
         )
         _ = compute_mpc(inp2, params)
         st = _STATES[key]
@@ -286,9 +296,9 @@ class TestMPCController:
         )
         key = "test_gain_ss_decrease"
 
-        # First call initializes state and sets last_target_C.
+        # First call initializes state and sets last_target_temperature.
         _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.5), params
+            MpcInput(key=key, target_temperature=22.0, room_temperature=21.5), params
         )
 
         st = _STATES[key]
@@ -303,8 +313,8 @@ class TestMPCController:
         _ = compute_mpc(
             MpcInput(
                 key=key,
-                target_temp_C=22.0,
-                current_temp_C=21.5,
+                target_temperature=22.0,
+                room_temperature=21.5,
                 temp_slope_K_per_min=0.0,
             ),
             params,
@@ -327,7 +337,7 @@ class TestMPCController:
 
         # Init state
         _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=22.0, current_temp_C=21.8), params
+            MpcInput(key=key, target_temperature=22.0, room_temperature=21.8), params
         )
 
         st = _STATES[key]
@@ -343,8 +353,8 @@ class TestMPCController:
         res, _ = compute_mpc(
             MpcInput(
                 key=key,
-                target_temp_C=22.0,
-                current_temp_C=21.8,
+                target_temperature=22.0,
+                room_temperature=21.8,
                 # slope may be noisy; steady-state learning should prefer delta when sensor flat
                 temp_slope_K_per_min=-0.07,
             ),
@@ -375,9 +385,9 @@ class TestMPCController:
         for cycle in range(cycles):
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=22.0,
-                current_temp_C=20.0,
-                trv_temp_C=21.0 + 0.001 * cycle,
+                target_temperature=22.0,
+                room_temperature=20.0,
+                trv_temperature=21.0 + 0.001 * cycle,
                 tolerance_K=0.0,
             )
             _post_process_percent(
@@ -429,15 +439,15 @@ class TestMPCController:
             room = 19.0 + 0.2 * cycle
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=22.0,
-                current_temp_C=room,
-                trv_temp_C=21.0 + 0.5 * cycle,
+                target_temperature=22.0,
+                room_temperature=room,
+                trv_temperature=21.0 + 0.5 * cycle,
                 tolerance_K=0.0,
             )
             _post_process_percent(inp, params, state, now, 20.0, None)
             # The controller records the room after post-processing, as
             # the performance curve does once per window.
-            state.last_room_temp_C = room
+            state.last_room_temperature = room
             state.last_room_temp_ts = now
 
         assert state.dead_zone_hits == 0
@@ -463,9 +473,9 @@ class TestMPCController:
                 now -= 3600.0
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=40.0,
-                current_temp_C=18.0 + 0.1 * cycle,
-                trv_temp_C=20.0 + 0.2 * (cycle % 50),
+                target_temperature=40.0,
+                room_temperature=18.0 + 0.1 * cycle,
+                trv_temperature=20.0 + 0.2 * (cycle % 50),
                 tolerance_K=0.0,
             )
             _forget_stamps_ahead_of_the_clock(state, now)
@@ -494,9 +504,9 @@ class TestMPCController:
         for cycle in range(3):
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=22.0,
-                current_temp_C=20.0,
-                trv_temp_C=21.0 + 0.5 * cycle,
+                target_temperature=22.0,
+                room_temperature=20.0,
+                trv_temperature=21.0 + 0.5 * cycle,
                 tolerance_K=0.0,
             )
             # The controller asks for less than the minimum, so the output
@@ -528,9 +538,9 @@ class TestMPCController:
         for cycle in range(3):
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=22.0,
-                current_temp_C=18.0,
-                trv_temp_C=21.0 + 0.5 * cycle,
+                target_temperature=22.0,
+                room_temperature=18.0,
+                trv_temperature=21.0 + 0.5 * cycle,
                 tolerance_K=0.0,
             )
             percent, _, _ = _post_process_percent(
@@ -560,9 +570,9 @@ class TestMPCController:
         for cycle in range(3):
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=22.0,
-                current_temp_C=22.5,
-                trv_temp_C=24.0 + 0.5 * cycle,
+                target_temperature=22.0,
+                room_temperature=22.5,
+                trv_temperature=24.0 + 0.5 * cycle,
                 tolerance_K=0.0,
             )
             percent, _, _ = _post_process_percent(
@@ -596,9 +606,9 @@ class TestMPCController:
         for cycle, raw_percent in enumerate((0.0, 20.0)):
             inp = MpcInput(
                 key="deadzone",
-                target_temp_C=22.0,
-                current_temp_C=20.0,
-                trv_temp_C=24.0 + 0.5 * cycle,
+                target_temperature=22.0,
+                room_temperature=20.0,
+                trv_temperature=24.0 + 0.5 * cycle,
                 tolerance_K=0.0,
             )
             _post_process_percent(
@@ -646,9 +656,9 @@ class TestMPCController:
         )
         state = MpcState()
         state.last_percent = 40.0
-        state.last_target_C = 22.0
+        state.last_target_temperature = 22.0
         state.last_update_ts = 1000.0
-        inp = MpcInput(key="hyst", target_temp_C=22.0, current_temp_C=20.0)
+        inp = MpcInput(key="hyst", target_temperature=22.0, room_temperature=20.0)
 
         percent_out, _debug, _ = _post_process_percent(
             inp, params, state, 1000.0 + seconds_since_update, raw_percent, None
@@ -672,7 +682,9 @@ class TestMPCController:
 
         # 1) At target -> enter tolerance hold, no heating.
         at_target, _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=21.0, current_temp_C=21.0, tolerance_K=0.5),
+            MpcInput(
+                key=key, target_temperature=21.0, room_temperature=21.0, tolerance_K=0.5
+            ),
             params,
         )
         assert at_target is not None
@@ -681,7 +693,9 @@ class TestMPCController:
 
         # 2) Still above restart threshold (target - tolerance = 20.5) -> remain off.
         in_band, _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.7, tolerance_K=0.5),
+            MpcInput(
+                key=key, target_temperature=21.0, room_temperature=20.7, tolerance_K=0.5
+            ),
             params,
         )
         assert in_band is not None
@@ -690,7 +704,9 @@ class TestMPCController:
 
         # 3) Below restart threshold -> resume MPC heating.
         below_band, _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.4, tolerance_K=0.5),
+            MpcInput(
+                key=key, target_temperature=21.0, room_temperature=20.4, tolerance_K=0.5
+            ),
             params,
         )
         assert below_band is not None
@@ -712,7 +728,9 @@ class TestMPCController:
         key = "test_tol_kalman"
 
         first, _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=21.0, current_temp_C=21.0, tolerance_K=0.5),
+            MpcInput(
+                key=key, target_temperature=21.0, room_temperature=21.0, tolerance_K=0.5
+            ),
             params,
         )
         assert first is not None
@@ -723,7 +741,9 @@ class TestMPCController:
         assert v1 is not None
 
         second, _ = compute_mpc(
-            MpcInput(key=key, target_temp_C=21.0, current_temp_C=20.8, tolerance_K=0.5),
+            MpcInput(
+                key=key, target_temperature=21.0, room_temperature=20.8, tolerance_K=0.5
+            ),
             params,
         )
         assert second is not None
@@ -761,8 +781,8 @@ class TestMPCController:
             current_rounded = round(current, 1)
             inp = MpcInput(
                 key=key,
-                target_temp_C=target,
-                current_temp_C=current_rounded,
+                target_temperature=target,
+                room_temperature=current_rounded,
                 # temp_slope_K_per_min=slope,
             )
             result, _ = compute_mpc(inp, params)
@@ -834,13 +854,17 @@ class TestMPCController:
 
         low_overshoot, _ = compute_mpc(
             MpcInput(
-                key="test_overshoot_pen_low", target_temp_C=20.8, current_temp_C=20.95
+                key="test_overshoot_pen_low",
+                target_temperature=20.8,
+                room_temperature=20.95,
             ),
             MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 0.0}),
         )
         high_overshoot, _ = compute_mpc(
             MpcInput(
-                key="test_overshoot_pen_high", target_temp_C=20.8, current_temp_C=20.95
+                key="test_overshoot_pen_high",
+                target_temperature=20.8,
+                room_temperature=20.95,
             ),
             MpcParams(**{**base_params.__dict__, "mpc_overshoot_penalty": 8.0}),
         )
@@ -865,10 +889,10 @@ class TestMPCController:
         with_pen = MpcParams(**common, mpc_change_penalty=10.0)
 
         inp_no_pen = MpcInput(
-            key="test_penalty_none", target_temp_C=22.0, current_temp_C=21.3
+            key="test_penalty_none", target_temperature=22.0, room_temperature=21.3
         )
         inp_with_pen = MpcInput(
-            key="test_penalty_with", target_temp_C=22.0, current_temp_C=21.3
+            key="test_penalty_with", target_temperature=22.0, room_temperature=21.3
         )
 
         out_no_pen, _ = compute_mpc(inp_no_pen, no_pen)

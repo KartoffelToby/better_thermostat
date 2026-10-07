@@ -344,7 +344,7 @@ def test_tpi_duty_cycle_ignores_its_stamp_from_the_previous_uptime():
 
     Its stored stamp records the last update and gates nothing.
     """
-    inp = TpiInput(key="k", current_temp_C=20.0, target_temp_C=21.0)
+    inp = TpiInput(key="k", room_temperature=20.0, target_temperature=21.0)
 
     def restored(stamp: float) -> TpiState:
         raw = _serialize(
@@ -393,12 +393,12 @@ def test_mpc_stamps_are_read_from_the_wall_clock():
             readings.add(wall[0])
             inp = MpcInput(
                 key="k",
-                target_temp_C=21.0,
-                current_temp_C=19.0 + cycle * 0.01,
-                trv_temp_C=22.0 + cycle * 0.05,
+                target_temperature=21.0,
+                room_temperature=19.0 + cycle * 0.01,
+                trv_temperature=22.0 + cycle * 0.05,
                 temp_slope_K_per_min=0.01,
                 window_open=cycle == 3,
-                outdoor_temp_C=5.0,
+                outdoor_temperature=5.0,
             )
             _, state = compute_mpc(inp, MpcParams(), state=state, all_states={})
 
@@ -412,9 +412,9 @@ def test_mpc_v2_stamps_are_read_from_the_wall_clock():
     """Every MPC v2 stamp, snapshot included, comes from the wall clock."""
     inp = MpcV2Input(
         key="k",
-        target_temp_C=22.0,
-        current_temp_C=19.0,
-        outdoor_temp_C=5.0,
+        target_temperature=22.0,
+        room_temperature=19.0,
+        outdoor_temperature=5.0,
         heating_allowed=True,
         window_open=False,
     )
@@ -442,11 +442,11 @@ def _mpc_cycle(state: MpcState, wall_s: float, room: float) -> tuple[int, MpcSta
     """Run one MPC cycle at the wall-clock reading ``wall_s``."""
     inp = MpcInput(
         key="k",
-        target_temp_C=21.0,
-        current_temp_C=room,
-        trv_temp_C=22.0,
+        target_temperature=21.0,
+        room_temperature=room,
+        trv_temperature=22.0,
         temp_slope_K_per_min=0.0,
-        outdoor_temp_C=5.0,
+        outdoor_temperature=5.0,
     )
     with patch.object(mpc_module, "time", return_value=wall_s):
         out, state = compute_mpc(inp, MpcParams(), state=state, all_states={})

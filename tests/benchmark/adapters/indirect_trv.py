@@ -193,7 +193,7 @@ class IndirectTrvAdapter:
         self.inner = inner
         self.params = params
         self.name = f"{inner.name}+indirect_trv"
-        self._last_quantised_setpoint_C: float | None = None
+        self._last_quantised_setpoint: float | None = None
         self._pending_setpoints: list[float] = []
         self._last_inner_valve_pct = 0.0
 
@@ -206,8 +206,8 @@ class IndirectTrvAdapter:
         """
         inner_prior = prior.get("inner") if prior is not None else None
         self.inner.reset(inner_prior if isinstance(inner_prior, dict) else None)
-        last = prior.get("last_quantised_setpoint_C") if prior is not None else None
-        self._last_quantised_setpoint_C = (
+        last = prior.get("last_quantised_setpoint") if prior is not None else None
+        self._last_quantised_setpoint = (
             float(last) if isinstance(last, (int, float)) else None
         )
         pending = prior.get("pending_setpoints") if prior is not None else None
@@ -219,10 +219,10 @@ class IndirectTrvAdapter:
 
     def _trv_reading(self, ctx: BenchmarkContext) -> float:
         """Return the temperature the TRV's own sensor reports."""
-        room = ctx.raw_room_temp_C
-        if ctx.trv_temp_C is None:
+        room = ctx.raw_room_temperature
+        if ctx.trv_temperature is None:
             return room
-        return room + self.params.trv_sensor_rad_fraction * (ctx.trv_temp_C - room)
+        return room + self.params.trv_sensor_rad_fraction * (ctx.trv_temperature - room)
 
     def _production_setpoint(
         self, ctx: BenchmarkContext, trv_reading: float, bt_valve_pct: float
@@ -234,7 +234,7 @@ class IndirectTrvAdapter:
         if fraction == 0.0 and setpoint >= trv_reading:
             # ``_compute_zero_open_offset``: push the setpoint below the
             # TRV's reading, further the more the room overshoots.
-            overshoot = max(0.0, ctx.current_temp_C - ctx.target_temp_C)
+            overshoot = max(0.0, ctx.room_temperature - ctx.target_temperature)
             max_offset = max(1.0, trv_reading - p.min_setpoint)
             setpoint_drop = max(
                 p.setpoint_step_K, max_offset * (1.0 - math.exp(-0.5 * overshoot))
@@ -255,7 +255,7 @@ class IndirectTrvAdapter:
         if production:
             inner_ctx = replace(
                 ctx,
-                trv_temp_C=trv_reading,
+                trv_temperature=trv_reading,
                 last_valve_percent=(
                     ctx.last_valve_percent
                     if self.params.reports_valve_position
@@ -296,10 +296,12 @@ class IndirectTrvAdapter:
             desired_setpoint = self._production_setpoint(ctx, trv_reading, bt_valve_pct)
         elif self.params.setpoint_mapping == "heuristic":
             headroom_K = self.params.max_calibration_headroom_K
-            desired_setpoint = ctx.target_temp_C + headroom_K * (bt_valve_pct / 100.0)
+            desired_setpoint = ctx.target_temperature + headroom_K * (
+                bt_valve_pct / 100.0
+            )
         else:
             p_gain = max(self.params.internal_p_gain, 1e-6)
-            desired_setpoint = ctx.current_temp_C + bt_valve_pct / p_gain
+            desired_setpoint = ctx.room_temperature + bt_valve_pct / p_gain
 
         # Quantise to TRV's setpoint resolution. ``_production_setpoint``
         # already rounds with production's direction and then clamps to the
@@ -313,16 +315,16 @@ class IndirectTrvAdapter:
 
         # Hysteresis band on the *quantised* setpoint — TRV ignores micro-
         # changes inside the band.
-        if self._last_quantised_setpoint_C is None:
+        if self._last_quantised_setpoint is None:
             applied_setpoint = quantised
         elif (
-            abs(quantised - self._last_quantised_setpoint_C)
+            abs(quantised - self._last_quantised_setpoint)
             < self.params.internal_hysteresis_K
         ):
-            applied_setpoint = self._last_quantised_setpoint_C
+            applied_setpoint = self._last_quantised_setpoint
         else:
             applied_setpoint = quantised
-        self._last_quantised_setpoint_C = applied_setpoint
+        self._last_quantised_setpoint = applied_setpoint
 
         # Optional FIFO latency for the command.
         if self.params.command_latency_steps > 0:
@@ -334,14 +336,16 @@ class IndirectTrvAdapter:
         # TRV-internal P-loop against the temperature the TRV reports: its
         # own radiator-warmed reading under ``"production"``, the room
         # sensor reading under the other two mappings.
-        error_K = applied_setpoint - (trv_reading if production else ctx.current_temp_C)
+        error_K = applied_setpoint - (
+            trv_reading if production else ctx.room_temperature
+        )
         u_pct = max(0.0, min(100.0, self.params.internal_p_gain * error_K))
 
         return BenchmarkOutput(
             valve_percent=u_pct,
             diagnostics={
                 **inner_out.diagnostics,
-                "indirect_setpoint_C": applied_setpoint,
+                "indirect_setpoint": applied_setpoint,
                 "indirect_quantised_diff_K": applied_setpoint - desired_setpoint,
             },
         )
@@ -350,7 +354,7 @@ class IndirectTrvAdapter:
         """Expose inner state plus TRV-layer cache."""
         return {
             "inner": self.inner.export_state(),
-            "last_quantised_setpoint_C": self._last_quantised_setpoint_C,
+            "last_quantised_setpoint": self._last_quantised_setpoint,
             "pending_setpoints": list(self._pending_setpoints),
             "last_inner_valve_pct": self._last_inner_valve_pct,
         }

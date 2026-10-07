@@ -42,17 +42,17 @@ class ClimateParams:
 
     name: str = "cold_humid_continental"
     # Climatological mean and seasonal swing (year-cycle amplitude).
-    annual_mean_C: float = 9.0
-    annual_amp_C: float = 13.0
+    annual_mean: float = 9.0
+    annual_amp_K: float = 13.0
     # Day-of-year at which the seasonal mean reaches its minimum.
     seasonal_min_day: int = 14
     # Diurnal swing (amplitude of the day-night cycle).
-    diurnal_amp_C: float = 5.0
+    diurnal_amp_K: float = 5.0
     # AR(1) synoptic anomaly: lag-1 autocorrelation and standard deviation
     # at steady state. ``alpha`` = e^(−1/tau_h) where tau_h is the
     # autocorrelation timescale in hours.
     synoptic_alpha: float = 0.92
-    synoptic_sigma_C: float = 3.5
+    synoptic_sigma_K: float = 3.5
     # Solar: clear-sky peak irradiance (W/m²) at the winter solstice and
     # peak day length in hours. Both scale linearly with the cosine of
     # the season — summer peaks higher and lasts longer.
@@ -68,22 +68,22 @@ class ClimateParams:
 
 CHICAGO_LIKE = ClimateParams(
     name="cold_humid_continental",
-    annual_mean_C=9.0,
-    annual_amp_C=13.0,
-    diurnal_amp_C=5.0,
+    annual_mean=9.0,
+    annual_amp_K=13.0,
+    diurnal_amp_K=5.0,
     synoptic_alpha=0.92,
-    synoptic_sigma_C=3.5,
+    synoptic_sigma_K=3.5,
     cloud_mean=0.55,  # more overcast on average
     cloud_sigma=0.30,
 )
 
 DENVER_LIKE = ClimateParams(
     name="cold_semi_arid",
-    annual_mean_C=10.0,
-    annual_amp_C=12.0,
-    diurnal_amp_C=8.0,  # high-altitude → sharper diurnal swing
+    annual_mean=10.0,
+    annual_amp_K=12.0,
+    diurnal_amp_K=8.0,  # high-altitude → sharper diurnal swing
     synoptic_alpha=0.94,  # weather fronts less frequent
-    synoptic_sigma_C=4.5,  # but stronger when they arrive
+    synoptic_sigma_K=4.5,  # but stronger when they arrive
     solar_peak_winter_W_m2=450.0,  # less cloud → more incoming solar
     cloud_mean=0.30,
     cloud_sigma=0.25,
@@ -146,7 +146,7 @@ def _solar_peak(day_of_year: int, params: ClimateParams) -> float:
 
 
 def _seasonal_mean(day_of_year: int, params: ClimateParams) -> float:
-    return params.annual_mean_C - params.annual_amp_C * math.cos(
+    return params.annual_mean - params.annual_amp_K * math.cos(
         2.0 * math.pi * (day_of_year - params.seasonal_min_day) / 365.0
     )
 
@@ -174,7 +174,7 @@ def make_schedules(
     synoptic = _ar1_path(
         n_hours,
         alpha=params.synoptic_alpha,
-        sigma=params.synoptic_sigma_C,
+        sigma=params.synoptic_sigma_K,
         mean=0.0,
         rng=rng,
     )
@@ -194,7 +194,7 @@ def make_schedules(
         day = start_day_of_year + hours_in / 24.0
         hour_of_day = hours_in % 24.0
         seasonal = _seasonal_mean(int(day), params)
-        diurnal = params.diurnal_amp_C * math.cos(
+        diurnal = params.diurnal_amp_K * math.cos(
             2.0 * math.pi * (hour_of_day - 15.0) / 24.0
         )
         # Linear interp the synoptic anomaly between hourly samples.

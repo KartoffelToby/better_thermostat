@@ -88,7 +88,7 @@ class MpcAdapter:
         self._sim_time_s = 0.0
         self._rng.seed(_MPC_RNG_SEED)
 
-    def _bucket_key(self, target_temp_C: float) -> str:
+    def _bucket_key(self, target_temperature: float) -> str:
         """Return the production-shaped per-target-bucket state key.
 
         Mirrors ``build_mpc_key``: MPC state is partitioned by the target
@@ -96,22 +96,22 @@ class MpcAdapter:
         boundary allocates a fresh state that ``compute_mpc`` seeds from
         its nearest sibling via ``all_states``.
         """
-        bucket = f"t{round(float(target_temp_C) * 2.0) / 2.0:.1f}"
+        bucket = f"t{round(float(target_temperature) * 2.0) / 2.0:.1f}"
         return f"{self._key}:{bucket}"
 
     def step(self, ctx: BenchmarkContext) -> BenchmarkOutput:
         """Compute one MPC step for the given benchmark context."""
         self._sim_time_s = ctx.t
-        key = self._bucket_key(ctx.target_temp_C)
+        key = self._bucket_key(ctx.target_temperature)
         state = self._all_states.setdefault(key, _MpcState())
         self._virtualise()
         try:
             inp = MpcInput(
                 key=key,
-                target_temp_C=ctx.target_temp_C,
-                current_temp_C=ctx.current_temp_C,
-                trv_temp_C=ctx.trv_temp_C,
-                outdoor_temp_C=ctx.outdoor_temp_C,
+                target_temperature=ctx.target_temperature,
+                room_temperature=ctx.room_temperature,
+                trv_temperature=ctx.trv_temperature,
+                outdoor_temperature=ctx.outdoor_temperature,
                 window_open=ctx.window_open,
                 solar_intensity=ctx.solar_intensity,
                 heating_allowed=True,
