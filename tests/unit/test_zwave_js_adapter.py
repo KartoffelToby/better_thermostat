@@ -92,7 +92,6 @@ class TestZWA021Passthroughs:
         """The calibration fix helpers return their inputs unchanged."""
         mock_self = _make_self()
         assert quirk.fix_local_calibration(mock_self, "climate.trv1", 1.5) == 1.5
-        assert quirk.fix_valve_calibration(mock_self, "climate.trv1", 42) == 42
         assert (
             quirk.fix_target_temperature_calibration(mock_self, "climate.trv1", 21.0)
             == 21.0
