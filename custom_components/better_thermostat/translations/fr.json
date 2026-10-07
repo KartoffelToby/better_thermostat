@@ -606,6 +606,9 @@
     },
     "pid_reset_failed": {
       "message": "La réinitialisation de l'apprentissage PID de {device_name} a échoué. Le journal contient les détails."
+    },
+    "invalid_settings": {
+      "message": "Les paramètres enregistrés de ce Better Thermostat ne peuvent pas être lus : {reason}. Modifiez-les dans ses options, ou supprimez-le et ajoutez-le à nouveau."
     }
   }
 }

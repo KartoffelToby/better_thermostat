@@ -91,6 +91,7 @@
   "custom_components/better_thermostat/utils/clock.py": 100.0,
   "custom_components/better_thermostat/utils/const.py": 98.2,
   "custom_components/better_thermostat/utils/controlling.py": 96.0,
+  "custom_components/better_thermostat/utils/entry_schema.py": 100.0,
   "custom_components/better_thermostat/utils/helpers.py": 95.9,
   "custom_components/better_thermostat/utils/hvac_action.py": 99.1,
   "custom_components/better_thermostat/utils/migrate_v0_stores.py": 96.8,

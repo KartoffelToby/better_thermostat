@@ -12,6 +12,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import issue_registry as ir, service
 from homeassistant.helpers.typing import ConfigType, VolDictType, VolSchemaType
 from homeassistant.util.unit_conversion import TemperatureConverter
@@ -40,6 +41,7 @@ from .utils.const import (
     SERVICE_RUN_VALVE_MAINTENANCE,
     CalibrationMode,
 )
+from .utils.entry_schema import BtSettings, InvalidSettingsError, parse_settings
 from .utils.helpers import entry_settings, get_device_model
 
 if TYPE_CHECKING:
@@ -57,10 +59,12 @@ class BetterThermostatData:
     """What a loaded entry holds at runtime.
 
     The climate entity is set by the climate platform; the platforms set up
-    after it find it here.
+    after it find it here. ``settings`` holds the entry's settings as setup
+    parsed them; it is ``None`` only for a container built without them.
     """
 
     climate: BetterThermostat | None = None
+    settings: BtSettings | None = None
 
 
 type BetterThermostatConfigEntry = ConfigEntry[BetterThermostatData]
@@ -242,11 +246,27 @@ def _keep_settings_in_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_setup_entry(
     hass: HomeAssistant, entry: BetterThermostatConfigEntry
 ) -> bool:
-    """Set up entry."""
+    """Set up entry.
+
+    Raises
+    ------
+    ConfigEntryError
+        When the stored settings do not have the shape the integration reads.
+        The entry stays as stored, and the options flow, which reads the
+        stored settings, still opens for it.
+    """
     _keep_settings_in_options(hass, entry)
+    try:
+        settings = parse_settings(entry_settings(entry))
+    except InvalidSettingsError as err:
+        raise ConfigEntryError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_settings",
+            translation_placeholders={"reason": str(err)},
+        ) from err
     _warn_about_an_off_temperature_below_freezing(hass, entry)
     _sync_shared_trv_issues(hass, entry)
-    entry.runtime_data = BetterThermostatData()
+    entry.runtime_data = BetterThermostatData(settings=settings)
     try:
         # Setup climate platform first to ensure entity is available for other platforms
         await hass.config_entries.async_forward_entry_setups(entry, [Platform.CLIMATE])

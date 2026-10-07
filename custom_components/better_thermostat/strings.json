@@ -606,6 +606,9 @@
     },
     "pid_reset_failed": {
       "message": "Resetting the PID learnings of {device_name} failed. The log has the details."
+    },
+    "invalid_settings": {
+      "message": "The stored settings of this Better Thermostat cannot be read: {reason}. Change them in its options, or remove it and add it again."
     }
   }
 }
