@@ -1689,6 +1689,23 @@ class TestBuildMpcGroupKey:
         assert ":group:" in group_key
         assert ":climate.trv_1:" in entity_key
 
+    @pytest.mark.parametrize("target", [float("inf"), float("-inf"), float("nan")])
+    def test_a_target_without_a_bucket_keys_as_unknown(self, target):
+        """A target that cannot be rounded to a bucket keys as ``tunknown``.
+
+        Both the per-TRV and the group key fall back instead of raising, as
+        the PID key does.
+        """
+
+        class FakeBT:
+            heat_target_temperature = target
+            unique_id = "bt_1"
+
+        assert build_mpc_key(FakeBT(), "climate.trv_1") == (
+            "bt_1:climate.trv_1:tunknown"
+        )
+        assert build_mpc_group_key(FakeBT()) == "bt_1:group:tunknown"
+
 
 # ===================================================================
 # 15. DISTRIBUTE VALVE PERCENT (multi-TRV compensation)

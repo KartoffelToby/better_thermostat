@@ -402,7 +402,7 @@ def build_mpc_key(bt: BetterThermostat, entity_id: str) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except TypeError, ValueError:
+    except ValueError, OverflowError:
         bucket = "tunknown"
 
     uid = resolve_unique_id(bt)
@@ -423,7 +423,7 @@ def build_mpc_group_key(bt: BetterThermostat) -> str:
             if isinstance(target, (int, float))
             else "tunknown"
         )
-    except TypeError, ValueError:
+    except ValueError, OverflowError:
         bucket = "tunknown"
 
     uid = resolve_unique_id(bt)
