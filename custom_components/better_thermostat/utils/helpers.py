@@ -281,11 +281,6 @@ def async_normalize_bt_entity_ids(
         return
 
     registry = er.async_get(hass)
-    # The registry is populated lazily on first load; with a mocked hass
-    # (unit tests) it is an unloaded shell without ``.entities``, so there is
-    # nothing to rename.
-    if not hasattr(registry, "entities"):
-        return
     for reg_entry in registry.entities.get_entries_for_config_entry_id(entry.entry_id):
         if reg_entry.platform != DOMAIN or reg_entry.domain != domain:
             continue

@@ -54,23 +54,6 @@ def _rename(hass, entry, registry, new_name, domain=Platform.SENSOR):
     return registry.async_update_entity.call_args_list
 
 
-def test_a_registry_without_entities_is_left_alone():
-    """An unloaded registry shell is not walked.
-
-    The registry is populated lazily, so before the first load it carries
-    no ``entities`` at all. Reaching for them would raise, and there is
-    nothing to rename in an empty registry either way.
-    """
-    hass = MagicMock()
-    hass.data = {}
-    # A shell carrying everything but the ``entities`` it has not loaded yet.
-    registry = MagicMock(spec=["async_update_entity", "async_regenerate_entity_id"])
-
-    calls = _rename(hass, _entry("Livingroom"), registry, "Bedroom")
-
-    assert calls == []
-
-
 def test_an_id_that_already_matches_is_not_rewritten():
     """A rename that leaves an id unchanged writes nothing.
 
