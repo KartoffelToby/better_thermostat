@@ -1035,7 +1035,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.closed_window_triggered = False
         self.call_for_heat = True
         self.ignore_states = False
-        self.last_dampening_timestamp = None
         self.version = VERSION
         self.last_change = self.clock.now() - timedelta(hours=2)
         # Monotonic time of the user's last change of the room target or mode.
@@ -1073,21 +1072,12 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.attr_hvac_action = None
         self.old_attr_hvac_action = None
         self._hysteresis = ToleranceHysteresis()
-        self.heating_start_temp = None
-        self.heating_start_timestamp = None
-        self.heating_end_temp = None
-        self.heating_end_timestamp = None
         # Thermal learning trackers (state machines for heating power / heat loss)
         # Must be initialised before property-based assignments below.
         self._heating_tracker = HeatingPowerTracker()
         self._loss_tracker = HeatLossTracker()
         # Heat loss tracking (idle cooling rate)
-        self.loss_start_temp = None
-        self.loss_start_timestamp = None
-        self.loss_end_temp = None
-        self.loss_end_timestamp = None
         self.heat_loss_rate = 0.01
-        self._loss_last_action = None
         self._tolerance_last_action = HVACAction.IDLE
         self._tolerance_hold_active = False
         self._async_unsub_state_changed = None
@@ -1129,8 +1119,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._control_needed_after_maintenance = False
         # Balance / Hydraulic: temperature trend (K/min)
         self.temperature_slope = None
-        self._slope_last_temp = None
-        self._slope_last_ts = None
         # External temperature filter (anti-jitter for controllers like MPC)
         # 900s = 15min, 1800s = 30min
         self.room_temperature_ema_tau_seconds = 300.0
