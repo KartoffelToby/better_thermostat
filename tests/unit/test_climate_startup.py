@@ -2556,10 +2556,7 @@ class _AdvancingClock:
 
 def _trv_refusing_every_write(attempts: list[str]):
     """A thermostat whose only TRV raises on every setpoint write."""
-    trv = MagicMock(spec=Trv)
-    trv.target_temp_step = 0.5
-    trv.min_temp = 5.0
-    trv.max_temp = 30.0
+    trv = Trv(entity_id=TRV_ID, target_temp_step=0.5, min_temp=5.0, max_temp=30.0)
 
     async def refuse(_self, entity_id, _temperature):
         """Record the attempt and fail it the way an unreachable TRV does."""
