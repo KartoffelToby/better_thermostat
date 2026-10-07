@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import json
 import logging
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from custom_components.better_thermostat.utils.const import (
     ATTR_HEATING_POWER_NORMALIZED,
@@ -32,15 +32,26 @@ from custom_components.better_thermostat.utils.thermal_learning import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class CalibrationBalance(TypedDict, total=False):
-    """Shape of the ``calibration_balance`` mapping written by calibration.py.
+class ValveCommand(TypedDict):
+    """Valve intent handed to the valve writer.
 
-    ``debug`` is ``PIDDebugInfo`` for PID mode and other shapes for MPC/TPI;
-    consumers must check ``debug['mode']`` before narrowing.
+    ``valve_percent`` is the device percentage to command; ``apply_valve``
+    says whether the TRV takes a direct valve write at all.
     """
 
     valve_percent: float
     apply_valve: bool
+
+
+class CalibrationBalance(ValveCommand):
+    """Shape of the ``calibration_balance`` mapping written by calibration.py.
+
+    Every producer (MPC, MPC v2, TPI, PID, heating power) writes all three
+    keys. ``debug`` is ``PIDDebugInfo`` for PID mode and other shapes for
+    MPC/TPI/heating power; consumers must check ``debug['mode']`` or
+    ``debug['controller_version']`` before narrowing.
+    """
+
     debug: Mapping[str, object]
 
 
@@ -57,7 +68,7 @@ class TrvInfo(Protocol):
         ...
 
     @property
-    def calibration_balance(self) -> Mapping[str, Any] | None:
+    def calibration_balance(self) -> CalibrationBalance | None:
         """Last calibration balance result, if any."""
         ...
 
