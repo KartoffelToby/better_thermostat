@@ -796,12 +796,14 @@ def compute_mpc(
                         params.mpc_loss_min, min(params.mpc_loss_max, loss_est)
                     )
 
-                    predicted_dT = gain_c * u * dt_min - loss_c * dt_min
-                    state.virtual_temp += predicted_dT
+                    predicted_change_K = gain_c * u * dt_min - loss_c * dt_min
+                    state.virtual_temp += predicted_change_K
                     # P grows with process noise proportional to elapsed time
                     state.kalman_P += Q * dt_s
 
-                    extra_debug["kalman_predict_dT"] = _round_for_debug(predicted_dT, 4)
+                    extra_debug["kalman_predict_dT"] = _round_for_debug(
+                        predicted_change_K, 4
+                    )
                     extra_debug["kalman_P_predict"] = _round_for_debug(
                         state.kalman_P, 5
                     )

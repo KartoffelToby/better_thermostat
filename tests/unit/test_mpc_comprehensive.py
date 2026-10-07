@@ -1856,7 +1856,7 @@ class TestKalmanFilter:
         state.last_sensor_temperature = 20.0
 
         _compute(_inp(key="kpred", room_temperature=20.0), params)
-        # predicted_dT = gain * u * dt_min - loss * dt_min
+        # predicted_change_K = gain * u * dt_min - loss * dt_min
         # = 0.06 * 1.0 * 1.0 - 0.01 * 1.0 = 0.05
         # virtual_temp should have increased (gain > loss at u=1)
         assert state.virtual_temp > vt_before

@@ -1072,9 +1072,9 @@ def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
     controller.step(t_s=1_000.0, T_room=21.0, T_target=21.0, T_outdoor=5.0)
     controller.set_applied_u(0.5)
     plant = controller.plant_fine
-    calls = {"linearised_AB": 0, "propagate": 0, "euler": 0}
+    calls = {"linearised_system": 0, "propagate": 0, "euler": 0}
     for name, key in (
-        ("linearised_AB", "linearised_AB"),
+        ("linearised_system", "linearised_system"),
         ("propagate", "propagate"),
         ("_euler_step", "euler"),
     ):
@@ -1092,7 +1092,7 @@ def test_a_half_year_gap_costs_one_bounded_prediction(monkeypatch) -> None:
 
     settled_steps = math.ceil(plant.settling_time_s / plant.dt_s)
     assert settled_steps < 180 * 86_400.0 / plant.dt_s / 20
-    assert calls["linearised_AB"] == 1
+    assert calls["linearised_system"] == 1
     assert calls["propagate"] == 1
     assert calls["euler"] <= settled_steps
     assert diag.T_rad_hat == _radiator_estimate_after_gap(365 * 86_400.0)

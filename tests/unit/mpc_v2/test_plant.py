@@ -74,7 +74,7 @@ def test_linearisation_matches_discrete_step_for_small_dt() -> None:
     x = np.array([20.5, 35.0])
     T_outdoor, u = 5.0, 0.4
     x_next_nonlin = plant.discrete_step(x, u=u, T_outdoor=T_outdoor)
-    A, B, d = plant.linearised_AB(T_outdoor, T_rad_op=float(x[1]))
+    A, B, d = plant.linearised_system(T_outdoor, T_rad_op=float(x[1]))
     x_next_lin = A @ x + B.flatten() * u + d
     # Linearised around operating x[1], they should agree to ~1e-12.
     np.testing.assert_allclose(x_next_lin, x_next_nonlin, atol=1e-10)
@@ -83,7 +83,7 @@ def test_linearisation_matches_discrete_step_for_small_dt() -> None:
 def test_long_linearised_interval_is_composed_from_stable_substeps() -> None:
     """A sparse observer update stays finite even across a one-hour gap."""
     plant = PlantModelRC2(PlantParams(tau_rad_min=15.0), dt_s=30.0)
-    A, B, d = plant.linearised_AB(T_outdoor=5.0, T_rad_op=30.0, dt_s=3600.0)
+    A, B, d = plant.linearised_system(T_outdoor=5.0, T_rad_op=30.0, dt_s=3600.0)
 
     assert np.all(np.isfinite(A))
     assert np.all(np.isfinite(B))
@@ -93,7 +93,7 @@ def test_long_linearised_interval_is_composed_from_stable_substeps() -> None:
 def test_linearisation_stable_eigenvalues() -> None:
     """The linearised plant has all eigenvalues inside the unit circle."""
     plant = PlantModelRC2(PlantParams(), dt_s=30.0)
-    A, _, _ = plant.linearised_AB(T_outdoor=5.0, T_rad_op=30.0)
+    A, _, _ = plant.linearised_system(T_outdoor=5.0, T_rad_op=30.0)
     eigs = np.linalg.eigvals(A)
     # All eigenvalues inside the unit circle ⇒ stable open-loop plant.
     assert max(abs(eigs)) < 1.0

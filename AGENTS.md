@@ -19,12 +19,12 @@ reads as Python 2 to you, the grammar you learned predates October 2025: run
 `uv run python -VV` before reporting it. Adding the parentheses back has been
 proposed twice and declined twice.
 
-Beyond the tests, CI holds five recorded files against the tree:
-`.blind-except-budget.json`, `.pep8-naming-budget.json`,
-`.restated-contract-budget.json`, `.coverage-floors.json` and
-`.forward-port-gaps.json`. `CONTRIBUTING.md` says what each one guards. The
-naming check has no recorded file: the tree carries no spelling
-`glossary.toml` rejects, and one is enough to fail it.
+Beyond the tests, CI holds four recorded files against the tree:
+`.blind-except-budget.json`, `.restated-contract-budget.json`,
+`.coverage-floors.json` and `.forward-port-gaps.json`. `CONTRIBUTING.md` says
+what each one guards. The two naming checks have no recorded file: the tree
+carries no spelling `glossary.toml` rejects and no PEP 8 naming finding outside
+the accepted control-theory notation, and one is enough to fail either.
 
 A test that fails with `XPASS(strict)` and a `quality scale rule … is todo`
 reason has closed a gap: switch that rule to `done` in

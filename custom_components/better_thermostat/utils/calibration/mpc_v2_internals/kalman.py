@@ -192,7 +192,7 @@ class KalmanObserver:
         interval between readings carries the estimate past it. ``A`` does
         not depend on the operating point and propagates the covariance.
         """
-        A, _, _ = self.plant.linearised_AB(
+        A, _, _ = self.plant.linearised_system(
             T_outdoor, float(self.x_hat[1]), dt_s=elapsed_s
         )
         return A, self.plant.propagate(self.x_hat, u, T_outdoor, elapsed_s)

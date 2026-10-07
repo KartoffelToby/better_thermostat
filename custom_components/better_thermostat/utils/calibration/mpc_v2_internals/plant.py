@@ -83,7 +83,7 @@ class PlantModelRC2:
     ) -> FloatArray:
         """Advance ``x`` over ``dt_s`` under a constant valve fraction.
 
-        Uses the sub-steps :meth:`linearised_AB` composes for the same interval
+        Uses the sub-steps :meth:`linearised_system` composes for the same interval
         but re-evaluates the valve drive ``u·(T_water − T_rad)`` on each one,
         so across a long interval the radiator settles below the supply water
         instead of extrapolating the drive it had at the start.
@@ -132,7 +132,7 @@ class PlantModelRC2:
         n_steps = max(1, int(np.ceil(total_s / max(self.dt_s, 1e-9))))
         return n_steps, (total_s / n_steps) / 60.0
 
-    def linearised_AB(  # noqa: N802
+    def linearised_system(
         self, T_outdoor: float, T_rad_op: float, dt_s: float | None = None
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         """Return ``(A, B, d)`` for ``x_{k+1} = A·x + B·u + d``.
