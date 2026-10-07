@@ -11,7 +11,6 @@ This is benchmark-only code: never imported by production.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from itertools import count
 import random
 from typing import Any
@@ -24,8 +23,8 @@ from custom_components.better_thermostat.utils.calibration.mpc import (
     compute_mpc,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _make_json_safe,
     deserialize_mpc,
+    write_mpc_state,
 )
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
@@ -139,6 +138,6 @@ class MpcAdapter:
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of all per-bucket MPC states."""
         return {
-            bucket_key: _make_json_safe(asdict(state))
+            bucket_key: dict(write_mpc_state(state))
             for bucket_key, state in self._all_states.items()
         }

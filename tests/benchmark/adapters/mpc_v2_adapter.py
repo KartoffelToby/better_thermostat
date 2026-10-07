@@ -27,7 +27,10 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import (
     import_mpc_v2_state,
     make_plant_prior,
 )
-from custom_components.better_thermostat.utils.state_manager import _make_json_safe
+from custom_components.better_thermostat.utils.state_manager import (
+    MpcV2StateData,
+    write_mpc_v2_state,
+)
 
 from .base import BenchmarkContext, BenchmarkOutput, ControllerFamily
 
@@ -98,4 +101,6 @@ class MpcV2Adapter:
     def export_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the wrapped MPC v2 state."""
         exported = export_mpc_v2_state(self._state)
-        return _make_json_safe(exported) if exported is not None else {}
+        if exported is None:
+            return {}
+        return dict(write_mpc_v2_state(MpcV2StateData(**exported)))

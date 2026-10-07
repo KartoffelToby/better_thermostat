@@ -1,0 +1,220 @@
+{
+  "version": 1,
+  "mpc": {
+    "bt:full": {
+      "last_percent": 41.5,
+      "last_update_ts": 1700000001.0,
+      "ema_slope": 0.012,
+      "gain_est": 0.031,
+      "loss_est": 0.007,
+      "ka_est": 0.0025,
+      "solar_gain_est": 0.4,
+      "last_temp": 20.75,
+      "last_time": 1700000002.0,
+      "last_trv_temp": 24.5,
+      "last_trv_temp_ts": 1700000003.0,
+      "last_window_open_ts": 1700000004.0,
+      "dead_zone_hits": 3,
+      "min_effective_percent": 12.0,
+      "last_learn_time": 1700000005.0,
+      "last_learn_temp": 20.5,
+      "last_residual_time": 1700000006.0,
+      "virtual_temp": 20.9,
+      "virtual_temp_ts": 1700000007.0,
+      "last_room_temp_ts": 1700000008.0,
+      "perf_curve": {
+        "heat": {
+          "10": 0.02,
+          "50": 0.11
+        },
+        "idle": {
+          "0": -0.01
+        }
+      },
+      "trv_profile": "linear",
+      "profile_confidence": 0.66,
+      "profile_samples": 17,
+      "u_integral": 123.5,
+      "time_integral": 3600.0,
+      "last_integration_ts": 1700000009.0,
+      "created_ts": 1699990000.0,
+      "loss_learn_count": 5,
+      "gain_learn_count": 7,
+      "is_calibration_active": true,
+      "recent_errors": [
+        0.1,
+        -0.2,
+        0.05
+      ],
+      "regime_boost_active": true,
+      "consecutive_insufficient_heat": 2,
+      "kalman_P": 0.37,
+      "tolerance_hold_active": true,
+      "last_target_C": 21.5,
+      "last_sensor_temp_C": 22.25,
+      "last_room_temp_C": 20.8
+    },
+    "bt:defaults": {
+      "last_percent": null,
+      "last_update_ts": 0.0,
+      "ema_slope": null,
+      "gain_est": null,
+      "loss_est": null,
+      "ka_est": null,
+      "solar_gain_est": null,
+      "last_temp": null,
+      "last_time": 0.0,
+      "last_trv_temp": null,
+      "last_trv_temp_ts": 0.0,
+      "last_window_open_ts": 0.0,
+      "dead_zone_hits": 0,
+      "min_effective_percent": null,
+      "last_learn_time": null,
+      "last_learn_temp": null,
+      "last_residual_time": null,
+      "virtual_temp": null,
+      "virtual_temp_ts": 0.0,
+      "last_room_temp_ts": 0.0,
+      "perf_curve": {},
+      "trv_profile": "unknown",
+      "profile_confidence": 0.0,
+      "profile_samples": 0,
+      "u_integral": 0.0,
+      "time_integral": 0.0,
+      "last_integration_ts": 0.0,
+      "created_ts": 0.0,
+      "loss_learn_count": 0,
+      "gain_learn_count": 0,
+      "is_calibration_active": false,
+      "recent_errors": [],
+      "regime_boost_active": false,
+      "consecutive_insufficient_heat": 0,
+      "kalman_P": 1.0,
+      "tolerance_hold_active": false,
+      "last_target_C": null,
+      "last_sensor_temp_C": null,
+      "last_room_temp_C": null
+    }
+  },
+  "mpc_v2": {
+    "bt:full": {
+      "last_percent": 37.5,
+      "last_compute_ts": 1700000010.0,
+      "created_ts": 1699990001.0,
+      "outdoor_fallback_logged": true,
+      "snapshot": {
+        "v": 2,
+        "x_hat": [
+          20.5,
+          35.25
+        ],
+        "kalman_P": [
+          [
+            0.5,
+            0.01
+          ],
+          [
+            0.01,
+            0.75
+          ]
+        ],
+        "D_hat_K_per_min": -0.002,
+        "last_u": 0.42,
+        "e_integral_K_min": 1.5,
+        "u_history": [
+          0.4,
+          0.41,
+          0.42
+        ],
+        "last_t_s": 86400.0,
+        "next_mpc_t_s": 86700.0,
+        "last_mpc_t_s": 86100.0,
+        "planning_disturbance": 0.003,
+        "rg_v_C": 21.0
+      }
+    },
+    "bt:defaults": {
+      "last_percent": null,
+      "last_compute_ts": 0.0,
+      "created_ts": 0.0,
+      "outdoor_fallback_logged": false,
+      "snapshot": {}
+    }
+  },
+  "mpc_v2_reid": {
+    "bt:full": {
+      "tau_room_min": 480.0,
+      "gain_heater": 0.055,
+      "fitted_ts": 1700000011.0,
+      "n_segments": 9,
+      "rmse_prior_K": 0.31,
+      "rmse_fit_K": 0.12
+    },
+    "bt:defaults": {
+      "tau_room_min": 0.0,
+      "gain_heater": 0.0,
+      "fitted_ts": 0.0,
+      "n_segments": 0,
+      "rmse_prior_K": 0.0,
+      "rmse_fit_K": 0.0
+    }
+  },
+  "pid": {
+    "bt:full": {
+      "pid_integral": 4.5,
+      "pid_last_meas": 20.6,
+      "pid_last_error": 0.9,
+      "pid_last_time": 1700000012.0,
+      "pid_kp": 55.0,
+      "pid_ki": 0.012,
+      "pid_kd": 1800.0,
+      "auto_tune": true,
+      "last_tune_ts": 1700000013.0,
+      "last_delta_sign": -1,
+      "last_error_sign": 1,
+      "previous_abs_error": 0.8,
+      "last_abs_error": 0.6,
+      "ema_slope": -0.004,
+      "last_percent": 33.0,
+      "last_output_change_ts": 1700000014.0,
+      "last_target_temp": 21.5
+    },
+    "bt:defaults": {
+      "pid_integral": 0.0,
+      "pid_last_meas": null,
+      "pid_last_error": null,
+      "pid_last_time": 0.0,
+      "pid_kp": null,
+      "pid_ki": null,
+      "pid_kd": null,
+      "auto_tune": null,
+      "last_tune_ts": 0.0,
+      "last_delta_sign": null,
+      "last_error_sign": null,
+      "previous_abs_error": null,
+      "last_abs_error": null,
+      "ema_slope": null,
+      "last_percent": 0.0,
+      "last_output_change_ts": 0.0,
+      "last_target_temp": null
+    }
+  },
+  "tpi": {
+    "bt:full": {
+      "last_percent": 60.0,
+      "last_update_ts": 1700000015.0
+    },
+    "bt:defaults": {
+      "last_percent": null,
+      "last_update_ts": 0.0
+    }
+  },
+  "thermal": {
+    "heating_power": 0.0123,
+    "heat_loss_rate": 0.0045
+  },
+  "filters": {
+    "external_temp_ema": 20.7,
+    "temp_slope": 0.0021
+  }
+}
