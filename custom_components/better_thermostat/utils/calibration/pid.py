@@ -337,27 +337,23 @@ def compute_pid(
     d_meas: float | None = None
 
     if params.d_on_measurement:
-        if dt > 0:
-            # Use effective current temperature (EMA) for derivative
-            meas_now = room_temperature
-            if meas_now is not None:
-                # EMA smoothing for the D channel only
-                try:
-                    a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
-                except TypeError, ValueError:
-                    a = 0.5
-                prev = st.pid_last_meas
-                smoothed = (
-                    meas_now if prev is None else ((1.0 - a) * prev + a * meas_now)
-                )
-                if prev is not None:
-                    d_meas = (smoothed - prev) / dt
-                    d_term = -float(st.pid_kd) * d_meas
-                # Stored (smoothed) measurement is updated after the u calculation below
+        # Use effective current temperature (EMA) for derivative
+        meas_now = room_temperature
+        # EMA smoothing for the D channel only
+        try:
+            a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
+        except TypeError, ValueError:
+            a = 0.5
+        prev = st.pid_last_meas
+        smoothed = meas_now if prev is None else ((1.0 - a) * prev + a * meas_now)
+        if prev is not None:
+            d_meas = (smoothed - prev) / dt
+            d_term = -float(st.pid_kd) * d_meas
+        # Stored (smoothed) measurement is updated after the u calculation below
     # Derivative on error: use the previous cycle's stored error so a setpoint
     # change produces a derivative kick. This is what distinguishes the mode
     # from derivative-on-measurement above, where the setpoint term cancels.
-    elif dt > 0 and st.pid_last_error is not None:
+    elif st.pid_last_error is not None:
         d_err = (e - st.pid_last_error) / dt
         d_term = float(st.pid_kd) * d_err
 
@@ -381,24 +377,20 @@ def compute_pid(
     aw_blocked = False
     i_relief = False
     i_prev = st.pid_integral
-    i_prop = i_prev
-    if dt > 0:
-        # Proposed integrator update (tentative)
-        i_prop = i_prev + float(st.pid_ki) * e * dt
-        # Clamp
-        i_prop = max(params.i_min, min(params.i_max, i_prop))
-        # Tentative control output before checking saturation
-        u_prop = p_term + i_prop + d_term
-        # Saturated control output
-        u_sat = max(0.0, min(max_opening, u_prop))
-        # If saturated and the error would worsen saturation, block integration
-        if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
-            i_term = i_prev
-            aw_blocked = True
-        else:
-            i_term = i_prop
-    else:
+    # Proposed integrator update (tentative)
+    i_prop = i_prev + float(st.pid_ki) * e * dt
+    # Clamp
+    i_prop = max(params.i_min, min(params.i_max, i_prop))
+    # Tentative control output before checking saturation
+    u_prop = p_term + i_prop + d_term
+    # Saturated control output
+    u_sat = max(0.0, min(max_opening, u_prop))
+    # If saturated and the error would worsen saturation, block integration
+    if (u_prop > u_sat and e > 0) or (u_prop < u_sat and e < 0):
         i_term = i_prev
+        aw_blocked = True
+    else:
+        i_term = i_prop
 
     # Integrator relief near setpoint: when the error changes sign and we are
     # within the near band, reduce the integrator slightly so the valve opens
@@ -441,13 +433,12 @@ def compute_pid(
 
     # 3. Check Target Change
     target_changed = False
-    if inp_target_temperature is not None:
-        if (
-            st.last_target_temp is not None
-            and abs(inp_target_temperature - st.last_target_temp) > 0.05
-        ):
-            target_changed = True
-        st.last_target_temp = inp_target_temperature
+    if (
+        st.last_target_temp is not None
+        and abs(inp_target_temperature - st.last_target_temp) > 0.05
+    ):
+        target_changed = True
+    st.last_target_temp = inp_target_temperature
 
     # 4. Hold-Time Check
     time_since_change = now - st.last_output_change_ts
@@ -486,9 +477,8 @@ def compute_pid(
             a = max(0.0, min(1.0, float(params.d_smoothing_alpha)))
         except TypeError, ValueError:
             a = 0.5
-        if base is not None:
-            prev = st.pid_last_meas
-            st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
+        prev = st.pid_last_meas
+        st.pid_last_meas = base if prev is None else ((1.0 - a) * prev + a * base)
     else:
         st.pid_last_meas = room_temperature
     # Refresh the last error together with pid_last_time on every cycle,
@@ -559,7 +549,7 @@ def _auto_tune_pid(
     params: PIDParams,
     st: PIDState,
     percent: float,
-    delta_kelvin: float | None,
+    delta_kelvin: float,
     slope: float,
     now_ts: float,
 ) -> None:
@@ -572,8 +562,6 @@ def _auto_tune_pid(
     - Minimum interval between adjustments (tune_min_interval_s), clamp the gains within limits.
     """
     try:
-        if delta_kelvin is None:
-            return
         # Minimum interval
         if (now_ts - st.last_tune_ts) < params.tune_min_interval_s:
             return
