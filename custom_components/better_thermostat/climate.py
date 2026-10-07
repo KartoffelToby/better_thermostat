@@ -1833,7 +1833,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
         Returns True when startup can go ahead, False otherwise.
         """
-        grace_until = getattr(self, "_critical_grace_until", None)
+        grace_until = self._critical_grace_until
         in_grace = grace_until is not None and self.clock.now() < grace_until
 
         if room_sensor_reading(self, sensor_state) is None:
