@@ -817,6 +817,41 @@ def test_a_private_name_is_renamed_with_its_underscores(lines, develop_spelling,
     assert commit.hits == hits
 
 
+@pytest.mark.parametrize(
+    ("name", "renamed"),
+    [
+        ("_real_trv", ("trv",)),
+        ("_trv_data", ("_trv",)),
+        ("__trv_data", ("__trv",)),
+        ("trv_data", ("trv",)),
+        ("_trv_cache", ()),
+        ("__", ()),
+    ],
+    ids=["private-alias", "private", "dunder", "public", "unlisted", "underscores"],
+)
+def test_a_name_is_renamed_as_the_naming_gate_reads_it(lines, name, renamed):
+    """An alias listed with its underscore wins; otherwise they are kept.
+
+    The naming gate reads a name as written first and then without its
+    leading underscores, so the rename puts back exactly those it took off.
+    """
+    script, _ = lines
+    renames = {"_real_trv": ("trv",), "trv_data": ("trv",)}
+
+    assert script._renamed(name, renames) == renamed
+
+
+def test_a_private_alias_past_the_cap_is_still_renamed(lines):
+    """Past the spelling cap, a private alias takes the term behind its underscore."""
+    script, _ = lines
+    marker = " + ".join(["_old"] * 12)
+
+    spellings = script._spellings(marker, {"old": ("first", "second")})
+
+    assert " + ".join(["_first"] * 12) in spellings
+    assert " + ".join(["_second"] * 12) in spellings
+
+
 def test_the_spellings_of_one_marker_are_bounded(lines):
     """A line full of aliases costs at most the cap, and still spells them all.
 

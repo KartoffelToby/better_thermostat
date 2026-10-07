@@ -327,6 +327,20 @@ def test_state_without_pending_target_field_loads():
     assert rebuilt.control_mode.pending_target is None
 
 
+def test_snapshot_exported_as_temp_slope_loads():
+    """Exports from before the slope's rename still reconstruct and replay."""
+    recorder = FlightRecorder()
+    snapshot = replace(_snapshot(), temperature_slope=0.02)
+    desired, _ = decide(snapshot, running_kernel_state())
+    recorder.record(snapshot, running_kernel_state(), desired)
+    entry = json.loads(json.dumps(recorder.export()))[0]
+    entry["snapshot"]["temp_slope"] = entry["snapshot"].pop("temperature_slope")
+
+    assert snapshot_from_dict(entry["snapshot"]).temperature_slope == 0.02
+    matches, _ = replay(entry)
+    assert matches is True
+
+
 class TestRoundtripCompleteness:
     """Every field of every recorded type survives export and reconstruct.
 
