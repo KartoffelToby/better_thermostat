@@ -2,6 +2,9 @@
 
 from types import SimpleNamespace
 
+import pytest
+
+from custom_components.better_thermostat.climate import BetterThermostat
 from custom_components.better_thermostat.utils.calibration.pid import (
     format_bucket,
     resolve_unique_id,
@@ -10,21 +13,22 @@ from custom_components.better_thermostat.utils.calibration.pid import (
 
 
 class TestResolveUniqueId:
-    """resolve_unique_id prefers unique_id, then _unique_id, then 'bt'."""
+    """resolve_unique_id keys state by the entity's unique id, else ``bt``."""
 
-    def test_uses_public_unique_id(self):
-        """The public unique_id wins."""
-        obj = SimpleNamespace(unique_id="pub", _unique_id="priv")
-        assert resolve_unique_id(obj) == "pub"
+    def test_uses_the_unique_id(self):
+        """An entity with a unique id keys its state under it."""
+        assert resolve_unique_id(SimpleNamespace(unique_id="entry_1")) == "entry_1"
 
-    def test_falls_back_to_private(self):
-        """A missing/empty unique_id falls back to _unique_id."""
-        obj = SimpleNamespace(unique_id=None, _unique_id="priv")
-        assert resolve_unique_id(obj) == "priv"
+    @pytest.mark.parametrize("unique_id", [None, ""])
+    def test_an_entity_without_a_unique_id_falls_back_to_bt(self, unique_id):
+        """No unique id, or an empty one, keys state under ``bt``."""
+        assert resolve_unique_id(SimpleNamespace(unique_id=unique_id)) == "bt"
 
-    def test_falls_back_to_bt(self):
-        """With neither present, the literal 'bt' is used."""
-        assert resolve_unique_id(SimpleNamespace()) == "bt"
+    def test_a_thermostat_keys_by_its_config_entry(self):
+        """The thermostat's unique id is the one its constructor received."""
+        bt = BetterThermostat.__new__(BetterThermostat)
+        bt._unique_id = "entry_1"
+        assert resolve_unique_id(bt) == "entry_1"
 
 
 class TestBucketHelpers:

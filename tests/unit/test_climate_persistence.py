@@ -18,7 +18,7 @@ def test_record_runtime_pushes_thermal_and_filters():
     bt.state_mgr = MagicMock()
     bt.heating_power = 0.02
     bt.heat_loss_rate = 0.01
-    bt.external_temp_ema = 20.5
+    bt.room_temperature_ema = 20.5
     bt.temp_slope = 0.0012
 
     BetterThermostat._record_runtime_to_state(bt)

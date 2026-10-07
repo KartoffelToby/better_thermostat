@@ -88,9 +88,6 @@ def remove_unclaimed_registry_entries(
     with. The entities of a TRV it failed to build are not stale, so nothing
     is removed then.
     """
-    # An unloaded registry (a mocked hass in unit tests) has no entries.
-    if not hasattr(registry, "entities"):
-        return
     configured = {
         trv_entity_id
         for trv_config in bt_climate.all_trvs or []
