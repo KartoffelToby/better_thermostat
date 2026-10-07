@@ -286,6 +286,18 @@ class TestCheckWeatherPrediction:
         bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
         assert await check_weather_prediction(bt) is True
 
+    async def test_forecast_entry_without_string_unit_uses_entity_unit(self):
+        """A forecast entry whose unit is not a string reads in the entity's unit."""
+        # 32 °F == 0 °C, below the threshold; 50 °F == 10 °C is not.
+        states = {WEATHER_ID: weather_state(temperature=50.0, unit="°F")}
+        hass = make_hass(states=states)
+        response = forecast_resp(WEATHER_ID, [32.0, 32.0])
+        for entry in response[WEATHER_ID]["forecast"]:
+            entry["temperature_unit"] = None
+        hass.services.async_call = AsyncMock(return_value=response)
+        bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is True
+
     async def test_empty_forecast_returns_none(self):
         """An empty forecast list resolves to None (no opinion)."""
         states = {WEATHER_ID: weather_state()}

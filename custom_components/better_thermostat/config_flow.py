@@ -901,10 +901,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self.device_name = ""
         self.data: dict[str, Any] | None = None
-        self.model: str | None = None
-        self.trv_entity_ids: list[str] | None = None
         self.trv_bundle: list[dict[str, Any]] = []
-        self.integration: str | None = None
         self.i = 0
         self._active_trv_config: dict[str, Any] | None = None
         super().__init__()
@@ -1085,9 +1082,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return self.async_abort(
                         reason="trv_in_use", description_placeholders=in_use
                     )
-                self.trv_entity_ids = list(heaters)
                 self.trv_bundle = []
-                for trv in self.trv_entity_ids:
+                for trv in heaters:
                     integration = await get_trv_intigration(self, trv)
                     self.trv_bundle.append(
                         {
@@ -1131,7 +1127,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Dynamic config structures use Any as they store heterogeneous data
         self.trv_bundle: list[dict[str, Any]] = []
         self.device_name = ""
-        self.model: str | None = None
         self._last_step = False
         self.updated_config: dict[str, Any] = {}
         self._active_trv_config: dict[str, Any] | None = None
