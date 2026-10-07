@@ -335,3 +335,17 @@ def test_a_non_finite_previous_valve_does_not_move_the_valve(previous_valve):
         max_valve_jump=20.0,
     )
     assert out.trvs["climate.trv"].valve_percent == 50.0
+
+
+@pytest.mark.parametrize("valve", [50.0, -3.0])
+def test_a_max_opening_below_zero_closes_the_valve(valve):
+    """A negative maximum opening keeps the valve shut, and no intent goes below 0."""
+    out = clamp(_desired(valve=valve), _snapshot(valve_max_opening=-5.0))
+    assert out.trvs["climate.trv"].valve_percent == 0.0
+
+
+@pytest.mark.parametrize("max_opening", [None, math.nan, math.inf])
+def test_an_unusable_max_opening_leaves_the_full_range(max_opening):
+    """Without a usable maximum opening the valve is capped at 100 %."""
+    out = clamp(_desired(valve=150.0), _snapshot(valve_max_opening=max_opening))
+    assert out.trvs["climate.trv"].valve_percent == 100.0

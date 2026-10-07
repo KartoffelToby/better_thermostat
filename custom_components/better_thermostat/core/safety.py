@@ -77,26 +77,29 @@ def _resolve_bounds(
     return resolved_lower, resolved_upper
 
 
-def _clamp_value(value: float, lower: float | None, upper: float | None) -> float:
-    lower = _finite_bound(lower)
-    upper = _finite_bound(upper)
-    if lower is not None and upper is not None and lower > upper:
-        # A misreporting device can invert its bounds; swapping restores
-        # a well-formed interval instead of clamping against lower > upper.
-        lower, upper = upper, lower
-    if not math.isfinite(value):
-        # NaN/inf compare False against every bound, so they would slip through
-        # the inequality checks below and reach a device as an invalid payload.
-        if lower is not None:
-            return lower
-        if upper is not None:
-            return upper
-        return 0.0
-    if lower is not None and value < lower:
+def _clamp_value(value: float, lower: float, upper: float) -> float:
+    """Clamp a finite ``value`` into the interval ``lower..upper``.
+
+    Every caller withholds a non-finite intent before clamping and passes
+    finite bounds with ``lower <= upper``: ``_resolve_bounds`` orders the
+    setpoint and offset bounds, and the valve interval runs from 0 to a
+    maximum opening that is never below 0.
+    """
+    if value < lower:
         return lower
-    if upper is not None and value > upper:
+    if value > upper:
         return upper
     return value
+
+
+def _valve_upper_bound(reported: TrvReported | None) -> float:
+    """Return the highest valve percentage the TRV may be commanded to.
+
+    A missing or non-finite maximum opening leaves the full 100 %; one
+    below 0 closes the valve, as the user's own setting clamps it.
+    """
+    upper = _finite_bound(reported.valve_max_opening if reported is not None else None)
+    return max(0.0, upper) if upper is not None else 100.0
 
 
 def _clamp_trv(
@@ -143,10 +146,8 @@ def _clamp_trv(
             # to a bound and issuing a spurious close command.
             valve = None
         else:
-            upper = _finite_bound(
-                reported.valve_max_opening if reported is not None else None
-            )
-            valve = _clamp_value(valve, 0.0, upper if upper is not None else 100.0)
+            upper = _valve_upper_bound(reported)
+            valve = _clamp_value(valve, 0.0, upper)
             if (
                 max_valve_jump is not None
                 and previous is not None
@@ -160,9 +161,7 @@ def _clamp_trv(
                     valve = previous.valve_percent + (
                         max_valve_jump if delta > 0 else -max_valve_jump
                     )
-                    valve = _clamp_value(
-                        valve, 0.0, upper if upper is not None else 100.0
-                    )
+                    valve = _clamp_value(valve, 0.0, upper)
 
     if (
         setpoint == intent.setpoint
