@@ -111,12 +111,16 @@ class _DeviceModelHost(_RegistryHost, Protocol):
         ...
 
 
-def entry_settings(entry: ConfigEntry) -> dict[str, Any]:
+def entry_settings(entry: ConfigEntry) -> dict[str, object]:
     """Return the configuration of ``entry``, wherever it is stored.
 
     Better Thermostat 2.0 keeps the settings in the entry's options and leaves
     its data empty; 1.9 keeps them in the data. Reading both, the options over
     the data, lets an entry last saved by either version run here.
+
+    The values are as stored and unchecked. A reader narrows each one it
+    uses, for example with ``setting_str``; a loaded entry also holds them
+    parsed on its runtime data.
     """
     return {**entry.data, **entry.options}
 

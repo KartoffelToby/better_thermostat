@@ -336,7 +336,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Better Thermostat climate entity for a config entry."""
-    settings = entry_settings(entry)
+    settings: Mapping[str, Any] = entry_settings(entry)
     _LOGGER.debug(
         "better_thermostat %s: async_setup_entry start (entry_id=%s)",
         settings.get(CONF_NAME),
