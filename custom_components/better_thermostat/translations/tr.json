@@ -606,6 +606,9 @@
     },
     "pid_reset_failed": {
       "message": "{device_name} için PID öğrenmesinin sıfırlanması başarısız oldu. Ayrıntılar günlükte."
+    },
+    "invalid_settings": {
+      "message": "Bu Better Thermostat'ın kayıtlı ayarları okunamıyor: {reason}. Bunları seçeneklerinden değiştirin veya kaldırıp yeniden ekleyin."
     }
   }
 }

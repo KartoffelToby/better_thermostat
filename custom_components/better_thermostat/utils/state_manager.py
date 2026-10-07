@@ -70,6 +70,7 @@ from .const import (
     MIN_HEAT_LOSS,
     MIN_HEATING_POWER,
 )
+from .stored_values import finite_or_none, stored_count, stored_float, stored_int
 from .thermal_learning import clamp
 
 
@@ -102,12 +103,8 @@ class MpcV2ReidData:
     tau_room_min: float = 0.0
     gain_heater: float = 0.0
     fitted_ts: float = 0.0
-    # `persist_state` writes this dataclass through `dataclasses.asdict` into
-    # Home Assistant's `Store`, so these two field names are the names on disk.
-    # Lowercasing them needs a store version bump and a migration step, and the
-    # two move with it.
-    rmse_prior_K: float = 0.0  # noqa: N815
-    rmse_fit_K: float = 0.0  # noqa: N815
+    rmse_prior_kelvin: float = 0.0
+    rmse_fit_kelvin: float = 0.0
     n_segments: int = 0
 
 
@@ -267,6 +264,13 @@ def _make_json_safe(obj: Any) -> Any:
 _STORED_ROOM_TEMPERATURE_EMA = "external_temp_ema"
 _STORED_TEMPERATURE_SLOPE = "temp_slope"
 
+# Store keys of the ``MpcV2ReidData`` fields whose stored name differs from
+# the field name. The other fields are stored under their own names.
+_STORED_MPC_V2_REID_KEYS = {
+    "rmse_prior_kelvin": "rmse_prior_K",
+    "rmse_fit_kelvin": "rmse_fit_K",
+}
+
 
 def _serialize(state: RuntimeState) -> dict[str, Any]:
     """Convert RuntimeState to a JSON-serializable dict.
@@ -278,48 +282,14 @@ def _serialize(state: RuntimeState) -> dict[str, Any]:
     filters = data["filters"]
     filters[_STORED_ROOM_TEMPERATURE_EMA] = filters.pop("room_temperature_ema")
     filters[_STORED_TEMPERATURE_SLOPE] = filters.pop("temperature_slope")
+    for entry in data["mpc_v2_reid"].values():
+        for attr, stored in _STORED_MPC_V2_REID_KEYS.items():
+            entry[stored] = entry.pop(attr)
     return _make_json_safe(data)
 
 
 class _PoisonedStateError(ValueError):
     """A stored entry carries a mathematical anomaly (NaN/inf)."""
-
-
-# Home Assistant's JSON encoder writes an integer only inside the 64-bit
-# range orjson supports and raises TypeError on anything wider. The Store's
-# write path turns that TypeError into a SerializationError, which the Store
-# catches and only logs, so a single unstorable integer anywhere in the
-# state leaves the config entry's file unwritten without failing the save.
-_MIN_STORED_INT = -(2**63)
-_MAX_STORED_INT = 2**64 - 1
-
-
-def _stored_int(value: Any) -> int:
-    """Return *value* as an integer the store can write back.
-
-    A JSON number wider than 64 bits is parsed as a float, and ``int()``
-    turns it into an arbitrary-precision integer that the encoder refuses.
-    Those raise ``ValueError`` here, so a caller handles them like any
-    other field ``int()`` cannot make sense of.
-    """
-    number = int(value)
-    if not _MIN_STORED_INT <= number <= _MAX_STORED_INT:
-        raise ValueError("integer outside the storable range")
-    return number
-
-
-def _stored_count(value: Any) -> int:
-    """Return *value* as a storable, non-negative tally.
-
-    A tally cannot be negative, so a negative value is as unusable as one
-    the store could not write back or one that is not an integer at all;
-    all three restore as 0.
-    """
-    try:
-        count = _stored_int(value)
-    except TypeError, ValueError, OverflowError:
-        return 0
-    return max(count, 0)
 
 
 def _within(value: float, bounds: tuple[float, float]) -> bool:
@@ -329,33 +299,6 @@ def _within(value: float, bounds: tuple[float, float]) -> bool:
     """
     low, high = bounds
     return low <= value <= high
-
-
-def finite_or_none(value: Any) -> float | None:
-    """Return *value* as a finite float, or ``None`` when it is not one.
-
-    A missing value, one ``float()`` refuses, and NaN or infinity all
-    collapse to ``None``. Non-finite numbers carry no usable learning, and
-    keeping one would only feed the same unusable value back into the next
-    calculation that reads it.
-
-    Parameters
-    ----------
-    value : Any
-        the value to read, from a store or a caller
-
-    Returns
-    -------
-    float | None
-        the value as a finite float, or None when it is not one
-    """
-    if value is None:
-        return None
-    try:
-        number = float(value)
-    except TypeError, ValueError, OverflowError:
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
@@ -376,7 +319,7 @@ def _null_or_poison(attr: str, nullable: frozenset[str]) -> None:
     raise _PoisonedStateError(f"{attr} is null, which its declared type cannot hold")
 
 
-def _finite_or_poison(value: Any, attr: str) -> float:
+def _finite_or_poison(value: object, attr: str) -> float:
     """Parse one stored float; a non-finite number poisons the entry.
 
     Wrong types merely skip the field (schema evolution), but NaN or
@@ -384,7 +327,7 @@ def _finite_or_poison(value: Any, attr: str) -> float:
     trusted either, so the caller keeps none of the entry's stored values
     and the learning they carried starts over.
     """
-    number = float(value)
+    number = stored_float(value)
     if not math.isfinite(number):
         raise _PoisonedStateError(f"{attr} is non-finite")
     return number
@@ -426,7 +369,7 @@ def _discard_poisoned_entry(
         poisoned.append(f"{kind}:{key}")
 
 
-def _finite_element(value: Any, attr: str) -> float:
+def _finite_element(value: object, attr: str) -> float:
     """Parse one number stored inside a collection field.
 
     ``recent_errors`` and the bins of ``perf_curve`` are declared to hold
@@ -516,9 +459,9 @@ def deserialize_mpc(
                     ),
                 )
             elif attr in _COUNT_FIELDS:
-                setattr(state, attr, _stored_count(value))
+                setattr(state, attr, stored_count(value))
             elif attr in _SIGN_FIELDS:
-                setattr(state, attr, _stored_int(value))
+                setattr(state, attr, stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             elif attr in _STR_FIELDS:
@@ -646,22 +589,23 @@ def deserialize_mpc_v2_reid(
     """
     state = MpcV2ReidData()
     for attr in MpcV2ReidData.__dataclass_fields__:
-        if attr not in raw:
+        stored = _STORED_MPC_V2_REID_KEYS.get(attr, attr)
+        if stored not in raw:
             continue
-        value = raw[attr]
+        value = raw[stored]
         try:
             if value is None:
                 _null_or_poison(attr, _MPC_V2_REID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr == "n_segments":
-                setattr(state, attr, _stored_count(value))
+                setattr(state, attr, stored_count(value))
             else:
-                setattr(state, attr, _finite_or_poison(value, attr))
+                setattr(state, attr, _finite_or_poison(value, stored))
         except _PoisonedStateError as error:
             _discard_poisoned_entry(error, "mpc_v2_reid", key, poisoned)
             return None
         except TypeError, ValueError, OverflowError:
-            _report_unreadable_field(attr, "mpc_v2_reid", key)
+            _report_unreadable_field(stored, "mpc_v2_reid", key)
             continue
     # A result whose fitted components lie outside the plausible band cannot
     # seed a plant prior. The band is two-sided on both: too small a
@@ -725,9 +669,9 @@ def deserialize_pid(
                 _null_or_poison(attr, _PID_NULLABLE_FIELDS)
                 setattr(state, attr, None)
             elif attr in _COUNT_FIELDS:
-                setattr(state, attr, _stored_count(value))
+                setattr(state, attr, stored_count(value))
             elif attr in _SIGN_FIELDS:
-                setattr(state, attr, _stored_int(value))
+                setattr(state, attr, stored_int(value))
             elif attr in _BOOL_FIELDS:
                 setattr(state, attr, bool(value))
             else:
@@ -830,7 +774,7 @@ def _stored_entries(
 
 
 def _stored_optional_number(
-    values: Mapping[str, Any], section: str, attr: str
+    values: Mapping[str, object], section: str, attr: str
 ) -> float | None:
     """Return one optional number of an unkeyed section, naming an unusable one.
 

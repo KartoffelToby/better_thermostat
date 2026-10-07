@@ -606,6 +606,9 @@
     },
     "pid_reset_failed": {
       "message": "Nulstilling af PID-læringen for {device_name} mislykkedes. Loggen har detaljerne."
+    },
+    "invalid_settings": {
+      "message": "De gemte indstillinger for denne Better Thermostat kan ikke læses: {reason}. Ret dem i dens indstillinger, eller fjern den og tilføj den igen."
     }
   }
 }

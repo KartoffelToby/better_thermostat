@@ -606,6 +606,9 @@
     },
     "pid_reset_failed": {
       "message": "Resetovanie učenia PID pre {device_name} zlyhalo. Podrobnosti sú v logu."
+    },
+    "invalid_settings": {
+      "message": "Uložené nastavenia tohto Better Thermostat nie je možné prečítať: {reason}. Zmeňte ich v jeho možnostiach alebo ho odstráňte a pridajte znova."
     }
   }
 }

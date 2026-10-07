@@ -47,8 +47,6 @@ from custom_components.better_thermostat.utils.const import (
     MIN_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _MAX_STORED_INT,
-    _MIN_STORED_INT,
     _MPC_NULLABLE_FIELDS,
     _MPC_V2_NULLABLE_FIELDS,
     _MPC_V2_REID_NULLABLE_FIELDS,
@@ -57,6 +55,7 @@ from custom_components.better_thermostat.utils.state_manager import (
     CURRENT_VERSION,
     FilterState,
     MpcState,
+    MpcV2ReidData,
     MpcV2StateData,
     PIDState,
     RuntimeState,
@@ -71,6 +70,10 @@ from custom_components.better_thermostat.utils.state_manager import (
     deserialize_mpc_v2_reid,
     deserialize_pid,
     deserialize_tpi,
+)
+from custom_components.better_thermostat.utils.stored_values import (
+    MAX_STORED_INT,
+    MIN_STORED_INT,
 )
 
 _SM = "custom_components.better_thermostat.utils.state_manager"
@@ -241,6 +244,28 @@ class TestSerializeDeserializeRoundtrip:
         assert restored.filters.room_temperature_ema == 20.4
         assert restored.filters.temperature_slope == 0.002
 
+    def test_reid_results_keep_their_stored_keys(self):
+        """The re-identification RMSEs are stored as ``rmse_prior_K``/``rmse_fit_K``."""
+        original = RuntimeState(
+            mpc_v2_reid={
+                "k1": MpcV2ReidData(
+                    tau_room_min=240.0,
+                    gain_heater=3.0,
+                    rmse_prior_kelvin=0.4,
+                    rmse_fit_kelvin=0.1,
+                )
+            }
+        )
+
+        raw = _serialize(original)
+        restored = _deserialize(raw)
+
+        stored = raw["mpc_v2_reid"]["k1"]
+        assert (stored["rmse_prior_K"], stored["rmse_fit_K"]) == (0.4, 0.1)
+        assert "rmse_prior_kelvin" not in stored
+        assert "rmse_fit_kelvin" not in stored
+        assert restored.mpc_v2_reid["k1"] == original.mpc_v2_reid["k1"]
+
     def test_legacy_presets_section_ignored(self):
         """A legacy presets section in a stored payload is ignored.
 
@@ -404,8 +429,8 @@ class TestDeserializeMpcV2Reid:
         assert reid.tau_room_min == 240.0
         assert reid.gain_heater == 3.0
         assert reid.fitted_ts == 1000.0
-        assert reid.rmse_prior_K == 0.4
-        assert reid.rmse_fit_K == 0.1
+        assert reid.rmse_prior_kelvin == 0.4
+        assert reid.rmse_fit_kelvin == 0.1
         assert reid.n_segments == 4
 
     def test_nan_tau_room_discards_the_entry(self):
@@ -429,7 +454,7 @@ class TestDeserializeMpcV2Reid:
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
         assert reid.tau_room_min == 240.0
-        assert reid.rmse_fit_K == 0.0
+        assert reid.rmse_fit_kelvin == 0.0
 
     def test_wrong_type_only_skips_the_segment_count(self):
         """The count is metadata, so an unreadable one still keeps the entry."""
@@ -466,8 +491,8 @@ class TestDeserializeMpcV2Reid:
         reid = deserialize_mpc_v2_reid({"tau_room_min": 240.0, "gain_heater": 3.0})
         assert reid is not None
         assert reid.fitted_ts == 0.0
-        assert reid.rmse_prior_K == 0.0
-        assert reid.rmse_fit_K == 0.0
+        assert reid.rmse_prior_kelvin == 0.0
+        assert reid.rmse_fit_kelvin == 0.0
         assert reid.n_segments == 0
 
     def test_null_entry_is_absent_after_a_full_load(self):
@@ -550,10 +575,10 @@ class TestDeserializeMpcV2Reid:
 
     def test_largest_storable_segment_count_is_kept(self):
         """The bound is inclusive: the widest storable count still passes."""
-        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": _MAX_STORED_INT}
+        raw = {"tau_room_min": 240.0, "gain_heater": 3.0, "n_segments": MAX_STORED_INT}
         reid = deserialize_mpc_v2_reid(raw)
         assert reid is not None
-        assert reid.n_segments == _MAX_STORED_INT
+        assert reid.n_segments == MAX_STORED_INT
 
     def test_string_nan_discards_the_entry(self):
         """A JSON string is the route a real store file can deliver a NaN by."""
@@ -618,12 +643,12 @@ class TestStorableIntegerBound:
 
     def test_bounds_are_exactly_what_the_encoder_accepts(self):
         """Both bounds are storable and one step past either one is not."""
-        json_bytes({"n": _MIN_STORED_INT})
-        json_bytes({"n": _MAX_STORED_INT})
+        json_bytes({"n": MIN_STORED_INT})
+        json_bytes({"n": MAX_STORED_INT})
         with pytest.raises(TypeError):
-            json_bytes({"n": _MIN_STORED_INT - 1})
+            json_bytes({"n": MIN_STORED_INT - 1})
         with pytest.raises(TypeError):
-            json_bytes({"n": _MAX_STORED_INT + 1})
+            json_bytes({"n": MAX_STORED_INT + 1})
 
 
 class TestStoredIntegerFields:
@@ -641,8 +666,8 @@ class TestStoredIntegerFields:
 
     def test_largest_storable_count_is_kept(self):
         """The bound is inclusive, so the widest storable tally survives."""
-        raw = {"profile_samples": _MAX_STORED_INT}
-        assert deserialize_mpc(raw).profile_samples == _MAX_STORED_INT
+        raw = {"profile_samples": MAX_STORED_INT}
+        assert deserialize_mpc(raw).profile_samples == MAX_STORED_INT
 
     def test_oversized_sign_keeps_the_default(self):
         """An unstorable direction is dropped like any other unusable field."""
