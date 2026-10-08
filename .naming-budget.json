@@ -32,7 +32,7 @@
   "custom_components/better_thermostat/utils/hvac_action.py": 9,
   "custom_components/better_thermostat/utils/preset_manager.py": 8,
   "custom_components/better_thermostat/utils/snapshot.py": 3,
-  "custom_components/better_thermostat/utils/state_manager.py": 19,
+  "custom_components/better_thermostat/utils/state_manager.py": 32,
   "custom_components/better_thermostat/utils/thermal_learning.py": 66,
   "custom_components/better_thermostat/utils/valve_maintenance.py": 12,
   "custom_components/better_thermostat/utils/watcher.py": 2,
