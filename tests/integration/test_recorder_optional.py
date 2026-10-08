@@ -1,8 +1,9 @@
 """A thermostat keeps working when the recorder fails to set up.
 
-The recorder serves one optional read: the two-day outdoor mean, which falls
-back to the current outdoor reading without it. A broken recorder database
-must therefore not keep the thermostat from loading.
+The recorder serves one optional read: the outdoor sensor's history, which
+fills the damped outdoor temperature. Without it the filter starts at the
+current outdoor reading. A broken recorder database must therefore not keep
+the thermostat from loading.
 """
 
 from unittest.mock import patch
@@ -34,7 +35,7 @@ def _publish_outdoor(hass, celsius: float) -> None:
 
 
 async def test_the_thermostat_loads_when_the_recorder_fails(hass, fake_trv):
-    """The entry loads and the outdoor check decides on the current reading."""
+    """The entry loads and the outdoor check damps the live readings."""
     set_room_sensor(hass, 18.0)
     _publish_outdoor(hass, 2.0)
     entry = make_entry(fake_trv.profile, with_outdoor_sensor=True, off_temperature=5)
@@ -43,10 +44,12 @@ async def test_the_thermostat_loads_when_the_recorder_fails(hass, fake_trv):
 
     assert entry.state is ConfigEntryState.LOADED
     bt = await wait_for_startup(hass, entry)
-    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp == 2.0)
+    assert await wait_for(hass, lambda: bt.damped_outdoor_temperature == 2.0)
     assert bt.call_for_heat is True
 
+    # A warm reading enters the filter but has no weight yet.
     _publish_outdoor(hass, 8.0)
-    assert await wait_for(hass, lambda: bt.last_avg_outdoor_temp == 8.0)
-    assert bt.call_for_heat is False
+    assert await wait_for(hass, lambda: bt.outdoor_damping.reading == 8.0)
+    assert bt.damped_outdoor_temperature == pytest.approx(2.0, abs=0.01)
+    assert bt.call_for_heat is True
     assert "recorder" not in hass.config.components
