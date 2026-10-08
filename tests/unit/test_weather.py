@@ -1,21 +1,20 @@
 """Tests for utils/weather.py — call-for-heat decisions from weather data.
 
-The module has three public coroutines plus a helper class:
+The module has three public coroutines:
 
 * ``check_weather`` — orchestrates the call-for-heat decision from a weather
   entity and/or an outdoor sensor.
 * ``check_weather_prediction`` — evaluates a weather entity's forecast.
-* ``check_ambient_air_temperature`` — evaluates an outdoor sensor (and its
-  recorder history when available).
-* ``DailyHistory`` — accumulates per-day means and exposes a multi-day mean
-  via the ``min`` attribute.
+* ``check_ambient_air_temperature`` — damps an outdoor sensor's readings,
+  filled from its recorder history when available.
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 import logging
+import math
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,8 +27,8 @@ from sqlalchemy.exc import OperationalError
 from custom_components.better_thermostat.core.clock import FakeClock
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
-    OUTDOOR_HISTORY_REFRESH,
-    DailyHistory,
+    OUTDOOR_HISTORY_RETRY,
+    OUTDOOR_HISTORY_WINDOW,
     check_ambient_air_temperature,
     check_weather,
     check_weather_prediction,
@@ -46,11 +45,16 @@ WEATHER_MOD = "custom_components.better_thermostat.utils.weather"
 # ---------------------------------------------------------------------------
 
 
-def make_state(state="20.0", attrs=None):
+# FakeClock's epoch: a state stamped here is current when a check runs.
+NOW = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def make_state(state="20.0", attrs=None, last_updated=NOW):
     """Build a minimal stand-in for a HA State with state and attributes."""
     s = MagicMock()
     s.state = state
     s.attributes = attrs if attrs is not None else {}
+    s.last_updated = last_updated
     return s
 
 
@@ -73,12 +77,13 @@ def make_bt(hass, **kw):
         weather_entity_id=None,
         outdoor_sensor_entity_id=None,
         off_temperature=10.0,
-        last_avg_outdoor_temp=None,
+        damped_outdoor_temperature=None,
         call_for_heat=True,
         clock=FakeClock(),
         weather_verdict_missing_since=None,
         weather_fallback_active=False,
-        outdoor_history_mean=None,
+        outdoor_damping=None,
+        outdoor_history_damped=False,
         outdoor_history_read_at=None,
         outdoor_history_failing=False,
         _outdoor_check_lock=None,
@@ -116,104 +121,6 @@ def forecast_resp(entity_id, temps, unit=None):
             entry["temperature_unit"] = unit
         items.append(entry)
     return {entity_id: {"forecast": items}}
-
-
-# ===========================================================================
-# DailyHistory — pure, deterministic, the densest place to hunt for bugs
-# ===========================================================================
-
-
-class TestDailyHistory:
-    """The legacy ``min`` field now holds a multi-day mean of per-day means."""
-
-    D1 = datetime(2024, 1, 1, 12, 0)
-    D2 = datetime(2024, 1, 2, 12, 0)
-    D3 = datetime(2024, 1, 3, 12, 0)
-
-    def test_starts_empty(self):
-        """A fresh history has no computed mean."""
-        assert DailyHistory(2).min is None
-
-    def test_single_measurement_is_its_own_mean(self):
-        """A lone reading is reported verbatim as the mean."""
-        h = DailyHistory(2)
-        h.add_measurement(10.0, self.D1)
-        assert h.min == 10.0
-
-    def test_same_day_measurements_are_averaged(self):
-        """Two readings on one day average into that day's mean."""
-        h = DailyHistory(2)
-        h.add_measurement(10.0, self.D1)
-        h.add_measurement(20.0, self.D1)
-        assert h.min == 15.0
-
-    def test_two_days_one_reading_each(self):
-        """Two single-reading days average their per-day means."""
-        h = DailyHistory(2)
-        h.add_measurement(10.0, self.D1)
-        h.add_measurement(30.0, self.D2)
-        # mean of per-day means: (10 + 30) / 2
-        assert h.min == 20.0
-
-    def test_per_day_mean_then_cross_day_mean(self):
-        """Per-day means are computed first, then averaged across days."""
-        h = DailyHistory(2)
-        h.add_measurement(10.0, self.D1)
-        h.add_measurement(20.0, self.D1)  # day1 mean = 15
-        h.add_measurement(30.0, self.D2)  # day2 mean = 30
-        assert h.min == pytest.approx((15.0 + 30.0) / 2)
-
-    def test_eviction_drops_oldest_day(self):
-        """A third day evicts the oldest beyond the two-day window."""
-        h = DailyHistory(2)
-        h.add_measurement(10.0, self.D1)
-        h.add_measurement(20.0, self.D2)
-        h.add_measurement(30.0, self.D3)  # evicts D1
-        # only D2 and D3 remain: (20 + 30) / 2
-        assert h.min == pytest.approx(25.0)
-
-    def test_eviction_cleans_aggregates_no_stale_contribution(self):
-        """Evicting a day removes its sum/count so no value leaks forward."""
-        h = DailyHistory(2)
-        # Pile several readings on D1 so a leaked aggregate would skew the mean.
-        for v in (100.0, 100.0, 100.0):
-            h.add_measurement(v, self.D1)
-        h.add_measurement(20.0, self.D2)
-        h.add_measurement(30.0, self.D3)  # D1 must be fully gone
-        assert h.min == pytest.approx(25.0)
-        assert self.D1.date() not in h._sum_dict
-        assert self.D1.date() not in h._count_dict
-
-    def test_out_of_order_measurement_is_skipped(self):
-        """A reading older than the current day is dropped."""
-        h = DailyHistory(2)
-        h.add_measurement(30.0, self.D2)
-        h.add_measurement(10.0, self.D1)  # earlier than current day -> dropped
-        assert h.min == 30.0
-
-    def test_non_numeric_value_ignored(self):
-        """Non-numeric readings do not affect the mean."""
-        h = DailyHistory(2)
-        h.add_measurement(10.0, self.D1)
-        h.add_measurement("warm", self.D1)
-        h.add_measurement(None, self.D1)
-        assert h.min == 10.0
-
-    def test_first_value_non_numeric_keeps_history_empty(self):
-        """A non-numeric first reading leaves the history uninitialised."""
-        h = DailyHistory(2)
-        h.add_measurement(None, self.D1)
-        assert h.min is None
-        assert h._days is None
-
-    def test_timestamp_defaults_to_now(self):
-        """With no timestamp the measurement is filed under today."""
-        fixed = datetime(2024, 6, 1, 9, 0)
-        with patch(f"{WEATHER_MOD}.dt_util.now", return_value=fixed):
-            h = DailyHistory(2)
-            h.add_measurement(12.0)
-        assert h.min == 12.0
-        assert fixed.date() in h._sum_dict
 
 
 # ===========================================================================
@@ -272,6 +179,45 @@ class TestCheckWeatherPrediction:
             return_value=forecast_resp(WEATHER_ID, [20.0, 20.0])
         )
         bt = make_bt(hass, weather_entity_id=WEATHER_ID, off_temperature=10.0)
+        assert await check_weather_prediction(bt) is True
+
+    @pytest.mark.parametrize(
+        ("call_for_heat", "expected"),
+        [
+            pytest.param(True, True, id="heating_keeps_heating"),
+            pytest.param(False, False, id="summer_mode_stays_on"),
+        ],
+    )
+    async def test_a_forecast_inside_the_hysteresis_band_keeps_the_mode(
+        self, call_for_heat, expected
+    ):
+        """Half a kelvin below the threshold neither stops nor resumes heating."""
+        states = {WEATHER_ID: weather_state(temperature=9.5)}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [9.5, 9.5])
+        )
+        bt = make_bt(
+            hass,
+            weather_entity_id=WEATHER_ID,
+            off_temperature=10.0,
+            call_for_heat=call_for_heat,
+        )
+        assert await check_weather_prediction(bt) is expected
+
+    async def test_a_forecast_below_the_band_resumes_heating(self):
+        """A room in summer mode heats once the forecast drops below the band."""
+        states = {WEATHER_ID: weather_state(temperature=8.9)}
+        hass = make_hass(states=states)
+        hass.services.async_call = AsyncMock(
+            return_value=forecast_resp(WEATHER_ID, [8.9, 8.9])
+        )
+        bt = make_bt(
+            hass,
+            weather_entity_id=WEATHER_ID,
+            off_temperature=10.0,
+            call_for_heat=False,
+        )
         assert await check_weather_prediction(bt) is True
 
     async def test_fahrenheit_forecast_is_converted(self):
@@ -491,7 +437,7 @@ class TestCheckAmbientAirTemperature:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            damped_outdoor_temperature=None,
             call_for_heat=False,
         )
         assert await check_ambient_air_temperature(bt) is None
@@ -503,7 +449,7 @@ class TestCheckAmbientAirTemperature:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=8.0,
+            damped_outdoor_temperature=8.0,
             call_for_heat=False,
         )
         assert await check_ambient_air_temperature(bt) is None
@@ -516,7 +462,7 @@ class TestCheckAmbientAirTemperature:
         bt = make_bt(
             make_hass(states={}),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            damped_outdoor_temperature=None,
             call_for_heat=False,
         )
         assert await check_ambient_air_temperature(bt) is None
@@ -534,7 +480,7 @@ class TestCheckAmbientAirTemperature:
         )
         await check_ambient_air_temperature(bt)
         assert bt.call_for_heat is True
-        assert bt.last_avg_outdoor_temp == 5.0
+        assert bt.damped_outdoor_temperature == 5.0
 
     async def test_no_recorder_uses_current_reading_warm(self):
         """Without recorder, a warm current reading stops heating."""
@@ -548,7 +494,7 @@ class TestCheckAmbientAirTemperature:
         )
         await check_ambient_air_temperature(bt)
         assert bt.call_for_heat is False
-        assert bt.last_avg_outdoor_temp == 18.0
+        assert bt.damped_outdoor_temperature == 18.0
 
     async def test_no_recorder_fahrenheit_current_reading(self):
         """A Fahrenheit current reading is converted before comparison."""
@@ -565,8 +511,66 @@ class TestCheckAmbientAirTemperature:
         )
         await check_ambient_air_temperature(bt)
         # 50 °F == 10 °C, above a 5 °C threshold -> no heat.
-        assert bt.last_avg_outdoor_temp == pytest.approx(10.0)
+        assert bt.damped_outdoor_temperature == pytest.approx(10.0)
         assert bt.call_for_heat is False
+
+    async def test_one_warm_reading_does_not_switch_the_room_off(self):
+        """Without a recorder the live readings still pass through the filter.
+
+        A reading counts from the moment it arrives, so a jump from 2 °C to
+        18 °C leaves the damped temperature at 2 °C until time has passed.
+        """
+        bt = make_bt(
+            make_hass(
+                states={
+                    OUTDOOR_ID: make_state(
+                        state="2.0", attrs={"unit_of_measurement": "°C"}
+                    )
+                },
+                components=set(),
+            ),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            off_temperature=10.0,
+        )
+        await check_ambient_air_temperature(bt)
+        bt.clock.advance(HOUR_S)
+        bt.hass.states.get = MagicMock(
+            return_value=make_state(
+                state="18.0",
+                attrs={"unit_of_measurement": "°C"},
+                last_updated=NOW + timedelta(hours=1),
+            )
+        )
+        await check_ambient_air_temperature(bt)
+        assert bt.damped_outdoor_temperature == pytest.approx(2.0)
+        assert bt.call_for_heat is True
+
+    @pytest.mark.parametrize(
+        ("call_for_heat", "reading", "expected"),
+        [
+            pytest.param(True, "9.5", True, id="heating_inside_the_band"),
+            pytest.param(False, "9.5", False, id="summer_mode_inside_the_band"),
+            pytest.param(False, "8.9", True, id="summer_mode_below_the_band"),
+        ],
+    )
+    async def test_the_ambient_check_has_a_hysteresis_band(
+        self, call_for_heat, reading, expected
+    ):
+        """The sensor check applies the same band as check_weather."""
+        bt = make_bt(
+            make_hass(
+                states={
+                    OUTDOOR_ID: make_state(
+                        state=reading, attrs={"unit_of_measurement": "°C"}
+                    )
+                }
+            ),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            off_temperature=10.0,
+            call_for_heat=call_for_heat,
+        )
+        await check_ambient_air_temperature(bt)
+        assert bt.call_for_heat is expected
 
     def _hist_item(self, state, ts, unit="°C"):
         """Build a recorder history item stand-in."""
@@ -576,49 +580,100 @@ class TestCheckAmbientAirTemperature:
         it.attributes = {"unit_of_measurement": unit}
         return it
 
-    async def test_recorder_history_computes_multi_day_mean(self):
-        """With recorder, the multi-day mean drives the heat decision."""
+    def _recorder_bt(self, reading="5.0", off_temperature=10.0, last_updated=NOW):
+        """Build a BT whose outdoor sensor reads ``reading`` with a recorder."""
         states = {
-            OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
+            OUTDOOR_ID: make_state(
+                state=reading,
+                attrs={"unit_of_measurement": "°C"},
+                last_updated=last_updated,
+            )
         }
         hass = make_hass(states=states, components={"recorder"})
-        day1, day2 = datetime(2024, 1, 1, 12), datetime(2024, 1, 2, 12)
-        items = [
-            self._hist_item("10.0", day1),
-            self._hist_item("20.0", day1),  # day1 mean = 15
-            self._hist_item("30.0", day2),  # day2 mean = 30
-        ]
-        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
+        return make_bt(
+            hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=off_temperature
+        )
+
+    async def _check_with_history(self, bt, items):
+        """Run one check against a recorder that returns ``items``."""
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            gi.return_value.async_add_executor_job = AsyncMock(
-                return_value={OUTDOOR_ID: items}
-            )
+            query = AsyncMock(return_value={OUTDOOR_ID: items})
+            gi.return_value.async_add_executor_job = query
             await check_ambient_air_temperature(bt)
-        # (15 + 30) / 2 = 22.5, above threshold -> no heat.
-        assert bt.last_avg_outdoor_temp == pytest.approx(22.5)
+        return query
+
+    async def test_recorder_history_fills_the_filter(self):
+        """Each recorded reading counts for as long as it was current.
+
+        2 °C held for two days, then 20 °C for one time constant: the damped
+        temperature has moved 63 % of the way from 2 °C to 20 °C.
+        """
+        bt = self._recorder_bt(reading="20.0", last_updated=NOW - timedelta(hours=24))
+        items = [
+            self._hist_item("2.0", NOW - timedelta(hours=72)),
+            self._hist_item("20.0", NOW - timedelta(hours=24)),
+        ]
+        query = await self._check_with_history(bt, items)
+        _hass, start, end, entity_id = query.await_args.args[1:]
+        assert (end - start, entity_id) == (OUTDOOR_HISTORY_WINDOW, OUTDOOR_ID)
+        assert bt.damped_outdoor_temperature == pytest.approx(
+            2.0 + 18.0 * (1 - math.exp(-1))
+        )
         assert bt.call_for_heat is False
+
+    async def test_recorder_history_weighs_readings_by_duration_not_count(self):
+        """A burst of warm readings weighs as long as it lasted (issue #2645).
+
+        A sun-exposed sensor reports often while the sun heats it. Fifty warm
+        readings within one minute of an otherwise cold day must not carry
+        the day: counted per reading they would average about 29 °C.
+        """
+        burst_at = NOW - timedelta(hours=24)
+        items = [self._hist_item("8.0", NOW - timedelta(hours=48))]
+        items += [
+            self._hist_item("30.0", burst_at + timedelta(seconds=i)) for i in range(50)
+        ]
+        items.append(self._hist_item("8.0", burst_at + timedelta(minutes=1)))
+        bt = self._recorder_bt(
+            reading="8.0", last_updated=burst_at + timedelta(minutes=1)
+        )
+        await self._check_with_history(bt, items)
+        assert bt.damped_outdoor_temperature == pytest.approx(8.0, abs=0.02)
+        assert bt.call_for_heat is True
+
+    async def test_recorder_history_order_does_not_matter(self):
+        """Recorded states are damped in time order, whatever order they come in."""
+        items = [
+            self._hist_item("20.0", NOW - timedelta(hours=24)),
+            self._hist_item("2.0", NOW - timedelta(hours=72)),
+        ]
+        bt = self._recorder_bt(reading="20.0", last_updated=NOW - timedelta(hours=24))
+        await self._check_with_history(bt, items)
+        assert bt.damped_outdoor_temperature == pytest.approx(
+            2.0 + 18.0 * (1 - math.exp(-1))
+        )
 
     async def test_recorder_history_filters_bad_states(self):
         """Unknown/unavailable/non-numeric history states are filtered out."""
-        states = {
-            OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
-        }
-        hass = make_hass(states=states, components={"recorder"})
-        day1 = datetime(2024, 1, 1, 12)
+        hour_ago = NOW - timedelta(hours=1)
         items = [
-            self._hist_item("unavailable", day1),
-            self._hist_item("unknown", day1),
-            self._hist_item("not-a-number", day1),
-            self._hist_item("4.0", day1),  # the only usable reading
+            self._hist_item("unavailable", hour_ago - timedelta(minutes=3)),
+            self._hist_item("unknown", hour_ago - timedelta(minutes=2)),
+            self._hist_item("not-a-number", hour_ago - timedelta(minutes=1)),
+            self._hist_item("4.0", hour_ago),  # the only usable reading
         ]
-        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
-        with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            gi.return_value.async_add_executor_job = AsyncMock(
-                return_value={OUTDOOR_ID: items}
-            )
-            await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(4.0)
+        bt = self._recorder_bt(reading="4.0", last_updated=hour_ago)
+        await self._check_with_history(bt, items)
+        assert bt.damped_outdoor_temperature == pytest.approx(4.0)
         assert bt.call_for_heat is True
+
+    async def test_recorder_fahrenheit_history_is_converted(self):
+        """A recorded Fahrenheit reading is damped in Celsius."""
+        day_ago = NOW - timedelta(hours=24)
+        items = [self._hist_item("50.0", day_ago, unit=UnitOfTemperature.FAHRENHEIT)]
+        bt = self._recorder_bt(reading="10.0", last_updated=day_ago)
+        await self._check_with_history(bt, items)
+        assert bt.damped_outdoor_temperature == pytest.approx(10.0)
 
     async def test_recorder_malformed_history_is_tolerated(self):
         """A non-dict history payload must not raise.
@@ -626,17 +681,13 @@ class TestCheckAmbientAirTemperature:
         It falls back to the current reading instead of disabling the threshold
         (issue #2038).
         """
-        states = {
-            OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
-        }
-        hass = make_hass(states=states, components={"recorder"})
-        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
+        bt = self._recorder_bt(reading="5.0")
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = AsyncMock(
                 return_value=["not", "a", "dict"]
             )
             await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(5.0)
+        assert bt.damped_outdoor_temperature == pytest.approx(5.0)
         assert bt.call_for_heat is True
 
     async def test_recorder_empty_history_falls_back_to_current_reading(self):
@@ -644,17 +695,9 @@ class TestCheckAmbientAirTemperature:
 
         It must not wipe the reading and force heat (issue #2038).
         """
-        states = {
-            OUTDOOR_ID: make_state(state="5.0", attrs={"unit_of_measurement": "°C"})
-        }
-        hass = make_hass(states=states, components={"recorder"})
-        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=10.0)
-        with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            gi.return_value.async_add_executor_job = AsyncMock(
-                return_value={OUTDOOR_ID: []}
-            )
-            await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(5.0)
+        bt = self._recorder_bt(reading="5.0")
+        await self._check_with_history(bt, [])
+        assert bt.damped_outdoor_temperature == pytest.approx(5.0)
         assert bt.call_for_heat is True
 
     async def test_recorder_empty_history_above_threshold_disables_heat(self):
@@ -662,162 +705,118 @@ class TestCheckAmbientAirTemperature:
 
         The #2038 symptom: it must still disable heating, not default to heat.
         """
-        states = {
-            OUTDOOR_ID: make_state(state="21.0", attrs={"unit_of_measurement": "°C"})
-        }
-        hass = make_hass(states=states, components={"recorder"})
-        bt = make_bt(hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=14.0)
-        with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            gi.return_value.async_add_executor_job = AsyncMock(
-                return_value={OUTDOOR_ID: []}
-            )
-            await check_ambient_air_temperature(bt)
-        assert bt.last_avg_outdoor_temp == pytest.approx(21.0)
+        bt = self._recorder_bt(reading="21.0", off_temperature=14.0)
+        await self._check_with_history(bt, [])
+        assert bt.damped_outdoor_temperature == pytest.approx(21.0)
         assert bt.call_for_heat is False
 
-    def _recorder_bt(self, reading="5.0", off_temperature=10.0):
-        """Build a BT whose outdoor sensor reads ``reading`` with a recorder."""
-        states = {
-            OUTDOOR_ID: make_state(state=reading, attrs={"unit_of_measurement": "°C"})
-        }
-        hass = make_hass(states=states, components={"recorder"})
-        return make_bt(
-            hass, outdoor_sensor_entity_id=OUTDOOR_ID, off_temperature=off_temperature
-        )
-
-    async def test_update_within_refresh_interval_reuses_history(self):
-        """A second update inside the refresh interval does not read the recorder.
-
-        The two-day mean it produced keeps deciding the verdict.
-        """
-        bt = self._recorder_bt()
-        warm = [self._hist_item("20.0", datetime(2024, 1, 1, 12))]
-        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
-        with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            query = AsyncMock(side_effect=[{OUTDOOR_ID: warm}, {OUTDOOR_ID: cold}])
-            gi.return_value.async_add_executor_job = query
-            await check_ambient_air_temperature(bt)
-            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds() - 1)
-            await check_ambient_air_temperature(bt)
-        assert query.await_count == 1
-        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
-        assert bt.call_for_heat is False
-
-    async def test_update_after_refresh_interval_reads_history_again(self):
-        """Once the refresh interval has passed, the next update re-reads history."""
-        bt = self._recorder_bt()
-        warm = [self._hist_item("20.0", datetime(2024, 1, 1, 12))]
-        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
-        with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            query = AsyncMock(side_effect=[{OUTDOOR_ID: warm}, {OUTDOOR_ID: cold}])
-            gi.return_value.async_add_executor_job = query
-            await check_ambient_air_temperature(bt)
-            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
-            await check_ambient_air_temperature(bt)
-        assert query.await_count == 2
-        assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
-        assert bt.call_for_heat is True
-
-    async def test_cached_empty_history_follows_the_current_reading(self):
-        """Without usable history, each update still decides on the live reading."""
-        bt = self._recorder_bt(reading="5.0")
+    async def test_the_history_is_read_once(self):
+        """After the first read the filter runs on the live readings alone."""
+        bt = self._recorder_bt(reading="5.0", last_updated=NOW - timedelta(hours=72))
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             query = AsyncMock(return_value={OUTDOOR_ID: []})
             gi.return_value.async_add_executor_job = query
             await check_ambient_air_temperature(bt)
-            assert bt.call_for_heat is True
+            bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds() * 10)
             bt.hass.states.get = MagicMock(
                 return_value=make_state(
-                    state="18.0", attrs={"unit_of_measurement": "°C"}
+                    state="18.0",
+                    attrs={"unit_of_measurement": "°C"},
+                    last_updated=bt.clock.utcnow(),
                 )
             )
             await check_ambient_air_temperature(bt)
         assert query.await_count == 1
-        assert bt.last_avg_outdoor_temp == pytest.approx(18.0)
-        assert bt.call_for_heat is False
+        assert bt.outdoor_damping.reading == pytest.approx(18.0)
+        assert bt.damped_outdoor_temperature == pytest.approx(5.0)
+
+    def _failing_query(self, *responses):
+        return AsyncMock(side_effect=list(responses))
 
     async def test_history_query_failure_does_not_propagate(self, caplog):
         """A failing recorder query leaves the check running on the live reading.
 
-        The failure is reported once, not on every update that meets it.
+        The failure is reported once, not on every retry that meets it.
         """
         bt = self._recorder_bt(reading="18.0")
+        failure = OperationalError("SELECT", {}, Exception("database is locked"))
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            query = AsyncMock(
-                side_effect=OperationalError(
-                    "SELECT", {}, Exception("database is locked")
-                )
-            )
+            query = self._failing_query(failure, failure)
             gi.return_value.async_add_executor_job = query
             with caplog.at_level(logging.WARNING, logger=WEATHER_MOD):
                 await check_ambient_air_temperature(bt)
-                bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+                bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds())
                 await check_ambient_air_temperature(bt)
         assert query.await_count == 2
-        assert bt.last_avg_outdoor_temp == pytest.approx(18.0)
+        assert bt.damped_outdoor_temperature == pytest.approx(18.0)
         assert bt.call_for_heat is False
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1
 
-    async def test_history_query_failure_keeps_the_last_history_verdict(self):
-        """A failed re-read keeps the mean of the last successful read."""
+    async def test_a_failed_read_waits_for_the_retry_interval(self):
+        """A check inside the retry interval does not read the recorder again."""
         bt = self._recorder_bt(reading="18.0")
-        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
-            query = AsyncMock(
-                side_effect=[
-                    {OUTDOOR_ID: cold},
-                    RuntimeError("database connection has not been established"),
-                ]
+            query = self._failing_query(RuntimeError("no database"), {OUTDOOR_ID: []})
+            gi.return_value.async_add_executor_job = query
+            await check_ambient_air_temperature(bt)
+            bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds() - 1)
+            await check_ambient_air_temperature(bt)
+        assert query.await_count == 1
+        assert bt.outdoor_history_damped is False
+
+    async def test_a_retried_read_fills_the_filter(self):
+        """Once the recorder answers, its history replaces the live-only filter."""
+        bt = self._recorder_bt(reading="18.0")
+        cold = [self._hist_item("2.0", NOW - timedelta(hours=72))]
+        with patch(f"{WEATHER_MOD}.get_instance") as gi:
+            query = self._failing_query(
+                RuntimeError("database connection has not been established"),
+                {OUTDOOR_ID: cold},
             )
             gi.return_value.async_add_executor_job = query
             await check_ambient_air_temperature(bt)
-            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
+            assert bt.call_for_heat is False
+            bt.clock.advance(OUTDOOR_HISTORY_RETRY.total_seconds())
             await check_ambient_air_temperature(bt)
         assert query.await_count == 2
-        assert bt.last_avg_outdoor_temp == pytest.approx(2.0)
+        assert bt.outdoor_history_damped is True
+        held_seconds = OUTDOOR_HISTORY_RETRY.total_seconds()
+        assert bt.damped_outdoor_temperature == pytest.approx(
+            2.0 + 16.0 * -math.expm1(-held_seconds / (24 * HOUR_S))
+        )
         assert bt.call_for_heat is True
 
-    async def test_check_during_history_refresh_keeps_the_live_fallback(self):
-        """A check that starts during a history refresh waits for it.
+    async def test_a_check_during_the_history_read_waits_for_it(self):
+        """A check that starts during the history read queues behind it.
 
-        The refresh finds no usable history, so its verdict falls back to the
-        live reading. A second check arriving while the recorder is read must
-        not replace that reading with the expired cached mean first.
+        The read happens once, and both checks end on the damped history.
         """
-        bt = self._recorder_bt(reading="5.0")
-        cold = [self._hist_item("2.0", datetime(2024, 1, 1, 12))]
-        refresh_started = asyncio.Event()
-        release_refresh = asyncio.Event()
-        responses = iter([{OUTDOOR_ID: cold}, {OUTDOOR_ID: []}])
+        bt = self._recorder_bt(reading="20.0")
+        cold = [self._hist_item("2.0", NOW - timedelta(hours=72))]
+        read_started = asyncio.Event()
+        release_read = asyncio.Event()
+        calls = 0
 
         async def query(*_args):
-            response = next(responses)
-            if response[OUTDOOR_ID]:
-                return response
-            refresh_started.set()
-            await release_refresh.wait()
-            return response
+            nonlocal calls
+            calls += 1
+            read_started.set()
+            await release_read.wait()
+            return {OUTDOOR_ID: cold}
 
         with patch(f"{WEATHER_MOD}.get_instance") as gi:
             gi.return_value.async_add_executor_job = query
-            await check_ambient_air_temperature(bt)
-            assert bt.outdoor_history_mean == pytest.approx(2.0)
-            bt.clock.advance(OUTDOOR_HISTORY_REFRESH.total_seconds())
-            bt.hass.states.get = MagicMock(
-                return_value=make_state(
-                    state="20.0", attrs={"unit_of_measurement": "°C"}
-                )
-            )
-            refreshing = asyncio.create_task(check_ambient_air_temperature(bt))
-            await refresh_started.wait()
+            reading = asyncio.create_task(check_ambient_air_temperature(bt))
+            await read_started.wait()
             overlapping = asyncio.create_task(check_ambient_air_temperature(bt))
             await asyncio.sleep(0)
-            release_refresh.set()
-            await asyncio.gather(refreshing, overlapping)
-        assert bt.outdoor_history_mean is None
-        assert bt.last_avg_outdoor_temp == pytest.approx(20.0)
-        assert bt.call_for_heat is False
+            assert bt.outdoor_damping is None
+            release_read.set()
+            await asyncio.gather(reading, overlapping)
+        assert calls == 1
+        assert bt.damped_outdoor_temperature == pytest.approx(2.0)
+        assert bt.call_for_heat is True
 
 
 # ===========================================================================
@@ -887,7 +886,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            damped_outdoor_temperature=None,
             off_temperature=10.0,
         )
         bt.call_for_heat = False
@@ -899,7 +898,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=2.0,
+            damped_outdoor_temperature=2.0,
             off_temperature=10.0,
         )
         await check_weather(bt)
@@ -910,11 +909,34 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=18.0,
+            damped_outdoor_temperature=18.0,
             off_temperature=10.0,
         )
         await check_weather(bt)
         assert bt.call_for_heat is False
+
+    @pytest.mark.parametrize(
+        ("call_for_heat", "damped", "expected"),
+        [
+            pytest.param(True, 9.5, True, id="heating_inside_the_band"),
+            pytest.param(False, 9.5, False, id="summer_mode_inside_the_band"),
+            pytest.param(False, 8.9, True, id="summer_mode_below_the_band"),
+            pytest.param(True, 10.0, False, id="heating_at_the_threshold"),
+        ],
+    )
+    async def test_the_outdoor_verdict_has_a_hysteresis_band(
+        self, call_for_heat, damped, expected
+    ):
+        """Summer mode starts at the threshold and ends one kelvin below it."""
+        bt = make_bt(
+            make_hass(),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            damped_outdoor_temperature=damped,
+            off_temperature=10.0,
+            call_for_heat=call_for_heat,
+        )
+        await check_weather(bt)
+        assert bt.call_for_heat is expected
 
     async def test_outdoor_missing_cache_forces_heat(self):
         """A missing cache with an unavailable sensor forces heat."""
@@ -922,7 +944,7 @@ class TestCheckWeather:
         bt = make_bt(
             make_hass(states=states),
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=None,
+            damped_outdoor_temperature=None,
             off_temperature=10.0,
         )
         await check_weather(bt)
@@ -934,7 +956,7 @@ class TestCheckWeather:
             make_hass(),
             weather_entity_id=WEATHER_ID,
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=2.0,  # cold -> heat
+            damped_outdoor_temperature=2.0,  # cold -> heat
             off_temperature=10.0,
         )
         # Weather says "no heat" but it is discarded.
@@ -950,7 +972,7 @@ class TestCheckWeather:
             make_hass(),
             weather_entity_id=WEATHER_ID,
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=18.0,  # warm -> no heat
+            damped_outdoor_temperature=18.0,  # warm -> no heat
             off_temperature=10.0,
         )
         pred = AsyncMock(return_value=True)
@@ -1177,7 +1199,7 @@ class TestForecastOutage:
             make_hass(),
             weather_entity_id=WEATHER_ID,
             outdoor_sensor_entity_id=OUTDOOR_ID,
-            last_avg_outdoor_temp=outdoor_temperature,
+            damped_outdoor_temperature=outdoor_temperature,
             off_temperature=10.0,
         )
         with caplog.at_level(logging.INFO, logger=WEATHER_MOD):

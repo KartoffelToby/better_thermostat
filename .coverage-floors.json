@@ -27,6 +27,7 @@
   "custom_components/better_thermostat/core/fsm/mode.py": 100.0,
   "custom_components/better_thermostat/core/fsm/reachability.py": 100.0,
   "custom_components/better_thermostat/core/fsm/window.py": 100.0,
+  "custom_components/better_thermostat/core/outdoor.py": 100.0,
   "custom_components/better_thermostat/core/recorder.py": 100.0,
   "custom_components/better_thermostat/core/safety.py": 100.0,
   "custom_components/better_thermostat/core/snapshot.py": 100.0,
@@ -107,5 +108,5 @@
   "custom_components/better_thermostat/utils/thermal_learning.py": 96.7,
   "custom_components/better_thermostat/utils/valve_maintenance.py": 98.6,
   "custom_components/better_thermostat/utils/watcher.py": 98.7,
-  "custom_components/better_thermostat/utils/weather.py": 96.9
+  "custom_components/better_thermostat/utils/weather.py": 97.9
 }

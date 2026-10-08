@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
-from contextlib import suppress
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING
 
@@ -19,9 +17,14 @@ from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
 
 # get_instance location can differ between HA versions; prefer helpers API.
 from homeassistant.helpers.recorder import get_instance
-import homeassistant.util.dt as dt_util
 from sqlalchemy.exc import SQLAlchemyError
 
+from ..core.outdoor import (
+    DampedOutdoorTemperature,
+    add_reading,
+    damped_value_at,
+    heat_threshold,
+)
 from .helpers import async_fire_logbook_entry, convert_to_float_celsius
 
 if TYPE_CHECKING:
@@ -37,11 +40,15 @@ _LOGGER = logging.getLogger(__name__)
 # the outdoor sensor path also falls back to when it has no data.
 WEATHER_VERDICT_HOLD = timedelta(hours=3)
 
-# How long check_ambient_air_temperature reuses the two-day outdoor mean it
-# read from the recorder. The check runs on every outdoor sensor update, and a
-# quarter of an hour of new readings barely moves a mean of per-day means, so
-# the verdict lags a fresh read by at most this interval.
-OUTDOOR_HISTORY_REFRESH = timedelta(minutes=15)
+# How much of the outdoor sensor's recorder history fills the damped outdoor
+# temperature. Three time constants back, the oldest reading keeps a 5 % share
+# of the result.
+OUTDOOR_HISTORY_WINDOW = timedelta(hours=72)
+
+# How long check_ambient_air_temperature waits before it reads the recorder
+# again after a failed read. Until a read succeeds, the filter runs on the live
+# readings alone.
+OUTDOOR_HISTORY_RETRY = timedelta(minutes=15)
 
 # How long the get_forecasts service call may take. Coordinator-based weather
 # entities answer from memory; one that fetches on demand answers within a
@@ -67,6 +74,11 @@ async def check_weather(self: BetterThermostat) -> bool:
             true if call_for_heat was changed
     """
     old_call_for_heat = self.call_for_heat
+    _outdoor_heat_threshold = (
+        None
+        if self.off_temperature is None
+        else heat_threshold(self.off_temperature, old_call_for_heat)
+    )
     _call_for_heat_weather: bool | None = None
     _call_for_heat_outdoor = False
 
@@ -109,7 +121,7 @@ async def check_weather(self: BetterThermostat) -> bool:
                 self.call_for_heat = True
 
     if self.outdoor_sensor_entity_id is not None:
-        if self.last_avg_outdoor_temp is None or self.off_temperature is None:
+        if self.damped_outdoor_temperature is None or _outdoor_heat_threshold is None:
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             _sensor_unavailable = _outdoor_state is None or _outdoor_state.state in (
@@ -132,7 +144,9 @@ async def check_weather(self: BetterThermostat) -> bool:
                 )
             _call_for_heat_outdoor = True
         else:
-            _call_for_heat_outdoor = self.last_avg_outdoor_temp < self.off_temperature
+            _call_for_heat_outdoor = (
+                self.damped_outdoor_temperature < _outdoor_heat_threshold
+            )
 
         self.call_for_heat = _call_for_heat_outdoor
 
@@ -173,7 +187,9 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
     -------
     bool
             True if the average forecast temperature (or the current
-            temperature) is below the off temperature, i.e. heat is required
+            temperature) is below the heat threshold, i.e. heat is required;
+            the threshold is the off temperature while the room heats and
+            the hysteresis band below it while the room is in summer mode
     None
             if not successful
     """
@@ -295,13 +311,14 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                 cur_outside_temp, (int, float)
             ):
                 return None
+            threshold = heat_threshold(self.off_temperature, self.call_for_heat)
             cond_cur = (
                 isinstance(cur_outside_temp, (int, float))
-                and cur_outside_temp < self.off_temperature
+                and cur_outside_temp < threshold
             )
             cond_fc = (
                 isinstance(avg_forecast_temp, (int, float))
-                and avg_forecast_temp < self.off_temperature
+                and avg_forecast_temp < threshold
             )
             return bool(cond_cur or cond_fc)
         else:
@@ -346,13 +363,14 @@ def outdoor_check_lock(self: BetterThermostat) -> asyncio.Lock:
 
 
 async def check_ambient_air_temperature(self: BetterThermostat) -> None:
-    """Get the history for two days and evaluates the necessary for heating.
+    """Feed the outdoor reading into the damped temperature and decide on it.
 
-    The two-day mean from the recorder is reused for
-    ``OUTDOOR_HISTORY_REFRESH`` before it is read again. When the recorder
-    holds no usable history, the current reading decides instead. Checks of
-    one entity run one at a time (see :func:`outdoor_check_lock`). The
-    verdict is stored in ``call_for_heat``.
+    The first check fills the filter from the recorder's history of the
+    outdoor sensor (see :func:`_damp_outdoor_history`); every later check
+    adds the sensor's current reading. Without usable history the filter
+    starts at the current reading. Checks of one entity run one at a time
+    (see :func:`outdoor_check_lock`). The verdict is stored in
+    ``call_for_heat``.
     """
     async with outdoor_check_lock(self):
         return await _check_ambient_air_temperature(self)
@@ -380,26 +398,20 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
             outdoor_sensor_entity_id,
         )
         # Keep last known value or default to heating enabled
-        if self.last_avg_outdoor_temp is None:
+        if self.damped_outdoor_temperature is None:
             self.call_for_heat = True
         return None
 
-    self.last_avg_outdoor_temp = convert_to_float_celsius(
-        outdoor_state.state,
-        self.device_name,
-        "check_ambient_air_temperature()",
-        unit_of_measurement=outdoor_state.attributes.get("unit_of_measurement"),
-    )
-    if "recorder" in self.hass.config.components:
+    if not self.outdoor_history_damped and "recorder" in self.hass.config.components:
         _now = self.clock.monotonic()
         if (
             self.outdoor_history_read_at is None
             or _now - self.outdoor_history_read_at
-            >= OUTDOOR_HISTORY_REFRESH.total_seconds()
+            >= OUTDOOR_HISTORY_RETRY.total_seconds()
         ):
             self.outdoor_history_read_at = _now
             try:
-                self.outdoor_history_mean = await _read_outdoor_history_mean(
+                _damping = await _damp_outdoor_history(
                     self, outdoor_sensor_entity_id, outdoor_state
                 )
             except SQLAlchemyError, RuntimeError, HomeAssistantError, OSError:
@@ -408,43 +420,51 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
                 _LOGGER.log(
                     logging.DEBUG if self.outdoor_history_failing else logging.WARNING,
                     "better_thermostat %s: reading the history of %s from the "
-                    "recorder failed, keeping the last known outdoor mean",
+                    "recorder failed, damping the live readings only",
                     self.device_name,
                     outdoor_sensor_entity_id,
                 )
                 self.outdoor_history_failing = True
             else:
                 self.outdoor_history_failing = False
+                self.outdoor_history_damped = True
+                if _damping is not None:
+                    self.outdoor_damping = _damping
 
-        avg_temp = self.outdoor_history_mean
-        if avg_temp is None:
-            # No usable recorder history (e.g. a freshly created helper or a
-            # sensor the recorder does not retain). Fall back to the current
-            # reading so the outdoor threshold still applies instead of
-            # defaulting to "heat".
-            avg_temp = self.last_avg_outdoor_temp
-    else:
-        avg_temp = self.last_avg_outdoor_temp
-
-    _LOGGER.debug(
-        "better_thermostat %s: avg outdoor temp: %s, threshold is %s",
+    _reading = convert_to_float_celsius(
+        outdoor_state.state,
         self.device_name,
-        avg_temp,
-        self.off_temperature,
+        "check_ambient_air_temperature()",
+        unit_of_measurement=outdoor_state.attributes.get("unit_of_measurement"),
     )
-
-    if avg_temp is not None:
-        self.call_for_heat = avg_temp < self.off_temperature
-    else:
+    if _reading is not None:
+        self.outdoor_damping = add_reading(
+            self.outdoor_damping, _reading, outdoor_state.last_updated.timestamp()
+        )
+    if self.outdoor_damping is None:
+        # Neither history nor the current state holds a usable reading.
+        self.damped_outdoor_temperature = None
         self.call_for_heat = True
+        return None
 
-    self.last_avg_outdoor_temp = avg_temp
+    damped_temperature = damped_value_at(
+        self.outdoor_damping, self.clock.utcnow().timestamp()
+    )
+    threshold = heat_threshold(self.off_temperature, self.call_for_heat)
+    _LOGGER.debug(
+        "better_thermostat %s: damped outdoor temperature: %.2f, heating below %.2f",
+        self.device_name,
+        damped_temperature,
+        threshold,
+    )
+    self.call_for_heat = damped_temperature < threshold
+    self.damped_outdoor_temperature = damped_temperature
 
 
-async def _read_outdoor_history_mean(
+async def _damp_outdoor_history(
     self: BetterThermostat, entity_id: str, outdoor_state: State
-) -> float | None:
-    """Return the two-day mean of the outdoor sensor's recorder history.
+) -> DampedOutdoorTemperature | None:
+    """Run the outdoor sensor's recorder history through the filter.
 
     Parameters
     ----------
@@ -458,114 +478,40 @@ async def _read_outdoor_history_mean(
 
     Returns
     -------
-    float or None
-            mean of the per-day means, None if the history holds no usable
-            reading
+    DampedOutdoorTemperature or None
+            the filter state after the last recorded reading, None if the
+            history holds no usable reading
     """
-    _temp_history = DailyHistory(2)
-    start_date = dt_util.utcnow() - timedelta(days=2)
-    _LOGGER.debug("Initializing values for %s from the database", entity_id)
+    end = self.clock.utcnow()
+    start = end - OUTDOOR_HISTORY_WINDOW
     lower_entity_id = entity_id.lower()
     history_list = await get_instance(self.hass).async_add_executor_job(
-        history.state_changes_during_period,
-        self.hass,
-        start_date,
-        dt_util.utcnow(),
-        lower_entity_id,
+        history.state_changes_during_period, self.hass, start, end, lower_entity_id
     )
     items: list[State] = []
     try:
         items = history_list.get(lower_entity_id) or []
     except AttributeError, KeyError, TypeError:
         items = []
-    for item in items:
-        # filter out all None, NaN, "unknown" and "unavailable" states.
-        # only keep real values
-        with suppress(ValueError):
-            if item.state not in ("unknown", "unavailable"):
-                _temp_history.add_measurement(
-                    convert_to_float_celsius(
-                        item.state,
-                        self.device_name,
-                        "check_ambient_air_temperature()",
-                        unit_of_measurement=(
-                            item.attributes.get("unit_of_measurement")
-                            or outdoor_state.attributes.get("unit_of_measurement")
-                        ),
-                    ),
-                    datetime.fromtimestamp(item.last_updated.timestamp()),
-                )
-    _LOGGER.debug("Initializing from database completed")
-    return _temp_history.min
-
-
-class DailyHistory:
-    """Store one measurement per day for a maximum number of days.
-
-    Compute an average outside temperature that better reflects the last days:
-      - Track all readings per day and compute the per-day mean
-      - Then compute the overall mean across the kept days
-
-    Note: the attribute holding the result is named `min` and carries the
-    multi-day mean as a float.
-    """
-
-    def __init__(self, max_length: int) -> None:
-        """Create new DailyHistory with a maximum length of the history."""
-        self.max_length = max_length
-        self._days: deque[date] | None = None
-        # Track per-day aggregate to compute means
-        self._sum_dict: dict[date, float] = {}
-        self._count_dict: dict[date, int] = {}
-        # Holds the resulting multi-day mean
-        self.min: float | None = None
-
-    def add_measurement(
-        self, value: float | None, timestamp: datetime | None = None
-    ) -> None:
-        """Add a new measurement for a certain day (value: float)."""
-        day = (timestamp or dt_util.now()).date()
-        if not isinstance(value, (int, float)):
-            return
-        if self._days is None:
-            self._days = deque()
-            self._add_day(day, value)
-        else:
-            current_day = self._days[-1]
-            if day == current_day:
-                # Accumulate for the same day
-                self._sum_dict[day] = self._sum_dict.get(day, 0.0) + float(value)
-                self._count_dict[day] = self._count_dict.get(day, 0) + 1
-            elif day > current_day:
-                self._add_day(day, value)
-            else:
-                _LOGGER.debug(
-                    "DailyHistory: received out-of-order measurement, skipping"
-                )
-
-        # Compute per-day means and then the overall mean across days
-        day_means: list[float] = []
-        if self._days:
-            for d in self._days:
-                cnt = self._count_dict.get(d, 0)
-                if cnt > 0:
-                    day_means.append(self._sum_dict.get(d, 0.0) / float(cnt))
-        if day_means:
-            self.min = sum(day_means) / float(len(day_means))
-
-    def _add_day(self, day: date, value: float) -> None:
-        """Add a new day to the history.
-
-        Deletes the oldest day, if the queue becomes too long.
-        """
-        if self._days is None:
-            self._days = deque()
-        if len(self._days) == self.max_length:
-            oldest = self._days.popleft()
-            # Clean up aggregates of the removed day
-            self._sum_dict.pop(oldest, None)
-            self._count_dict.pop(oldest, None)
-        self._days.append(day)
-        # Initialize aggregates for the new day with the first value
-        self._sum_dict[day] = float(value)
-        self._count_dict[day] = 1
+    damping: DampedOutdoorTemperature | None = None
+    for item in sorted(items, key=lambda item: item.last_updated):
+        if item.state in ("unknown", "unavailable"):
+            continue
+        reading = convert_to_float_celsius(
+            item.state,
+            self.device_name,
+            "check_ambient_air_temperature()",
+            unit_of_measurement=(
+                item.attributes.get("unit_of_measurement")
+                or outdoor_state.attributes.get("unit_of_measurement")
+            ),
+        )
+        if reading is not None:
+            damping = add_reading(damping, reading, item.last_updated.timestamp())
+    _LOGGER.debug(
+        "better_thermostat %s: damped %d recorded states of %s",
+        self.device_name,
+        len(items),
+        entity_id,
+    )
+    return damping
