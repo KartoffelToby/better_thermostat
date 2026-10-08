@@ -72,6 +72,8 @@ It aims at arriving at the target rather than at arriving quickly. It is the mos
 
 MPC is still in testing. In the project's benchmark it does not overshoot less than the other controller modes, it moves the valve more often than PID or TPI, and with several radiators in one room it can over-react. For a room that overshoots, start with TPI instead.
 
+Its learned model shows up in the *Virtual Temperature*, *MPC Gain*, *MPC Loss* and *MPC Insulation (Ka)* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-predictive).
+
 ---
 
 ### MPC v2
@@ -81,6 +83,8 @@ The setup form labels this mode *(AI) MPC v2 (QP + Kalman, experimental)*.
 MPC v2 is an experimental predictive controller. It estimates the room's state with a Kalman observer and computes the valve opening by solving a small optimisation problem (a quadratic program) over a receding horizon. It is written for TRVs with direct valve control; see [Direct valve control](#direct-valve-control).
 
 The **MPC v2 room size** option sets the room model it starts from. *Auto* derives it from the heat-loss rate Better Thermostat has learned for the room; the small, medium and large room presets use a fixed model instead.
+
+Its estimates show up in the *MPC v2 Virtual Temperature*, *MPC v2 Coupling*, *MPC v2 Disturbance* and *MPC v2 Room Time Constant* sensors. They start disabled on new installations; see [Entities](/setup/entities/#mpc-v2).
 
 ---
 
@@ -152,6 +156,8 @@ You can monitor the learned PID values in Home Assistant:
 3. Look for attributes containing PID debug info showing current Kp, Ki, Kd values
 
 The device also has *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* number entities that show the current values and let you set them.
+
+To follow the controller over time, the device has diagnostic sensors: *PID Kp*, *PID Ki* and *PID Kd* for the gains in use, *PID Output* for the sum of the three terms in percent and *PID Error* for the target minus the room temperature. The MPC Predictive and MPC v2 modes have diagnostic sensors of their own. On new installations all of these start disabled; enable the ones you want on the device page, in the sensor's settings. Installations that had them before keep them enabled, and a sensor you enabled stays enabled when you switch the calibration mode away and back again. [Entities](/setup/entities/#algorithm-sensors) lists every sensor and what its value means.
 
 **Getting the best out of PID:**
 
