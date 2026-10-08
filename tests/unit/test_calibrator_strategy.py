@@ -325,6 +325,16 @@ class TestPidSelfHealing:
         assert healed.pid_ki is None
         assert healed.pid_kd is None
 
+    # The range each gain's number entity offers. A gain set anywhere in it
+    # by hand is a setting the controller has to run with.
+    _GAIN_RANGES = {"kp": (0.0, 1000.0), "ki": (0.0, 100.0), "kd": (0.0, 10000.0)}
+
+    @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
+    def test_the_number_offers_the_gain_range(self, gain):
+        """Each gain's number spans exactly the range the controller accepts."""
+        low, high = self._GAIN_RANGES[gain]
+        assert _PID_GAIN_SETTINGS[gain][:2] == (low, high)
+
     @pytest.mark.parametrize("bound", [0, 1], ids=["lowest", "highest"])
     @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
     def test_every_gain_its_number_accepts_is_kept(self, gain, bound):
@@ -333,18 +343,20 @@ class TestPidSelfHealing:
         Auto-tuning keeps to narrower ranges; a PI controller (Kd 0) or a
         Kp below 10 is still a setting the controller has to run with.
         """
-        value = _PID_GAIN_SETTINGS[gain][bound]
+        value = self._GAIN_RANGES[gain][bound]
         gains = {"pid_kp": 60.0, "pid_ki": 0.01, "pid_kd": 2000.0}
         gains[f"pid_{gain}"] = value
         healed, health = sanitize_pid_state(PIDState(**gains), PIDParams())
         assert health == CalibratorHealth.HEALTHY
         assert getattr(healed, f"pid_{gain}") == value
 
+    @pytest.mark.parametrize("side", ["below", "above"])
     @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
-    def test_a_gain_past_its_number_range_resets_all_gains(self, gain):
-        """Past the highest value its number offers, a gain is a poisoned state."""
+    def test_a_gain_outside_its_number_range_resets_all_gains(self, gain, side):
+        """Outside the range its number offers, a gain is a poisoned state."""
+        low, high = self._GAIN_RANGES[gain]
         gains = {"pid_kp": 60.0, "pid_ki": 0.01, "pid_kd": 2000.0}
-        gains[f"pid_{gain}"] = _PID_GAIN_SETTINGS[gain][1] * 1.001
+        gains[f"pid_{gain}"] = low - 0.001 if side == "below" else high * 1.001
         healed, health = sanitize_pid_state(PIDState(**gains), PIDParams())
         assert health == CalibratorHealth.RUNAWAY_GAINS
         assert (healed.pid_kp, healed.pid_ki, healed.pid_kd) == (None, None, None)
