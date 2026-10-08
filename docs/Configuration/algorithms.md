@@ -157,7 +157,7 @@ You can monitor the learned PID values in Home Assistant:
 
 The device also has *PID Kp (Proportional)*, *PID Ki (Integral)* and *PID Kd (Derivative)* number entities that show the current values and let you set them.
 
-To follow the controller over time, the device has diagnostic sensors: *PID Kp*, *PID Ki* and *PID Kd* for the gains in use, *PID Output* for the sum of the three terms in percent and *PID Error* for the target minus the room temperature. The MPC Predictive and MPC v2 modes have diagnostic sensors of their own. On new installations all of these start disabled; enable the ones you want on the device page, in the sensor's settings. Installations that had them before keep them enabled, and a sensor you enabled stays enabled when you switch the calibration mode away and back again. [Entities](/setup/entities/#algorithm-sensors) lists every sensor and what its value means.
+To follow the controller over time, the device has diagnostic sensors: *PID Output* for the sum of the three terms in percent and *PID Error* for the target minus the room temperature. The MPC Predictive and MPC v2 modes have diagnostic sensors of their own. On new installations all of these start disabled; enable the ones you want on the device page, in the sensor's settings. Installations that had them before keep them enabled, and a sensor you enabled stays enabled when you switch the calibration mode away and back again. [Entities](/setup/entities/#algorithm-sensors) lists every sensor and what its value means.
 
 **Getting the best out of PID:**
 

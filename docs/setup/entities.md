@@ -83,10 +83,7 @@ On new installations these sensors start disabled. Enable the ones you want to w
 
 | Sensor | Unit | What it shows |
 | --- | --- | --- |
-| PID Kp | none | The proportional gain in use. |
-| PID Ki | none | The integral gain in use. |
-| PID Kd | none | The derivative gain in use. |
 | PID Output | % | The sum of the three PID terms. Better Thermostat limits it to the range from 0 % to the TRV's Valve Max Opening before it becomes the valve opening, so the sensor can show values outside that range. |
 | PID Error | K | The target temperature minus the room temperature. Positive while the room is too cold. |
 
-The PID gain sensors show the same values as the PID gain numbers above; the numbers are what you write to.
+The gains in use are shown by the PID gain numbers above, which also set them.

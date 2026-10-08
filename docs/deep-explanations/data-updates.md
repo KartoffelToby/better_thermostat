@@ -48,7 +48,7 @@ Some work does not wait for a state change:
 | Every 5 minutes | A control cycle runs, if a TRV uses the External Sensor Offset Only, MPC Predictive, MPC v2, TPI Controller or PID Controller calibration mode. |
 | Every 5 minutes | Each TRV's reported state is compared with what Better Thermostat last sent it, and a write that got lost is sent again. |
 | Every 5 minutes | If valve maintenance is enabled for a TRV, the thermostat checks whether a maintenance run is due. |
-| Every 30 minutes | The room temperature is sent again to TRVs that accept an external temperature, because many of them expect a new value at least every 30 minutes. |
+| Every 30 minutes | The room temperature is sent again to TRVs that accept an external temperature, so that a TRV that waits for regular updates gets one even while the room temperature does not change. |
 | Every hour | The weather entity's forecast is read. |
 | Every day at 5:00 | The outdoor temperature average is checked. |
 

@@ -17,7 +17,7 @@ If the sensor keeps sending invalid values, the room has no usable temperature. 
 ## Common causes
 
 - The entity selected as room temperature sensor is not a temperature sensor, for example a battery level, a humidity sensor or a text sensor.
-- The sensor's integration publishes a placeholder value while it has no reading. Some devices report fixed values such as 127 °C to signal a state instead of a temperature.
+- The sensor's integration publishes a placeholder value outside −50 °C to 60 °C while it has no reading.
 - The sensor reports in a unit other than °C or °F, such as kelvin. Better Thermostat reads such a number as °C.
 - The sensor is faulty or its battery is too low to measure correctly.
 

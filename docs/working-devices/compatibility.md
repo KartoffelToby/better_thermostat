@@ -67,7 +67,7 @@ Better Thermostat has no hardware and no radio of its own. It works through the 
 
 Every calibration mode regulates on the room temperature sensor. A sensor next to the radiator, in direct sunlight, in a draught or on an outside wall gives every algorithm a wrong picture of the room, and no setting makes up for that. Place it at a spot that represents the room, away from heat sources.
 
-Better Thermostat notices a sensor that becomes unavailable or reports values it cannot use, and then falls back to the TRVs' own temperatures (see [Degraded mode](/faq/degraded-mode)). It does not notice a sensor that stops sending new values while Home Assistant still shows the last one as current.
+Better Thermostat notices a sensor that becomes unavailable or reports values it cannot use, and then falls back to the TRVs' own temperatures (see [Degraded mode](/faq/degraded-mode)). It does not notice a sensor that stops sending new values while Home Assistant still shows the last one as current. Whether such a sensor turns unavailable is up to its integration: ZHA marks a device unavailable after a while without messages, Zigbee2MQTT does so only with its *availability* option turned on, and an MQTT sensor only with `expire_after` set. With that in place, Better Thermostat falls back as described above.
 
 ### One TRV, one Better Thermostat
 
