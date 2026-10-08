@@ -1021,7 +1021,7 @@ def clamp_valve_percent(value: float) -> int:
     numeric = float(value)
     if not math.isfinite(numeric):
         raise ValueError("valve percent must be finite")
-    return int(round(max(0.0, min(100.0, numeric))))
+    return round(max(0.0, min(100.0, numeric)))
 
 
 def is_reasonable_temperature(value: float | None) -> bool:
