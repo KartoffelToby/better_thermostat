@@ -1152,3 +1152,20 @@ def test_the_spelling_with_every_alias_renamed_survives_the_cap(lines):
 
     assert len(spellings) == script.SPELLINGS_PER_MARKER
     assert spellings[1] == " + ".join(f"new{i}" for i in range(12))
+
+
+def test_a_name_in_an_f_string_field_is_code_and_respelled(lines):
+    """Inside an f-string only the literal text keeps its spelling.
+
+    A replacement field holds code, so its names are renamed like any other;
+    the text around it, and a doubled brace, stay as written.
+    """
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    spellings = script._spellings('log(f"delay_s={delay_s} {{delay_s}}")', renames)
+
+    assert spellings == [
+        'log(f"delay_s={delay_s} {{delay_s}}")',
+        'log(f"delay_s={delay_seconds} {{delay_s}}")',
+    ]

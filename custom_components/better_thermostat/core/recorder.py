@@ -222,11 +222,7 @@ class FlightRecorder:
 
 
 def _renamed_key(raw: dict[str, Json], key: str, earlier: str) -> Json:
-    """Return ``raw[key]``, or ``raw[earlier]`` in an export written before the rename.
-
-    Exports written before the field took its current name carry the earlier
-    key; a dump users attached to an issue still replays.
-    """
+    """Return ``raw[key]`` when present, or ``raw[earlier]`` when the export uses the earlier key."""
     return raw[key] if key in raw else raw[earlier]
 
 
