@@ -478,7 +478,7 @@ async def _load_adapter_info(
         if adapter is None:
             try:
                 adapter = await load_adapter(flow, integration, entity_id)
-            except RuntimeError, ValueError, TypeError:  # pragma: no cover - defensive
+            except RuntimeError, ValueError, TypeError:
                 _LOGGER.debug("load_adapter failed", exc_info=True)
 
         if adapter is not None:
