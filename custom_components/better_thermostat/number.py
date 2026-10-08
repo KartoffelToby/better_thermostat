@@ -42,6 +42,8 @@ from .utils.calibration.pid import (
     PID_GAIN_LIMITS,
     PidGain,
     build_pid_key,
+    pid_gain,
+    set_pid_gain,
 )
 from .utils.const import CalibrationMode, CalibrationOutput
 from .utils.helpers import (
@@ -513,7 +515,7 @@ class BetterThermostatPIDNumber(
             key = build_pid_key(self._bt_climate, self._trv_entity_id)
             pid_state = state_mgr.state.pid.get(key)
             if pid_state is not None:
-                value = getattr(pid_state, f"pid_{self._parameter}")
+                value = pid_gain(pid_state, self._parameter)
                 if value is not None:
                     return value
 
@@ -542,10 +544,10 @@ class BetterThermostatPIDNumber(
         _LOGGER.debug(
             "Updating PID state key %s: %s -> %s",
             key,
-            getattr(pid_state, f"pid_{self._parameter}"),
+            pid_gain(pid_state, self._parameter),
             value,
         )
-        setattr(pid_state, f"pid_{self._parameter}", value)
+        set_pid_gain(pid_state, self._parameter, value)
         state_mgr.set_pid(key, pid_state)
 
         self._bt_climate.schedule_save_state()

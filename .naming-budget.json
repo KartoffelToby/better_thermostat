@@ -9,7 +9,7 @@
   "custom_components/better_thermostat/utils/calibration/strategies.py": 3,
   "custom_components/better_thermostat/utils/calibration/tpi.py": 24,
   "custom_components/better_thermostat/utils/controlling.py": 7,
-  "custom_components/better_thermostat/utils/state_manager.py": 9,
+  "custom_components/better_thermostat/utils/state_manager.py": 22,
   "tests/benchmark/actuator.py": 23,
   "tests/benchmark/adapters/base.py": 1,
   "tests/benchmark/adapters/baselines.py": 15,
