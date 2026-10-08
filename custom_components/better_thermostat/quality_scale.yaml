@@ -69,9 +69,9 @@ rules:
       An entry has exactly one device, the Better Thermostat it sets up. The
       thermostats it drives are devices of their own integrations, which add
       them; a thermostat added in the options reloads the entry.
-  entity-category: todo
-  entity-device-class: todo
-  entity-disabled-by-default: todo
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
   entity-translations: done
   exception-translations: done
   icon-translations: done

@@ -15,7 +15,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, Platform, UnitOfTemperature
+from homeassistant.const import EntityCategory, Platform, UnitOfTemperature, UnitOfTime
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -202,9 +202,6 @@ async def _setup_algorithm_sensors(
             entry_id,
             CalibrationMode.PID_CALIBRATION,
             [
-                BetterThermostatPidKpSensor(bt_climate),
-                BetterThermostatPidKiSensor(bt_climate),
-                BetterThermostatPidKdSensor(bt_climate),
                 BetterThermostatPidOutputSensor(bt_climate),
                 BetterThermostatPidErrorSensor(bt_climate),
             ],
@@ -707,9 +704,14 @@ def _debug_number(value: object) -> float | None:
 
 
 class _BtSensorBase(SensorEntity):
-    """Base class for all Better Thermostat sensors."""
+    """Base class for all Better Thermostat sensors.
+
+    Every sensor reports what the thermostat computes; the room is read and
+    controlled through the climate entity, so the sensors are diagnostics.
+    """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_should_poll = False
     _unique_id_suffix: str
@@ -754,8 +756,12 @@ class _BtMpcSensorBase(_BtSensorBase):
     Reads a single key from the ``calibration_balance['debug']`` payload,
     iterating all TRVs of the climate entity; the first TRV whose payload
     contains the key wins.
+
+    The values are gains and estimates of an algorithm, read when it is
+    tuned, so a new entry registers these sensors disabled.
     """
 
+    _attr_entity_registry_enabled_default = False
     _debug_key: str
 
     @property
@@ -906,7 +912,6 @@ class BetterThermostatHeatingPowerSensor(_BtSimpleAttributeSensor):
     _attr_translation_key = "heating_power"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _rounding = 4
     _unique_id_suffix = "heating_power"
 
@@ -921,7 +926,6 @@ class BetterThermostatHeatLossSensor(_BtSimpleAttributeSensor):
     _attr_translation_key = "heat_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _rounding = 5
     _unique_id_suffix = "heat_loss"
 
@@ -946,7 +950,6 @@ class BetterThermostatMpcGainSensor(_BtMpcSensorBase):
     _attr_translation_key = "mpc_gain"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_gain"
     _unique_id_suffix = "mpc_gain"
 
@@ -957,7 +960,6 @@ class BetterThermostatMpcLossSensor(_BtMpcSensorBase):
     _attr_translation_key = "mpc_loss"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K/min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_loss"
     _unique_id_suffix = "mpc_loss"
 
@@ -968,7 +970,6 @@ class BetterThermostatMpcKaSensor(_BtMpcSensorBase):
     _attr_translation_key = "mpc_ka"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "1/min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "mpc_ka"
     _unique_id_suffix = "mpc_ka"
 
@@ -1020,7 +1021,6 @@ class BetterThermostatMpcV2CouplingSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 radiator-to-room coupling."""
 
     _attr_translation_key = "mpc_v2_coupling"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "coupling_rad_room"
     _unique_id_suffix = "mpc_v2_coupling"
     _shared_unique_id_suffix = "mpc_gain"
@@ -1031,7 +1031,6 @@ class BetterThermostatMpcV2DisturbanceSensor(_BtMpcV2SensorBase):
 
     _attr_translation_key = "mpc_v2_disturbance"
     _attr_native_unit_of_measurement = "K/min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _v2_debug_key = "D_hat_K_per_min"
     _unique_id_suffix = "mpc_v2_disturbance"
     _shared_unique_id_suffix = "mpc_loss"
@@ -1041,41 +1040,11 @@ class BetterThermostatMpcV2RoomTimeConstantSensor(_BtMpcV2SensorBase):
     """Representation of the MPC v2 room time constant."""
 
     _attr_translation_key = "mpc_v2_room_time_constant"
-    _attr_native_unit_of_measurement = "min"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _v2_debug_key = "tau_room_min"
     _unique_id_suffix = "mpc_v2_room_time_constant"
     _shared_unique_id_suffix = "mpc_ka"
-
-
-class BetterThermostatPidKpSensor(_BtMpcSensorBase):
-    """Representation of a Better Thermostat PID Kp (proportional gain) Sensor."""
-
-    _attr_translation_key = "pid_kp"
-    _attr_device_class = None
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _debug_key = "kp"
-    _unique_id_suffix = "pid_kp"
-
-
-class BetterThermostatPidKiSensor(_BtMpcSensorBase):
-    """Representation of a Better Thermostat PID Ki (integral gain) Sensor."""
-
-    _attr_translation_key = "pid_ki"
-    _attr_device_class = None
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _debug_key = "ki"
-    _unique_id_suffix = "pid_ki"
-
-
-class BetterThermostatPidKdSensor(_BtMpcSensorBase):
-    """Representation of a Better Thermostat PID Kd (derivative gain) Sensor."""
-
-    _attr_translation_key = "pid_kd"
-    _attr_device_class = None
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _debug_key = "kd"
-    _unique_id_suffix = "pid_kd"
 
 
 class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
@@ -1084,7 +1053,6 @@ class BetterThermostatPidOutputSensor(_BtMpcSensorBase):
     _attr_translation_key = "pid_output"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "u"
     _unique_id_suffix = "pid_output"
 
@@ -1095,7 +1063,6 @@ class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
     _attr_translation_key = "pid_error"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "K"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _debug_key = "e_K"
     _unique_id_suffix = "pid_error"
 
@@ -1106,7 +1073,6 @@ class BetterThermostatSolarIntensitySensor(_BtSensorBase):
     _attr_translation_key = "solar_intensity"
     _attr_device_class = None
     _attr_native_unit_of_measurement = "%"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _unique_id_suffix = "solar_intensity"
 
     @override
