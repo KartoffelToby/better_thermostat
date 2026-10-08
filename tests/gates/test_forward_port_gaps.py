@@ -1123,3 +1123,32 @@ def test_an_unfetched_ref_says_how_to_fetch_it(lines):
 
     assert "git fetch" in str(failure.value)
     assert "nowhere:refs/remotes/origin/nowhere" in str(failure.value)
+
+
+def test_a_name_inside_a_quoted_string_keeps_its_spelling(lines):
+    """A quoted key is text a rename leaves alone, so only the code is respelled."""
+    script, _ = lines
+    renames = script.Renames({}, {}, {"s": "seconds"})
+
+    spellings = script._spellings('config["delay_s"] = delay_s', renames)
+
+    assert spellings == [
+        'config["delay_s"] = delay_s',
+        'config["delay_s"] = delay_seconds',
+    ]
+
+
+def test_the_spelling_with_every_alias_renamed_survives_the_cap(lines):
+    """Twelve distinct aliases spell 4096 ways; the full rename is still tried.
+
+    It comes right after the marker, so the cap cannot cut it off.
+    """
+    script, _ = lines
+    aliases = [f"old{i}" for i in range(12)]
+    renames = {alias: (f"new{i}",) for i, alias in enumerate(aliases)}
+    marker = " + ".join(aliases)
+
+    spellings = script._spellings(marker, renames)
+
+    assert len(spellings) == script.SPELLINGS_PER_MARKER
+    assert spellings[1] == " + ".join(f"new{i}" for i in range(12))

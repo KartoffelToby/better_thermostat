@@ -147,6 +147,7 @@ VERSION_LINE = re.compile(r"""^["']?version["']?\s*[:=]""")
 HUNK_HEADER = re.compile(r"^@@ -\S+ \+(\d+)")
 CODE_PUNCTUATION = frozenset("=(){}[]:")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'")
 
 # A subject written under this repository's commit convention. The convention
 # is what separates the two groups here: work built as a pair follows it and
@@ -602,10 +603,20 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
     name replacing it, so one line can carry an alias renamed in one place
     and kept or renamed differently in another. Past ``SPELLINGS_PER_MARKER``
     combinations every occurrence of an alias takes the same spelling, and
-    no more than that many spellings are returned.
+    no more than that many spellings are returned; the spelling with every
+    alias renamed onto its first replacement comes right after the marker,
+    so the cap never cuts the rename a development line most often made.
+
+    Only code is renamed. A name inside a quoted string is text, a persisted
+    key or a message, which a rename leaves as it is, so spelling it the new
+    way could find a line the development line never wrote.
     """
+    quoted = [match.span() for match in QUOTED.finditer(marker)]
     occurrences = [
-        match for match in IDENTIFIER.finditer(marker) if _renamed(match[0], renames)
+        match
+        for match in IDENTIFIER.finditer(marker)
+        if _renamed(match[0], renames)
+        and not any(start <= match.start() < end for start, end in quoted)
     ]
     options = [(match[0], *_renamed(match[0], renames)) for match in occurrences]
     if math.prod(len(choices) for choices in options) > SPELLINGS_PER_MARKER:
@@ -614,15 +625,22 @@ def _spellings(marker: str, renames: dict[str, tuple[str, ...]]) -> list[str]:
         option_of = [aliases.index(match[0]) for match in occurrences]
     else:
         option_of = list(range(len(occurrences)))
-    spellings = [marker]
-    for choice in itertools.product(*options):
+
+    def spell(choice: tuple[str, ...]) -> str:
         pieces: list[str] = []
         end = 0
         for match, index in zip(occurrences, option_of, strict=True):
             pieces.extend((marker[end : match.start()], choice[index]))
             end = match.end()
-        renamed = "".join(pieces) + marker[end:]
-        if renamed != marker:
+        return "".join(pieces) + marker[end:]
+
+    spellings = [marker]
+    seen = {marker}
+    first_renames = tuple(choices[1] for choices in options)
+    for choice in itertools.chain([first_renames], itertools.product(*options)):
+        renamed = spell(choice)
+        if renamed not in seen:
+            seen.add(renamed)
             spellings.append(renamed)
         if len(spellings) >= SPELLINGS_PER_MARKER:
             break
