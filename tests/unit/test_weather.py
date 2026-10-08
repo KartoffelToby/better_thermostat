@@ -26,7 +26,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.core.outdoor import start_damping
+from custom_components.better_thermostat.core.outdoor import add_reading, start_damping
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
     OUTDOOR_HISTORY_RETRY,
@@ -1008,6 +1008,33 @@ class TestCheckWeather:
         await check_weather(bt)
         assert bt.call_for_heat is expected
 
+    async def test_the_hourly_check_advances_a_held_outdoor_reading(self):
+        """A sensor that holds still after a cold snap still ends summer mode.
+
+        The sensor reports 0 °C once and then nothing, so no outdoor check
+        runs until 05:00. The hourly check brings the damped temperature up
+        to now: from 20 °C it falls below the 9 °C band after about 19 hours.
+        """
+        damping = add_reading(
+            start_damping(20.0, NOW.timestamp() - DAY_S), 0.0, NOW.timestamp()
+        )
+        bt = make_bt(
+            make_hass(),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            off_temperature=10.0,
+            call_for_heat=False,
+            outdoor_source=DampedSource(damping=damping),
+            damped_outdoor_temperature=20.0,
+        )
+        heating_from = None
+        for hour in range(1, 25):
+            bt.clock.advance(HOUR_S)
+            await check_weather(bt)
+            if bt.call_for_heat and heating_from is None:
+                heating_from = hour
+        assert heating_from == 20
+        assert bt.damped_outdoor_temperature == pytest.approx(20.0 * math.exp(-1))
+
     async def test_outdoor_missing_cache_forces_heat(self):
         """A missing cache with an unavailable sensor forces heat."""
         states = {OUTDOOR_ID: make_state(state="unavailable")}
@@ -1133,6 +1160,7 @@ class TestCheckWeather:
 
 
 HOUR_S = 3600.0
+DAY_S = 24 * HOUR_S
 
 
 async def _hourly_checks(bt, verdicts, clock_steps=None):

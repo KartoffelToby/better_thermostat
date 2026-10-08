@@ -125,6 +125,17 @@ async def check_weather(self: BetterThermostat) -> bool:
                 self.call_for_heat = True
 
     if self.outdoor_sensor_entity_id is not None:
+        if (
+            self.outdoor_source.damping is not None
+            and self.damped_outdoor_temperature is not None
+        ):
+            # The held reading keeps pulling the damped temperature between
+            # sensor reports. A sensor that holds still reports nothing, so
+            # bring the value up to now instead of deciding on the one the
+            # last report left.
+            self.damped_outdoor_temperature = damped_value_at(
+                self.outdoor_source.damping, self.clock.utcnow().timestamp()
+            )
         if self.damped_outdoor_temperature is None or _outdoor_heat_threshold is None:
             # Check if sensor is currently unavailable (expected during startup)
             _outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
