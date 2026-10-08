@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "Errore PID"
-      },
-      "solar_intensity": {
-        "name": "Apporto di calore solare"
       }
     }
   },

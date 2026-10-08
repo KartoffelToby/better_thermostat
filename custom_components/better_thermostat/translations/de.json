@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "PID-Abweichung"
-      },
-      "solar_intensity": {
-        "name": "Solare Wärmeaufnahme"
       }
     }
   },

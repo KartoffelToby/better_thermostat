@@ -53,7 +53,6 @@ These sensors exist for every device.
 | Temperature Slope | K/min | How fast the smoothed room temperature changes, in kelvin per minute. Positive while the room warms up, negative while it cools down. |
 | Heating Power | K/min | How fast the room warms up while it heats, as learned from past heating cycles. |
 | Heat Loss | K/min | How fast the room cools down while it does not heat, as learned from past idle periods. |
-| Sun Intensity Heatup | % | An estimate of how strongly the sun shines, read from the weather entity: from its cloud coverage if it reports one, otherwise from its UV index, otherwise from its condition. It reads 0 % without a weather entity. |
 
 ## Algorithm sensors
 

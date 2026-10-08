@@ -283,6 +283,27 @@ async def test_a_boot_removes_the_gain_sensors_the_gain_numbers_replace(hass):
         assert registry.async_get_entity_id("number", DOMAIN, unique_id)
 
 
+async def test_a_boot_removes_the_retired_sun_intensity_sensor(hass):
+    """An installation that had the sun intensity sensor loses it on setup."""
+    set_room_sensor(hass, 19.0)
+    profile = replace(GENERIC_HEAT_TRV, calibration_mode=MPC)
+    await build_devices(hass, profile)
+    entry = make_entry(profile)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_solar_intensity"
+    registry.async_get_or_create("sensor", DOMAIN, unique_id, config_entry=entry)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await wait_for_startup(hass, entry)
+
+    assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) is None
+    assert registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_external_temp_ema"
+    )
+
+
 @pytest.mark.parametrize("trv_group", [GROUP_OF_THREE], indirect=True)
 async def test_a_setup_missing_a_trv_removes_none_of_its_entities(hass, trv_group):
     """A thermostat that could not set up one of its TRVs keeps that TRV's entities.

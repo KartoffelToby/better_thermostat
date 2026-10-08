@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "Σφάλμα PID"
-      },
-      "solar_intensity": {
-        "name": "Ηλιακό θερμικό κέρδος"
       }
     }
   },

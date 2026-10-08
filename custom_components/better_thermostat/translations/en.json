@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "PID Error"
-      },
-      "solar_intensity": {
-        "name": "Sun Intensity Heatup"
       }
     }
   },
