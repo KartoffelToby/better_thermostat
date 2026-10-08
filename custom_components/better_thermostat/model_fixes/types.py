@@ -144,30 +144,30 @@ class ModelQuirks(Protocol):
 
     The dispatch in ``model_quirks.py`` calls these without asking first.
     Each takes the Better Thermostat host as its first argument, which the
-    modules name ``self``; it is positional only here, so that name is not
-    part of the contract.
+    modules name ``self``. The parameters are positional only here, so their
+    names are not part of the contract.
     """
 
     def fix_local_calibration(
-        self, host: ModelFixHost, /, entity_id: str, calibration_offset: float
+        self, host: ModelFixHost, entity_id: str, calibration_offset: float, /
     ) -> float:
         """Return the calibration offset the TRV is to be written."""
         ...
 
     def fix_target_temperature_calibration(
-        self, host: ModelFixHost, /, entity_id: str, temperature: float
+        self, host: ModelFixHost, entity_id: str, temperature: float, /
     ) -> float:
         """Return the setpoint the TRV is to be written."""
         ...
 
     async def override_set_hvac_mode(
-        self, host: ModelFixHost, /, entity_id: str, hvac_mode: str
+        self, host: ModelFixHost, entity_id: str, hvac_mode: str, /
     ) -> bool:
         """Write the HVAC mode the model's own way; True when it did."""
         ...
 
     async def override_set_temperature(
-        self, host: ModelFixHost, /, entity_id: str, temperature: float
+        self, host: ModelFixHost, entity_id: str, temperature: float, /
     ) -> bool:
         """Write the setpoint the model's own way; True when it did."""
         ...
@@ -177,7 +177,7 @@ class ModelQuirks(Protocol):
 class InitialTweakQuirk(Protocol):
     """A quirk that prepares its device once the TRV is set up."""
 
-    async def initial_tweak(self, host: ModelFixHost, /, entity_id: str) -> None:
+    async def initial_tweak(self, host: ModelFixHost, entity_id: str, /) -> None:
         """Bring the device's own settings in line with Better Thermostat."""
         ...
 
@@ -187,7 +187,7 @@ class LowestSetpointQuirk(Protocol):
     """A quirk that knows the published minimum means something else."""
 
     def lowest_setpoint(
-        self, host: ModelFixHost, /, entity_id: str, min_temp: float
+        self, host: ModelFixHost, entity_id: str, lowest: float, /
     ) -> float:
         """Return the lowest setpoint to write, in Celsius."""
         ...
@@ -198,7 +198,7 @@ class UnknownStateQuirk(Protocol):
     """A quirk that can tell an ``unknown`` state from a missing device."""
 
     def trv_state_unknown_as_available(
-        self, host: ModelFixHost, /, entity_id: str
+        self, host: ModelFixHost, entity_id: str, /
     ) -> bool:
         """Whether ``unknown`` is how the model reports operating."""
         ...
@@ -209,7 +209,7 @@ class SetpointOffsetQuirk(Protocol):
     """A quirk that knows on which side its device applies the offset."""
 
     def local_calibration_shifts_setpoint(
-        self, host: ModelFixHost, /, entity_id: str
+        self, host: ModelFixHost, entity_id: str, /
     ) -> bool:
         """Whether the device adds the offset to its setpoint."""
         ...
@@ -220,7 +220,7 @@ class ValveQuirk(Protocol):
     """A quirk that drives its device's valve itself."""
 
     async def override_set_valve(
-        self, host: ModelFixHost, /, entity_id: str, percent: int
+        self, host: ModelFixHost, entity_id: str, percent: int, /
     ) -> bool:
         """Write the valve opening; True when the quirk took it."""
         ...
@@ -231,7 +231,7 @@ class ExternalTemperatureQuirk(Protocol):
     """A quirk that mirrors the room temperature into its device."""
 
     async def maybe_set_external_temperature(
-        self, host: ModelFixHost, /, entity_id: str, temperature: float
+        self, host: ModelFixHost, entity_id: str, temperature: float, /
     ) -> bool:
         """Write the room temperature to the device; True when it did."""
         ...
