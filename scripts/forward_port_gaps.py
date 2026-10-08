@@ -98,6 +98,7 @@ from __future__ import annotations
 import argparse
 import ast
 from dataclasses import dataclass
+import io
 import itertools
 import json
 import math
@@ -105,6 +106,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tokenize
 import tomllib
 from typing import Any
 
@@ -147,11 +149,11 @@ VERSION_LINE = re.compile(r"""^["']?version["']?\s*[:=]""")
 HUNK_HEADER = re.compile(r"^@@ -\S+ \+(\d+)")
 CODE_PUNCTUATION = frozenset("=(){}[]:")
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-QUOTED = re.compile(
-    r"(?P<prefix>[A-Za-z]{0,2})(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')"
+# The token types that carry string text: a whole string literal, and the
+# literal stretches of an f-string or t-string between its replacement fields.
+TEXT_TOKENS = frozenset(
+    {tokenize.STRING, tokenize.FSTRING_MIDDLE, tokenize.TSTRING_MIDDLE}
 )
-# A replacement field of an f-string, ``{...}``; a doubled brace is text.
-FIELD = re.compile(r"(?<!\{)\{(?!\{)[^{}]*\}")
 
 # A subject written under this repository's commit convention. The convention
 # is what separates the two groups here: work built as a pair follows it and
@@ -603,19 +605,24 @@ def _renamed(name: str, renames: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
 def _text_spans(marker: str) -> list[tuple[int, int]]:
     """Return the spans of a marker that are string text rather than code.
 
-    A quoted string is text as a whole, except the replacement fields of an
-    f-string, ``{...}``, which hold code.
+    The marker is read with Python's own tokenizer, so a string literal is
+    text as a whole, an f-string is text only between its replacement fields,
+    and a string inside a field, ``f"{config['delay_s']}"``, is text again. A
+    marker is one line of a larger statement and may stop mid-way; from where
+    the tokenizer gives up, the rest counts as text, which keeps it as written.
     """
     spans: list[tuple[int, int]] = []
-    for match in QUOTED.finditer(marker):
-        start, end = match.start() + len(match["prefix"]), match.end()
-        if "f" not in match["prefix"].lower():
-            spans.append((start, end))
-            continue
-        for field in FIELD.finditer(marker, start, end):
-            spans.append((start, field.start()))
-            start = field.end()
-        spans.append((start, end))
+    readable_to = 0
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(marker).readline):
+            if token.start[0] != 1:
+                break
+            end = token.end[1] if token.end[0] == 1 else len(marker)
+            if token.type in TEXT_TOKENS:
+                spans.append((token.start[1], end))
+            readable_to = end
+    except tokenize.TokenError, SyntaxError:
+        spans.append((readable_to, len(marker)))
     return spans
 
 
