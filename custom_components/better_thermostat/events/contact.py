@@ -235,10 +235,7 @@ async def trigger_contact_change(
             learn_more_url=role.learn_more_url,
             severity=ir.IssueSeverity.ERROR,
             translation_key=role.issue_translation_key,
-            translation_placeholders={
-                "name": str(self.device_name),
-                "state": str(new_state),
-            },
+            translation_placeholders={"name": self.device_name, "state": new_state},
         )
         return
 
