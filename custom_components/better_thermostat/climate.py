@@ -579,11 +579,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
     # it through that helper.
     _cooler_last_sent: CoolerSendCache
 
-    # Owner of the background tasks the control loop spawns. ``control_queue``
-    # and ``control_trv`` each create one before they schedule anything, so
-    # every path that spawns a task runs behind them.
-    task_manager: TaskManager
-
     async def reset_heating_power(self):
         """Reset heating power to default value."""
         self._heating_tracker.reset_power()
@@ -1171,6 +1166,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None
         self._owned_tasks: set[asyncio.Task[object]] = set()
+        # Owner of the background tasks the control loop spawns. It is bound
+        # to Home Assistant when the entity is added, before anything can
+        # schedule a task on it.
+        self.task_manager = TaskManager()
         self._final_flush_task: asyncio.Task[None] | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
@@ -1283,6 +1282,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         -------
         None
         """
+        self.task_manager.hass = self.hass
+
         # Home Assistant writes its restore cache once it has started and
         # drops the saved state of every entity that already publishes one,
         # so the saved state is read now and not in the startup, which waits
@@ -1324,7 +1325,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             resolved_model = trv.get("model")
             try:
                 # prefers state model_id when present
-                detected_model = await get_device_model(self, trv["trv"])
+                detected_model = await get_device_model(
+                    self, trv["trv"], configured_model=self.model
+                )
                 if (
                     isinstance(detected_model, str)
                     and detected_model
@@ -5195,8 +5198,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         # The write watchdogs and retries the control loop starts run on the
         # task manager and wait for minutes; closing it also stops the workers
         # below from starting new ones while they wind down.
-        if hasattr(self, "task_manager"):
-            owned_tasks.extend(self.task_manager.cancel_all())
+        owned_tasks.extend(self.task_manager.cancel_all())
         if self._control_task:
             self._control_task.cancel()
             try:

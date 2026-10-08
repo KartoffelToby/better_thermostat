@@ -9,9 +9,9 @@ recorded at debug level.
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from homeassistant.helpers import device_registry as dr
 import pytest
 
 from custom_components.better_thermostat.utils.helpers import get_device_model
@@ -20,12 +20,11 @@ from tests.factories import ThermostatStandIn, make_entity_registry, make_regist
 _HELPERS = "custom_components.better_thermostat.utils.helpers"
 
 
-def _bt(model: str | None = None) -> MagicMock:
+def _bt() -> MagicMock:
     """Build the caller surface get_device_model reads."""
     bt = ThermostatStandIn()
     bt.hass = MagicMock()
     bt.device_name = "Test BT"
-    bt.model = model
     return bt
 
 
@@ -42,7 +41,7 @@ def _registries(device: object | None):
     )
 
 
-def _device(**kwargs) -> SimpleNamespace:
+def _device(**kwargs) -> dr.DeviceEntry:
     """Build a device-registry entry with the fields the lookup reads."""
     fields = {
         "manufacturer": "Sonoff",
@@ -52,7 +51,7 @@ def _device(**kwargs) -> SimpleNamespace:
         "identifiers": {("mqtt", "0x1234")},
     }
     fields.update(kwargs)
-    return SimpleNamespace(**fields)
+    return dr.DeviceEntry(config_entry_id="entry", **fields)
 
 
 @pytest.mark.asyncio
@@ -76,7 +75,10 @@ async def test_unknown_device_falls_back_to_configured_model():
     """An unresolvable device falls back to the configured model."""
     er_patch, dr_patch = _registries(None)
     with er_patch, dr_patch:
-        assert await get_device_model(_bt(model="TRVZB"), "climate.trv") == "TRVZB"
+        assert (
+            await get_device_model(_bt(), "climate.trv", configured_model="TRVZB")
+            == "TRVZB"
+        )
 
 
 @pytest.mark.asyncio

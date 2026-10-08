@@ -10,6 +10,7 @@ import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
+from homeassistant.helpers import device_registry as dr
 import pytest
 
 from custom_components.better_thermostat.model_fixes import model_quirks as quirks
@@ -179,9 +180,9 @@ class TestNoValveWrite:
         so the exclusion follows the model and not the entity names.
         """
         bt = ThermostatStandIn()
-        device = MagicMock()
-        device.model_id = model_id
-        device.identifiers = {("mqtt", DEVICE)}
+        device = dr.DeviceEntry(
+            config_entry_id="entry", model_id=model_id, identifiers={("mqtt", DEVICE)}
+        )
         registry = make_entity_registry(*_trv_zbt_entries())
 
         with (

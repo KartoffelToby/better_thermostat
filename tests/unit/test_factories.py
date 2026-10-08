@@ -54,7 +54,6 @@ def test_make_snapshot_and_state_run_through_the_kernel():
         "real_trvs",  # assigned in __init__
         "call_for_heat",  # a property with a setter
         "in_maintenance",  # a read-only property
-        "task_manager",  # declared in the class body without a value
     ],
 )
 def test_the_stand_in_refuses_state_it_was_not_given(name):
@@ -78,6 +77,8 @@ def test_the_stand_in_answers_constructor_bookkeeping():
     assert bt._critical_grace_until is None
     assert bt._outdoor_check_lock is None
     assert bt.flight_recorder.export() == []
+    assert bt.task_manager.tasks == set()
+    assert bt.task_manager.hass is None
     assert bt.unique_id is None
 
 

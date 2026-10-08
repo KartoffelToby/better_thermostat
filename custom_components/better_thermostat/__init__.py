@@ -452,9 +452,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     if config_entry.version < 18:
         # Make sure all TRVs fetch the get_device_model method to update their model info, which is used for device-specific quirks again.
         migration_context = type(
-            "MigrationContext",
-            (),
-            {"hass": hass, "device_name": config_entry.title, "model": None},
+            "MigrationContext", (), {"hass": hass, "device_name": config_entry.title}
         )()
         heaters = new.get(CONF_THERMOSTAT, [])
         for trv in heaters:
