@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "PID hatası"
-      },
-      "solar_intensity": {
-        "name": "Güneş ısı kazancı"
       }
     }
   },

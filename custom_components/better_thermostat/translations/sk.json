@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "Odchýlka PID"
-      },
-      "solar_intensity": {
-        "name": "Solárny tepelný zisk"
       }
     }
   },

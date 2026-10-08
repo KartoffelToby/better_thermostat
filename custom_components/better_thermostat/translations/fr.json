@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "Écart PID"
-      },
-      "solar_intensity": {
-        "name": "Apport de chaleur solaire"
       }
     }
   },

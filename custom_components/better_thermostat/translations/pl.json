@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "Uchyb PID"
-      },
-      "solar_intensity": {
-        "name": "Zysk ciepła od słońca"
       }
     }
   },

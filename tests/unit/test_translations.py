@@ -35,7 +35,6 @@ ENTITY_TRANSLATION_KEYS = {
         "mpc_v2_room_time_constant",
         "pid_output",
         "pid_error",
-        "solar_intensity",
     },
     "number": {
         *(

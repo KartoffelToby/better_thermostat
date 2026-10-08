@@ -63,7 +63,7 @@ MPC (Model Predictive Control) predicts how your room temperature will change ov
 
 - Room temperature, its trend and your target
 - Learned thermal properties of your room (how fast it heats and cools)
-- Outdoor temperature, daylight and solar intensity
+- Outdoor temperature
 - Window state, and the valve opening it last asked for
 
 From that prediction it picks the correction that reaches your target smoothly instead of driving hard and correcting afterward, and it keeps updating the model as the room behaves. With direct valve control that correction is a valve opening; without it, the correction reaches the valve through the setpoint the TRV sees.

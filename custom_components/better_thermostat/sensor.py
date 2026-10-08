@@ -26,7 +26,6 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.helpers.event import async_track_state_change_event
 
 from . import BetterThermostatConfigEntry
-from .calibration import _get_current_solar_intensity
 from .entity import remove_unclaimed_registry_entries
 from .utils.const import CONF_CALIBRATION_MODE, DOMAIN, CalibrationMode
 from .utils.helpers import async_normalize_bt_entity_ids, configured_calibration_mode
@@ -86,7 +85,6 @@ async def async_setup_entry(
         BetterThermostatTempSlopeSensor(bt_climate),
         BetterThermostatHeatingPowerSensor(bt_climate),
         BetterThermostatHeatLossSensor(bt_climate),
-        BetterThermostatSolarIntensitySensor(bt_climate),
     ]
 
     # No algorithm sensor of this entry is live before its platform is set
@@ -1065,38 +1063,3 @@ class BetterThermostatPidErrorSensor(_BtMpcSensorBase):
     _attr_native_unit_of_measurement = "K"
     _debug_key = "e_K"
     _unique_id_suffix = "pid_error"
-
-
-class BetterThermostatSolarIntensitySensor(_BtSensorBase):
-    """Representation of a Better Thermostat Solar Intensity Sensor."""
-
-    _attr_translation_key = "solar_intensity"
-    _attr_device_class = None
-    _attr_native_unit_of_measurement = "%"
-    _unique_id_suffix = "solar_intensity"
-
-    @override
-    async def async_added_to_hass(self) -> None:
-        """Follow the weather entity as well as the thermostat.
-
-        The weather changes on its own schedule, not with the thermostat's
-        state.
-        """
-        await super().async_added_to_hass()
-        weather_entity_id = self._bt_climate.weather_entity_id
-        if weather_entity_id:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, [weather_entity_id], self._on_climate_update
-                )
-            )
-
-    @override
-    def _update_state(self) -> None:
-        """Update state using utility function."""
-        value = _get_current_solar_intensity(self._bt_climate)
-        if value is not None:
-            # Function returns 0.0-1.0, convert to %
-            self._attr_native_value = round(float(value) * 100.0, 1)
-        else:
-            self._attr_native_value = 0.0

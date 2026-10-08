@@ -39,9 +39,6 @@
       },
       "pid_error": {
         "default": "mdi:thermometer-alert"
-      },
-      "solar_intensity": {
-        "default": "mdi:solar-power"
       }
     },
     "switch": {

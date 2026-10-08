@@ -60,4 +60,4 @@ Writes go out as soon as a cycle decides them, with one limit: each TRV gets at 
 
 ## Better Thermostat's own entities
 
-The thermostat entity and all number, switch and sensor entities of the device are updated by Better Thermostat itself and never polled. The sensors follow the thermostat entity: they update whenever its state changes. *Sun Intensity Heatup* also updates when the weather entity changes. See [Entities](/setup/entities/) for what each one shows.
+The thermostat entity and all number, switch and sensor entities of the device are updated by Better Thermostat itself and never polled. The sensors follow the thermostat entity: they update whenever its state changes. See [Entities](/setup/entities/) for what each one shows.

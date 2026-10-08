@@ -13,7 +13,6 @@ import math
 from time import monotonic
 from unittest.mock import MagicMock, patch
 
-from homeassistant.core import State
 import pytest
 
 from custom_components.better_thermostat import BetterThermostatData
@@ -37,7 +36,6 @@ from custom_components.better_thermostat.sensor import (
     BetterThermostatMpcV2VirtualTempSensor,
     BetterThermostatPidErrorSensor,
     BetterThermostatPidOutputSensor,
-    BetterThermostatSolarIntensitySensor,
     BetterThermostatTempSlopeSensor,
     BetterThermostatVirtualTempSensor,
     _BtMpcSensorBase,
@@ -669,76 +667,6 @@ class TestPidSensorState:
 
 
 # ===========================================================================
-# 5. Solar Intensity Sensor
-# ===========================================================================
-
-
-class TestSolarIntensitySensor:
-    """Tests for BetterThermostatSolarIntensitySensor."""
-
-    def test_unique_id(self):
-        """Unique id."""
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        assert sensor._attr_unique_id == "test_bt_123_solar_intensity"
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_normal_value_converted_to_percent(self, mock_solar):
-        """Normal value converted to percent."""
-        mock_solar.return_value = 0.75
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 75.0
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_zero_intensity(self, mock_solar):
-        """Zero intensity."""
-        mock_solar.return_value = 0.0
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 0.0
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_none_returns_zero(self, mock_solar):
-        """When _get_current_solar_intensity returns None, sensor shows 0.0."""
-        mock_solar.return_value = None
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 0.0
-
-    def test_unreadable_weather_attributes_fall_back_to_the_condition(self):
-        """Attributes that are not numbers give the condition-based estimate."""
-        bt = _make_bt_climate(weather_entity_id="weather.home")
-        bt.hass.states.get.return_value = State(
-            "weather.home", "unknown", {"cloud_coverage": "n/a", "uv_index": "high"}
-        )
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 10.0
-
-    def test_weather_numbers_beyond_float_range_fall_back_to_the_condition(self):
-        """Integers too large for a float give the condition-based estimate."""
-        bt = _make_bt_climate(weather_entity_id="weather.home")
-        bt.hass.states.get.return_value = State(
-            "weather.home", "sunny", {"cloud_coverage": 10**400, "uv_index": 10**400}
-        )
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 100.0
-
-    @patch("custom_components.better_thermostat.sensor._get_current_solar_intensity")
-    def test_full_intensity_gives_100_percent(self, mock_solar):
-        """Full intensity gives 100 percent."""
-        mock_solar.return_value = 1.0
-        bt = _make_bt_climate()
-        sensor = BetterThermostatSolarIntensitySensor(bt)
-        sensor._update_state()
-        assert sensor._attr_native_value == 100.0
-
-
 # ===========================================================================
 # 6. _get_active_algorithms
 # ===========================================================================
@@ -1073,8 +1001,8 @@ class TestAsyncSetupEntry:
         async_add_entities.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_creates_six_core_sensors(self):
-        """Should create 6 core sensors when climate exists."""
+    async def test_creates_five_core_sensors(self):
+        """Should create 5 core sensors when climate exists."""
         bt = _make_bt_climate()
         hass = MagicMock()
         entry = _make_entry(climate=bt)
@@ -1093,7 +1021,7 @@ class TestAsyncSetupEntry:
 
         async_add_entities.assert_called_once()
         sensors = async_add_entities.call_args[0][0]
-        assert len(sensors) == 6
+        assert len(sensors) == 5
 
     @pytest.mark.asyncio
     async def test_a_setup_retried_after_a_failure_creates_the_algorithm_sensors(self):
@@ -1786,30 +1714,6 @@ class TestEdgeCasesAndPotentialBugs:
         sensor._update_state()
         assert sensor._attr_native_value is None
 
-    def test_solar_sensor_negative_intensity(self):
-        """What happens if solar intensity returns a negative value?."""
-        with patch(
-            "custom_components.better_thermostat.sensor._get_current_solar_intensity"
-        ) as mock_solar:
-            mock_solar.return_value = -0.5
-            bt = _make_bt_climate()
-            sensor = BetterThermostatSolarIntensitySensor(bt)
-            sensor._update_state()
-            # Code does val * 100.0 → would show -50.0%
-            # This might be unexpected behavior
-            assert sensor._attr_native_value == -50.0
-
-    def test_solar_sensor_above_one_intensity(self):
-        """What happens if solar intensity returns > 1.0?."""
-        with patch(
-            "custom_components.better_thermostat.sensor._get_current_solar_intensity"
-        ) as mock_solar:
-            mock_solar.return_value = 1.5
-            bt = _make_bt_climate()
-            sensor = BetterThermostatSolarIntensitySensor(bt)
-            sensor._update_state()
-            assert sensor._attr_native_value == 150.0
-
     def test_1h_ema_negative_dt_clamped(self):
         """If monotonic() goes backward (shouldn't happen but defensive), dt is clamped to 0."""
         bt = _make_bt_climate(room_temperature_filtered=20.0)
@@ -1924,7 +1828,6 @@ class TestBtSensorBase:
             BetterThermostatMpcGainSensor,
             BetterThermostatMpcLossSensor,
             BetterThermostatMpcKaSensor,
-            BetterThermostatSolarIntensitySensor,
         ]:
             sensor = cls(bt)
             assert isinstance(sensor, _BtSensorBase), (

@@ -544,9 +544,6 @@
       },
       "pid_error": {
         "name": "PID-afvigelse"
-      },
-      "solar_intensity": {
-        "name": "Solvarmetilskud"
       }
     }
   },
