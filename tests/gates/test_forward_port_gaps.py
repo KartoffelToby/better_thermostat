@@ -841,6 +841,68 @@ def test_a_name_is_renamed_as_the_naming_gate_reads_it(lines, name, renamed):
     assert script._renamed(name, renames) == renamed
 
 
+@pytest.mark.parametrize(
+    ("name", "renamed"),
+    [
+        ("preset_temp", ("preset_temperature",)),
+        ("_temp_to_set", ("_temperature_to_set",)),
+        ("delay_s", ("delay_seconds",)),
+        ("_last_pct_s", ("_last_percent_seconds",)),
+        ("rate_per_s", ()),
+        ("s_count", ()),
+        ("CONF_TEMP", ()),
+    ],
+    ids=[
+        "word",
+        "private-word",
+        "suffix",
+        "word-and-suffix",
+        "rate",
+        "no-suffix",
+        "constant",
+    ],
+)
+def test_a_name_is_renamed_by_the_glossarys_word_parts(lines, name, renamed):
+    """A rejected word is replaced wherever it stands, a unit suffix at the end.
+
+    A suffix after `per` is a rate's denominator and stays, and the match is
+    case-sensitive as in the naming gate, so a constant keeps its spelling.
+    """
+    script, _ = lines
+    renames = script.Renames(
+        {}, {"temp": "temperature", "pct": "percent"}, {"s": "seconds"}
+    )
+
+    assert script._renamed(name, renames) == renamed
+
+
+WORD_PART_GLOSSARY = """\
+[[word]]
+name = "temperature"
+rejected = ["temp"]
+
+[[modifier]]
+name = "_seconds"
+rejected = ["_s"]
+"""
+
+
+def test_a_line_renamed_by_word_parts_is_found(lines):
+    """A fix written with `temp` and `_s` is found where develop spells them out."""
+    script, line = lines
+    maintenance_commit = _renamed_fix(
+        line,
+        glossary=WORD_PART_GLOSSARY,
+        develop_spelling="hold_the_preset(preset_temperature, delay_seconds, {i})",
+        maintenance_spelling="hold_the_preset(preset_temp, delay_s, {i})",
+    )
+
+    commit = _measure(script, line, maintenance_commit)
+
+    assert commit.markers == 4
+    assert commit.hits == 4
+
+
 def test_a_private_alias_past_the_cap_is_still_renamed(lines):
     """Past the spelling cap, a private alias takes the term behind its underscore."""
     script, _ = lines
