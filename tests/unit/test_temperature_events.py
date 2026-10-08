@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import timedelta
 import logging
 from time import monotonic
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import State
@@ -34,9 +35,8 @@ from custom_components.better_thermostat.events.temperature import (
     temperature_filter_lock,
     trigger_temperature_change,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CONF_HOMEMATICIP, DOMAIN
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 SENSOR_ID = "sensor.external_temp"
 
@@ -179,6 +179,18 @@ class TestUpdateExternalTempEma:
 # ---------------------------------------------------------------------------
 
 
+def _external_temperature_quirks(refusal=None):
+    """Model quirks whose ``maybe_set_external_temperature`` is a mock.
+
+    The dispatch looks the function up on the quirks before it calls, so
+    the double carries it as a real attribute rather than one a mock would
+    only make up once it is asked for.
+    """
+    return SimpleNamespace(
+        maybe_set_external_temperature=AsyncMock(side_effect=refusal)
+    )
+
+
 class TestCommitTemperatureUpdate:
     """Tests for _commit_temperature_update()."""
 
@@ -286,9 +298,9 @@ class TestCommitTemperatureUpdate:
     @pytest.mark.asyncio
     async def test_quirks_external_temp_called(self, mock_bt):
         """Call model_quirks.maybe_set_external_temperature() for each TRV."""
-        quirks = AsyncMock()
+        quirks = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": quirks}
             )
         }
@@ -304,12 +316,12 @@ class TestCommitTemperatureUpdate:
         self, mock_bt
     ):
         """A reading reaches only the TRVs that are initialized."""
-        quirks = AsyncMock()
-        waiting = Trv.from_legacy_dict("climate.trv1", {"model_quirks": quirks})
+        quirks = _external_temperature_quirks()
+        waiting = trv_from_legacy_dict("climate.trv1", {"model_quirks": quirks})
         waiting.awaiting_initialization = True
         mock_bt.real_trvs = {
             "climate.trv1": waiting,
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2", {"model_quirks": quirks}
             ),
         }
@@ -340,10 +352,9 @@ class TestCommitTemperatureUpdate:
         the next room sensor change: the room is then regulated on a
         temperature Better Thermostat has already discarded.
         """
-        quirks = AsyncMock()
-        quirks.maybe_set_external_temperature.side_effect = refusal
+        quirks = _external_temperature_quirks(refusal)
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": quirks}
             )
         }
@@ -360,16 +371,15 @@ class TestCommitTemperatureUpdate:
         refuses must not cost the remaining heads their reading, or they keep
         regulating on a room temperature Better Thermostat has discarded.
         """
-        refusing = AsyncMock()
-        refusing.maybe_set_external_temperature.side_effect = HomeAssistantError(
-            "device did not answer"
+        refusing = _external_temperature_quirks(
+            HomeAssistantError("device did not answer")
         )
-        answering = AsyncMock()
+        answering = _external_temperature_quirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": refusing}
             ),
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2", {"model_quirks": answering}
             ),
         }
@@ -379,6 +389,39 @@ class TestCommitTemperatureUpdate:
         answering.maybe_set_external_temperature.assert_awaited_once_with(
             mock_bt, "climate.trv2", 21.0
         )
+
+    @pytest.mark.asyncio
+    async def test_a_reading_withdrawn_mid_round_is_not_written_on(self, mock_bt):
+        """Heads still waiting for their write get no reading once it is gone.
+
+        The write goes out head by head. A room temperature withdrawn while
+        an earlier head is being written leaves nothing to mirror into the
+        later ones.
+        """
+
+        async def _withdraw(*_args):
+            mock_bt.room_temperature = None
+            return True
+
+        first = SimpleNamespace(
+            maybe_set_external_temperature=AsyncMock(side_effect=_withdraw)
+        )
+        later = _external_temperature_quirks()
+        mock_bt.real_trvs = {
+            "climate.trv1": trv_from_legacy_dict(
+                "climate.trv1", {"model_quirks": first}
+            ),
+            "climate.trv2": trv_from_legacy_dict(
+                "climate.trv2", {"model_quirks": later}
+            ),
+        }
+
+        await _commit_temperature_update(mock_bt, 21.0)
+
+        first.maybe_set_external_temperature.assert_awaited_once_with(
+            mock_bt, "climate.trv1", 21.0
+        )
+        later.maybe_set_external_temperature.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_a_missing_trv_map_still_starts_a_control_cycle(
@@ -1050,7 +1093,7 @@ class TestConcurrentReadings:
     def _attach_trvs(mock_bt, quirks, entity_ids):
         """Give the thermostat TRVs that all share one quirks recorder."""
         mock_bt.real_trvs = {
-            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            entity_id: trv_from_legacy_dict(entity_id, {"model_quirks": quirks})
             for entity_id in entity_ids
         }
 
@@ -1401,7 +1444,7 @@ class TestArrivalOrder:
         self._make_thermostat_checkable(mock_bt)
         quirks = _RecordingQuirks()
         mock_bt.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1", {"model_quirks": quirks}
             )
         }
@@ -1451,7 +1494,7 @@ class TestKeepaliveTick:
         quirks.gate = asyncio.Event()
         quirks.gated_writes = 1
         mock_bt.real_trvs = {
-            entity_id: Trv.from_legacy_dict(entity_id, {"model_quirks": quirks})
+            entity_id: trv_from_legacy_dict(entity_id, {"model_quirks": quirks})
             for entity_id in ("climate.trv1", "climate.trv2")
         }
 
@@ -1665,7 +1708,7 @@ class TestLadderSeesTheHandledReading:
         mock_bt._degraded_warning_emitted = False
         trv_entity_id = "climate.trv1"
         mock_bt.real_trvs = {
-            trv_entity_id: Trv.from_legacy_dict(
+            trv_entity_id: trv_from_legacy_dict(
                 trv_entity_id, {"current_temperature": 21.0}
             )
         }

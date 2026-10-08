@@ -144,6 +144,18 @@ async def test_a_thermostat_without_an_integration_reports_no_channels():
     assert (adapter, info) == (None, {})
 
 
+async def test_an_adapter_that_cannot_be_loaded_reports_no_channels():
+    with (
+        patch(
+            f"{_MODULE}.load_adapter", autospec=True, side_effect=RuntimeError("gone")
+        ),
+        patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)),
+    ):
+        adapter, info = await _load_adapter_info(None, "mqtt", "climate.trv")
+
+    assert (adapter, info) == (None, {})
+
+
 async def test_an_adapter_without_capabilities_reports_no_channels():
     adapter = object()
     with patch(f"{_MODULE}._quirk_valve_support", AsyncMock(return_value=False)):

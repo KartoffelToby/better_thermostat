@@ -16,12 +16,11 @@ from unittest.mock import MagicMock
 from homeassistant.components.climate import HVACMode
 import pytest
 
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 
 @pytest.fixture
@@ -36,7 +35,7 @@ def mock_bt_instance():
     bt.window_open = False
     bt.tolerance = 0.3
     bt.real_trvs = {
-        "climate.test_trv": Trv.from_legacy_dict(
+        "climate.test_trv": trv_from_legacy_dict(
             "climate.test_trv",
             {
                 "hvac_modes": [HVACMode.HEAT],  # No OFF mode in hvac_modes

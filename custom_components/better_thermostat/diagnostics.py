@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as ha_version
@@ -50,7 +48,7 @@ _SENSOR_KEYS = (
 )
 
 
-def _state(hass: HomeAssistant, entity_id: object) -> dict[str, Any] | None:
+def _state(hass: HomeAssistant, entity_id: object) -> dict[str, object] | None:
     """Return the state of ``entity_id`` as a dict, or None without one.
 
     The context is left out: it names the user who triggered the change and
@@ -61,17 +59,17 @@ def _state(hass: HomeAssistant, entity_id: object) -> dict[str, Any] | None:
     state = hass.states.get(entity_id)
     if state is None:
         return None
-    facts = dict(state.as_dict())
+    facts: dict[str, object] = dict(state.as_dict())
     facts.pop("context", None)
     return facts
 
 
-def _device(hass: HomeAssistant, entity_id: str) -> dict[str, Any] | None:
+def _device(hass: HomeAssistant, entity_id: str) -> dict[str, object] | None:
     """Return the integration and device-registry facts behind ``entity_id``."""
     registry_entry = er.async_get(hass).async_get(entity_id)
     if registry_entry is None:
         return None
-    facts: dict[str, Any] = {"integration": registry_entry.platform}
+    facts: dict[str, object] = {"integration": registry_entry.platform}
     if registry_entry.device_id is not None:
         device = dr.async_get(hass).async_get(
             registry_entry.device_id,
@@ -91,7 +89,7 @@ def _device(hass: HomeAssistant, entity_id: str) -> dict[str, Any] | None:
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, config_entry: ConfigEntry
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Return diagnostics for a config entry.
 
     The settings are read without parsing them: the download is wanted most
@@ -121,7 +119,7 @@ async def async_get_config_entry_diagnostics(
 
     _cleaned_data = dict(settings)
     _cleaned_data.pop(CONF_THERMOSTAT, None)
-    diagnostics_data: dict[str, Any] = {
+    diagnostics_data: dict[str, object] = {
         "versions": {"better_thermostat": VERSION, "home_assistant": ha_version},
         "info": _cleaned_data,
         "thermostat": trvs,

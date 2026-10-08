@@ -16,12 +16,12 @@ from custom_components.better_thermostat.utils.controlling import (
     TaskManager,
     control_queue,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 
 def _tracked_trv(entity_id: str) -> Trv:
     """Build the record the entity keeps for one controlled TRV."""
-    return Trv.from_legacy_dict(entity_id, {})
+    return trv_from_legacy_dict(entity_id, {})
 
 
 def _thermostat() -> ThermostatStandIn:

@@ -14,8 +14,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.better_thermostat.model_fixes.types import (
+    ExternalTemperatureQuirk,
+    MaintenanceIntervalQuirk,
     ModelFixHost,
     ModelFixTrv,
+    ModelQuirks,
+    ValveQuirk,
 )
 from custom_components.better_thermostat.utils.helpers import is_sibling_entry
 
@@ -426,7 +430,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
                 )
                 return bool(ok)
 
-            seq = int(trv_state.extra.get("_trvzb_valve_bump_seq", 0)) + 1
+            seq = trv_state.extra.get("_trvzb_valve_bump_seq", 0) + 1
             trv_state.extra["_trvzb_valve_bump_seq"] = seq
 
             async def _delayed_set() -> None:
@@ -434,7 +438,7 @@ async def override_set_valve(self: ModelFixHost, entity_id: str, percent: int) -
                     await asyncio.sleep(float(_TRVZB_CLOSE_BUMP_DELAY_S))
                     cur_state = self.real_trvs.get(entity_id)
                     if cur_state is None or (
-                        int(cur_state.extra.get("_trvzb_valve_bump_seq", 0)) != seq
+                        cur_state.extra.get("_trvzb_valve_bump_seq", 0) != seq
                     ):
                         return
                     await maybe_set_sonoff_valve_percent(
@@ -748,3 +752,23 @@ async def maybe_set_external_temperature(
             ex,
         )
         return False
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    VALVE_MAINTENANCE_INTERVAL_HOURS = VALVE_MAINTENANCE_INTERVAL_HOURS
+    maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
+    override_set_valve = staticmethod(override_set_valve)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()
+_MAINTENANCE_INTERVAL_QUIRK: MaintenanceIntervalQuirk = _Surface()
+_VALVE_QUIRK: ValveQuirk = _Surface()

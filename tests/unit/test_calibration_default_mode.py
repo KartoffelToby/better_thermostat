@@ -12,9 +12,8 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_local,
     calculate_calibration_setpoint,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 
 @pytest.fixture
@@ -38,7 +37,7 @@ def bt_default_mode():
     )
 
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
+        "climate.trv": trv_from_legacy_dict(
             "climate.trv",
             {
                 "advanced": {"calibration_mode": CalibrationMode.DEFAULT},

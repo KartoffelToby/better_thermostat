@@ -23,6 +23,9 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from custom_components.better_thermostat.core.fsm.control_mode import ControlMode
+from custom_components.better_thermostat.model_fixes.types import (
+    ExternalTemperatureQuirk,
+)
 from custom_components.better_thermostat.utils.const import DOMAIN
 from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
@@ -210,18 +213,25 @@ async def _commit_temperature_update(
             if _trv is not None and _trv.awaiting_initialization:
                 # Its first write goes out with its initialization.
                 continue
-            quirks = _trv.model_quirks if _trv is not None else None
-            if quirks and hasattr(quirks, "maybe_set_external_temperature"):
-                async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
-                    await quirks.maybe_set_external_temperature(
-                        self, entity_id, self.room_temperature
-                    )
-            else:
+            quirks: object = _trv.model_quirks if _trv is not None else None
+            room_temperature = self.room_temperature
+            if not isinstance(quirks, ExternalTemperatureQuirk):
                 _LOGGER.debug(
                     "better_thermostat %s: no quirks with maybe_set_external_temperature for %s",
                     self.device_name,
                     entity_id,
                 )
+            elif room_temperature is None:
+                _LOGGER.debug(
+                    "better_thermostat %s: external_temperature write to %s skipped (room_temperature is None)",
+                    self.device_name,
+                    entity_id,
+                )
+            else:
+                async with asyncio.timeout(EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S):
+                    await quirks.maybe_set_external_temperature(
+                        self, entity_id, room_temperature
+                    )
         except (
             HomeAssistantError,
             OSError,

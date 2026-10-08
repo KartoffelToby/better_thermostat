@@ -24,7 +24,6 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import (
     MpcState,
     build_mpc_key,
@@ -39,7 +38,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     build_tpi_key,
 )
 from custom_components.better_thermostat.utils.state_manager import MpcV2ReidRuntime
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 
 class _StateStub:
@@ -133,7 +132,7 @@ def _make_bt(state_mgr: _StateStub, trv_temp: float | None) -> ThermostatStandIn
         control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
     )
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
+        "climate.trv": trv_from_legacy_dict(
             "climate.trv",
             {
                 "advanced": {},

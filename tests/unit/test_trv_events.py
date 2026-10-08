@@ -40,7 +40,7 @@ from custom_components.better_thermostat.utils.const import (
 )
 from custom_components.better_thermostat.utils.controlling import TaskManager
 from custom_components.better_thermostat.utils.helpers import mode_remap
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
 PEER_ID = "climate.test_trv_peer"
@@ -105,7 +105,7 @@ def mock_bt():
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}}]
 
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
+        ENTITY_ID: trv_from_legacy_dict(
             ENTITY_ID,
             {
                 "hvac_mode": HVACMode.HEAT,
@@ -175,7 +175,7 @@ def _add_homematicip_peer(bt):
     Returns the state the peer reports, so a caller can route
     ``hass.states.get`` to the right state per entity.
     """
-    peer = Trv.from_legacy_dict(
+    peer = trv_from_legacy_dict(
         PEER_ID,
         {
             "hvac_mode": HVACMode.HEAT,
@@ -3536,7 +3536,7 @@ def _make_group_bt(entity_ids, *, no_off=False, bt_hvac_mode=HVACMode.HEAT):
     bt.all_trvs = [{"advanced": {CONF_HOMEMATICIP: False}} for _ in entity_ids]
 
     bt.real_trvs = {
-        eid: Trv.from_legacy_dict(
+        eid: trv_from_legacy_dict(
             eid,
             {
                 "hvac_mode": HVACMode.HEAT,

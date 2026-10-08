@@ -136,3 +136,34 @@ class TestTheLowestSetpointShim:
             assert model_quirks.lowest_setpoint(host, ENTITY_ID, 5.0) == 5.0
 
         assert "lowest setpoint model fix" not in caplog.text
+
+
+ANSWERING_PREDICATES = [
+    "local_calibration_shifts_setpoint",
+    "trv_state_unknown_as_available",
+]
+
+
+class TestOnlyADeclaredAnswerCounts:
+    """A device answers these questions only through a quirk that defines them."""
+
+    @pytest.mark.parametrize("name", ANSWERING_PREDICATES)
+    def test_a_mock_that_makes_the_function_up_answers_no(self, name):
+        """A record whose quirks are a bare mock reads as an unquirked device.
+
+        A mock hands back a truthy mock for any function asked of it, which
+        would otherwise mark every mocked TRV as operating while ``unknown``
+        or as offsetting its setpoint.
+        """
+        host = _host(MagicMock())
+
+        assert getattr(model_quirks, name)(host, ENTITY_ID) is False
+
+    @pytest.mark.parametrize("name", ANSWERING_PREDICATES)
+    def test_a_quirk_that_defines_the_function_is_asked(self, name):
+        """The answer is the one the quirk gives."""
+        module = ModuleType("answering_quirk")
+        setattr(module, name, lambda _self, _entity_id: True)
+        host = _host(module)
+
+        assert getattr(model_quirks, name)(host, ENTITY_ID) is True

@@ -32,9 +32,8 @@ from custom_components.better_thermostat.core.snapshot import (
     WorldSnapshot,
 )
 from custom_components.better_thermostat.core.watchdog import control_loop_stalled
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 
 def _bt(mode: ControlMode) -> MagicMock:
@@ -43,8 +42,8 @@ def _bt(mode: ControlMode) -> MagicMock:
     bt.room_temperature = 20.0
     bt.kernel_state = KernelState(control_mode=ControlModeState(mode=mode))
     bt.real_trvs = {
-        "climate.a": Trv.from_legacy_dict("climate.a", {"current_temperature": 21.0}),
-        "climate.b": Trv.from_legacy_dict("climate.b", {"current_temperature": 23.0}),
+        "climate.a": trv_from_legacy_dict("climate.a", {"current_temperature": 21.0}),
+        "climate.b": trv_from_legacy_dict("climate.b", {"current_temperature": 23.0}),
     }
     _publish(bt, {"climate.a": 21.0, "climate.b": 23.0})
     return bt
@@ -150,7 +149,7 @@ class TestFallbackSetpointChannel:
             control_mode=ControlModeState(mode=ControlMode.SENSOR_FALLBACK)
         )
         bt.real_trvs = {
-            "climate.a": Trv.from_legacy_dict(
+            "climate.a": trv_from_legacy_dict(
                 "climate.a",
                 {
                     "advanced": {"calibration_mode": CalibrationMode.DEFAULT},
@@ -161,7 +160,7 @@ class TestFallbackSetpointChannel:
                     "model_quirks": quirks,
                 },
             ),
-            "climate.b": Trv.from_legacy_dict(
+            "climate.b": trv_from_legacy_dict(
                 "climate.b", {"current_temperature": -4.0}
             ),
         }

@@ -16,12 +16,11 @@ from custom_components.better_thermostat.calibration import (
     calculate_calibration_setpoint,
 )
 from custom_components.better_thermostat.core.clock import FakeClock
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     DEFAULT_CALIBRATION_MODE,
     CalibrationMode,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
 _CAL = "custom_components.better_thermostat.calibration"
@@ -57,7 +56,7 @@ def _make_bt(
         lambda _self, _eid, temperature: float(temperature)
     )
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
+        ENTITY_ID: trv_from_legacy_dict(
             ENTITY_ID,
             {
                 "advanced": {"calibration_mode": mode, "protect_overheating": False},

@@ -43,7 +43,7 @@ from custom_components.better_thermostat.utils.valve_maintenance import (
     run_valve_maintenance,
     wake_step,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 _MAINTENANCE_LOGGER = "custom_components.better_thermostat.utils.valve_maintenance"
 
@@ -61,7 +61,7 @@ def _trv(
     calibration: str | None = None,
 ) -> Trv:
     """Build a ``real_trvs[entity_id]`` entry for testing."""
-    return Trv.from_legacy_dict(
+    return trv_from_legacy_dict(
         "climate.trv",
         {
             "advanced": {"valve_maintenance": maintenance, "calibration": calibration},
@@ -198,12 +198,12 @@ class TestCollectMaintenanceTrvs:
 
     def test_missing_advanced_key(self):
         """TRV dict without 'advanced' should not crash."""
-        trvs = {"trv1": Trv.from_legacy_dict("trv1", {"max_temp": 30})}
+        trvs = {"trv1": trv_from_legacy_dict("trv1", {"max_temp": 30})}
         assert collect_maintenance_trvs(trvs) == []
 
     def test_advanced_is_none(self):
         """advanced=None should not crash."""
-        trvs = {"trv1": Trv.from_legacy_dict("trv1", {"advanced": None})}
+        trvs = {"trv1": trv_from_legacy_dict("trv1", {"advanced": None})}
         assert collect_maintenance_trvs(trvs) == []
 
 

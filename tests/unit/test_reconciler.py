@@ -18,7 +18,6 @@ from custom_components.better_thermostat.core.fsm.mode import ModeState
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import HvacMode as CoreHvacMode
 from custom_components.better_thermostat.core.watchdog import WATCHDOG_MAX_AGE_S
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CalibrationMode,
     CalibrationOutput,
@@ -27,7 +26,12 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
     reconcile_tick,
 )
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_from_legacy_dict,
+)
 
 _CTRL = "custom_components.better_thermostat.utils.controlling"
 
@@ -60,7 +64,7 @@ def _make_bt(*, reported_target=21.0, commanded=21.0, trv_mode=HVACMode.HEAT):
     bt.outdoor_sensor_entity_id = None
     bt.weather_entity_id = None
     bt.flight_recorder = FlightRecorder()
-    trv = Trv.from_legacy_dict(
+    trv = trv_from_legacy_dict(
         "climate.trv",
         {"commanded_setpoint": commanded, "min_temp": 5.0, "max_temp": 30.0},
     )
@@ -287,6 +291,27 @@ class TestReconcileTick:
         trv.valve_position_writable = True
         trv.last_valve_percent = 80
         self._with_states(bt, {"number.valve": self._state("77")})
+        await reconcile_tick(bt)
+        bt.control_queue_task.put_nowait.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_quirk_driven_valve_is_not_held_to_a_read_only_entity(self):
+        """A valve the quirk writes is not compared with what a sensor reports.
+
+        Only a position written to the number entity can be read back as
+        the commanded one. A quirk reaches the valve through a channel of its
+        own, so a read-only position entity reporting something else is no
+        lost write and must not queue a cycle on every tick.
+        """
+        bt = _make_bt()
+        trv = bt.real_trvs["climate.trv"]
+        trv.model_quirks.override_set_valve = AsyncMock(return_value=True)
+        trv.valve_position_entity = "number.valve"
+        trv.valve_position_writable = False
+        trv.last_valve_percent = 80
+        self._with_states(bt, {"number.valve": self._state("0")})
+
+        assert trv.capabilities().supports_valve_write is True
         await reconcile_tick(bt)
         bt.control_queue_task.put_nowait.assert_not_called()
 
