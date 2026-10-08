@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.better_thermostat.adapters import delegate
+from custom_components.better_thermostat.adapters import delegate, generic
 from custom_components.better_thermostat.adapters.base import AdapterCapabilities
 from custom_components.better_thermostat.trv import Trv
 from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
@@ -204,7 +204,6 @@ class TestAnAdapterThatCannotBeImported:
         Both end up on the generic adapter and both say so at INFO, so the
         import error itself is the only thing that tells them apart.
         """
-        generic = SimpleNamespace(name="generic")
         thermostat = ThermostatStandIn()
         thermostat.device_name = "Test BT"
         imports = AsyncMock(

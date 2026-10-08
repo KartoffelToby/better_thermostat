@@ -1,6 +1,6 @@
-"""Structural host types shared by the ecosystem adapters.
+"""Structural types shared by the ecosystem adapters.
 
-These Protocols describe the minimal surface an adapter reads off the
+The host Protocols describe the minimal surface an adapter reads off the
 object it is handed, so an adapter can be typed without depending on the
 concrete Better Thermostat entity class. The members that carry a value
 onwards name that value's own type: an adapter hands ``hass`` to helpers
@@ -13,12 +13,14 @@ value actually has.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from homeassistant.core import Context, HomeAssistant
 
     from custom_components.better_thermostat.trv import Trv
+
+    from .base import AdapterCapabilities
 
 
 class AdapterProbeHost(Protocol):
@@ -59,4 +61,89 @@ class AdapterHost(AdapterProbeHost, Protocol):
         ...
 
 
-__all__ = ["AdapterHost", "AdapterProbeHost"]
+@runtime_checkable
+class TrvAdapter(Protocol):
+    """The surface every ecosystem adapter module provides.
+
+    An adapter is a module, not a class: its module-level functions take
+    the host as their first argument, which a protocol method spells as
+    the first parameter after the protocol's own ``self``. The parameters
+    are positional-only because an adapter names its host parameter
+    ``self`` while the delegate passes every argument by position.
+
+    The runtime check of a ``runtime_checkable`` Protocol asks only
+    whether each member is present; the signatures are held by the type
+    checker through :mod:`.conformance`.
+
+    Attributes
+    ----------
+    CAPABILITIES : AdapterCapabilities
+        What the ecosystem can write, before the discovered entity surface
+        of one TRV narrows it.
+    """
+
+    CAPABILITIES: AdapterCapabilities
+
+    async def get_info(
+        self, host: AdapterProbeHost, entity_id: str, /
+    ) -> dict[str, bool]:
+        """Answer which channels the device offers.
+
+        The answer is keyed ``support_offset`` and ``support_valve``.
+        """
+        ...
+
+    async def init(self, host: AdapterHost, entity_id: str, /) -> None:
+        """Discover the helper entities the TRV is driven through."""
+        ...
+
+    async def get_calibration_offset(
+        self, host: AdapterHost, entity_id: str, /
+    ) -> float:
+        """Answer the calibration offset the TRV holds."""
+        ...
+
+    async def get_calibration_offset_step(
+        self, host: AdapterHost, entity_id: str, /
+    ) -> float:
+        """Answer the step the calibration offset moves in."""
+        ...
+
+    async def get_min_calibration_offset(
+        self, host: AdapterHost, entity_id: str, /
+    ) -> float:
+        """Answer the lowest calibration offset the TRV takes."""
+        ...
+
+    async def get_max_calibration_offset(
+        self, host: AdapterHost, entity_id: str, /
+    ) -> float:
+        """Answer the highest calibration offset the TRV takes."""
+        ...
+
+    async def set_temperature(
+        self, host: AdapterHost, entity_id: str, temperature: float, /
+    ) -> None:
+        """Write a target temperature, in degrees Celsius."""
+        ...
+
+    async def set_hvac_mode(
+        self, host: AdapterHost, entity_id: str, hvac_mode: str, /
+    ) -> None:
+        """Write an HVAC mode."""
+        ...
+
+    async def set_calibration_offset(
+        self, host: AdapterHost, entity_id: str, calibration_offset: float, /
+    ) -> bool:
+        """Write a calibration offset, answering whether it went out."""
+        ...
+
+    async def set_valve(
+        self, host: AdapterHost, entity_id: str, valve: float, /
+    ) -> None:
+        """Write a valve position, in percent."""
+        ...
+
+
+__all__ = ["AdapterHost", "AdapterProbeHost", "TrvAdapter"]

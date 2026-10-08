@@ -23,6 +23,11 @@ from custom_components.better_thermostat.model_fixes.default import (
 from custom_components.better_thermostat.model_fixes.TRVZB import (
     maybe_set_external_temperature,
 )
+from custom_components.better_thermostat.model_fixes.types import (
+    ExternalTemperatureQuirk,
+    InitialTweakQuirk,
+    ModelQuirks,
+)
 
 __all__ = [
     "fix_local_calibration",
@@ -32,3 +37,21 @@ __all__ = [
     "override_set_hvac_mode",
     "override_set_temperature",
 ]
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    initial_tweak = staticmethod(initial_tweak)
+    maybe_set_external_temperature = staticmethod(maybe_set_external_temperature)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_EXTERNAL_TEMPERATURE_QUIRK: ExternalTemperatureQuirk = _Surface()
+_INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()

@@ -71,7 +71,7 @@ class TestFilterByPrefix:
     def test_non_dict_values_excluded(self) -> None:
         """Only entries carrying a controller state survive the prefix filter.
 
-        The return type promises `dict[str, dict[str, Any]]`, and the three
+        The return type promises `dict[str, Mapping[str, object]]`, and the three
         callers hand the result straight to the deserializers. Those check
         the value again before reading it, so a stray string costs nothing
         today; what it would cost is the promise, which is the only reason

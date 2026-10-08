@@ -22,12 +22,11 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
 )
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import CalibrationMode
 from custom_components.better_thermostat.utils.helpers import (
     heating_power_valve_position,
 )
-from tests.factories import ThermostatStandIn, make_state
+from tests.factories import ThermostatStandIn, make_state, trv_from_legacy_dict
 
 ENTITY_ID = "climate.test_trv"
 _CAL = "custom_components.better_thermostat.calibration"
@@ -66,7 +65,7 @@ def _make_bt(
     )
 
     bt.real_trvs = {
-        ENTITY_ID: Trv.from_legacy_dict(
+        ENTITY_ID: trv_from_legacy_dict(
             ENTITY_ID,
             {
                 "advanced": {

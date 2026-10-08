@@ -5,6 +5,14 @@ helpers read, so every helper states what it needs from its host. No member
 is assignable: a quirk reaches its device through Home Assistant services,
 and keeps write state of its own in the TRV record's ``extra`` mapping.
 
+The other direction is described here too. :class:`ModelQuirks` is what
+every quirk module provides; each of the single-member Protocols after it
+is one function or constant a module may add, and that the dispatch looks
+for before it calls. A quirk module is a plain module, so each one lists
+its own surface in a ``_Surface`` class and binds that class to every
+Protocol it implements, which lets the type checker hold the module to the
+signatures written here.
+
 ``climate.py`` binds the BetterThermostat entity to :class:`ModelFixHost`
 under ``TYPE_CHECKING``, so a member declared here that the entity does not
 provide is an error rather than a promise nobody checks.
@@ -12,12 +20,28 @@ provide is an error rather than a promise nobody checks.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, MutableMapping
-from types import ModuleType
-from typing import TYPE_CHECKING, Any, Protocol
+import asyncio
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Final, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
     from homeassistant.core import Context, HomeAssistant
+
+
+class QuirkScratchpad(TypedDict, total=False):
+    """Write state the quirk modules keep on a TRV record.
+
+    Each key belongs to the one quirk module that reads and writes it.
+    """
+
+    _trvzb_valve_bump_seq: int
+    """Sequence number of the TRVZB valve bump scheduled last."""
+
+    _trvzb_valve_bump_task: asyncio.Task[None]
+    """Delayed TRVZB valve write that follows a bump."""
+
+    _zwa021_valve_mode_engaged: bool
+    """Whether the ZWA021 manufacturer-specific valve mode went through."""
 
 
 class ModelFixTrv(Protocol):
@@ -34,12 +58,12 @@ class ModelFixTrv(Protocol):
         ...
 
     @property
-    def extra(self) -> MutableMapping[str, Any]:
+    def extra(self) -> QuirkScratchpad:
         """Scratch space a quirk keeps its own write state in."""
         ...
 
     @property
-    def model_quirks(self) -> ModuleType | None:
+    def model_quirks(self) -> ModelQuirks | None:
         """Quirk module loaded for the TRV, or None before it is loaded."""
         ...
 
@@ -114,4 +138,124 @@ class QuirkLoaderHost(Protocol):
         ...
 
 
-__all__ = ["ModelFixHost", "ModelFixTrv", "QuirkLoaderHost"]
+@runtime_checkable
+class ModelQuirks(Protocol):
+    """Functions every model quirk module provides.
+
+    The dispatch in ``model_quirks.py`` calls these without asking first.
+    Each takes the Better Thermostat host as its first argument, which the
+    modules name ``self``. The parameters are positional only here, so their
+    names are not part of the contract.
+    """
+
+    def fix_local_calibration(
+        self, host: ModelFixHost, entity_id: str, calibration_offset: float, /
+    ) -> float:
+        """Return the calibration offset the TRV is to be written."""
+        ...
+
+    def fix_target_temperature_calibration(
+        self, host: ModelFixHost, entity_id: str, temperature: float, /
+    ) -> float:
+        """Return the setpoint the TRV is to be written."""
+        ...
+
+    async def override_set_hvac_mode(
+        self, host: ModelFixHost, entity_id: str, hvac_mode: str, /
+    ) -> bool:
+        """Write the HVAC mode the model's own way; True when it did."""
+        ...
+
+    async def override_set_temperature(
+        self, host: ModelFixHost, entity_id: str, temperature: float, /
+    ) -> bool:
+        """Write the setpoint the model's own way; True when it did."""
+        ...
+
+
+@runtime_checkable
+class InitialTweakQuirk(Protocol):
+    """A quirk that prepares its device once the TRV is set up."""
+
+    async def initial_tweak(self, host: ModelFixHost, entity_id: str, /) -> None:
+        """Bring the device's own settings in line with Better Thermostat."""
+        ...
+
+
+@runtime_checkable
+class LowestSetpointQuirk(Protocol):
+    """A quirk that knows the published minimum means something else."""
+
+    def lowest_setpoint(
+        self, host: ModelFixHost, entity_id: str, lowest: float, /
+    ) -> float:
+        """Return the lowest setpoint to write, in Celsius."""
+        ...
+
+
+@runtime_checkable
+class UnknownStateQuirk(Protocol):
+    """A quirk that can tell an ``unknown`` state from a missing device."""
+
+    def trv_state_unknown_as_available(
+        self, host: ModelFixHost, entity_id: str, /
+    ) -> bool:
+        """Whether ``unknown`` is how the model reports operating."""
+        ...
+
+
+@runtime_checkable
+class SetpointOffsetQuirk(Protocol):
+    """A quirk that knows on which side its device applies the offset."""
+
+    def local_calibration_shifts_setpoint(
+        self, host: ModelFixHost, entity_id: str, /
+    ) -> bool:
+        """Whether the device adds the offset to its setpoint."""
+        ...
+
+
+@runtime_checkable
+class ValveQuirk(Protocol):
+    """A quirk that drives its device's valve itself."""
+
+    async def override_set_valve(
+        self, host: ModelFixHost, entity_id: str, percent: int, /
+    ) -> bool:
+        """Write the valve opening; True when the quirk took it."""
+        ...
+
+
+@runtime_checkable
+class ExternalTemperatureQuirk(Protocol):
+    """A quirk that mirrors the room temperature into its device."""
+
+    async def maybe_set_external_temperature(
+        self, host: ModelFixHost, entity_id: str, temperature: float, /
+    ) -> bool:
+        """Write the room temperature to the device; True when it did."""
+        ...
+
+
+@runtime_checkable
+class MaintenanceIntervalQuirk(Protocol):
+    """A quirk that sets how often its valve is exercised."""
+
+    VALVE_MAINTENANCE_INTERVAL_HOURS: Final[int]
+    """Hours between two valve maintenance runs."""
+
+
+__all__ = [
+    "ExternalTemperatureQuirk",
+    "InitialTweakQuirk",
+    "LowestSetpointQuirk",
+    "MaintenanceIntervalQuirk",
+    "ModelFixHost",
+    "ModelFixTrv",
+    "ModelQuirks",
+    "QuirkLoaderHost",
+    "QuirkScratchpad",
+    "SetpointOffsetQuirk",
+    "UnknownStateQuirk",
+    "ValveQuirk",
+]

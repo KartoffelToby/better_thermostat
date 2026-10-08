@@ -15,7 +15,6 @@ from homeassistant.components.climate import HVACMode
 import pytest
 
 from custom_components.better_thermostat.events.trv import convert_outbound_states
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_CALIBRATION,
     CONF_CALIBRATION_MODE,
@@ -27,7 +26,7 @@ from custom_components.better_thermostat.utils.helpers import (
     configured_calibration_mode,
     configured_calibration_output,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 _MISSING = object()
 
@@ -123,7 +122,7 @@ def _outbound_bt(advanced: dict[str, object]) -> ThermostatStandIn:
     bt.room_temperature = 20.0
     bt.window_open = False
     bt.real_trvs = {
-        "climate.trv": Trv.from_legacy_dict(
+        "climate.trv": trv_from_legacy_dict(
             "climate.trv",
             {
                 "hvac_modes": [HVACMode.HEAT, HVACMode.OFF],

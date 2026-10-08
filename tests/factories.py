@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import copy
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -90,6 +90,46 @@ def make_snapshot(**overrides) -> WorldSnapshot:
     return WorldSnapshot(**defaults)
 
 
+def trv_from_legacy_dict(entity_id: str, data: Mapping[str, object]) -> Trv:
+    """Build a Trv from a plain per-entity dict.
+
+    Known keys become typed fields; unknown keys land in ``extra``.
+    The explicit ``entity_id`` argument wins over an ``entity_id``
+    key in the dict, and an ``extra`` dict is merged into the extra
+    mapping instead of being nested under it; a non-dict ``extra``
+    value is kept under the ``extra`` key.
+
+    Parameters
+    ----------
+    entity_id : str
+        Entity id for the built TRV.
+    data : Mapping[str, object]
+        Per-entity values, keyed by field name.
+
+    Returns
+    -------
+    Trv
+        A TRV carrying the known keys as fields and the rest in ``extra``.
+    """
+    fields_in = {}
+    extra = {}
+    for key, value in data.items():
+        if key == "entity_id":
+            continue
+        if key == "extra":
+            if isinstance(value, dict):
+                extra.update(value)
+            else:
+                extra[key] = value
+        elif key in Trv.__dataclass_fields__:
+            fields_in[key] = value
+        else:
+            extra[key] = value
+    trv = Trv(entity_id=entity_id, **fields_in)
+    trv.extra.update(extra)
+    return trv
+
+
 def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
     """Return a Trv with identity model quirks; overridable per test.
 
@@ -125,7 +165,7 @@ def make_trv(entity_id: str = DEFAULT_TRV_ID, **fields) -> Trv:
         "model_quirks": quirks,
     }
     defaults.update(fields)
-    return Trv.from_legacy_dict(entity_id, defaults)
+    return trv_from_legacy_dict(entity_id, defaults)
 
 
 def _thermostat_state_names() -> frozenset[str]:

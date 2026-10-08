@@ -120,6 +120,7 @@ from .events.temperature import (
 from .events.trv import trigger_trv_change
 from .events.window import trigger_window_change, window_queue
 from .model_fixes.model_quirks import initial_tweak, load_model_quirks, lowest_setpoint
+from .model_fixes.types import ExternalTemperatureQuirk
 from .switch import restored_child_lock
 from .trv import Trv
 from .utils.advanced_flags import advanced_flag
@@ -190,6 +191,7 @@ from .utils.controlling import (
 from .utils.entry_schema import TrvAdvanced, TrvSettings, parse_settings
 from .utils.helpers import (
     COOLER_SETPOINT_KEYS,
+    CoolerSendCache,
     InboundSetpoint,
     async_fire_logbook_entry,
     async_normalize_bt_entity_ids,
@@ -575,7 +577,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
     # decided on, and each channel's run of consecutive send failures.
     # ``cooler_send_cache()`` creates it on first use, and every reader reaches
     # it through that helper.
-    _cooler_last_sent: dict[str, Any]
+    _cooler_last_sent: CoolerSendCache
 
     # Owner of the background tasks the control loop spawns. ``control_queue``
     # and ``control_trv`` each create one before they schedule anything, so
@@ -1167,7 +1169,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self._control_task: asyncio.Task[None] | None = None
         self._window_task: asyncio.Task[None] | None = None
         self._door_task: asyncio.Task[None] | None = None
-        self._owned_tasks: set[asyncio.Task[Any]] = set()
+        self._owned_tasks: set[asyncio.Task[object]] = set()
         self._final_flush_task: asyncio.Task[None] | None = None
         # TRVs startup went ahead without whose initialisation is running now.
         self._trvs_initializing: set[str] = set()
@@ -1204,9 +1206,9 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         self.pending_temp: float | None = None
         self.pending_since: datetime | None = None
 
-    def _spawn_owned(
-        self, coro: Coroutine[Any, Any, Any], *, name: str
-    ) -> asyncio.Task[Any] | None:
+    def _spawn_owned[T](
+        self, coro: Coroutine[Any, Any, T], *, name: str
+    ) -> asyncio.Task[T] | None:
         """Start a background task that ends when this entity is removed.
 
         Home Assistant cancels background tasks at core shutdown, not when a
@@ -1349,23 +1351,6 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                 trv.get("trv"),
             )
             _model_quirks = await load_model_quirks(self, resolved_model, trv["trv"])
-            try:
-                mod_name = _model_quirks.__name__
-                _LOGGER.debug(
-                    "better_thermostat %s: loaded model quirks module '%s' for model '%s' (trv %s)",
-                    self.device_name,
-                    mod_name,
-                    resolved_model,
-                    trv.get("trv"),
-                )
-            except (AttributeError, TypeError) as e:
-                _LOGGER.debug(
-                    "better_thermostat %s: could not determine quirks module name for model '%s' (trv %s): %s",
-                    self.device_name,
-                    resolved_model,
-                    trv.get("trv"),
-                    e,
-                )
             self.real_trvs[trv["trv"]] = Trv(
                 entity_id=trv["trv"],
                 calibration=_calibration,
@@ -1642,8 +1627,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
                         if _mq_trv is not None and _mq_trv.awaiting_initialization:
                             # Its first write goes out with its initialization.
                             continue
-                        quirks = _mq_trv.model_quirks if _mq_trv is not None else None
-                        if quirks and hasattr(quirks, "maybe_set_external_temperature"):
+                        quirks: object = (
+                            _mq_trv.model_quirks if _mq_trv is not None else None
+                        )
+                        if isinstance(quirks, ExternalTemperatureQuirk):
                             async with asyncio.timeout(
                                 EXTERNAL_TEMPERATURE_WRITE_TIMEOUT_S
                             ):
@@ -3743,7 +3730,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
 
     @property
     @override
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, object]:
         """Return the device specific state attributes.
 
         Returns
@@ -3751,7 +3738,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
         dict
                 Attribute dictionary for the extra device specific state attributes.
         """
-        dev_specific: dict[str, Any] = {
+        dev_specific: dict[str, object] = {
             ATTR_STATE_WINDOW_OPEN: self.window_open,
             ATTR_STATE_DOOR_OPEN: self.door_open,
             ATTR_STATE_CALL_FOR_HEAT: self.call_for_heat,

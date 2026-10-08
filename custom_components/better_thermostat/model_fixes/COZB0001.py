@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import logging
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelFixHost,
+    ModelQuirks,
+    SetpointOffsetQuirk,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,3 +128,19 @@ async def override_set_temperature(
         True if the model handled the change, otherwise False.
     """
     return False
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    local_calibration_shifts_setpoint = staticmethod(local_calibration_shifts_setpoint)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_SETPOINT_OFFSET_QUIRK: SetpointOffsetQuirk = _Surface()
