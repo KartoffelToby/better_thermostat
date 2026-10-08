@@ -22,6 +22,7 @@ from .utils.const import (
     VERSION,
 )
 from .utils.helpers import entry_settings, setting_str, stored_trv_configs
+from .utils.weather import summer_mode_facts
 
 # Attributes an integration may publish on its climate or sensor entities
 # that identify hardware or a place. The download is attached to public
@@ -145,5 +146,9 @@ async def async_get_config_entry_diagnostics(
         diagnostics_data["climate"] = _state(hass, bt.entity_id)
         # Flight recorder: the last decision tuples for offline replay.
         diagnostics_data["flight_recorder"] = bt.flight_recorder.export()
+        # Why the room heats or rests: the damped outdoor temperature and
+        # the threshold it was held against.
+        if settings.get(CONF_OUTDOOR_SENSOR) or settings.get(CONF_WEATHER):
+            diagnostics_data["summer_mode"] = summer_mode_facts(bt)
 
     return async_redact_data(diagnostics_data, TO_REDACT)

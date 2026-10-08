@@ -33,7 +33,8 @@ The damped temperature cannot tell sunshine on the sensor from warm air. A senso
 easily reads 30 °C or more on a cool autumn day, and while the average weighs those hours
 correctly, it still counts them as warm. Mount the sensor in the shade, ideally on a north wall,
 with a little distance from the wall and protection from rain. If you cannot avoid the sun, use a
-weather entity instead, or set the threshold a few degrees higher.
+weather entity instead. Raising the threshold also helps, but it raises it on cloudy days too:
+the heating then stays on longer into spring.
 
 ## With a weather entity
 
@@ -59,6 +60,9 @@ the threshold therefore does not switch the thermostats on and off repeatedly.
 - **The logbook.** Better Thermostat writes "turned off because the outdoor temperature is too
   high" when summer mode starts and "resumed heating because the outdoor temperature dropped"
   when it ends.
+- **The diagnostics download.** Its `summer_mode` section lists the damped outdoor temperature,
+  the last reading and when it arrived, the threshold the room is held against, and whether the
+  recorded history was read. Attach it when you report a problem with summer mode.
 - **The debug log.** With debug logging enabled, every check logs the damped outdoor
   temperature and the temperature below which the room heats.
 

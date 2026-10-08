@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING
 
@@ -515,3 +515,32 @@ async def _damp_outdoor_history(
         entity_id,
     )
     return damping
+
+
+def summer_mode_facts(self: BetterThermostat) -> dict[str, object]:
+    """Return what the summer-mode decision rests on, for the diagnostics.
+
+    Temperatures are °C. ``heat_threshold`` is the outdoor temperature
+    below which the room heats, given its current decision; it is None
+    without an ``off_temperature``.
+    """
+    damping = self.outdoor_damping
+    return {
+        "call_for_heat": self.call_for_heat,
+        "off_temperature": self.off_temperature,
+        "heat_threshold": (
+            None
+            if self.off_temperature is None
+            else heat_threshold(self.off_temperature, self.call_for_heat)
+        ),
+        "damped_outdoor_temperature": self.damped_outdoor_temperature,
+        "outdoor_reading": None if damping is None else damping.reading,
+        "outdoor_reading_at": (
+            None
+            if damping is None
+            else datetime.fromtimestamp(damping.reading_at, UTC).isoformat()
+        ),
+        "outdoor_history_damped": self.outdoor_history_damped,
+        "outdoor_history_failing": self.outdoor_history_failing,
+        "weather_fallback_active": self.weather_fallback_active,
+    }

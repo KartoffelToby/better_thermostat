@@ -25,6 +25,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from custom_components.better_thermostat.core.clock import FakeClock
+from custom_components.better_thermostat.core.outdoor import start_damping
 from custom_components.better_thermostat.utils.weather import (
     FORECAST_CALL_TIMEOUT,
     OUTDOOR_HISTORY_RETRY,
@@ -32,6 +33,7 @@ from custom_components.better_thermostat.utils.weather import (
     check_ambient_air_temperature,
     check_weather,
     check_weather_prediction,
+    summer_mode_facts,
 )
 
 WEATHER_ID = "weather.home"
@@ -1208,3 +1210,42 @@ class TestForecastOutage:
         assert bt.call_for_heat is expected
         assert _weather_records(caplog, logging.WARNING) == []
         assert _weather_records(caplog, logging.INFO) == []
+
+
+# ===========================================================================
+# summer_mode_facts (diagnostics)
+# ===========================================================================
+
+
+class TestSummerModeFacts:
+    """What the diagnostics download reports about the summer-mode decision."""
+
+    def test_a_room_in_summer_mode_reports_the_lowered_threshold(self):
+        bt = make_bt(
+            make_hass(),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            off_temperature=18.0,
+            call_for_heat=False,
+            damped_outdoor_temperature=17.4,
+            outdoor_damping=start_damping(22.0, NOW.timestamp()),
+            outdoor_history_damped=True,
+        )
+        assert summer_mode_facts(bt) == {
+            "call_for_heat": False,
+            "off_temperature": 18.0,
+            "heat_threshold": 17.0,
+            "damped_outdoor_temperature": 17.4,
+            "outdoor_reading": 22.0,
+            "outdoor_reading_at": "2025-01-01T12:00:00+00:00",
+            "outdoor_history_damped": True,
+            "outdoor_history_failing": False,
+            "weather_fallback_active": False,
+        }
+
+    def test_a_room_without_readings_or_threshold_reports_none(self):
+        bt = make_bt(make_hass(), weather_entity_id=WEATHER_ID, off_temperature=None)
+        facts = summer_mode_facts(bt)
+        assert facts["heat_threshold"] is None
+        assert facts["outdoor_reading"] is None
+        assert facts["outdoor_reading_at"] is None
+        assert facts["damped_outdoor_temperature"] is None
