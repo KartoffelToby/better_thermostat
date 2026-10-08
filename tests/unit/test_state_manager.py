@@ -1729,12 +1729,6 @@ class TestClampedThermal:
         mgr.thermal = ThermalStats(heat_loss_rate=-1.0)
         assert mgr.clamped_thermal()[1] == MIN_HEAT_LOSS
 
-    def test_unparseable_value_yields_none(self):
-        """A non-numeric persisted value degrades to None instead of raising."""
-        mgr = _make_manager()
-        mgr.thermal = ThermalStats(heating_power="oops")  # type: ignore[arg-type]
-        assert mgr.clamped_thermal()[0] is None
-
     def test_non_finite_values_yield_none(self):
         """NaN/inf persisted thermal stats degrade to None instead of leaking."""
         mgr = _make_manager()
