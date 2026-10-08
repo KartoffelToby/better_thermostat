@@ -41,6 +41,9 @@ from custom_components.better_thermostat.utils.const import (
     TARGET_TEMP_BOUND_AUTO,
     CalibrationMode,
 )
+from custom_components.better_thermostat.utils.helpers import (
+    configured_calibration_mode,
+)
 
 _MODULE = "custom_components.better_thermostat.config_flow"
 
@@ -242,7 +245,23 @@ def test_a_missing_range_bound_is_stored_as_auto(bound):
     ("config", "expected"),
     [
         ({}, set()),
-        ({CONF_THERMOSTAT: [{"advanced": {}}]}, set()),
+        ({CONF_THERMOSTAT: [{"advanced": {}}]}, {DEFAULT_CALIBRATION_MODE}),
+        (
+            {CONF_THERMOSTAT: [{"advanced": {CONF_CALIBRATION_MODE: None}}]},
+            {DEFAULT_CALIBRATION_MODE},
+        ),
+        (
+            {CONF_THERMOSTAT: [{"advanced": {CONF_CALIBRATION_MODE: 0}}]},
+            {CalibrationMode.DEFAULT},
+        ),
+        (
+            {
+                CONF_THERMOSTAT: [
+                    {"advanced": {CONF_CALIBRATION_MODE: " PID_Calibration "}}
+                ]
+            },
+            {CalibrationMode.PID_CALIBRATION},
+        ),
         ({CONF_THERMOSTAT: "climate.trv"}, set()),
         ({CONF_THERMOSTAT: ["climate.trv", {"advanced": None}]}, set()),
         ({CONF_THERMOSTAT: [{"advanced": {CONF_CALIBRATION_MODE: "retired"}}]}, set()),
@@ -269,8 +288,29 @@ def test_a_missing_range_bound_is_stored_as_auto(bound):
     ],
 )
 def test_the_algorithms_in_use_are_read_from_any_stored_shape(config, expected):
-    """Only modes the integration knows count, whether stored as enum or text."""
+    """A TRV counts with the mode it runs, the default when it names none."""
     assert OptionsFlowHandler._get_active_algorithms(config) == expected
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [{}, {CONF_CALIBRATION_MODE: 0}, {CONF_CALIBRATION_MODE: " TPI_Calibration "}],
+)
+def test_resaving_an_entry_in_the_same_mode_changes_no_algorithm(stored):
+    """The form saves the mode the TRV already runs, so no sensor set changes.
+
+    The dynamic sensors follow ``configured_calibration_mode``; comparing the
+    stored entry the same way keeps a resave that writes the mode out in its
+    canonical spelling from announcing a change.
+    """
+    mode = configured_calibration_mode(stored)
+    assert mode is not None
+    old = {CONF_THERMOSTAT: [{"advanced": stored}]}
+    new = {CONF_THERMOSTAT: [{"advanced": {CONF_CALIBRATION_MODE: mode.value}}]}
+
+    assert OptionsFlowHandler._get_active_algorithms(
+        old
+    ) == OptionsFlowHandler._get_active_algorithms(new)
 
 
 def test_a_delay_stored_as_text_is_offered_as_no_delay():
