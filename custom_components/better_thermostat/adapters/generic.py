@@ -354,20 +354,13 @@ async def set_hvac_mode(self: AdapterHost, entity_id: str, hvac_mode: str) -> No
         hvac_mode,
         hvac_mode_norm,
     )
-    try:
-        await self.hass.services.async_call(
-            "climate",
-            "set_hvac_mode",
-            {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
-            blocking=True,
-            context=self.context,
-        )
-    except TypeError:
-        _LOGGER.debug(
-            "TypeError in set_hvac_mode (entity=%s, hvac_mode=%s)",
-            entity_id,
-            hvac_mode_norm,
-        )
+    await self.hass.services.async_call(
+        "climate",
+        "set_hvac_mode",
+        {"entity_id": entity_id, "hvac_mode": hvac_mode_norm},
+        blocking=True,
+        context=self.context,
+    )
 
 
 async def set_calibration_offset(
