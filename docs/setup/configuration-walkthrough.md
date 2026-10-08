@@ -26,14 +26,14 @@ This page explains the two setup screens in plain language and gives practical d
 - **The cooling device (optional)**: If you have an AC or cooler, select it here to control it alongside your heating.
 - **Temperature sensor**: Your separate room temperature sensor. Accurate control depends on this one.
 - **Humidity sensor**: Currently just displays the humidity on your dashboard.
-- **Outdoor temperature sensor**: Select your outdoor sensor to let the system know when it's warm outside.
+- **Outdoor temperature sensor**: Select your outdoor sensor to let the system know when it's warm outside. Mount it in the shade: a sensor in the sun can keep the heating off on a cold day.
 - **Window sensor**: Select your window sensor so the heating pauses automatically when you open a window.
 - **Door sensor**: Works like the window sensor, with its own delays. Heating resumes once every window and door is closed. See [Door sensor states](/faq/door-sensor).
 - **Weather entity to get the outdoor temperature**: An alternative to a physical outdoor sensor (like a weather forecast integration).
 - **Delay before the thermostat should turn off when the window is opened**: How long to wait after opening a window before pausing the heat (prevents pausing if you just open it for a quick second).
 - **Delay before the thermostat should turn on when the window is closed**: How long to wait after closing the window before resuming heat.
 - **Delay before the thermostat should turn off when the door is opened** / **Delay before the thermostat should turn on when the door is closed**: The same two delays for the door sensor.
-- **The outdoor temperature when the thermostat should turn off**: If it gets warmer than this outside, the heating turns off automatically to save energy and money.
+- **The outdoor temperature when the thermostat should turn off**: Once it gets this warm outside, the heating turns off automatically to save energy and money. It turns back on once it is 1 °C (1.8 °F) colder than this. With an outdoor sensor, the outdoor temperature is averaged over roughly the last day. See [Summer mode](/deep-explanations/summer-mode/).
 - **Enabled Presets**: Choose which modes you want to use (like Eco mode for saving energy while away).
 - **Tolerance, to prevent the thermostat from turning on and off too often**: A small temperature buffer so your heater doesn't constantly click on and off if the temperature fluctuates slightly.
 - **Target minimum temperature** / **Target maximum temperature**: The range you can set on this thermostat. Leave both on *Auto* to use the range your devices report, or pick a degree to narrow it — a nursery held above 16°C, say. The minimum must not be above the maximum. With a cooler on *Auto*, the heating target stays within your heaters' range and the cooling target within the cooler's, so an air conditioner that goes up to 35°C can be given 33°C even when the radiators stop at 30°C.

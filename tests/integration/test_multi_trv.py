@@ -425,6 +425,15 @@ async def _cooler_reports(room: OutageRoom) -> None:
 
 
 async def _outdoor_sensor_reports(room: OutageRoom) -> None:
+    """Report warm weather that has held for three days.
+
+    The outdoor check damps the readings over about a day, so a warm reading
+    switches summer mode on once it has been current long enough. The
+    entity's clock is moved three days past the report.
+    """
+    clock = FakeClock(monotonic_value=time.monotonic(), now_value=dt_util.now())
+    clock.advance(timedelta(days=3).total_seconds())
+    room.bt.clock = clock
     room.hass.states.async_set(
         OUTDOOR_ID, str(WARM_OUTSIDE), {"unit_of_measurement": "°C"}
     )

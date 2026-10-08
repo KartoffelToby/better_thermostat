@@ -154,6 +154,20 @@ forecast failed. 2.0 keeps its last decision for three hours. If that
 decision was not to heat, it then resumes heating with the logbook entry
 "resumed heating because the weather forecast is unavailable".
 
+### Summer mode with an outdoor sensor
+
+1.9.2 averaged the outdoor sensor's readings per calendar day, for today
+and yesterday. Every reading counted once, so a sensor that reports often
+while the sun heats it pulled the average up, and the average jumped at
+midnight. 2.0 averages over roughly the last day by time: each reading
+counts for as long as it was current. A warm afternoon no longer turns the
+heating off on its own, and a single warm reading takes hours to show.
+
+Summer mode also has a switch-back margin now. It starts when the outdoor
+temperature reaches the threshold and ends once it is 1 °C (1.8 °F) below
+it, for the outdoor sensor and the weather entity alike. 1.9.2 switched
+back at the threshold itself. See [Summer mode](/deep-explanations/summer-mode/).
+
 ### A thermostat keeps rejecting commands
 
 1.9.2 retried a failed control cycle right away, over and over. 2.0 doubles
