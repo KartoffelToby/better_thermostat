@@ -36,7 +36,7 @@
   "custom_components/better_thermostat/utils/thermal_learning.py": 66,
   "custom_components/better_thermostat/utils/valve_maintenance.py": 12,
   "custom_components/better_thermostat/utils/watcher.py": 2,
-  "custom_components/better_thermostat/utils/weather.py": 14,
+  "custom_components/better_thermostat/utils/weather.py": 3,
   "tests/benchmark/actuator.py": 23,
   "tests/benchmark/adapters/base.py": 1,
   "tests/benchmark/adapters/baselines.py": 15,

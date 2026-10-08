@@ -263,16 +263,16 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
             else None
         )
         if isinstance(forecast, list) and len(forecast) > 0:
-            _entity_temp_unit = state.attributes.get("temperature_unit")
+            entity_temperature_unit = state.attributes.get("temperature_unit")
             temps = [
-                _forecast_entry_temperature(self, entry, _entity_temp_unit)
+                _forecast_entry_temperature(self, entry, entity_temperature_unit)
                 for entry in forecast[:_forecast_samples]
             ]
             valid_temps: list[float] = [t for t in temps if t is not None]
-            avg_forecast_temp = None
+            forecast_mean = None
             if valid_temps:
-                avg_forecast_temp = sum(valid_temps) / float(len(valid_temps))
-            self.forecast_temperature = avg_forecast_temp
+                forecast_mean = sum(valid_temps) / float(len(valid_temps))
+            self.forecast_temperature = forecast_mean
 
             async with outdoor_check_lock(self):
                 damped_current = await _damp_live_reading(
@@ -280,7 +280,7 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                     self.weather_source,
                     self.weather_entity_id,
                     state,
-                    partial(_weather_reading, self, _entity_temp_unit),
+                    partial(_weather_reading, self, entity_temperature_unit),
                     attribute_changes=True,
                     decides=self.outdoor_sensor_entity_id is None,
                 )
@@ -289,7 +289,7 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
             # A forecast whose entries and current reading are all unusable
             # carries no temperature at all, so it gives no opinion rather
             # than the "warm" an empty comparison would read as.
-            if avg_forecast_temp is None and damped_current is None:
+            if forecast_mean is None and damped_current is None:
                 return None
             threshold = heat_threshold(self.off_temperature, self.call_for_heat)
             _LOGGER.debug(
@@ -297,11 +297,11 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                 "mean: %s, heating below %.2f",
                 self.device_name,
                 damped_current,
-                avg_forecast_temp,
+                forecast_mean,
                 threshold,
             )
             cond_cur = damped_current is not None and damped_current < threshold
-            cond_fc = avg_forecast_temp is not None and avg_forecast_temp < threshold
+            cond_fc = forecast_mean is not None and forecast_mean < threshold
             return bool(cond_cur or cond_fc)
         else:
             raise TypeError
