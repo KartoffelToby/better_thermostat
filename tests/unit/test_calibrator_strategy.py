@@ -14,6 +14,7 @@ from custom_components.better_thermostat.core.fsm.control_mode import (
     ControlMode,
     ControlModeState,
 )
+from custom_components.better_thermostat.number import _PID_GAIN_SETTINGS
 from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.calibration.mpc import MpcOutput
 from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Output
@@ -323,6 +324,30 @@ class TestPidSelfHealing:
         assert healed.pid_kp is None
         assert healed.pid_ki is None
         assert healed.pid_kd is None
+
+    @pytest.mark.parametrize("bound", [0, 1], ids=["lowest", "highest"])
+    @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
+    def test_every_gain_its_number_accepts_is_kept(self, gain, bound):
+        """A gain set by hand anywhere in its number's range is not runaway.
+
+        Auto-tuning keeps to narrower ranges; a PI controller (Kd 0) or a
+        Kp below 10 is still a setting the controller has to run with.
+        """
+        value = _PID_GAIN_SETTINGS[gain][bound]
+        gains = {"pid_kp": 60.0, "pid_ki": 0.01, "pid_kd": 2000.0}
+        gains[f"pid_{gain}"] = value
+        healed, health = sanitize_pid_state(PIDState(**gains), PIDParams())
+        assert health == CalibratorHealth.HEALTHY
+        assert getattr(healed, f"pid_{gain}") == value
+
+    @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
+    def test_a_gain_past_its_number_range_resets_all_gains(self, gain):
+        """Past the highest value its number offers, a gain is a poisoned state."""
+        gains = {"pid_kp": 60.0, "pid_ki": 0.01, "pid_kd": 2000.0}
+        gains[f"pid_{gain}"] = _PID_GAIN_SETTINGS[gain][1] * 1.001
+        healed, health = sanitize_pid_state(PIDState(**gains), PIDParams())
+        assert health == CalibratorHealth.RUNAWAY_GAINS
+        assert (healed.pid_kp, healed.pid_ki, healed.pid_kd) == (None, None, None)
 
     def test_windup_resets_the_integrator(self):
         """An integrator outside its clamp resets and reports WINDUP_SUSPECT."""
