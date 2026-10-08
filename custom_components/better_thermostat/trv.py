@@ -13,7 +13,6 @@ import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from types import ModuleType
 from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
@@ -34,6 +33,7 @@ from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.adapters.delegate import WriteOutage
+    from custom_components.better_thermostat.adapters.types import TrvAdapter
     from custom_components.better_thermostat.utils.calibration.strategies import (
         BalanceCalibrator,
     )
@@ -86,7 +86,7 @@ class Trv:
     integration: str | None = None
     model: str | None = None
     calibration: int | None = None
-    adapter: ModuleType | None = None
+    adapter: TrvAdapter | None = None
     # The model-quirk module ``load_model_quirks`` imported for the model.
     model_quirks: ModelQuirks | None = None
     advanced: TrvAdvanced = field(default_factory=TrvAdvanced)
@@ -379,9 +379,9 @@ class Trv:
         offset_entity = self.local_temperature_calibration_entity is not None
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 
-        declared = getattr(self.adapter, "CAPABILITIES", None)
+        declared = self.adapter.CAPABILITIES if self.adapter is not None else None
         if declared is None:
-            # Adapter without a declaration: the discovered surface rules.
+            # A TRV without an adapter: the discovered surface rules.
             offset_write = offset_entity
             valve_write = valve_entity
         else:
