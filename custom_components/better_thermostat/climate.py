@@ -1513,7 +1513,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             )
             return
         _LOGGER.debug(
-            "better_thermostat %s: get last avg outdoor temps...", self.device_name
+            "better_thermostat %s: checking the damped outdoor temperature...",
+            self.device_name,
         )
         await check_ambient_air_temperature(self)
         self.async_write_ha_state()

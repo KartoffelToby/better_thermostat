@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import math
+from typing import overload
 
 # Time constant of the outdoor filter. After one time constant a step in the
 # outdoor temperature has moved the damped value by 63 %, after two by 86 %.
@@ -65,6 +66,21 @@ def damped_value_at(
         return state.value
     weight = -math.expm1(-elapsed_seconds / time_constant_seconds)
     return state.value + weight * (state.reading - state.value)
+
+
+@overload
+def add_reading(
+    state: DampedOutdoorTemperature,
+    reading: float,
+    reading_at: float,
+    time_constant_seconds: float = ...,
+) -> DampedOutdoorTemperature: ...
+
+
+@overload
+def add_reading(
+    state: None, reading: float, reading_at: float, time_constant_seconds: float = ...
+) -> DampedOutdoorTemperature | None: ...
 
 
 def add_reading(

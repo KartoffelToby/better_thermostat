@@ -516,6 +516,19 @@ class TestCheckAmbientAirTemperature:
         assert bt.damped_outdoor_temperature == pytest.approx(10.0)
         assert bt.call_for_heat is False
 
+    async def test_a_sensor_without_a_numeric_reading_keeps_the_room_heating(self):
+        """With no usable reading anywhere there is nothing to damp: the room heats."""
+        bt = make_bt(
+            make_hass(states={OUTDOOR_ID: make_state(state="error")}, components=set()),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            off_temperature=10.0,
+            call_for_heat=False,
+            damped_outdoor_temperature=12.0,
+        )
+        await check_ambient_air_temperature(bt)
+        assert bt.damped_outdoor_temperature is None
+        assert bt.call_for_heat is True
+
     async def test_one_warm_reading_does_not_switch_the_room_off(self):
         """Without a recorder the live readings still pass through the filter.
 
@@ -617,7 +630,8 @@ class TestCheckAmbientAirTemperature:
         ]
         query = await self._check_with_history(bt, items)
         _hass, start, end, entity_id = query.await_args.args[1:]
-        assert (end - start, entity_id) == (OUTDOOR_HISTORY_WINDOW, OUTDOOR_ID)
+        assert (end - start, entity_id) == (timedelta(hours=72), OUTDOOR_ID)
+        assert OUTDOOR_HISTORY_WINDOW == timedelta(hours=72)
         assert bt.damped_outdoor_temperature == pytest.approx(
             2.0 + 18.0 * (1 - math.exp(-1))
         )
@@ -676,6 +690,58 @@ class TestCheckAmbientAirTemperature:
         bt = self._recorder_bt(reading="10.0", last_updated=day_ago)
         await self._check_with_history(bt, items)
         assert bt.damped_outdoor_temperature == pytest.approx(10.0)
+
+    async def test_a_history_item_without_a_unit_reads_in_the_sensor_unit(self):
+        """A recorded state that lost its unit attribute is read in the sensor's unit."""
+        day_ago = NOW - timedelta(hours=24)
+        item = self._hist_item("50.0", day_ago)
+        item.attributes = {}
+        bt = make_bt(
+            make_hass(
+                states={
+                    OUTDOOR_ID: make_state(
+                        state="50.0",
+                        attrs={"unit_of_measurement": UnitOfTemperature.FAHRENHEIT},
+                        last_updated=day_ago,
+                    )
+                },
+                components={"recorder"},
+            ),
+            outdoor_sensor_entity_id=OUTDOOR_ID,
+            off_temperature=5.0,
+        )
+        await self._check_with_history(bt, [item])
+        assert bt.damped_outdoor_temperature == pytest.approx(10.0)
+
+    @pytest.mark.parametrize(
+        ("first", "expected"),
+        [
+            pytest.param("12.0", False, id="was_in_summer_mode"),
+            pytest.param("8.0", True, id="was_heating"),
+            pytest.param("9.5", True, id="always_inside_the_band"),
+        ],
+    )
+    async def test_a_restart_inside_the_band_keeps_the_mode_the_history_reached(
+        self, first, expected
+    ):
+        """The history decides on which side of the band a restart lands.
+
+        A fresh entity starts heating. Every history ends with the damped
+        temperature inside the band (9 to 10 °C against 10 °C), already at
+        the last recorded reading: one came down from summer mode and stays
+        there, one came up from heating and keeps heating, and one never
+        left the band and heats, as a room does that starts in it.
+        """
+        items = [
+            self._hist_item(first, NOW - timedelta(hours=72)),
+            self._hist_item("9.5", NOW - timedelta(hours=60)),
+            self._hist_item("9.6", NOW - timedelta(hours=1)),
+        ]
+        bt = self._recorder_bt(reading="9.6", last_updated=NOW - timedelta(hours=1))
+        assert bt.call_for_heat is True
+        await self._check_with_history(bt, items)
+        assert 9.0 < bt.damped_outdoor_temperature < 10.0
+        assert bt.call_for_heat is expected
 
     async def test_recorder_malformed_history_is_tolerated(self):
         """A non-dict history payload must not raise.

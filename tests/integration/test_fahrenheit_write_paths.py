@@ -567,7 +567,13 @@ async def test_a_stored_off_temperature_is_read_in_the_system_unit(
 
     # A reading on the same side of the threshold re-runs the outdoor check.
     _publish_outdoor(hass, outdoor + 0.5)
-    assert await wait_for(hass, lambda: bt.damped_outdoor_temperature is not None)
+    assert await wait_for(
+        hass,
+        lambda: (
+            bt.outdoor_damping.reading
+            == pytest.approx((outdoor + 0.5 - 32) / 1.8, abs=0.01)
+        ),
+    )
 
     assert bt.off_temperature == pytest.approx(10.0)
     assert bt.call_for_heat is heats
@@ -625,7 +631,12 @@ async def test_accepting_the_suggested_off_temperature_keeps_a_cold_room_heating
 
     # A reading on the same side of the threshold re-runs the outdoor check.
     _publish_outdoor(hass, 40.5)
-    assert await wait_for(hass, lambda: bt.damped_outdoor_temperature is not None)
+    assert await wait_for(
+        hass,
+        lambda: (
+            bt.outdoor_damping.reading == pytest.approx((40.5 - 32) / 1.8, abs=0.01)
+        ),
+    )
 
     assert bt.call_for_heat is True
 

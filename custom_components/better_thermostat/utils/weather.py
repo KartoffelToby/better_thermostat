@@ -24,6 +24,7 @@ from ..core.outdoor import (
     add_reading,
     damped_value_at,
     heat_threshold,
+    start_damping,
 )
 from .helpers import async_fire_logbook_entry, convert_to_float_celsius
 
@@ -335,15 +336,13 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
 def outdoor_check_lock(self: BetterThermostat) -> asyncio.Lock:
     """Return the lock that serialises this entity's ambient air check.
 
-    The check stores the live outdoor reading on the entity, may suspend
-    while the recorder is read, and then decides on the mean or, without
-    usable history, on that stored reading. The periodic tick and the outdoor
-    sensor listener run the check in their own tasks. Without the lock a
-    second check that completes during the first one's recorder read
-    overwrites the stored reading with the cached mean, and the first check
-    then falls back to that mean instead of its live reading. The lock is
-    created on first use and lives on the entity, so each Better Thermostat
-    only queues behind itself.
+    The first check suspends while it reads the recorder history into the
+    damped outdoor temperature. The periodic tick and the outdoor sensor
+    listener run the check in their own tasks. Without the lock a second
+    check arriving during that read would find no history yet, start the
+    filter from its live reading, and read the recorder a second time. The
+    lock is created on first use and lives on the entity, so each Better
+    Thermostat only queues behind itself.
 
     Parameters
     ----------
@@ -411,8 +410,8 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
         ):
             self.outdoor_history_read_at = _now
             try:
-                _damping = await _damp_outdoor_history(
-                    self, outdoor_sensor_entity_id, outdoor_state
+                _damping, _history_call_for_heat = await _damp_outdoor_history(
+                    self, outdoor_sensor_entity_id, outdoor_state, self.off_temperature
                 )
             except SQLAlchemyError, RuntimeError, HomeAssistantError, OSError:
                 # The recorder logs the traceback itself. Warn once per run of
@@ -430,6 +429,7 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
                 self.outdoor_history_damped = True
                 if _damping is not None:
                     self.outdoor_damping = _damping
+                    self.call_for_heat = _history_call_for_heat
 
     _reading = convert_to_float_celsius(
         outdoor_state.state,
@@ -462,9 +462,15 @@ async def _check_ambient_air_temperature(self: BetterThermostat) -> None:
 
 
 async def _damp_outdoor_history(
-    self: BetterThermostat, entity_id: str, outdoor_state: State
-) -> DampedOutdoorTemperature | None:
+    self: BetterThermostat, entity_id: str, outdoor_state: State, off_temperature: float
+) -> tuple[DampedOutdoorTemperature | None, bool]:
     """Run the outdoor sensor's recorder history through the filter.
+
+    The summer-mode decision follows the damped temperature along the
+    history, so a restart finds the room on the side of the hysteresis band
+    it was on before. Between two readings the damped temperature moves
+    towards the held reading without turning back, so deciding at each
+    reading catches every crossing.
 
     Parameters
     ----------
@@ -475,12 +481,15 @@ async def _damp_outdoor_history(
     outdoor_state :
             current state of the outdoor sensor, whose unit applies to history
             items that carry none
+    off_temperature :
+            the summer-mode threshold, in °C
 
     Returns
     -------
-    DampedOutdoorTemperature or None
+    tuple
             the filter state after the last recorded reading, None if the
-            history holds no usable reading
+            history holds no usable reading, and whether the room heats
+            after it; a room starts the history heating
     """
     end = self.clock.utcnow()
     start = end - OUTDOOR_HISTORY_WINDOW
@@ -494,6 +503,7 @@ async def _damp_outdoor_history(
     except AttributeError, KeyError, TypeError:
         items = []
     damping: DampedOutdoorTemperature | None = None
+    call_for_heat = True
     for item in sorted(items, key=lambda item: item.last_updated):
         if item.state in ("unknown", "unavailable"):
             continue
@@ -506,15 +516,22 @@ async def _damp_outdoor_history(
                 or outdoor_state.attributes.get("unit_of_measurement")
             ),
         )
-        if reading is not None:
-            damping = add_reading(damping, reading, item.last_updated.timestamp())
+        if reading is None:
+            continue
+        reading_at = item.last_updated.timestamp()
+        damping = (
+            start_damping(reading, reading_at)
+            if damping is None
+            else add_reading(damping, reading, reading_at)
+        )
+        call_for_heat = damping.value < heat_threshold(off_temperature, call_for_heat)
     _LOGGER.debug(
         "better_thermostat %s: damped %d recorded states of %s",
         self.device_name,
         len(items),
         entity_id,
     )
-    return damping
+    return damping, call_for_heat
 
 
 def summer_mode_facts(self: BetterThermostat) -> dict[str, object]:
