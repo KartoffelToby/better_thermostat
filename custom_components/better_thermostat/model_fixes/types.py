@@ -227,6 +227,15 @@ class ValveQuirk(Protocol):
 
 
 @runtime_checkable
+class ValveChannelQuirk(Protocol):
+    """A valve quirk that can tell whether its device offers a valve to write."""
+
+    def has_valve_channel(self, host: ModelFixHost, entity_id: str, /) -> bool:
+        """Whether ``override_set_valve`` has a device entity to write to."""
+        ...
+
+
+@runtime_checkable
 class ExternalTemperatureQuirk(Protocol):
     """A quirk that mirrors the room temperature into its device."""
 
@@ -257,5 +266,6 @@ __all__ = [
     "QuirkScratchpad",
     "SetpointOffsetQuirk",
     "UnknownStateQuirk",
+    "ValveChannelQuirk",
     "ValveQuirk",
 ]

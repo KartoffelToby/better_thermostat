@@ -21,7 +21,9 @@ from custom_components.better_thermostat.utils.calibration.mpc_v2 import MpcV2Ou
 from custom_components.better_thermostat.utils.calibration.pid import (
     PIDParams,
     PIDState,
+    pid_gain,
     sanitize_pid_state,
+    set_pid_gain,
 )
 from custom_components.better_thermostat.utils.calibration.strategies import (
     BalanceCalibrator,
@@ -315,6 +317,27 @@ class TestPidSelfHealing:
         assert health == CalibratorHealth.NON_FINITE
         assert healed.pid_integral == 0.0
         assert healed.pid_kp is None
+
+    @pytest.mark.parametrize("gain", ["kp", "ki", "kd"])
+    def test_a_non_finite_gain_alone_is_dropped(self, gain):
+        """Only the gain that went non-finite falls back to its default."""
+        state = PIDState(pid_kp=60.0, pid_ki=0.01, pid_kd=2000.0)
+        set_pid_gain(state, gain, float("nan"))
+        healed, health = sanitize_pid_state(state, PIDParams())
+        assert health == CalibratorHealth.NON_FINITE
+        assert pid_gain(healed, gain) is None
+        kept = {"kp": 60.0, "ki": 0.01, "kd": 2000.0}
+        del kept[gain]
+        assert {name: pid_gain(healed, name) for name in kept} == kept
+
+    def test_each_gain_accessor_reaches_its_own_field(self):
+        """The accessors read and write the field named after the gain."""
+        state = PIDState()
+        set_pid_gain(state, "kp", 1.0)
+        set_pid_gain(state, "ki", 2.0)
+        set_pid_gain(state, "kd", 3.0)
+        assert (state.pid_kp, state.pid_ki, state.pid_kd) == (1.0, 2.0, 3.0)
+        assert [pid_gain(state, gain) for gain in ("kp", "ki", "kd")] == [1.0, 2.0, 3.0]
 
     def test_runaway_gains_reset_to_defaults(self):
         """Gains far outside their bounds fall back to the configured defaults."""

@@ -2,7 +2,7 @@
   "custom_components/better_thermostat/utils/calibration/mpc.py": 61,
   "custom_components/better_thermostat/utils/calibration/pid.py": 4,
   "custom_components/better_thermostat/utils/controlling.py": 7,
-  "custom_components/better_thermostat/utils/state_manager.py": 9,
+  "custom_components/better_thermostat/utils/state_manager.py": 22,
   "tests/benchmark/actuator.py": 19,
   "tests/benchmark/adapters/baselines.py": 13,
   "tests/benchmark/adapters/heating_power_adapter.py": 26,

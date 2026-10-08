@@ -67,6 +67,8 @@ def mock_bt():
     # a TRV state resolves through the system unit.
     bt.hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     bt.device_name = "Test Thermostat"
+    # No model configured for the room, so detection asks the registry alone.
+    bt.model = None
     bt.entity_id = "climate.test_thermostat"
     bt.available = True
     bt.bt_hvac_mode = HVACMode.HEAT
@@ -816,7 +818,7 @@ class TestInternalTemperatureChange:
 
         event = _make_event(mock_bt, new_state=trv_state, old_state=trv_state)
 
-        async def pop_entry(bt, entity_id):
+        async def pop_entry(bt, entity_id, **_kwargs):
             bt.real_trvs.pop(entity_id)
 
         with (

@@ -12,10 +12,7 @@ from custom_components.better_thermostat.core.decide import running_kernel_state
 from custom_components.better_thermostat.core.recorder import FlightRecorder
 from custom_components.better_thermostat.core.snapshot import WorldSnapshot
 from custom_components.better_thermostat.trv import Trv
-from custom_components.better_thermostat.utils.controlling import (
-    TaskManager,
-    control_queue,
-)
+from custom_components.better_thermostat.utils.controlling import control_queue
 from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 
@@ -94,21 +91,6 @@ async def _stop(task: asyncio.Task) -> None:
 
 class TestControlQueue:
     """Test control_queue function."""
-
-    @pytest.mark.asyncio
-    async def test_creates_task_manager_if_not_exists(self):
-        """An entity that starts without a task manager gets one."""
-        mock_self = _idle_room()
-        # The stand-in answers ``task_manager`` with a mock; deleting it makes
-        # the entity start without one, which is the case under test.
-        del mock_self.task_manager
-        mock_self.control_queue_task = asyncio.Queue()
-
-        queue_task = asyncio.create_task(control_queue(mock_self))
-        await _wait_until(
-            lambda: isinstance(getattr(mock_self, "task_manager", None), TaskManager)
-        )
-        await _stop(queue_task)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

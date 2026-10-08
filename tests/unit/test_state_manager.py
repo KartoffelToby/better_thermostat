@@ -16,9 +16,10 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import timedelta
 import logging
+from typing import get_args, get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
@@ -47,11 +48,8 @@ from custom_components.better_thermostat.utils.const import (
     MIN_HEATING_POWER,
 )
 from custom_components.better_thermostat.utils.state_manager import (
-    _MPC_NULLABLE_FIELDS,
-    _MPC_V2_NULLABLE_FIELDS,
-    _MPC_V2_REID_NULLABLE_FIELDS,
-    _PID_NULLABLE_FIELDS,
-    _TPI_NULLABLE_FIELDS,
+    _STORED_MPC_KEYS,
+    _STORED_MPC_V2_REID_KEYS,
     CURRENT_VERSION,
     FilterState,
     MpcState,
@@ -77,6 +75,25 @@ from custom_components.better_thermostat.utils.stored_values import (
 )
 
 _SM = "custom_components.better_thermostat.utils.state_manager"
+
+
+def _nullable_fields(cls: type) -> frozenset[str]:
+    """Return the names of *cls*'s fields whose declared type admits ``None``.
+
+    Read off the declarations rather than listed by hand, so the set
+    still matches once a field's type changes.
+    """
+    hints = get_type_hints(cls)
+    return frozenset(
+        f.name for f in fields(cls) if type(None) in get_args(hints[f.name])
+    )
+
+
+_MPC_NULLABLE_FIELDS = _nullable_fields(MpcState)
+_MPC_V2_NULLABLE_FIELDS = _nullable_fields(MpcV2StateData)
+_MPC_V2_REID_NULLABLE_FIELDS = _nullable_fields(MpcV2ReidData)
+_PID_NULLABLE_FIELDS = _nullable_fields(PIDState)
+_TPI_NULLABLE_FIELDS = _nullable_fields(TpiState)
 
 
 def _hass_double() -> AsyncMock:
@@ -812,6 +829,56 @@ class TestNullableFieldSets:
         assert _MPC_V2_REID_NULLABLE_FIELDS == frozenset()
 
 
+# Each deserializer, the dataclass it builds, its fields that parse a stored
+# value, and the store keys of the fields stored under another name. The
+# MPC v2 entry parses three of its fields; the rest reach no guard.
+_NULL_CASES = [
+    (deserialize_mpc, MpcState, [f.name for f in fields(MpcState)], _STORED_MPC_KEYS),
+    (
+        deserialize_mpc_v2,
+        MpcV2StateData,
+        ["last_percent", "last_compute_ts", "created_ts"],
+        {},
+    ),
+    (
+        deserialize_mpc_v2_reid,
+        MpcV2ReidData,
+        [f.name for f in fields(MpcV2ReidData)],
+        _STORED_MPC_V2_REID_KEYS,
+    ),
+    (deserialize_pid, PIDState, [f.name for f in fields(PIDState)], {}),
+    (deserialize_tpi, TpiState, [f.name for f in fields(TpiState)], {}),
+]
+
+
+@pytest.mark.parametrize(
+    ("deserialize", "persisted", "name", "renamed"),
+    [
+        (deserialize, persisted, name, renamed)
+        for deserialize, persisted, names, renamed in _NULL_CASES
+        for name in names
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_a_stored_null_is_kept_exactly_where_the_field_declares_none(
+    deserialize, persisted: type, name: str, renamed: dict[str, str]
+):
+    """Each field's reading of a null follows its declared type.
+
+    A ``| None`` field restores the null; every other field is handed the
+    saved NaN a null stands for, and the entry starts over.
+    """
+    poisoned: list[str] = []
+    restored = deserialize({renamed.get(name, name): None}, poisoned=poisoned)
+    if name in _nullable_fields(persisted):
+        assert restored is not None
+        assert getattr(restored, name) is None
+        assert poisoned == []
+    else:
+        assert poisoned != []
+        assert restored in (None, persisted())
+
+
 class TestStoredNulls:
     """A null is a value only where the field's own type allows one.
 
@@ -909,6 +976,20 @@ class TestStoredCollectionElements:
         mpc = deserialize_mpc({"gain_est": 0.5, "perf_curve": {"p00_05": 3.0}})
         assert mpc.gain_est == 0.5
         assert mpc.perf_curve == {}
+
+    def test_number_in_place_of_a_collection_only_skips_the_field(self):
+        """A collection stored as a plain number is schema drift, not a NaN."""
+        mpc = deserialize_mpc({"gain_est": 0.5, "perf_curve": 3, "recent_errors": 1.5})
+        assert mpc.gain_est == 0.5
+        assert mpc.perf_curve == {}
+        assert list(mpc.recent_errors) == []
+
+    def test_non_finite_string_in_place_of_a_collection_resets_the_entry(self):
+        """A collection stored as ``"NaN"`` is the saved NaN it spells."""
+        assert deserialize_mpc({"gain_est": 0.5, "perf_curve": "NaN"}) == MpcState()
+        assert deserialize_mpc({"gain_est": 0.5, "recent_errors": "inf"}) == (
+            MpcState()
+        )
 
     def test_finite_collections_are_restored(self):
         """The element guard must not cost a healthy curve or error series."""

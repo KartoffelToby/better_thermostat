@@ -110,6 +110,48 @@ PID_GAIN_LIMITS: dict[PidGain, tuple[float, float]] = {
 }
 
 
+def pid_gain(state: PIDState, gain: PidGain) -> float | None:
+    """Return the learned or user-set value of one PID gain.
+
+    Parameters
+    ----------
+    state : PIDState
+        the PID state holding the gain
+    gain : PidGain
+        which gain to read
+
+    Returns
+    -------
+    float | None
+        the gain, or None while the configured default applies
+    """
+    if gain == "kp":
+        return state.pid_kp
+    if gain == "ki":
+        return state.pid_ki
+    return state.pid_kd
+
+
+def set_pid_gain(state: PIDState, gain: PidGain, value: float | None) -> None:
+    """Set one PID gain; None hands it back to the configured default.
+
+    Parameters
+    ----------
+    state : PIDState
+        the PID state holding the gain
+    gain : PidGain
+        which gain to set
+    value : float | None
+        the new gain
+    """
+    if gain == "kp":
+        state.pid_kp = value
+    elif gain == "ki":
+        state.pid_ki = value
+    else:
+        state.pid_kd = value
+
+
 @dataclass
 class PIDParams:
     """Configuration parameters for the PID computation.
@@ -653,13 +695,13 @@ def sanitize_pid_state(
     if not _finite(state.pid_last_error):
         state.pid_last_error = None
         health = CalibratorHealth.NON_FINITE
-    for gain_attr in ("pid_kp", "pid_ki", "pid_kd"):
-        if not _finite(getattr(state, gain_attr)):
-            setattr(state, gain_attr, None)
+    for name in PID_GAIN_LIMITS:
+        if not _finite(pid_gain(state, name)):
+            set_pid_gain(state, name, None)
             health = CalibratorHealth.NON_FINITE
 
     runaway = any(
-        (gain := getattr(state, f"pid_{name}")) is not None and not low <= gain <= high
+        (gain := pid_gain(state, name)) is not None and not low <= gain <= high
         for name, (low, high) in PID_GAIN_LIMITS.items()
     )
     if runaway:
