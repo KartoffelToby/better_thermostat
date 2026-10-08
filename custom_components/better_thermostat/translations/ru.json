@@ -539,15 +539,6 @@
       "mpc_v2_room_time_constant": {
         "name": "Постоянная времени помещения MPC v2"
       },
-      "pid_kp": {
-        "name": "PID Kp"
-      },
-      "pid_ki": {
-        "name": "PID Ki"
-      },
-      "pid_kd": {
-        "name": "PID Kd"
-      },
       "pid_output": {
         "name": "Выход ПИД"
       },

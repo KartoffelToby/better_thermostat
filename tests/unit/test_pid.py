@@ -192,6 +192,32 @@ class TestPIDController:
         assert state.pid_kp < params.kp
         assert state.pid_kd > params.kd
 
+    def test_auto_tune_starts_from_a_gain_set_to_zero(self):
+        """A gain of 0 is tuned from 0, not from the default it is not.
+
+        Kd 0 is a PI controller; an overshoot scales Kd, so it stays 0.
+        Ki 0 is raised to the lowest value auto-tuning keeps.
+        """
+        params = PIDParams(
+            auto_tune=True, tune_min_interval_s=0.0, overshoot_threshold_K=0.5
+        )
+        key = "test_zero_gains"
+        self._states[key] = PIDState(pid_kp=50.0, pid_ki=0.0, pid_kd=0.0)
+
+        for room_temperature in (20.0, 22.05):
+            self._compute(
+                params=params,
+                inp_target_temperature=22.0,
+                inp_room_temperature=room_temperature,
+                inp_trv_temperature=21.0,
+                inp_temp_slope_K_per_min=0.0,
+                key=key,
+            )
+
+        state = self._state(key)
+        assert state.pid_kd == 0.0
+        assert state.pid_ki == pytest.approx(params.ki_min)
+
     def test_auto_tune_sluggish(self):
         """Test auto-tuning for sluggish response."""
         params = PIDParams(

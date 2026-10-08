@@ -51,6 +51,7 @@ async def _child_lock_icons(hass, entry) -> dict[str, set[str]]:
     indirect=True,
     ids=lambda profile: profile.calibration_mode,
 )
+@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_every_entity_resolves_its_icon_from_the_translations(hass, fake_trv):
     """No entity sets an icon, and each one's translation key names one."""
     set_room_sensor(hass, 19.0)
@@ -66,7 +67,7 @@ async def test_every_entity_resolves_its_icon_from_the_translations(hass, fake_t
     ]
     keys = {(reg.domain, reg.translation_key) for reg in registered}
 
-    assert {("sensor", "pid_kp"), ("switch", "pid_auto_tune_no_trv")} <= keys
+    assert {("sensor", "pid_output"), ("switch", "pid_auto_tune_no_trv")} <= keys
     for reg in registered:
         assert "icon" not in hass.states.get(reg.entity_id).attributes, reg.entity_id
         if reg.translation_key in _DEVICE_CLASS_ICONS:

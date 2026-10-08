@@ -57,6 +57,9 @@ VARIANTS = (
 # The prefixes of the translation keys of a calibration algorithm's internals:
 # its gains and estimates, which only someone tuning the algorithm reads.
 ALGORITHM_INTERNALS = ("pid_", "mpc_")
+# Internals whose key carries no such prefix: MPC v1's estimate of the room
+# temperature, the counterpart of ``mpc_v2_virtual_temp``.
+UNPREFIXED_ALGORITHM_INTERNALS = frozenset({"virtual_temp"})
 
 # Units a device class would claim but the entity's value is not of that class.
 NOT_OF_THE_UNITS_CLASS = {
@@ -80,6 +83,14 @@ class SeenEntity:
     unit: str | None
     enabled_by_default: bool
     device_id: str | None
+
+
+def _is_algorithm_internal(entity: SeenEntity) -> bool:
+    """Return whether ``entity`` shows a calibration algorithm's internals."""
+    key = entity.translation_key or ""
+    return entity.domain == "sensor" and (
+        key.startswith(ALGORITHM_INTERNALS) or key in UNPREFIXED_ALGORITHM_INTERNALS
+    )
 
 
 async def _entities_of_every_variant(hass) -> tuple[list[SeenEntity], list[str]]:
@@ -224,14 +235,17 @@ async def test_the_internals_of_the_algorithms_start_disabled(every_entity):
     They change on every cycle and are read only when an algorithm is tuned,
     so a new entry leaves them off rather than recording all of them.
     """
-    internals = [
+    internals = [e for e in every_entity if _is_algorithm_internal(e)]
+    assert UNPREFIXED_ALGORITHM_INTERNALS <= {e.translation_key for e in internals}
+    assert sorted(e.entity_id for e in internals if e.enabled_by_default) == []
+    # What the room itself does stays on; only the internals start disabled.
+    readings = [
         e
         for e in every_entity
-        if e.domain == "sensor"
-        and (e.translation_key or "").startswith(ALGORITHM_INTERNALS)
+        if e.domain == "sensor" and not _is_algorithm_internal(e)
     ]
-    assert internals
-    assert sorted(e.entity_id for e in internals if e.enabled_by_default) == []
+    assert readings
+    assert sorted(e.entity_id for e in readings if not e.enabled_by_default) == []
 
 
 @pytest.mark.quality_rule("entity-translations")

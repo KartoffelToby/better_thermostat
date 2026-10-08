@@ -15,7 +15,7 @@ flattened by accident.
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -469,6 +469,22 @@ async def _add_devices_from_config_entry(hass, entities, numbers) -> None:
     with mock_config_flow(DEVICE_INTEGRATION, ConfigFlow):
         assert await hass.config_entries.async_setup(device_entry.entry_id)
         await hass.async_block_till_done()
+
+
+@pytest.fixture
+def entity_registry_enabled_by_default():
+    """Register every entity enabled, also those that start disabled.
+
+    Home Assistant's own test suite carries a fixture of this name; the
+    plugin does not. A disabled entity never reaches its platform and has no
+    state, so a test that reads the state of every entity asks for this.
+    """
+    with patch(
+        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
+        new_callable=PropertyMock,
+        return_value=True,
+    ):
+        yield
 
 
 @pytest.fixture
