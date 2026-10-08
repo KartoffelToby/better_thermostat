@@ -219,7 +219,6 @@ from .utils.helpers import (
     resolve_inbound_setpoint,
     room_mode_intent,
     round_by_step,
-    state_temperature_unit,
 )
 from .utils.hvac_action import (
     HvacActionResult,
@@ -2718,19 +2717,10 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState, ABC):
             trv.remember_setpoint_confirmed(_reported_setpoint)
             # No reading is no reading: a fabricated value would feed
             # SENSOR_FALLBACK as if it were live and keep the ladder's
-            # HOLD rung unreachable.
-            _raw_current_temp = _attrs.get("current_temperature")
-            _trv_current_temperature = (
-                convert_to_float_celsius(
-                    str(_raw_current_temp),
-                    self.device_name,
-                    "startup()",
-                    unit_of_measurement=state_temperature_unit(
-                        _attrs, self.hass.config.units.temperature_unit
-                    ),
-                )
-                if _raw_current_temp is not None
-                else None
+            # HOLD rung unreachable. The same inbound boundary as every
+            # other climate temperature, including the Tuya Fahrenheit shim.
+            _trv_current_temperature = attr_to_celsius(
+                self, _s, "current_temperature", None, "startup()"
             )
             # Marker / garbage readings (for example AVM's 126.5 / 127 °C)
             # must not seed the cache and feed the first control cycle.
