@@ -72,6 +72,6 @@ async def test_trigger_steps_ladder_while_trv_is_unavailable(bt):
     assert bt.kernel_state.control_mode.mode == ControlMode.HOLD
     assert bt.kernel_state.control_mode.degraded is True
     # The unavailable TRV is reported, and it does not end the tick: both
-    # passes refresh the outdoor average.
+    # passes run the outdoor check.
     assert bt.devices_errors == [TRV_ID]
     assert ambient.await_count == 2
