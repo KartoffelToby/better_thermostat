@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import logging
 import math
 from time import monotonic
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
 
 from ...core.calibrator import CalibratorHealth
 
@@ -98,6 +98,16 @@ DEFAULT_PID_KP = 60.0
 DEFAULT_PID_KI = 0.01
 DEFAULT_PID_KD = 2000.0
 DEFAULT_PID_AUTO_TUNE = True
+
+type PidGain = Literal["kp", "ki", "kd"]
+# The range a gain may hold, set by hand through its number or loaded from the
+# store. A gain outside it is a poisoned state and goes back to its default.
+# Auto-tuning keeps to the narrower ranges in ``PIDParams``.
+PID_GAIN_LIMITS: dict[PidGain, tuple[float, float]] = {
+    "kp": (0.0, 1000.0),
+    "ki": (0.0, 100.0),
+    "kd": (0.0, 10000.0),
+}
 
 
 @dataclass
@@ -577,9 +587,9 @@ def _auto_tune_pid(
         st.last_delta_sign = sign if sign != 0 else st.last_delta_sign
 
         tuned = False
-        kp = float(st.pid_kp or params.kp)
-        ki = float(st.pid_ki or params.ki)
-        kd = float(st.pid_kd or params.kd)
+        kp = params.kp if st.pid_kp is None else float(st.pid_kp)
+        ki = params.ki if st.pid_ki is None else float(st.pid_ki)
+        kd = params.kd if st.pid_kd is None else float(st.pid_kd)
 
         # 1) Overshoot: kp slightly down, kd slightly up, ki slightly down
         if overshoot:
@@ -643,19 +653,9 @@ def sanitize_pid_state(
             setattr(state, gain_attr, None)
             health = CalibratorHealth.NON_FINITE
 
-    runaway = (
-        (
-            state.pid_kp is not None
-            and not params.kp_min <= state.pid_kp <= params.kp_max
-        )
-        or (
-            state.pid_ki is not None
-            and not params.ki_min <= state.pid_ki <= params.ki_max
-        )
-        or (
-            state.pid_kd is not None
-            and not params.kd_min <= state.pid_kd <= params.kd_max
-        )
+    runaway = any(
+        (gain := getattr(state, f"pid_{name}")) is not None and not low <= gain <= high
+        for name, (low, high) in PID_GAIN_LIMITS.items()
     )
     if runaway:
         state.pid_kp = None
