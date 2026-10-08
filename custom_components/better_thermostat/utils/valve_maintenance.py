@@ -18,6 +18,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 
+from ..model_fixes.types import MaintenanceIntervalQuirk
 from ..trv import Trv
 from .advanced_flags import advanced_flag
 from .const import CONF_VALVE_MAINTENANCE, CalibrationOutput
@@ -155,8 +156,12 @@ def compute_next_maintenance(
     min_interval_hours = 168  # default 7 days
     for entity_id in trv_ids:
         _trv = real_trvs.get(entity_id)
-        quirks = _trv.model_quirks if _trv is not None else None
-        interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
+        quirks: object = _trv.model_quirks if _trv is not None else None
+        interval = (
+            quirks.VALVE_MAINTENANCE_INTERVAL_HOURS
+            if isinstance(quirks, MaintenanceIntervalQuirk)
+            else 168
+        )
         min_interval_hours = min(min_interval_hours, interval)
 
     variance = max(1, int(min_interval_hours * 0.07))
@@ -177,8 +182,12 @@ def compute_initial_maintenance(
     min_interval_hours = 168
     for entity_id in trv_ids:
         _trv = real_trvs.get(entity_id)
-        quirks = _trv.model_quirks if _trv is not None else None
-        interval = int(getattr(quirks, "VALVE_MAINTENANCE_INTERVAL_HOURS", 168))
+        quirks: object = _trv.model_quirks if _trv is not None else None
+        interval = (
+            quirks.VALVE_MAINTENANCE_INTERVAL_HOURS
+            if isinstance(quirks, MaintenanceIntervalQuirk)
+            else 168
+        )
         min_interval_hours = min(min_interval_hours, interval)
 
     max_delay_hours = min(24 * 5, min_interval_hours)

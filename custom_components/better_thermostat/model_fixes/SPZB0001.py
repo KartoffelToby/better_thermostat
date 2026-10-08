@@ -11,7 +11,11 @@ import logging
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.better_thermostat.model_fixes.types import ModelFixHost
+from custom_components.better_thermostat.model_fixes.types import (
+    InitialTweakQuirk,
+    ModelFixHost,
+    ModelQuirks,
+)
 
 from ..utils.const import CalibrationOutput
 from ..utils.helpers import configured_calibration_output, is_sibling_entry
@@ -151,3 +155,19 @@ async def override_set_temperature(
 ) -> bool:
     """Do not override temperature sets for SPZB0001 devices."""
     return False
+
+
+class _Surface:
+    """Quirk surface of the module, bound below to each Protocol it implements."""
+
+    fix_local_calibration = staticmethod(fix_local_calibration)
+    fix_target_temperature_calibration = staticmethod(
+        fix_target_temperature_calibration
+    )
+    override_set_hvac_mode = staticmethod(override_set_hvac_mode)
+    override_set_temperature = staticmethod(override_set_temperature)
+    initial_tweak = staticmethod(initial_tweak)
+
+
+_MODEL_QUIRKS: ModelQuirks = _Surface()
+_INITIAL_TWEAK_QUIRK: InitialTweakQuirk = _Surface()

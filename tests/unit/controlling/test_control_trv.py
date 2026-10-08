@@ -40,7 +40,6 @@ from custom_components.better_thermostat.core.snapshot import (
     parse_hvac_mode as _parse_mode,
 )
 from custom_components.better_thermostat.model_fixes import TRVZB, ZWA021
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.const import (
     CONF_HOMEMATICIP,
     CalibrationMode,
@@ -54,7 +53,12 @@ from custom_components.better_thermostat.utils.controlling import (
     control_trv,
 )
 from custom_components.better_thermostat.utils.helpers import resolve_inbound_setpoint
-from tests.factories import ThermostatStandIn, make_entity_registry, make_registry_entry
+from tests.factories import (
+    ThermostatStandIn,
+    make_entity_registry,
+    make_registry_entry,
+    trv_from_legacy_dict,
+)
 
 # All delegate / helper functions that control_trv calls.  We patch them at the
 # *controlling* module level because that is where they are imported.
@@ -196,7 +200,7 @@ def _default_trv_config(**overrides):
         },
     }
     config.update(overrides)
-    return Trv.from_legacy_dict("climate.trv1", config)
+    return trv_from_legacy_dict("climate.trv1", config)
 
 
 def _with_valve_channel(trv):
@@ -1696,7 +1700,7 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2044,7 +2048,7 @@ class TestBoostModeSafetyOverride:
         mock_self.bt_max_temp = 30.0
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2427,7 +2431,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2449,7 +2453,7 @@ class TestRaceConditionLockCoverage:
                     },
                 },
             ),
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2",
                 {
                     "ignore_trv_states": False,
@@ -2631,7 +2635,7 @@ class TestRaceConditionLockCoverage:
         mock_self.call_for_heat = True
 
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2652,7 +2656,7 @@ class TestRaceConditionLockCoverage:
                     },
                 },
             ),
-            "climate.trv2": Trv.from_legacy_dict(
+            "climate.trv2": trv_from_legacy_dict(
                 "climate.trv2",
                 {
                     "ignore_trv_states": False,
@@ -2750,7 +2754,7 @@ class TestRaceConditionLockCoverage:
         mock_self.window_open = False
         mock_self.call_for_heat = True
         mock_self.real_trvs = {
-            "climate.trv1": Trv.from_legacy_dict(
+            "climate.trv1": trv_from_legacy_dict(
                 "climate.trv1",
                 {
                     "ignore_trv_states": False,
@@ -2938,7 +2942,7 @@ def mock_bt_grouped():
     bt.kernel_state = _kernel_state_for(bt)
     bt.task_manager = Mock(create_task=Mock(side_effect=_close_coro))
     bt.real_trvs = {
-        "climate.trv_1": Trv.from_legacy_dict(
+        "climate.trv_1": trv_from_legacy_dict(
             "climate.trv_1",
             {
                 "calibration_received": True,
@@ -2954,7 +2958,7 @@ def mock_bt_grouped():
                 },
             },
         ),
-        "climate.trv_2": Trv.from_legacy_dict(
+        "climate.trv_2": trv_from_legacy_dict(
             "climate.trv_2",
             {
                 "calibration_received": True,
@@ -2967,7 +2971,7 @@ def mock_bt_grouped():
                 "advanced": {"calibration": 0, "calibration_mode": 0},
             },
         ),
-        "climate.trv_3": Trv.from_legacy_dict(
+        "climate.trv_3": trv_from_legacy_dict(
             "climate.trv_3",
             {
                 "calibration_received": False,  # Stuck at False!
@@ -3225,7 +3229,7 @@ class TestControlTrvOnADualRoleEntity:
     @classmethod
     def _make_shared_self(cls, device_modes, *, heat_auto_swapped=False):
         """Build a mock whose cooler is also the controlled thermostat."""
-        trv = Trv.from_legacy_dict(
+        trv = trv_from_legacy_dict(
             cls.SHARED_ID,
             {
                 "ignore_trv_states": False,
@@ -3360,7 +3364,7 @@ def _offset_trv_config(**overrides):
         },
     }
     config.update(overrides)
-    return Trv.from_legacy_dict("climate.trv1", config)
+    return trv_from_legacy_dict("climate.trv1", config)
 
 
 def _make_offset_self(**overrides):
@@ -4333,7 +4337,7 @@ class TestSetpointWatchdogAcrossAFailingWrite:
 
 def _paced_trv(entity_id, *, homematicip):
     """Return a TRV holding 20 °C whose config marks it HomematicIP or not."""
-    return Trv.from_legacy_dict(
+    return trv_from_legacy_dict(
         entity_id,
         {
             "ignore_trv_states": False,

@@ -2,7 +2,6 @@
 
 import json
 
-from custom_components.better_thermostat.trv import Trv
 from custom_components.better_thermostat.utils.telemetry import (
     TELEMETRY_ATTRIBUTES,
     collect_balance_attrs,
@@ -10,7 +9,7 @@ from custom_components.better_thermostat.utils.telemetry import (
     collect_mpc_v2_debug_attrs,
     collect_pid_debug_attrs,
 )
-from tests.factories import ThermostatStandIn
+from tests.factories import ThermostatStandIn, trv_from_legacy_dict
 
 # ---------------------------------------------------------------------------
 # collect_cycle_telemetry
@@ -96,10 +95,10 @@ class TestCollectBalanceAttrs:
         bt = ThermostatStandIn()
         bt.temperature_slope = None
         bt.real_trvs = {
-            "climate.a": Trv.from_legacy_dict(
+            "climate.a": trv_from_legacy_dict(
                 "climate.a", {"calibration_balance": {"valve_percent": 70, "extra": 1}}
             ),
-            "climate.b": Trv.from_legacy_dict(
+            "climate.b": trv_from_legacy_dict(
                 "climate.b", {"calibration_balance": {"valve_percent": 30}}
             ),
         }
@@ -112,11 +111,11 @@ class TestCollectBalanceAttrs:
         bt = ThermostatStandIn()
         bt.temperature_slope = None
         bt.real_trvs = {
-            "climate.a": Trv.from_legacy_dict(
+            "climate.a": trv_from_legacy_dict(
                 "climate.a", {"calibration_balance": {"valve_percent": 50}}
             ),
-            "climate.b": Trv.from_legacy_dict("climate.b", {}),
-            "climate.c": Trv.from_legacy_dict(
+            "climate.b": trv_from_legacy_dict("climate.b", {}),
+            "climate.c": trv_from_legacy_dict(
                 "climate.c", {"calibration_balance": None}
             ),
         }
@@ -134,7 +133,7 @@ def _bt_with_pid(trvs, real_trv_entries):
     """Build a mock BT with PID-bearing real_trvs."""
     bt = ThermostatStandIn()
     bt.real_trvs = {
-        entity_id: Trv.from_legacy_dict(entity_id, entry)
+        entity_id: trv_from_legacy_dict(entity_id, entry)
         for entity_id, entry in zip(trvs, real_trv_entries)
     }
     return bt
@@ -348,7 +347,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
         """A NaN valve percentage drops the calibration balance attribute."""
         bt = self._bt(
             real_trvs={
-                "climate.a": Trv.from_legacy_dict(
+                "climate.a": trv_from_legacy_dict(
                     "climate.a",
                     {"calibration_balance": {"valve_percent": float("nan")}},
                 )
@@ -360,7 +359,7 @@ class TestNonFiniteValuesStayOutOfTheAttributes:
         """A clean balance survives a parser that rejects the bare literals."""
         bt = self._bt(
             real_trvs={
-                "climate.a": Trv.from_legacy_dict(
+                "climate.a": trv_from_legacy_dict(
                     "climate.a", {"calibration_balance": {"valve_percent": 42}}
                 )
             }

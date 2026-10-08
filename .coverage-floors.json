@@ -2,6 +2,7 @@
   "custom_components/better_thermostat/__init__.py": 97.2,
   "custom_components/better_thermostat/adapters/__init__.py": 100.0,
   "custom_components/better_thermostat/adapters/base.py": 100.0,
+  "custom_components/better_thermostat/adapters/conformance.py": 100.0,
   "custom_components/better_thermostat/adapters/deconz.py": 100.0,
   "custom_components/better_thermostat/adapters/delegate.py": 96.3,
   "custom_components/better_thermostat/adapters/generic.py": 100.0,

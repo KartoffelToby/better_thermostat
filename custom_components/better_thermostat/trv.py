@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from types import ModuleType
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.core import State
@@ -24,6 +22,10 @@ from custom_components.better_thermostat.core.calibrator import CalibratorHealth
 from custom_components.better_thermostat.model_fixes.model_quirks import (
     quirk_writes_valve,
 )
+from custom_components.better_thermostat.model_fixes.types import (
+    ModelQuirks,
+    QuirkScratchpad,
+)
 from custom_components.better_thermostat.utils.advanced_flags import advanced_flag
 from custom_components.better_thermostat.utils.const import CONF_NO_OFF_SYSTEM_MODE
 from custom_components.better_thermostat.utils.entry_schema import TrvAdvanced
@@ -31,29 +33,11 @@ from custom_components.better_thermostat.utils.helpers import device_offers_mode
 
 if TYPE_CHECKING:
     from custom_components.better_thermostat.adapters.delegate import WriteOutage
+    from custom_components.better_thermostat.adapters.types import TrvAdapter
     from custom_components.better_thermostat.utils.calibration.strategies import (
         BalanceCalibrator,
     )
     from custom_components.better_thermostat.utils.telemetry import CalibrationBalance
-
-
-@runtime_checkable
-class ModelQuirks(Protocol):
-    """Structural surface of a model-quirk module.
-
-    Quirk modules are plain modules under ``model_fixes/``; this is the
-    contract every one of them provides. ``override_set_valve`` is the
-    one optional extension — callers probe it with ``getattr``, and
-    :meth:`Trv.capabilities` turns its presence into a capability. Only
-    a module that really drives its device's valve defines it: a module
-    that answers the probe without commanding anything would report
-    valve support for a device that has none.
-    """
-
-    fix_local_calibration: Callable[..., float]
-    fix_target_temperature_calibration: Callable[..., float]
-    override_set_hvac_mode: Callable[..., Awaitable[bool]]
-    override_set_temperature: Callable[..., Awaitable[bool]]
 
 
 # How many unconfirmed writes one TRV keeps as values a report may echo. The
@@ -102,10 +86,9 @@ class Trv:
     integration: str | None = None
     model: str | None = None
     calibration: int | None = None
-    adapter: ModuleType | None = None
-    # A model-quirk module satisfying the ModelQuirks surface, loaded
-    # dynamically like the adapter and therefore typed as the module.
-    model_quirks: ModuleType | None = None
+    adapter: TrvAdapter | None = None
+    # The model-quirk module ``load_model_quirks`` imported for the model.
+    model_quirks: ModelQuirks | None = None
     advanced: TrvAdvanced = field(default_factory=TrvAdvanced)
 
     # -- Reported device state -------------------------------------------
@@ -262,9 +245,10 @@ class Trv:
     )
 
     # -- Quirk scratchpad ----------------------------------------------------
-    # Model quirks may stash private bookkeeping here (e.g. TRVZB valve
-    # bump sequencing) without widening the typed surface.
-    extra: dict[str, Any] = field(default_factory=dict)
+    # Model quirks keep their private bookkeeping here (e.g. TRVZB valve
+    # bump sequencing) rather than in fields of their own; each key, and the
+    # quirk module it belongs to, is named in QuirkScratchpad.
+    extra: QuirkScratchpad = field(default_factory=QuirkScratchpad)
 
     @property
     def budget_retry_pending(self) -> bool:
@@ -395,9 +379,9 @@ class Trv:
         offset_entity = self.local_temperature_calibration_entity is not None
         valve_entity = bool(self.valve_position_entity and self.valve_position_writable)
 
-        declared = getattr(self.adapter, "CAPABILITIES", None)
+        declared = self.adapter.CAPABILITIES if self.adapter is not None else None
         if declared is None:
-            # Adapter without a declaration: the discovered surface rules.
+            # A TRV without an adapter: the discovered surface rules.
             offset_write = offset_entity
             valve_write = valve_entity
         else:
@@ -422,31 +406,3 @@ class Trv:
             supports_valve_write=valve_write or quirk_valve,
             supports_off_mode=not no_off,
         )
-
-    @classmethod
-    def from_legacy_dict(cls, entity_id: str, data: dict[str, Any]) -> Trv:
-        """Build a Trv from a plain per-entity dict.
-
-        Known keys become typed fields; unknown keys land in ``extra``.
-        The explicit ``entity_id`` argument wins over an ``entity_id``
-        key in the dict, and an ``extra`` dict is merged into the extra
-        mapping instead of being nested under it; a non-dict ``extra``
-        value is kept under the ``extra`` key.
-        """
-        fields_in = {}
-        extra: dict[str, Any] = {}
-        for key, value in data.items():
-            if key == "entity_id":
-                continue
-            if key == "extra":
-                if isinstance(value, dict):
-                    extra.update(value)
-                else:
-                    extra[key] = value
-            elif key in cls.__dataclass_fields__:
-                fields_in[key] = value
-            else:
-                extra[key] = value
-        trv = cls(entity_id=entity_id, **fields_in)
-        trv.extra.update(extra)
-        return trv
