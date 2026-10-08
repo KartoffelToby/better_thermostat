@@ -106,7 +106,7 @@ def build_snapshot(self: BetterThermostat) -> WorldSnapshot:
         room_temperature=_as_float(self, self.room_temperature),
         room_temperature_filtered=_as_float(self, self.room_temperature_filtered),
         temperature_slope=_as_float(self, self.temperature_slope),
-        call_for_heat=bool(self.call_for_heat),
+        call_for_heat=self.call_for_heat,
         window_open=_raw_window_open(self),
         preset_mode=self.preset_mode,
         tolerance=_as_float(self, self.tolerance) or 0.0,

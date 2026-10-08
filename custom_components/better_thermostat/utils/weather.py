@@ -303,7 +303,7 @@ async def check_weather_prediction(self: BetterThermostat) -> bool | None:
                 isinstance(avg_forecast_temp, (int, float))
                 and avg_forecast_temp < self.off_temperature
             )
-            return bool(cond_cur or cond_fc)
+            return cond_cur or cond_fc
         else:
             raise TypeError
     except TypeError, ServiceNotSupported, HomeAssistantError:

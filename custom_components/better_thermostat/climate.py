@@ -1692,7 +1692,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             humidity_state = self.hass.states.get(self.humidity_sensor_entity_id)
             if humidity_state is not None:
                 self._current_humidity = convert_to_float(
-                    str(humidity_state.state), self.device_name, "humidity_update"
+                    humidity_state.state, self.device_name, "humidity_update"
                 )
         else:
             self._current_humidity = None
@@ -2166,7 +2166,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
                 # reading a room can publish, so coercing to it would pass a
                 # missing measurement off as a measured one.
                 self._current_humidity = convert_to_float(
-                    str(_hum_state.state), self.device_name, "startup()"
+                    _hum_state.state, self.device_name, "startup()"
                 )
 
         # Seed the window and door regions from the sensors' startup state.
@@ -3429,7 +3429,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         region = maintenance_evaluate_tick(
             region,
             now,
-            window_open=bool(self.contact_open),
+            window_open=self.contact_open,
             has_enabled_trvs=bool(trvs_to_service),
         )
         self.kernel_state = replace(self.kernel_state, maintenance=region)
@@ -3500,8 +3500,8 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             # Bind adapter callbacks to self
             async def _set_valve(entity_id: str, pct: int) -> bool:
                 try:
-                    ok = await adapter_set_valve(self, entity_id, int(pct))
-                    return bool(ok)
+                    ok = await adapter_set_valve(self, entity_id, pct)
+                    return ok
                 except Exception:
                     _LOGGER.debug(
                         "better_thermostat %s: maintenance valve set failed for %s",
@@ -3686,7 +3686,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             self.room_temperature,
             current_action,
             self.clock.utcnow(),
-            window_open=bool(self.contact_open),
+            window_open=self.contact_open,
         )
 
         if result.cycle_result is not None:
@@ -3702,7 +3702,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             outdoor_state = self.hass.states.get(self.outdoor_sensor_entity_id)
             if outdoor_state is not None:
                 return convert_to_float_celsius(
-                    str(outdoor_state.state),
+                    outdoor_state.state,
                     self.device_name,
                     "calculate_heating_power.outdoor",
                     unit_of_measurement=outdoor_state.attributes.get(
@@ -3725,7 +3725,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
         Both sensor kinds suppress heating once their debounce delay has
         passed; this is the combined flag the control logic gates on.
         """
-        return bool(self.window_open) or bool(self.door_open)
+        return self.window_open or self.door_open
 
     @property
     @override
@@ -3995,7 +3995,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
 
             # Resolve hvac_action: cached first, hass state fallback
             action_val = info.hvac_action
-            action_str = str(action_val).lower() if action_val is not None else ""
+            action_str = action_val.lower() if action_val is not None else ""
             if not action_str:
                 trv_state = self.hass.states.get(entity_id)
                 action_raw = None
@@ -4010,7 +4010,7 @@ class BetterThermostat(ClimateEntity, RestoresLastAvailableState):
             snapshots.append(
                 TrvSnapshot(
                     entity_id=entity_id,
-                    ignore_trv_states=bool(info.ignore_trv_states),
+                    ignore_trv_states=info.ignore_trv_states,
                     hvac_action=action_str or None,
                     valve_position=info.valve_position,
                     last_valve_percent=info.last_valve_percent,

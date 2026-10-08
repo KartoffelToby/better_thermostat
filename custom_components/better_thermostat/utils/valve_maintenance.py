@@ -268,7 +268,7 @@ def build_trv_snapshots(
             continue
         support_valve = trv.capabilities().supports_valve_write
         adv = _get_advanced(trv)
-        use_direct = bool(
+        use_direct = (
             support_valve
             and configured_calibration_output(adv)
             == CalibrationOutput.DIRECT_VALVE_BASED
@@ -302,7 +302,7 @@ SetHvacModeFn = Callable[[str, str], Awaitable[None]]
 async def _set_valve_pct(entity_id: str, pct: int, set_valve_fn: SetValveFn) -> bool:
     """Set valve percentage via callback."""
     try:
-        return bool(await set_valve_fn(entity_id, int(pct)))
+        return await set_valve_fn(entity_id, pct)
     except Exception:
         _LOGGER.debug(
             "better_thermostat: setting the valve of %s to %d%% failed",
